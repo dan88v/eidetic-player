@@ -1,0 +1,6 @@
+node_modules
+dist
+bin
+resources.neu
+neutralino.config.json
+package-lock.json
