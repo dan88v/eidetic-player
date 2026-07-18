@@ -63,10 +63,6 @@
   }
 
   @media (max-width: 50rem) {
-    .top-bar__audio {
-      display: none;
-    }
-
     .now-playing__upper {
       grid-template-columns: 1fr;
     }
@@ -120,8 +116,12 @@
       gap: var(--space-2);
     }
 
-    .mini-player__actions .icon-button--quiet {
-      display: none;
+    .mini-player__actions {
+      gap: var(--space-2);
+    }
+
+    .mini-player__transport {
+      gap: var(--space-1);
     }
 
     .segmented-control {

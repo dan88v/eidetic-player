@@ -4,9 +4,7 @@ import { t } from "../i18n";
 export interface TopBar {
   readonly element: HTMLElement;
   readonly menuButton: HTMLButtonElement;
-  readonly homeButton: HTMLButtonElement;
   setTitle(title: string): void;
-  setAudioDevice(device: string): void;
   destroy(): void;
 }
 
@@ -18,28 +16,25 @@ function formatTime(): string {
   }).format(new Date());
 }
 
-export function createTopBar(
-  onMenuToggle: () => void,
-  onHome: () => void,
-): TopBar {
+export function createTopBar(onMenuToggle: () => void): TopBar {
   const element = document.createElement("header");
   element.className = "top-bar";
   element.innerHTML = `
-    <button class="top-bar__home icon-button" type="button" aria-label="${t("nav.goToNowPlaying")}">${icon("home")}</button>
     <button class="top-bar__menu icon-button" type="button" aria-label="${t("nav.openMenu")}" aria-expanded="false" aria-controls="side-menu">${icon("menu")}</button>
     <h1 class="top-bar__title"></h1>
     <div class="top-bar__info">
-      <span class="top-bar__audio"><span class="top-bar__audio-dot" aria-hidden="true"></span><span class="top-bar__audio-name"></span></span>
+      <!-- Placeholder system indicators; real status binding belongs to a future step. -->
+      <span class="top-bar__system-icons" aria-hidden="true">
+        <span class="top-bar__system-icon">${icon("ethernet")}</span>
+        <span class="top-bar__system-icon">${icon("wifi")}</span>
+        <span class="top-bar__system-icon">${icon("usb")}</span>
+      </span>
       <time class="top-bar__clock" aria-label="${t("topBar.clockLabel")}"></time>
     </div>`;
   const menuButton = element.querySelector<HTMLButtonElement>(".top-bar__menu");
-  const homeButton = element.querySelector<HTMLButtonElement>(".top-bar__home");
   const title = element.querySelector<HTMLHeadingElement>(".top-bar__title");
-  const audio = element.querySelector<HTMLElement>(".top-bar__audio");
-  const audioName = element.querySelector<HTMLElement>(".top-bar__audio-name");
   const clock = element.querySelector<HTMLTimeElement>(".top-bar__clock");
-  if (!menuButton || !homeButton || !title || !audio || !audioName || !clock)
-    throw new Error("Top bar is incomplete");
+  if (!menuButton || !title || !clock) throw new Error("Top bar is incomplete");
   const updateClock = (): void => {
     const now = new Date();
     clock.dateTime = now.toISOString();
@@ -48,16 +43,11 @@ export function createTopBar(
   updateClock();
   const clockTimer = window.setInterval(updateClock, 60_000);
   menuButton.addEventListener("click", onMenuToggle);
-  homeButton.addEventListener("click", onHome);
   return {
     element,
     menuButton,
-    homeButton,
     setTitle(screenTitle) {
       title.textContent = screenTitle;
-    },
-    setAudioDevice(device) {
-      audioName.textContent = device;
     },
     destroy() {
       window.clearInterval(clockTimer);

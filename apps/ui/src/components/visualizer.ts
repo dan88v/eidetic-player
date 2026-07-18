@@ -13,12 +13,16 @@ import type { ComponentView } from "./types";
 
 const TARGET_FRAME_INTERVAL = 1_000 / 30;
 
-function smooth(displayed: Float32Array, target: Float32Array): boolean {
+function smooth(
+  displayed: Float32Array,
+  target: Float32Array,
+  decay = false,
+): boolean {
   let changing = false;
   for (let index = 0; index < displayed.length; index += 1) {
     const current = displayed[index] ?? 0;
     const requested = target[index] ?? 0;
-    const factor = requested > current ? 0.68 : 0.2;
+    const factor = requested > current ? 0.68 : decay ? 0.88 : 0.2;
     const next =
       Math.abs(requested - current) < 0.002
         ? requested
@@ -34,16 +38,23 @@ function copy(source: readonly number[], target: Float32Array): void {
     target[index] = source[index] ?? 0;
 }
 
+export interface VisualizerView extends ComponentView {
+  setTrack(trackId: string | null, generation: number): void;
+}
+
 export function createVisualizer(options: {
   readonly mode: VisualizerMode;
   readonly onModeChange: (mode: VisualizerMode) => void;
-}): ComponentView {
+}): VisualizerView {
   let mode = options.mode;
   let size: CanvasSize | null = null;
   let animationFrame = 0;
   let lastRenderTime = 0;
   let needsRender = true;
   let hasFrame = false;
+  let decaying = false;
+  let expectedTrackId: string | null = null;
+  let expectedGeneration = -1;
   const meterTarget = new Float32Array(2);
   const meterDisplayed = new Float32Array(2);
   const monoTarget = new Float32Array(32);
@@ -101,12 +112,13 @@ export function createVisualizer(options: {
     lastRenderTime = timestamp;
     let changing = false;
     if (hasFrame) {
-      if (mode === "meter") changing = smooth(meterDisplayed, meterTarget);
+      if (mode === "meter")
+        changing = smooth(meterDisplayed, meterTarget, decaying);
       else if (mode === "spectrumMono")
-        changing = smooth(monoDisplayed, monoTarget);
+        changing = smooth(monoDisplayed, monoTarget, decaying);
       else {
-        const leftChanging = smooth(leftDisplayed, leftTarget);
-        const rightChanging = smooth(rightDisplayed, rightTarget);
+        const leftChanging = smooth(leftDisplayed, leftTarget, decaying);
+        const rightChanging = smooth(rightDisplayed, rightTarget, decaying);
         changing = leftChanging || rightChanging;
       }
     }
@@ -117,7 +129,15 @@ export function createVisualizer(options: {
     if (changing) {
       animationFrame = requestAnimationFrame(tick);
       if (import.meta.env.DEV) canvas.dataset.rafActive = "1";
-    } else if (import.meta.env.DEV) canvas.dataset.rafActive = "0";
+    } else {
+      if (decaying) {
+        decaying = false;
+        hasFrame = false;
+        needsRender = true;
+        draw();
+      }
+      if (import.meta.env.DEV) canvas.dataset.rafActive = "0";
+    }
   };
 
   const startLoop = (): void => {
@@ -128,13 +148,23 @@ export function createVisualizer(options: {
 
   const receiveLatestFrame = (): void => {
     const frame: VisualizerFrame | null = stream.takeLatest();
-    if (!frame) return;
+    const frameIsCurrent =
+      frame?.trackId === expectedTrackId &&
+      frame.trackTransitionId === expectedGeneration;
+    if (!frameIsCurrent) {
+      if (import.meta.env.DEV && frame !== null)
+        canvas.dataset.staleFrames = String(
+          Number(canvas.dataset.staleFrames ?? "0") + 1,
+        );
+      return;
+    }
     meterTarget[0] = frame.meter.leftPeak;
     meterTarget[1] = frame.meter.rightPeak;
     copy(frame.monoBands, monoTarget);
     copy(frame.leftBands, leftTarget);
     copy(frame.rightBands, rightTarget);
     hasFrame = true;
+    decaying = false;
     needsRender = true;
     startLoop();
     if (import.meta.env.DEV)
@@ -205,6 +235,22 @@ export function createVisualizer(options: {
   updateAccessibleState();
   return {
     element,
+    setTrack(trackId, generation) {
+      if (
+        generation < expectedGeneration ||
+        (generation === expectedGeneration && trackId === expectedTrackId)
+      )
+        return;
+      expectedGeneration = generation;
+      expectedTrackId = trackId;
+      meterTarget.fill(0);
+      monoTarget.fill(0);
+      leftTarget.fill(0);
+      rightTarget.fill(0);
+      decaying = hasFrame;
+      needsRender = true;
+      startLoop();
+    },
     destroy() {
       observer.disconnect();
       stream.close();

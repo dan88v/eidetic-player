@@ -87,6 +87,7 @@ export class AudioAnalysisEngine {
     trackId: string,
     startPosition: number,
     samplesReceived: number,
+    trackTransitionId = 0,
   ): VisualizerFrame[] {
     for (let index = 0; index + 1 < interleaved.length; index += 2) {
       this.left.push(clampSigned(interleaved[index] ?? 0));
@@ -98,6 +99,7 @@ export class AudioAnalysisEngine {
         this.analyze(
           trackId,
           startPosition + samplesReceived / ANALYSIS_SAMPLE_RATE,
+          trackTransitionId,
         ),
       );
       this.left.splice(0, HOP_SIZE);
@@ -113,7 +115,11 @@ export class AudioAnalysisEngine {
     this.displayedMeter = [0, 0, 0, 0];
   }
 
-  private analyze(trackId: string, positionSeconds: number): VisualizerFrame {
+  private analyze(
+    trackId: string,
+    positionSeconds: number,
+    trackTransitionId: number,
+  ): VisualizerFrame {
     const left = Float32Array.from(this.left.slice(0, FFT_SIZE));
     const right = Float32Array.from(this.right.slice(0, FFT_SIZE));
     const meterSize = Math.min(
@@ -161,6 +167,7 @@ export class AudioAnalysisEngine {
     );
     return {
       trackId,
+      trackTransitionId,
       positionSeconds,
       sequence: ++this.sequence,
       meter: {
@@ -184,9 +191,11 @@ function clampSigned(value: number): number {
 export function zeroFrame(
   trackId: string | null,
   sequence = 0,
+  trackTransitionId = 0,
 ): VisualizerFrame {
   return {
     trackId,
+    trackTransitionId,
     positionSeconds: 0,
     sequence,
     meter: { leftPeak: 0, leftRms: 0, rightPeak: 0, rightRms: 0 },

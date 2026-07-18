@@ -1,10 +1,15 @@
-import type { TimelineStyle, VisualizerMode } from "../state/types";
+import type {
+  TimelineStyle,
+  TimelineTimeMode,
+  VisualizerMode,
+} from "../state/types";
 import type { RepeatMode } from "../../../../packages/shared/src/player";
 
 const storageKeys = {
   animationsEnabled: "eidetic-player.interface.animations-enabled",
   visualizerMode: "eidetic-player.interface.visualizer-mode",
   timelineStyle: "eidetic-player.interface.timeline-style",
+  timelineTimeMode: "eidetic-player.interface.timeline-time-mode",
   volume: "eidetic-player.player.volume",
   muted: "eidetic-player.player.muted",
   shuffle: "eidetic-player.player.shuffle",
@@ -57,6 +62,16 @@ export function loadTimelineStyle(): TimelineStyle {
 
 export function saveTimelineStyle(style: TimelineStyle): void {
   write(storageKeys.timelineStyle, style);
+}
+
+export function loadTimelineTimeMode(): TimelineTimeMode {
+  return read(storageKeys.timelineTimeMode) === "remaining"
+    ? "remaining"
+    : "total";
+}
+
+export function saveTimelineTimeMode(mode: TimelineTimeMode): void {
+  write(storageKeys.timelineTimeMode, mode);
 }
 
 export interface PlaybackPreferences {

@@ -6,6 +6,7 @@ import {
 import { createReadStream } from "node:fs";
 import type { ApiResponse } from "../../../packages/shared/src/player.js";
 import type { HealthResponse } from "../../../packages/shared/src/health.js";
+import type { WaveformResponse } from "../../../packages/shared/src/visualizer.js";
 import {
   validateCommandBody,
   type PlayerCommand,
@@ -253,11 +254,18 @@ async function handleRequest(
       request.once("aborted", () => {
         abortController.abort();
       });
-      const payload = await waveform.get(
-        queueItemId,
-        path,
-        abortController.signal,
-      );
+      let payload: WaveformResponse;
+      try {
+        payload = await waveform.get(queueItemId, path, abortController.signal);
+      } catch (error) {
+        if (
+          abortController.signal.aborted &&
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        )
+          return;
+        throw error;
+      }
       const etag = `"${payload.fingerprint}"`;
       response.setHeader("etag", etag);
       response.setHeader("cache-control", "private, no-cache");

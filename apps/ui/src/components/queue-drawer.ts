@@ -27,6 +27,7 @@ interface QueueRowView {
   readonly remove: HTMLButtonElement;
   readonly artwork: ArtworkView;
   artworkRevision: string | null;
+  isCurrent: boolean;
 }
 
 export function createQueueDrawer(options: {
@@ -303,11 +304,28 @@ export function createQueueDrawer(options: {
             remove,
             artwork,
             artworkRevision: null,
+            isCurrent: false,
           };
           rowViews.set(item.id, view);
         }
         view.row.dataset.queueIndex = String(item.index);
-        view.row.classList.toggle("queue-item--current", item.isCurrent);
+        if (view.isCurrent !== item.isCurrent) {
+          view.isCurrent = item.isCurrent;
+          view.row.classList.toggle("queue-item--current", item.isCurrent);
+          if (item.isCurrent) view.button.setAttribute("aria-current", "true");
+          else view.button.removeAttribute("aria-current");
+          const numberText = item.isCurrent ? "●" : String(item.index + 1);
+          if (view.number.textContent !== numberText)
+            if (view.number.firstChild instanceof Text)
+              view.number.firstChild.data = numberText;
+            else view.number.textContent = numberText;
+        } else if (!item.isCurrent) {
+          const numberText = String(item.index + 1);
+          if (view.number.textContent !== numberText)
+            if (view.number.firstChild instanceof Text)
+              view.number.firstChild.data = numberText;
+            else view.number.textContent = numberText;
+        }
         view.button.setAttribute(
           "aria-label",
           `${t("queueDrawer.play")} ${item.displayTitle}`,
@@ -316,11 +334,14 @@ export function createQueueDrawer(options: {
           "aria-label",
           `${t("queueDrawer.remove")} ${item.displayTitle}`,
         );
-        view.number.innerHTML = item.isCurrent
-          ? icon("nowPlaying")
-          : String(item.index + 1);
-        view.title.textContent = item.displayTitle;
-        view.filename.textContent = item.filename;
+        if (view.title.textContent !== item.displayTitle)
+          if (view.title.firstChild instanceof Text)
+            view.title.firstChild.data = item.displayTitle;
+          else view.title.textContent = item.displayTitle;
+        if (view.filename.textContent !== item.filename)
+          if (view.filename.firstChild instanceof Text)
+            view.filename.firstChild.data = item.filename;
+          else view.filename.textContent = item.filename;
         const revision = item.artwork?.revision ?? null;
         if (revision !== view.artworkRevision) {
           view.artworkRevision = revision;

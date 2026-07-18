@@ -58,6 +58,8 @@ export interface PlayerErrorState {
 }
 
 export interface PlayerState {
+  readonly playerSessionId: string;
+  readonly trackTransitionId: number;
   readonly status: PlayerStatus;
   readonly mpvAvailable: boolean;
   readonly mpvVersion: string | null;

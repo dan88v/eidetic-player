@@ -2,14 +2,18 @@ import type {
   PlayerState,
   RepeatMode,
 } from "../../../../packages/shared/src/player";
-import { composeTechnicalDetails } from "../../../../packages/shared/src/metadata";
 import { createArtwork } from "../components/artwork";
 import { icon } from "../components/icons";
 import { createTimeline } from "../components/timeline";
 import type { ComponentView } from "../components/types";
 import { createVisualizer } from "../components/visualizer";
 import { t } from "../i18n";
-import type { TimelineStyle, VisualizerMode } from "../state/types";
+import type {
+  TimelineStyle,
+  TimelineTimeMode,
+  VisualizerMode,
+} from "../state/types";
+import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
 import { WaveformLoader } from "../timeline/waveform-loader";
 
 export interface PlayerActions {
@@ -25,9 +29,11 @@ export interface PlayerActions {
 export interface NowPlayingOptions {
   readonly visualizerMode: VisualizerMode;
   readonly timelineStyle: TimelineStyle;
+  readonly timelineTimeMode: TimelineTimeMode;
   readonly initialPlayerState: PlayerState;
   readonly actions: PlayerActions;
   readonly onVisualizerModeChange: (mode: VisualizerMode) => void;
+  readonly onTimelineTimeModeChange: (mode: TimelineTimeMode) => void;
   readonly onOpenQueue: (trigger: HTMLButtonElement) => void;
   readonly onOpenLibrary: () => void;
   readonly onToggleVolume: (trigger: HTMLButtonElement) => void;
@@ -63,7 +69,6 @@ export function createNowPlayingScreen(
     <div class="transport" aria-label="${t("nowPlaying.controls")}">
       <div class="transport__zone transport__zone--left">
         <button class="transport__button transport__button--small" type="button" data-control="library" aria-label="${t("nav.openLibrary")}">${icon("library")}<span>${t("screen.library.title")}</span></button>
-        <button class="transport__button transport__button--small" type="button" data-control="volume" aria-label="${t("volume.open")}" aria-expanded="false" aria-controls="volume-popover">${icon("volume")}<span>${t("volume.label")}</span></button>
       </div>
       <div class="transport__zone transport__zone--center">
         <button class="transport__button transport__button--small transport__button--outer" type="button" data-control="shuffle" aria-pressed="false" aria-label="${t("nowPlaying.shuffle")}">${icon("shuffle")}<span>${t("nowPlaying.shuffle")}</span></button>
@@ -73,6 +78,7 @@ export function createNowPlayingScreen(
         <button class="transport__button transport__button--small transport__button--outer" type="button" data-control="repeat" aria-pressed="false" aria-label="${t("nowPlaying.repeatOff")}">${icon("repeat")}<span>${t("nowPlaying.repeat")}</span><b class="repeat-one" aria-hidden="true">1</b></button>
       </div>
       <div class="transport__zone transport__zone--right">
+        <button class="transport__button transport__button--small" type="button" data-control="volume" aria-label="${t("volume.open")}" aria-expanded="false" aria-controls="volume-popover">${icon("volume")}<span>${t("volume.label")}</span></button>
         <button class="transport__button transport__button--small" type="button" data-control="queue" aria-haspopup="dialog" aria-controls="queue-drawer" aria-expanded="false" aria-label="${t("nowPlaying.queue")}">${icon("queue")}<span>${t("screen.queue.title")}</span></button>
       </div>
     </div>`;
@@ -85,12 +91,13 @@ export function createNowPlayingScreen(
     style: options.timelineStyle,
     durationSeconds: 0,
     initialProgress: 0,
+    timeMode: options.timelineTimeMode,
     onSeek: options.actions.seek,
+    onTimeModeChange: options.onTimelineTimeModeChange,
   });
   const artwork = createArtwork({
     className: "now-playing__artwork",
     decorative: false,
-    placeholderLabel: t("nowPlaying.artwork"),
   });
   section.querySelector(".now-playing__artwork")?.replaceWith(artwork.element);
   section
@@ -168,53 +175,72 @@ export function createNowPlayingScreen(
     queueButton.setAttribute("aria-expanded", "true");
     options.onOpenQueue(queueButton);
   });
+  const setText = (element: HTMLElement, value: string): void => {
+    if (element.textContent === value) return;
+    if (element.childNodes.length === 1 && element.firstChild instanceof Text)
+      element.firstChild.data = value;
+    else element.textContent = value;
+  };
+  let playIconName = "";
+  let volumeIconName = "";
 
   const update = (state: PlayerState): void => {
     playerState = state;
     const track = state.currentTrack;
+    const presentation = createTrackPresentationSnapshot(state);
     const unavailable =
       state.status === "unavailable" ||
       (!state.mpvAvailable && state.status !== "loading");
-    title.textContent =
-      track?.title ??
-      t(unavailable ? "nowPlaying.unavailableTitle" : "nowPlaying.emptyTitle");
-    artist.textContent =
-      track?.artist ??
-      t(
-        unavailable
-          ? "nowPlaying.unavailableDescription"
-          : "nowPlaying.emptyDescription",
-      );
-    album.textContent = track?.album ?? "";
-    technicalFormat.textContent = track
-      ? composeTechnicalDetails(track).join(" · ")
-      : "";
-    technicalSource.textContent = "";
+    setText(
+      title,
+      presentation.title ??
+        t(
+          unavailable ? "nowPlaying.unavailableTitle" : "nowPlaying.emptyTitle",
+        ),
+    );
+    setText(
+      artist,
+      presentation.artist ??
+        t(
+          unavailable
+            ? "nowPlaying.unavailableDescription"
+            : "nowPlaying.emptyDescription",
+        ),
+    );
+    setText(album, presentation.album ?? "");
+    setText(technicalFormat, presentation.technical);
+    setText(technicalSource, "");
     const artworkAlt =
       track?.album && track.artist
         ? t("artwork.albumBy")
             .replace("{album}", track.album)
             .replace("{artist}", track.artist)
         : t("artwork.album");
-    artwork.update(track?.artwork ?? null, artworkAlt);
+    artwork.update(presentation.artwork, artworkAlt, presentation.generation);
+    visualizer.setTrack(presentation.trackId, presentation.generation);
     openButton.hidden = Boolean(track);
-    openButton.textContent = unavailable
-      ? t("common.openFilesMpvMissing")
-      : t("common.openFiles");
+    setText(
+      openButton,
+      unavailable ? t("common.openFilesMpvMissing") : t("common.openFiles"),
+    );
     const usable = Boolean(track) && state.status !== "loading";
     playButton.disabled = !usable;
     previousButton.disabled = !usable;
     nextButton.disabled = !usable;
     shuffleButton.disabled = !state.mpvAvailable;
     playButton.setAttribute("aria-pressed", String(usable && !state.paused));
-    playButton.innerHTML = icon(
-      usable && !state.paused ? "pause" : "play",
-      "icon transport__play-icon",
-    );
+    const nextPlayIcon = usable && !state.paused ? "pause" : "play";
+    if (nextPlayIcon !== playIconName) {
+      playIconName = nextPlayIcon;
+      playButton.innerHTML = icon(nextPlayIcon, "icon transport__play-icon");
+    }
     shuffleButton.setAttribute("aria-pressed", String(state.shuffleEnabled));
-    volumeButton.innerHTML = `${icon(
-      state.muted || state.volume === 0 ? "volumeMuted" : "volume",
-    )}<span>${t("volume.label")}</span>`;
+    const nextVolumeIcon =
+      state.muted || state.volume === 0 ? "volumeMuted" : "volume";
+    if (nextVolumeIcon !== volumeIconName) {
+      volumeIconName = nextVolumeIcon;
+      volumeButton.innerHTML = `${icon(nextVolumeIcon)}<span>${t("volume.label")}</span>`;
+    }
     volumeButton.setAttribute(
       "aria-label",
       `${t("volume.open")} · ${
@@ -236,18 +262,32 @@ export function createNowPlayingScreen(
             : "nowPlaying.repeatOff",
       ),
     );
-    timeline.setPlayback(state.positionSeconds, state.durationSeconds);
+    timeline.setPlayback(
+      presentation.positionSeconds,
+      presentation.durationSeconds,
+    );
     timeline.setEnabled(usable);
     const queueItemId = state.queue[state.currentQueueIndex]?.id ?? null;
     if (queueItemId !== waveformQueueItemId) {
       waveformQueueItemId = queueItemId;
-      timeline.setWaveform(null);
+      timeline.setWaveform(null, presentation.generation);
       if (queueItemId && options.timelineStyle === "waveform")
-        waveformLoader.load(queueItemId, (points) => {
-          if (waveformQueueItemId === queueItemId) timeline.setWaveform(points);
-        });
+        waveformLoader.load(
+          queueItemId,
+          presentation.generation,
+          (points, generation) => {
+            if (
+              waveformQueueItemId === queueItemId &&
+              playerState.trackTransitionId === generation
+            )
+              timeline.setWaveform(points, generation);
+          },
+        );
       else waveformLoader.cancel();
     }
+    waveformLoader.preload(
+      state.queue[state.currentQueueIndex + 1]?.id ?? null,
+    );
   };
   update(playerState);
   return {

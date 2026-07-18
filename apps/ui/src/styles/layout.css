@@ -18,6 +18,7 @@
     min-height: 0;
     grid-row: 2;
     grid-template-rows: minmax(0, 1fr);
+    background: var(--color-bg);
   }
 
   .content-shell--with-mini-player {
@@ -32,6 +33,7 @@
     overscroll-behavior: contain;
     scrollbar-color: var(--color-border-strong) transparent;
     scrollbar-width: thin;
+    background: var(--color-bg);
   }
 
   .screen {

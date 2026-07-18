@@ -70,6 +70,24 @@ small normalized fields and `ArtworkRef`. Parsing is serialized separately for
 the current track and one next-track preload. Queue artwork resolution is lazy
 and limited to two concurrent requests.
 
+## Atomic track transitions
+
+`PlayerService` suppresses transient MPV property snapshots from the first
+changed `path`/`playlist-pos` or `start-file` event until one complete property
+refresh is available. It then publishes title/artist/album/technical data,
+Queue current ID, duration, and position in one state snapshot. Every snapshot
+contains an opaque `playerSessionId` and monotonic `trackTransitionId`; the
+session component makes generation ordering safe across backend reconnects.
+
+The UI `TrackTransitionCoordinator` accepts only the newest session/generation.
+Now Playing and mini-player derive the same `TrackPresentationSnapshot`.
+Artwork, waveform callbacks, and visualizer frames carry or verify that
+identity, so an obsolete result cannot be paired with a newer title. Current,
+next, and previous metadata/artwork are cached with current/next/previous
+priority; waveform extraction remains bounded to the existing single process.
+Rapid transport commands maintain a latest target index while controls stay
+enabled.
+
 ## HTTP boundary
 
 Commands use validated JSON POST endpoints:

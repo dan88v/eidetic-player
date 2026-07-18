@@ -1,4 +1,5 @@
 export const en = {
+  "app.name": "Eidetic Player",
   "app.theme": "Modern Hi-Fi",
   "nav.openMenu": "Open navigation menu",
   "nav.closeMenu": "Close navigation menu",
@@ -57,6 +58,8 @@ export const en = {
   "timeline.label": "Playback position",
   "timeline.waveform": "Waveform",
   "timeline.line": "Line",
+  "timeline.showRemaining": "Show remaining time",
+  "timeline.showTotal": "Show total duration",
   "miniPlayer.label": "Mini player",
   "miniPlayer.track": "Track title placeholder",
   "miniPlayer.artist": "Artist placeholder",

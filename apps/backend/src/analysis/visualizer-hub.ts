@@ -55,6 +55,7 @@ export class VisualizerHub {
           source.map(round);
         const compact: VisualizerFrame = {
           trackId: frame.trackId,
+          trackTransitionId: frame.trackTransitionId,
           positionSeconds: Math.round(frame.positionSeconds * 1_000) / 1_000,
           sequence: frame.sequence,
           meter:

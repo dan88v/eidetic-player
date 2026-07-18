@@ -25,6 +25,8 @@ import { LimitedConcurrency } from "../utils/limited-concurrency.js";
 type StateListener = (state: PlayerState) => void;
 
 const initialState: PlayerState = {
+  playerSessionId: randomUUID(),
+  trackTransitionId: 0,
   status: "loading",
   mpvAvailable: false,
   mpvVersion: null,
@@ -83,8 +85,18 @@ export class PlayerService {
   private priorityParsing: Promise<void> = Promise.resolve();
   private preloadParsing: Promise<void> = Promise.resolve();
   private nextArtwork: ArtworkRef | null = null;
+  private transitionPending = false;
+  private trackTransitionId = 0;
+  private readonly preloadedEnrichments = new Map<
+    string,
+    {
+      readonly metadata: NormalizedMetadata;
+      readonly artwork: ArtworkRef | null;
+    }
+  >();
   private readonly queueArtworkConcurrency = new LimitedConcurrency(2);
   private preparingPlaylist = false;
+  private pendingTrackTarget: number | null = null;
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -157,19 +169,10 @@ export class PlayerService {
     this.enrichmentPathKey = null;
     this.currentEnrichment = null;
     this.nextArtwork = null;
+    this.preloadedEnrichments.clear();
+    this.pendingTrackTarget = null;
     this.artworkService.setPinned([]);
-    this.update({
-      status: "loading",
-      currentTrack: null,
-      positionSeconds: 0,
-      durationSeconds: 0,
-      currentQueueIndex: -1,
-      queue: [],
-      queueRevision: hadQueue
-        ? this.state.queueRevision + 1
-        : this.state.queueRevision,
-      error: null,
-    });
+    if (!hadQueue) this.update({ status: "loading", error: null });
     this.originalQueue = [...queue];
     this.preparingPlaylist = true;
     try {
@@ -270,19 +273,27 @@ export class PlayerService {
   async previous(): Promise<void> {
     this.requireTrack();
     const controller = this.requireController();
-    if (this.state.positionSeconds > 3) {
+    if (this.pendingTrackTarget === null && this.state.positionSeconds > 3) {
       await controller.command(["seek", 0, "absolute+exact"]);
       return;
     }
-    if (this.state.currentQueueIndex > 0)
-      await controller.command(["playlist-prev", "weak"]);
+    const base = this.pendingTrackTarget ?? this.state.currentQueueIndex;
+    if (base <= 0) return;
+    const target = base - 1;
+    this.pendingTrackTarget = target;
+    await controller.setProperty("playlist-pos", target);
   }
 
   async next(): Promise<void> {
     this.requireTrack();
-    const hasNext = this.state.currentQueueIndex < this.state.queue.length - 1;
-    if (hasNext || this.state.repeatMode === "all")
-      await this.requireController().command(["playlist-next", "weak"]);
+    const base = this.pendingTrackTarget ?? this.state.currentQueueIndex;
+    let target = base + 1;
+    if (target >= this.state.queue.length) {
+      if (this.state.repeatMode !== "all") return;
+      target = 0;
+    }
+    this.pendingTrackTarget = target;
+    await this.requireController().setProperty("playlist-pos", target);
   }
 
   async seek(positionSeconds: number): Promise<void> {
@@ -343,6 +354,7 @@ export class PlayerService {
         "INVALID_QUEUE_INDEX",
         "Queue index is out of range.",
       );
+    this.pendingTrackTarget = index;
     await this.requireController().setProperty("playlist-pos", index);
   }
 
@@ -425,14 +437,20 @@ export class PlayerService {
   }
 
   private resetLocalState(): void {
+    if (this.state.currentTrack || this.state.queue.length > 0)
+      this.trackTransitionId += 1;
     this.originalQueue = [];
     this.itemIds.clear();
     this.enrichmentGeneration += 1;
     this.enrichmentPathKey = null;
     this.currentEnrichment = null;
     this.nextArtwork = null;
+    this.preloadedEnrichments.clear();
+    this.transitionPending = false;
+    this.pendingTrackTarget = null;
     this.artworkService.setPinned([]);
     this.update({
+      trackTransitionId: this.trackTransitionId,
       status: "idle",
       currentTrack: null,
       queue: [],
@@ -486,6 +504,16 @@ export class PlayerService {
     ) {
       this.properties.set(message.name, message.data);
       if (this.preparingPlaylist) return;
+      if (
+        (message.name === "path" &&
+          this.pathKey(this.asString(message.data) ?? "") !==
+            this.pathKey(this.state.currentTrack?.path ?? "")) ||
+        (message.name === "playlist-pos" &&
+          Math.trunc(this.asNumber(message.data, -1)) !==
+            this.state.currentQueueIndex)
+      )
+        this.beginTrackTransition();
+      if (this.transitionPending) return;
       if (message.name === "time-pos") {
         this.queuePositionUpdate(this.asNumber(message.data));
       } else {
@@ -497,12 +525,7 @@ export class PlayerService {
     switch (message.event) {
       case "start-file":
         if (this.preparingPlaylist) break;
-        this.enrichmentGeneration += 1;
-        this.enrichmentPathKey = null;
-        this.currentEnrichment = null;
-        this.nextArtwork = null;
-        this.artworkService.setPinned([]);
-        this.update({ status: "loading", currentTrack: null, error: null });
+        this.beginTrackTransition();
         break;
       case "file-loaded":
       case "playback-restart":
@@ -556,10 +579,25 @@ export class PlayerService {
       }),
     );
     names.forEach((name, index) => this.properties.set(name, values[index]));
+    this.transitionPending = false;
     this.deriveStateFromProperties();
   }
 
+  private beginTrackTransition(): void {
+    if (this.transitionPending) return;
+    this.transitionPending = true;
+    this.enrichmentGeneration += 1;
+    this.enrichmentPathKey = null;
+    this.currentEnrichment = null;
+    this.nextArtwork = null;
+    this.pendingPosition = null;
+    if (this.positionTimer) clearTimeout(this.positionTimer);
+    this.positionTimer = null;
+    this.artworkService.setPinned([]);
+  }
+
   private deriveStateFromProperties(): void {
+    if (this.transitionPending) return;
     const pause = this.asBoolean(this.properties.get("pause"), true);
     const idle = this.asBoolean(this.properties.get("idle-active"), false);
     const duration = this.asNumber(this.properties.get("duration"));
@@ -577,12 +615,22 @@ export class PlayerService {
     if (trackChanged) {
       this.enrichmentPathKey = nextPathKey;
       this.enrichmentGeneration += 1;
-      this.currentEnrichment = null;
+      const preloaded = nextPathKey
+        ? this.preloadedEnrichments.get(nextPathKey)
+        : null;
+      this.currentEnrichment =
+        nextPathKey && preloaded
+          ? { pathKey: nextPathKey, ...preloaded }
+          : null;
       this.nextArtwork = null;
       this.artworkService.setPinned([]);
+      if (path) this.trackTransitionId += 1;
     }
     const currentTrack = path ? this.createTrack(path, duration) : null;
+    if (playlistIndex === this.pendingTrackTarget)
+      this.pendingTrackTarget = null;
     this.update({
+      trackTransitionId: this.trackTransitionId,
       paused: pause,
       status: idle
         ? queue.length
@@ -592,9 +640,15 @@ export class PlayerService {
           ? "paused"
           : "playing",
       durationSeconds: duration,
-      positionSeconds: this.asNumber(
-        this.properties.get("time-pos"),
-        this.state.positionSeconds,
+      positionSeconds: Math.max(
+        0,
+        Math.min(
+          duration,
+          this.asNumber(
+            this.properties.get("time-pos"),
+            this.state.positionSeconds,
+          ),
+        ),
       ),
       currentQueueIndex: playlistIndex,
       queue,
@@ -615,7 +669,8 @@ export class PlayerService {
     });
     if (trackChanged && path) {
       const nextPath = queue[playlistIndex + 1]?.path ?? null;
-      this.scheduleCurrentEnrichment(path, nextPath);
+      const previousPath = queue[playlistIndex - 1]?.path ?? null;
+      this.scheduleCurrentEnrichment(path, nextPath, previousPath);
     }
   }
 
@@ -743,6 +798,7 @@ export class PlayerService {
   private scheduleCurrentEnrichment(
     path: string,
     nextPath: string | null,
+    previousPath: string | null,
   ): void {
     const generation = this.enrichmentGeneration;
     this.priorityParsing = this.priorityParsing
@@ -766,6 +822,7 @@ export class PlayerService {
           metadata: result.metadata,
           artwork: result.artwork,
         };
+        this.rememberPreloaded(path, result);
         const current = this.state.currentTrack;
         if (current && this.pathKey(current.path) === this.pathKey(path)) {
           const queue = this.withQueueArtwork(path, result.artwork);
@@ -783,7 +840,7 @@ export class PlayerService {
           });
         }
         this.artworkService.setPinned([result.artwork, this.nextArtwork]);
-        if (nextPath) this.schedulePreload(nextPath, generation);
+        this.scheduleAdjacentPreload(nextPath, previousPath, generation);
       })
       .catch((error: unknown) => {
         if (generation === this.enrichmentGeneration)
@@ -791,27 +848,44 @@ export class PlayerService {
       });
   }
 
-  private schedulePreload(path: string, generation: number): void {
+  private scheduleAdjacentPreload(
+    nextPath: string | null,
+    previousPath: string | null,
+    generation: number,
+  ): void {
     this.preloadParsing = this.preloadParsing
       .catch(() => {
         // Keep the one-item preload chain usable after parser errors.
       })
       .then(async () => {
-        if (!this.canApplyGeneration(generation)) return;
-        const result = await this.resolveEnrichment(path);
-        if (!this.canApplyGeneration(generation)) return;
-        this.nextArtwork = result.artwork;
-        const queue = this.withQueueArtwork(path, result.artwork);
-        this.update({
-          queue,
-          queueRevision:
-            queue === this.state.queue
-              ? this.state.queueRevision
-              : this.state.queueRevision + 1,
-        });
+        let queue = this.state.queue;
+        if (nextPath) {
+          if (!this.canApplyGeneration(generation)) return;
+          const next = await this.resolveEnrichment(nextPath);
+          if (!this.canApplyGeneration(generation)) return;
+          this.rememberPreloaded(nextPath, next);
+          this.nextArtwork = next.artwork;
+          queue = this.withQueueArtwork(nextPath, next.artwork, queue);
+        }
+        if (previousPath) {
+          if (!this.canApplyGeneration(generation)) return;
+          const previous = await this.resolveEnrichment(previousPath);
+          if (!this.canApplyGeneration(generation)) return;
+          this.rememberPreloaded(previousPath, previous);
+          queue = this.withQueueArtwork(previousPath, previous.artwork, queue);
+        }
+        if (queue !== this.state.queue)
+          this.update({
+            queue,
+            queueRevision: this.state.queueRevision + 1,
+          });
         this.artworkService.setPinned([
           this.currentEnrichment?.artwork ?? null,
-          result.artwork,
+          this.nextArtwork,
+          previousPath
+            ? (this.preloadedEnrichments.get(this.pathKey(previousPath))
+                ?.artwork ?? null)
+            : null,
         ]);
       })
       .catch((error: unknown) => {
@@ -846,16 +920,32 @@ export class PlayerService {
   private withQueueArtwork(
     path: string,
     artwork: ArtworkRef | null,
+    source: readonly QueueItem[] = this.state.queue,
   ): readonly QueueItem[] {
     const key = this.pathKey(path);
-    const queue = this.state.queue.map((item) => {
+    const queue = source.map((item) => {
       if (this.pathKey(item.path) !== key || item.artwork?.id === artwork?.id)
         return item;
       return { ...item, artwork };
     });
-    return queue.some((item, index) => item !== this.state.queue[index])
-      ? queue
-      : this.state.queue;
+    return queue.some((item, index) => item !== source[index]) ? queue : source;
+  }
+
+  private rememberPreloaded(
+    path: string,
+    result: {
+      readonly metadata: NormalizedMetadata;
+      readonly artwork: ArtworkRef | null;
+    },
+  ): void {
+    const key = this.pathKey(path);
+    this.preloadedEnrichments.delete(key);
+    this.preloadedEnrichments.set(key, result);
+    while (this.preloadedEnrichments.size > 3) {
+      const oldest = this.preloadedEnrichments.keys().next().value;
+      if (!oldest) break;
+      this.preloadedEnrichments.delete(oldest);
+    }
   }
 
   private canApplyGeneration(generation: number): boolean {
@@ -878,7 +968,10 @@ export class PlayerService {
     if (this.positionTimer) clearTimeout(this.positionTimer);
     this.positionTimer = null;
     if (this.pendingPosition === null) return;
-    const positionSeconds = this.pendingPosition;
+    const positionSeconds = Math.max(
+      0,
+      Math.min(this.state.durationSeconds, this.pendingPosition),
+    );
     this.pendingPosition = null;
     this.update({ positionSeconds });
   }

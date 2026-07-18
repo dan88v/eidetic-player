@@ -2,6 +2,7 @@ import type {
   AppState,
   ScreenId,
   TimelineStyle,
+  TimelineTimeMode,
   VisualizerMode,
 } from "./types";
 
@@ -16,6 +17,7 @@ export interface AppStore {
   setAnimationsEnabled(enabled: boolean): void;
   setVisualizerMode(mode: VisualizerMode): void;
   setTimelineStyle(style: TimelineStyle): void;
+  setTimelineTimeMode(mode: TimelineTimeMode): void;
   subscribe(listener: StateListener): () => void;
 }
 
@@ -32,7 +34,8 @@ export function createAppStore(initialState: AppState): AppStore {
       nextState.volumeOpen === state.volumeOpen &&
       nextState.animationsEnabled === state.animationsEnabled &&
       nextState.visualizerMode === state.visualizerMode &&
-      nextState.timelineStyle === state.timelineStyle
+      nextState.timelineStyle === state.timelineStyle &&
+      nextState.timelineTimeMode === state.timelineTimeMode
     ) {
       return;
     }
@@ -64,6 +67,9 @@ export function createAppStore(initialState: AppState): AppStore {
     },
     setTimelineStyle: (timelineStyle) => {
       update({ timelineStyle });
+    },
+    setTimelineTimeMode: (timelineTimeMode) => {
+      update({ timelineTimeMode });
     },
     subscribe(listener) {
       listeners.add(listener);

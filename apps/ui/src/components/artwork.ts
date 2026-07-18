@@ -1,12 +1,72 @@
 import type { ArtworkRef } from "../../../../packages/shared/src/player";
 import { artworkUrl } from "../api/player-api-client";
-import { icon } from "./icons";
 
 const warned = new Set<string>();
 
+interface CachedArtwork {
+  readonly promise: Promise<HTMLImageElement>;
+  image: HTMLImageElement | null;
+}
+
+class ArtworkDecodeCache {
+  private readonly entries = new Map<string, CachedArtwork>();
+
+  prepare(artwork: ArtworkRef): Promise<HTMLImageElement> {
+    const existing = this.entries.get(artwork.revision);
+    if (existing) {
+      this.entries.delete(artwork.revision);
+      this.entries.set(artwork.revision, existing);
+      return existing.promise;
+    }
+    const url = artworkUrl(artwork);
+    const image = new Image();
+    image.decoding = "async";
+    const entry: CachedArtwork = {
+      image: null,
+      promise: new Promise<HTMLImageElement>((resolve, reject) => {
+        image.addEventListener(
+          "error",
+          () => {
+            this.entries.delete(artwork.revision);
+            reject(new Error("Artwork could not be loaded"));
+          },
+          { once: true },
+        );
+        image.addEventListener(
+          "load",
+          () => {
+            void image
+              .decode()
+              .catch(() => undefined)
+              .then(() => {
+                entry.image = image;
+                resolve(image);
+              });
+          },
+          { once: true },
+        );
+      }),
+    };
+    this.entries.set(artwork.revision, entry);
+    image.src = url;
+    while (this.entries.size > 4) {
+      const oldest = this.entries.keys().next().value;
+      if (!oldest) break;
+      this.entries.delete(oldest);
+    }
+    return entry.promise;
+  }
+
+  ready(revision: string): HTMLImageElement | null {
+    return this.entries.get(revision)?.image ?? null;
+  }
+}
+
+const decodeCache = new ArtworkDecodeCache();
+
 export interface ArtworkView {
   readonly element: HTMLElement;
-  update(artwork: ArtworkRef | null, alt: string): void;
+  update(artwork: ArtworkRef | null, alt: string, generation?: number): void;
   loadUrl(url: string, revision: string, alt?: string): Promise<void>;
   destroy(): void;
 }
@@ -14,22 +74,16 @@ export interface ArtworkView {
 export function createArtwork(options: {
   readonly className: string;
   readonly decorative: boolean;
-  readonly placeholderLabel?: string;
 }): ArtworkView {
   const element = document.createElement("span");
   element.className = `artwork ${options.className}`;
   const placeholder = document.createElement("span");
   placeholder.className = "artwork__placeholder";
-  placeholder.innerHTML = icon("album", "icon artwork__placeholder-icon");
-  if (options.placeholderLabel) {
-    const label = document.createElement("span");
-    label.textContent = options.placeholderLabel;
-    placeholder.append(label);
-  }
   element.append(placeholder);
 
-  let generation = 0;
+  let nonce = 0;
   let currentRevision: string | null = null;
+  let currentGeneration = -1;
   let image: HTMLImageElement | null = null;
   let revealFrame: number | null = null;
 
@@ -43,25 +97,49 @@ export function createArtwork(options: {
     placeholder.setAttribute("aria-hidden", "false");
   };
 
-  const loadUrl = (url: string, revision: string, alt = ""): Promise<void> => {
-    generation += 1;
-    const requestGeneration = generation;
-    clear();
-    currentRevision = revision;
-    const next = new Image();
+  const commit = (
+    template: HTMLImageElement,
+    revision: string,
+    alt: string,
+    requestNonce: number,
+  ): void => {
+    if (requestNonce !== nonce || currentRevision !== revision) return;
+    const next = template.cloneNode(false) as HTMLImageElement;
     next.className = "artwork__image";
     next.alt = options.decorative ? "" : alt;
     next.decoding = "async";
     next.draggable = false;
+    image?.remove();
+    image = next;
+    element.append(next);
+    const animate =
+      element.closest<HTMLElement>(".app-root")?.dataset.animations !==
+        "false" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!animate) {
+      element.classList.add("artwork--loaded");
+      placeholder.setAttribute("aria-hidden", "true");
+      return;
+    }
+    revealFrame = requestAnimationFrame(() => {
+      revealFrame = null;
+      if (requestNonce !== nonce) return;
+      element.classList.add("artwork--loaded");
+      placeholder.setAttribute("aria-hidden", "true");
+    });
+  };
+
+  const loadUrl = (url: string, revision: string, alt = ""): Promise<void> => {
+    nonce += 1;
+    const requestNonce = nonce;
+    clear();
+    currentRevision = revision;
+    const next = new Image();
+    next.decoding = "async";
+    next.src = url;
     return new Promise<void>((resolve) => {
       const failed = (): void => {
-        if (requestGeneration === generation) {
-          clear();
-          if (!warned.has(revision)) {
-            warned.add(revision);
-            console.warn("[artwork] image could not be loaded");
-          }
-        }
+        if (requestNonce === nonce) clear();
         resolve();
       };
       next.addEventListener("error", failed, { once: true });
@@ -70,52 +148,62 @@ export function createArtwork(options: {
         () => {
           void next
             .decode()
-            .catch(() => {
-              // A completed load is still usable when decode() is unsupported.
-            })
+            .catch(() => undefined)
             .then(() => {
-              if (
-                requestGeneration !== generation ||
-                currentRevision !== revision
-              ) {
-                resolve();
-                return;
-              }
-              image = next;
-              element.append(next);
-              revealFrame = requestAnimationFrame(() => {
-                revealFrame = null;
-                if (requestGeneration === generation) {
-                  element.classList.add("artwork--loaded");
-                  placeholder.setAttribute("aria-hidden", "true");
-                }
-              });
+              commit(next, revision, alt, requestNonce);
               resolve();
             });
         },
         { once: true },
       );
-      next.src = url;
     });
   };
 
   return {
     element,
-    update(artwork, alt) {
-      if (!artwork) {
-        generation += 1;
-        clear();
-        return;
-      }
-      if (currentRevision === artwork.revision) {
+    update(artwork, alt, generation = currentGeneration + 1) {
+      if (
+        generation === currentGeneration &&
+        currentRevision === (artwork?.revision ?? null)
+      ) {
         if (image && !options.decorative) image.alt = alt;
         return;
       }
-      void loadUrl(artworkUrl(artwork), artwork.revision, alt);
+      currentGeneration = generation;
+      nonce += 1;
+      const requestNonce = nonce;
+      if (!artwork) {
+        clear();
+        return;
+      }
+      currentRevision = artwork.revision;
+      const ready = decodeCache.ready(artwork.revision);
+      if (ready) {
+        clear();
+        currentRevision = artwork.revision;
+        commit(ready, artwork.revision, alt, requestNonce);
+        return;
+      }
+      clear();
+      currentRevision = artwork.revision;
+      void decodeCache
+        .prepare(artwork)
+        .then((template) => {
+          commit(template, artwork.revision, alt, requestNonce);
+        })
+        .catch(() => {
+          if (requestNonce === nonce) {
+            clear();
+            if (!warned.has(artwork.revision)) {
+              warned.add(artwork.revision);
+              console.warn("[artwork] image could not be loaded");
+            }
+          }
+        });
     },
     loadUrl,
     destroy() {
-      generation += 1;
+      nonce += 1;
       clear();
     },
   };
@@ -123,31 +211,26 @@ export function createArtwork(options: {
 
 export class ArtworkPreloader {
   private generation = 0;
-  private image: HTMLImageElement | null = null;
-  private revision: string | null = null;
+  private signature = "";
 
-  preload(artwork: ArtworkRef | null): void {
-    if ((artwork?.revision ?? null) === this.revision) return;
+  preload(artworks: ArtworkRef | readonly (ArtworkRef | null)[] | null): void {
+    const list: readonly (ArtworkRef | null)[] =
+      artworks === null ? [] : "revision" in artworks ? [artworks] : artworks;
+    const signature = list.map((artwork) => artwork?.revision ?? "").join(":");
+    if (signature === this.signature) return;
+    this.signature = signature;
     this.generation += 1;
-    this.image = null;
-    this.revision = artwork?.revision ?? null;
-    if (!artwork) return;
     const generation = this.generation;
-    const image = new Image();
-    image.decoding = "async";
-    image.src = artworkUrl(artwork);
-    image.addEventListener(
-      "load",
-      () => {
-        if (generation === this.generation) this.image = image;
-      },
-      { once: true },
-    );
+    for (const artwork of list) {
+      if (!artwork) continue;
+      void decodeCache.prepare(artwork).catch(() => {
+        if (generation !== this.generation) return;
+      });
+    }
   }
 
   destroy(): void {
     this.generation += 1;
-    this.image = null;
-    this.revision = null;
+    this.signature = "";
   }
 }

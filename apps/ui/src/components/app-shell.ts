@@ -1,7 +1,6 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import { PlayerApiClient } from "../api/player-api-client";
-import { config } from "../config";
 import { t } from "../i18n";
 import { getNavigationItem } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
@@ -10,14 +9,15 @@ import { createScreen } from "../screens";
 import { disconnectedPlayerState, PlayerStore } from "../state/player-store";
 import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
+import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
 import {
   loadPlaybackPreferences,
   saveAnimationsEnabled,
   savePlaybackPreferences,
   saveTimelineStyle,
+  saveTimelineTimeMode,
   saveVisualizerMode,
 } from "../utils/storage";
-import { createViewportIndicator } from "../utils/viewport";
 import { createMiniPlayer, type MiniPlayer } from "./mini-player";
 import { ArtworkPreloader } from "./artwork";
 import { createQueueDrawer } from "./queue-drawer";
@@ -37,6 +37,7 @@ export function mountApp(
 ): MountedApp {
   const api = new PlayerApiClient();
   const playerStore = new PlayerStore(disconnectedPlayerState);
+  const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
   const toast = document.createElement("div");
   toast.className = "app-toast";
@@ -68,7 +69,10 @@ export function mountApp(
     }
     if (supported.length < paths.length)
       showMessage(t("error.someUnsupportedFiles"));
-    if (supported.length > 0) run(api.open(supported));
+    if (supported.length > 0) {
+      trackTransitions.noteTrackCommand();
+      run(api.open(supported));
+    }
   };
   const openFiles = (): void => {
     void runSingleAudioFileSelection(platform, handlePaths).catch(
@@ -89,17 +93,11 @@ export function mountApp(
     store.setActiveScreen(screen);
   };
 
-  const topBar = createTopBar(
-    () => {
-      const open = !store.getState().menuOpen;
-      closeOverlays();
-      store.setMenuOpen(open);
-    },
-    () => {
-      closeOverlays();
-      store.setActiveScreen("nowPlaying");
-    },
-  );
+  const topBar = createTopBar(() => {
+    const open = !store.getState().menuOpen;
+    closeOverlays();
+    store.setMenuOpen(open);
+  });
   const sideMenu = createSideMenu({
     onClose: () => {
       store.setMenuOpen(false);
@@ -111,6 +109,7 @@ export function mountApp(
       store.setQueueOpen(false);
     },
     onPlay: (index) => {
+      trackTransitions.noteTrackCommand();
       run(api.playQueue(index));
     },
     onAdd: () => {
@@ -164,9 +163,6 @@ export function mountApp(
     dropOverlay,
     toast,
   );
-  const viewportIndicator = createViewportIndicator(config);
-  if (viewportIndicator) root.append(viewportIndicator);
-
   let miniPlayer: MiniPlayer | null = null;
   const artworkPreloader = new ArtworkPreloader();
   let currentScreen: ComponentView | null = null;
@@ -176,9 +172,11 @@ export function mountApp(
       run(api.playPause());
     },
     previous: () => {
+      trackTransitions.noteTrackCommand();
       run(api.previous());
     },
     next: () => {
+      trackTransitions.noteTrackCommand();
       run(api.next());
     },
     seek: (positionSeconds: number) => {
@@ -206,6 +204,9 @@ export function mountApp(
       },
       setTimelineStyle: (style) => {
         store.setTimelineStyle(style);
+      },
+      setTimelineTimeMode: (mode) => {
+        store.setTimelineTimeMode(mode);
       },
       openQueue: (trigger) => {
         queueDrawer.setReturnFocus(trigger);
@@ -248,6 +249,8 @@ export function mountApp(
           navigate("nowPlaying");
         },
         actions.playPause,
+        actions.previous,
+        actions.next,
         actions.seek,
       );
       miniPlayer.update(playerStore.getState());
@@ -292,15 +295,18 @@ export function mountApp(
       saveVisualizerMode(state.visualizerMode);
     if (state.timelineStyle !== previousState.timelineStyle)
       saveTimelineStyle(state.timelineStyle);
+    if (state.timelineTimeMode !== previousState.timelineTimeMode)
+      saveTimelineTimeMode(state.timelineTimeMode);
   });
   const unsubscribePlayer = playerStore.subscribe((state) => {
     currentScreen?.updatePlayerState?.(state);
     miniPlayer?.update(state);
     queueDrawer.update(state);
-    artworkPreloader.preload(
+    artworkPreloader.preload([
+      state.currentTrack?.artwork ?? null,
       state.queue[state.currentQueueIndex + 1]?.artwork ?? null,
-    );
-    topBar.setAudioDevice(state.audioDevice);
+      state.queue[state.currentQueueIndex - 1]?.artwork ?? null,
+    ]);
     volumePopover.setState(state.volume, state.muted);
     if (state.mpvAvailable)
       savePlaybackPreferences({
@@ -313,10 +319,9 @@ export function mountApp(
       showMessage(state.error.message);
   });
   queueDrawer.update(playerStore.getState());
-  topBar.setAudioDevice(disconnectedPlayerState.audioDevice);
   const unsubscribeEvents = api.subscribe(
     (state) => {
-      playerStore.setState(state);
+      playerStore.setState(trackTransitions.accept(state));
     },
     () => {
       // EventSource retries automatically; the last valid state remains visible.
@@ -325,7 +330,7 @@ export function mountApp(
   void api
     .getState()
     .then(async (state) => {
-      playerStore.setState(state);
+      playerStore.setState(trackTransitions.accept(state));
       if (!state.mpvAvailable) return;
       await Promise.all([
         api.volume(preferences.volume),

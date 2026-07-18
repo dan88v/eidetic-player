@@ -1,0 +1,125 @@
+# Performance and realtime guidelines
+
+## Target budget
+
+Design for Raspberry Pi 3B even while developing on a faster Windows PC.
+Smoothness on the PC is necessary but not proof of target performance.
+
+Prefer:
+
+- small bundles and no unnecessary runtime dependencies;
+- bounded caches and concurrency;
+- incremental DOM updates;
+- fixed-size, reused buffers;
+- limited event frequency;
+- work that stops when not visible or needed.
+
+Any new high-frequency feature must include measurements, a lifecycle, resource
+limits, and a fallback.
+
+## Rendering
+
+High-frequency data must not enter the global application store.
+
+The visualizer path is:
+
+1. receive a compact frame;
+2. retain only the newest target values;
+3. draw from one `requestAnimationFrame` loop owned by the active visualizer;
+4. reuse arrays and computed geometry;
+5. cancel the loop on teardown.
+
+Rules for the hot path:
+
+- no `map`, `filter`, spread, nested object creation, or DOM reconstruction per
+  frame;
+- no `getBoundingClientRect`, computed style, gradient creation, or Canvas
+  backing-store resize per frame;
+- no Queue, metadata, artwork, or player-state updates from visualizer frames;
+- drop stale frames instead of building a backlog;
+- cap UI rendering and analyzer output independently;
+- cap device-pixel ratio when higher resolution has no visible benefit.
+
+Mode `none` must close the visualizer EventSource, stop analysis when no other
+subscriber exists, and cancel rendering.
+
+## SSE and events
+
+- Maintain one player-state subscription per application.
+- Maintain at most one visualizer EventSource for active Now Playing.
+- A single backend analyzer is shared by all visualizer clients.
+- Coalesce playback position to the established modest frequency.
+- Send discrete state changes immediately.
+- Keep visualizer payloads mode-specific and compact.
+- Do not serialize the Queue or full state for each visualizer/position frame.
+- Dispose disconnected clients and all component subscriptions.
+
+Instrument connection count in development when diagnosing stutter.
+
+## Queue
+
+Position, volume, visualizer, and unrelated metadata ticks must not rebuild the
+Queue. Use stable Queue IDs and a structural revision. Reconcile only additions,
+removals, order changes, active-row state, and row-specific metadata/artwork.
+
+During a stable 30-second playback interval, normal position ticks should cause
+zero complete Queue rebuilds.
+
+## MPV and FFmpeg
+
+- MPV is a single persistent, headless playback process.
+- Never decode playback audio in Node.
+- Realtime analysis uses at most one FFmpeg process.
+- Waveform extraction uses at most one separate FFmpeg process.
+- Spawn with argument arrays and no shell interpolation.
+- Analyzer restart is reserved for a real lifecycle event: file change,
+  completed seek, resume, meaningful drift, subscriber return, or recovery.
+- Normal position ticks, artwork, Queue opening, volume, and repaint must not
+  restart analysis.
+- Apply restart cooldown and prevent restart loops.
+- Missing or failed FFmpeg must not interrupt MPV.
+
+## Caches and concurrency
+
+Use bounded session caches with invalidation based on canonical path, file size,
+and modification time. Respect the established limits unless measurements
+justify a deliberate change.
+
+- metadata: bounded LRU, no retained artwork buffers;
+- artwork: bounded items and bytes, safe temporary-file cleanup;
+- Queue artwork: limited concurrent resolution;
+- waveform: bounded numeric arrays and one generation process;
+- current-track work has priority over next-track preload.
+
+Do not add a cache dependency for simple bounded LRU behavior.
+
+Track-transition preload is deliberately bounded to three identities:
+
+1. current metadata/artwork;
+2. next metadata/artwork/waveform;
+3. previous metadata/artwork, plus its waveform only when already cached.
+
+Changing the Queue or presentation generation aborts in-flight UI waveform
+requests and makes all late results inapplicable. Rapid Previous/Next commands
+keep only the latest target identity; they do not disable controls or create
+additional fades, timers, EventSource connections, animation loops, analyzers,
+or unbounded parse work.
+
+## Required performance evidence
+
+For changes affecting realtime behavior, measure before and after:
+
+- frame arrival and render rates;
+- average interval and jitter;
+- dropped/stale frames;
+- EventSource and `requestAnimationFrame` counts;
+- active MPV/FFmpeg process counts;
+- analyzer restarts during stable playback;
+- backend and FFmpeg CPU when practical;
+- memory when practical;
+- Queue full rebuild count;
+- average payload size.
+
+Test Meter, Mono Spectrum, Stereo Spectrum, and None independently with real
+FLAC and MP3 files. Record limitations honestly; do not claim Raspberry Pi 3B
+performance until measured on that hardware.

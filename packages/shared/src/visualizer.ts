@@ -1,5 +1,6 @@
 export interface VisualizerFrame {
   readonly trackId: string | null;
+  readonly trackTransitionId: number;
   readonly positionSeconds: number;
   readonly sequence: number;
   readonly meter: {

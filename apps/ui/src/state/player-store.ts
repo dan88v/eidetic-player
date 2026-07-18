@@ -27,6 +27,8 @@ export class PlayerStore {
 }
 
 export const disconnectedPlayerState: PlayerState = {
+  playerSessionId: "disconnected",
+  trackTransitionId: 0,
   status: "loading",
   mpvAvailable: false,
   mpvVersion: null,

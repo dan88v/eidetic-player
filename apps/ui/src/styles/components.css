@@ -16,28 +16,28 @@
   .top-bar {
     position: relative;
     z-index: var(--z-top-bar);
-    display: grid;
+    display: flex;
     min-width: 0;
     height: var(--top-bar-height);
-    grid-template-columns:
-      var(--touch-medium) var(--touch-medium) minmax(0, 1fr)
-      auto;
     align-items: center;
     background: var(--color-bg);
   }
 
-  .top-bar__menu {
+  .top-bar .top-bar__menu {
     width: var(--touch-medium);
     height: var(--touch-medium);
+    flex: none;
     border-radius: 0;
   }
 
-  .top-bar__home {
-    width: var(--touch-medium);
-    height: var(--touch-medium);
+  .top-bar .top-bar__menu .icon {
+    width: 2.25rem;
+    height: 2.25rem;
   }
 
   .top-bar__title {
+    min-width: 0;
+    flex: 1 1 auto;
     overflow: hidden;
     padding-inline: var(--space-3);
     font-size: 1.4375rem;
@@ -48,28 +48,37 @@
   }
 
   .top-bar__info {
-    display: flex;
+    display: inline-flex;
     height: 100%;
+    flex: none;
     align-items: center;
-    gap: var(--space-4);
+    gap: 1.125rem;
     padding-inline: var(--space-5);
     color: var(--color-text-secondary);
     font-size: var(--font-size-md);
     font-variant-numeric: tabular-nums;
   }
 
-  .top-bar__audio {
+  .top-bar__system-icons {
     display: inline-flex;
+    flex: none;
     align-items: center;
-    gap: var(--space-2);
+    gap: 0.75rem;
+    color: var(--color-text-muted);
   }
 
-  .top-bar__audio-dot {
-    width: 0.45rem;
-    height: 0.45rem;
+  .top-bar__system-icon {
+    display: inline-flex;
+    width: 1.625rem;
+    height: 1.625rem;
     flex: none;
-    border-radius: 50%;
-    background: var(--color-accent);
+    align-items: center;
+    justify-content: center;
+  }
+
+  .top-bar__system-icon .icon {
+    width: 1.625rem;
+    height: 1.625rem;
   }
 
   .top-bar__clock {
@@ -331,6 +340,7 @@
     position: relative;
     overflow: hidden;
     isolation: isolate;
+    background: var(--color-surface);
   }
 
   .artwork__placeholder {
@@ -367,7 +377,7 @@
   }
 
   .app-root[data-animations="true"] .artwork__image {
-    transition: opacity 170ms var(--easing-standard);
+    transition: opacity 140ms var(--easing-standard);
   }
 
   .artwork--loaded .artwork__image {
@@ -392,10 +402,14 @@
   }
 
   .mini-player__copy strong {
+    min-height: 1.3em;
+    line-height: 1.3;
     font-size: 1.25rem;
   }
 
   .mini-player__copy span {
+    min-height: 1.3em;
+    line-height: 1.3;
     color: var(--color-text-secondary);
     font-size: var(--font-size-sm);
   }
@@ -404,10 +418,24 @@
     position: relative;
     z-index: 4;
     display: flex;
-    gap: var(--space-3);
+    align-items: center;
+    gap: var(--space-4);
+    flex: none;
   }
 
   .mini-player__actions .icon-button {
+    width: var(--touch-small);
+    height: var(--touch-small);
+  }
+
+  .mini-player__transport {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .mini-player__actions [data-control="play"] {
     width: var(--touch-medium);
     height: var(--touch-medium);
   }
@@ -818,23 +846,5 @@
     opacity: 1;
     transform: translate(-50%, 0);
     visibility: visible;
-  }
-
-  .viewport-indicator {
-    position: fixed;
-    z-index: var(--z-diagnostic);
-    right: var(--space-3);
-    bottom: calc(var(--space-2) + var(--mini-player-height));
-    padding: var(--space-1) var(--space-2);
-    border-radius: var(--radius-sm);
-    color: var(--color-text-muted);
-    background: rgb(10 12 16 / 84%);
-    font-size: var(--font-size-xs);
-    font-variant-numeric: tabular-nums;
-    pointer-events: none;
-  }
-
-  .content-shell:not(.content-shell--with-mini-player) ~ .viewport-indicator {
-    bottom: var(--space-2);
   }
 }

@@ -29,6 +29,7 @@ export class AudioAnalyzerService {
   private startPosition = 0;
   private lastEmission = 0;
   private activeTrackId: string | null = null;
+  private activeTransitionId = -1;
   private failedTrackId: string | null = null;
   private lastDriftCheck = 0;
   private lastRestart = 0;
@@ -139,7 +140,12 @@ export class AudioAnalyzerService {
         }
         const trackId =
           this.state?.queue[this.state.currentQueueIndex]?.id ?? null;
-        if (restart || !this.child || trackId !== this.activeTrackId)
+        if (
+          restart ||
+          !this.child ||
+          trackId !== this.activeTrackId ||
+          this.state?.trackTransitionId !== this.activeTransitionId
+        )
           await this.start();
       });
   }
@@ -158,6 +164,7 @@ export class AudioAnalyzerService {
     this.samplesReceived = 0;
     this.startPosition = Math.max(0, state.positionSeconds);
     this.activeTrackId = trackId;
+    this.activeTransitionId = state.trackTransitionId;
     this.starts += 1;
     const child = spawn(
       discovery.executable,
@@ -197,6 +204,7 @@ export class AudioAnalyzerService {
         trackId,
         this.startPosition,
         this.samplesReceived,
+        state.trackTransitionId,
       );
       this.samplesReceived += Math.floor(values.length / 2);
       for (const frame of frames) {
@@ -228,7 +236,7 @@ export class AudioAnalyzerService {
         console.warn(
           `[analyzer] FFmpeg exited (${String(code)}): ${errorText.trim()}`,
         );
-        this.emit(zeroFrame(trackId));
+        this.emit(zeroFrame(trackId, 0, state.trackTransitionId));
       }
       this.synchronize();
     });
@@ -253,8 +261,10 @@ export class AudioAnalyzerService {
         });
       });
     }
-    if (emitZero) this.emit(zeroFrame(this.activeTrackId));
+    if (emitZero)
+      this.emit(zeroFrame(this.activeTrackId, 0, this.activeTransitionId));
     this.activeTrackId = null;
+    this.activeTransitionId = -1;
   }
 
   private emit(frame: VisualizerFrame): void {

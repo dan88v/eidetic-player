@@ -7,6 +7,7 @@ import { createAppStore } from "./state/store";
 import {
   loadAnimationsEnabled,
   loadTimelineStyle,
+  loadTimelineTimeMode,
   loadVisualizerMode,
 } from "./utils/storage";
 import { correctInitialViewportOnce } from "./utils/viewport";
@@ -53,6 +54,7 @@ async function bootstrap(): Promise<void> {
     animationsEnabled: loadAnimationsEnabled(),
     visualizerMode: loadVisualizerMode(),
     timelineStyle: loadTimelineStyle(),
+    timelineTimeMode: loadTimelineTimeMode(),
   });
   const app = mountApp(root, store, platform.bridge);
   window.addEventListener(

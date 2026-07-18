@@ -10,6 +10,7 @@ export type ScreenId = (typeof screenIds)[number];
 export type VisualizerMode =
   "meter" | "spectrumMono" | "spectrumStereo" | "none";
 export type TimelineStyle = "waveform" | "line";
+export type TimelineTimeMode = "total" | "remaining";
 
 export interface AppState {
   readonly activeScreen: ScreenId;
@@ -19,4 +20,5 @@ export interface AppState {
   readonly animationsEnabled: boolean;
   readonly visualizerMode: VisualizerMode;
   readonly timelineStyle: TimelineStyle;
+  readonly timelineTimeMode: TimelineTimeMode;
 }

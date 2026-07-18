@@ -103,6 +103,8 @@ void test("rapid player updates keep exactly one realtime FFmpeg process", async
     await analyzer.initialize();
     analyzer.setSubscriberCount(1);
     const state: PlayerState = {
+      playerSessionId: "ffmpeg-integration",
+      trackTransitionId: 1,
       status: "playing",
       mpvAvailable: true,
       mpvVersion: "test",

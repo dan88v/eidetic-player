@@ -2,6 +2,7 @@ import type { PlayerState } from "../../../../packages/shared/src/player";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import { createArtwork } from "./artwork";
+import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
 
 export interface MiniPlayer {
   readonly element: HTMLElement;
@@ -12,6 +13,8 @@ export interface MiniPlayer {
 export function createMiniPlayer(
   onOpenNowPlaying: () => void,
   onPlayPause: () => void,
+  onPrevious: () => void,
+  onNext: () => void,
   onSeek: (positionSeconds: number) => void,
 ): MiniPlayer {
   const player = document.createElement("aside");
@@ -23,8 +26,12 @@ export function createMiniPlayer(
       <span class="mini-player__copy"><strong></strong><span></span></span>
     </button>
     <div class="mini-player__actions">
-      <button class="icon-button icon-button--quiet" type="button" aria-label="${t("miniPlayer.play")}">${icon("play")}</button>
-      <button class="icon-button icon-button--primary" type="button" aria-label="${t("miniPlayer.openNowPlaying")}">${icon("back")}</button>
+      <span class="mini-player__transport">
+        <button class="icon-button" data-control="previous" type="button" aria-label="${t("nowPlaying.previous")}">${icon("previous")}</button>
+        <button class="icon-button icon-button--primary" data-control="play" type="button" aria-label="${t("miniPlayer.play")}">${icon("play")}</button>
+        <button class="icon-button" data-control="next" type="button" aria-label="${t("nowPlaying.next")}">${icon("next")}</button>
+      </span>
+      <button class="icon-button mini-player__home" data-control="home" type="button" aria-label="${t("nav.goToNowPlaying")}">${icon("home")}</button>
     </div>
     <div class="mini-player__timeline" role="slider" aria-label="${t("timeline.label")}" aria-valuemin="0" aria-valuemax="100" tabindex="-1">
       <span class="mini-player__timeline-rail"><span class="mini-player__timeline-fill"></span><span class="mini-player__timeline-thumb"></span></span>
@@ -33,10 +40,16 @@ export function createMiniPlayer(
     ".mini-player__summary",
   );
   const playButton = player.querySelector<HTMLButtonElement>(
-    ".mini-player__actions button:first-child",
+    '[data-control="play"]',
+  );
+  const previousButton = player.querySelector<HTMLButtonElement>(
+    '[data-control="previous"]',
+  );
+  const nextButton = player.querySelector<HTMLButtonElement>(
+    '[data-control="next"]',
   );
   const openButton = player.querySelector<HTMLButtonElement>(
-    ".mini-player__actions button:last-child",
+    '[data-control="home"]',
   );
   const title = player.querySelector<HTMLElement>(".mini-player__copy strong");
   const artist = player.querySelector<HTMLElement>(".mini-player__copy span");
@@ -47,7 +60,9 @@ export function createMiniPlayer(
   );
   if (
     !summary ||
+    !previousButton ||
     !playButton ||
+    !nextButton ||
     !openButton ||
     !title ||
     !artist ||
@@ -123,23 +138,48 @@ export function createMiniPlayer(
   });
   player.querySelector(".mini-player__artwork")?.replaceWith(artwork.element);
   summary.addEventListener("click", onOpenNowPlaying);
-  openButton.addEventListener("click", onOpenNowPlaying);
-  playButton.addEventListener("click", onPlayPause);
+  const bindAction = (button: HTMLButtonElement, action: () => void): void => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      action();
+    });
+  };
+  bindAction(previousButton, onPrevious);
+  bindAction(playButton, onPlayPause);
+  bindAction(nextButton, onNext);
+  bindAction(openButton, onOpenNowPlaying);
+  const setText = (element: HTMLElement, value: string): void => {
+    if (element.textContent === value) return;
+    if (element.childNodes.length === 1 && element.firstChild instanceof Text)
+      element.firstChild.data = value;
+    else element.textContent = value;
+  };
+  let playIconName = "";
   return {
     element: player,
     update(state) {
-      duration = Math.max(0, state.durationSeconds);
+      const presentation = createTrackPresentationSnapshot(state);
+      duration = presentation.durationSeconds;
       timeline.tabIndex = duration > 0 ? 0 : -1;
       timeline.setAttribute("aria-disabled", String(duration <= 0));
       if (!dragging)
-        setProgress(duration ? state.positionSeconds / duration : 0);
-      title.textContent =
-        state.currentTrack?.title ?? t("nowPlaying.emptyTitle");
-      artist.textContent =
-        state.currentTrack?.artist ?? t("nowPlaying.emptyDescription");
-      artwork.update(state.currentTrack?.artwork ?? null, "");
-      playButton.disabled = !state.currentTrack || state.status === "loading";
-      playButton.innerHTML = icon(state.paused ? "play" : "pause");
+        setProgress(duration ? presentation.positionSeconds / duration : 0);
+      setText(title, presentation.title ?? t("nowPlaying.emptyTitle"));
+      setText(artist, presentation.artist ?? t("nowPlaying.emptyDescription"));
+      artwork.update(presentation.artwork, "", presentation.generation);
+      const disabled = !state.currentTrack || state.status === "loading";
+      previousButton.disabled = disabled;
+      playButton.disabled = disabled;
+      nextButton.disabled = disabled;
+      const nextPlayIcon = state.paused ? "play" : "pause";
+      if (nextPlayIcon !== playIconName) {
+        playIconName = nextPlayIcon;
+        playButton.innerHTML = icon(nextPlayIcon);
+      }
+      playButton.setAttribute(
+        "aria-pressed",
+        String(!disabled && !state.paused),
+      );
     },
     destroy() {
       artwork.destroy();

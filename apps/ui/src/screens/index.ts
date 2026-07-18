@@ -1,4 +1,5 @@
 import type { ComponentView } from "../components/types";
+import type { AppStore } from "../state/store";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import type { PlayerActions } from "./now-playing";
 import type {
@@ -18,6 +19,7 @@ export interface ScreenContext {
   readonly setAnimationsEnabled: (enabled: boolean) => void;
   readonly setVisualizerMode: (mode: VisualizerMode) => void;
   readonly setTimelineStyle: (style: TimelineStyle) => void;
+  readonly setTimelineTimeMode: AppStore["setTimelineTimeMode"];
   readonly openQueue: (trigger: HTMLButtonElement) => void;
   readonly openLibrary: () => void;
   readonly toggleVolume: (trigger: HTMLButtonElement) => void;
@@ -43,7 +45,9 @@ export function createScreen(
       return createNowPlayingScreen({
         visualizerMode: context.state.visualizerMode,
         timelineStyle: context.state.timelineStyle,
+        timelineTimeMode: context.state.timelineTimeMode,
         onVisualizerModeChange: context.setVisualizerMode,
+        onTimelineTimeModeChange: context.setTimelineTimeMode,
         onOpenQueue: context.openQueue,
         onOpenLibrary: context.openLibrary,
         onToggleVolume: context.toggleVolume,
