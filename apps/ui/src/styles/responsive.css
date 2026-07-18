@@ -96,6 +96,39 @@
     .setting-row .segmented-control {
       width: 100%;
     }
+
+    .sources-list--placeholders {
+      grid-template-columns: 1fr;
+    }
+
+    .source-card {
+      grid-template-columns: var(--touch-large) minmax(0, 1fr);
+    }
+
+    .source-card__actions {
+      grid-column: 1 / -1;
+      justify-content: flex-start;
+    }
+
+    .library-folder-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .library-breadcrumb--middle {
+      display: none !important;
+    }
+
+    .library-breadcrumbs button {
+      max-width: 11rem;
+    }
+
+    .library-audio {
+      grid-template-columns: 4rem minmax(0, 1fr) 4.5rem;
+    }
+
+    .library-audio__technical {
+      display: none;
+    }
   }
 
   @media (max-width: 36rem) {
@@ -127,6 +160,20 @@
     .segmented-control {
       min-width: 0;
       width: 100%;
+    }
+
+    .sources-header,
+    .library-source-heading {
+      flex-wrap: wrap;
+    }
+
+    .library-folder-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .library-audio {
+      gap: var(--space-3);
+      padding-inline: var(--space-3);
     }
   }
 }

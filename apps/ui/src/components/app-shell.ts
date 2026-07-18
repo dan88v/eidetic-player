@@ -1,6 +1,7 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import { PlayerApiClient } from "../api/player-api-client";
+import { LibraryApiClient } from "../api/library-api-client";
 import { t } from "../i18n";
 import { getNavigationItem } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
@@ -10,6 +11,7 @@ import { disconnectedPlayerState, PlayerStore } from "../state/player-store";
 import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
+import { librarySession } from "../state/library-session";
 import {
   loadPlaybackPreferences,
   saveAnimationsEnabled,
@@ -36,6 +38,7 @@ export function mountApp(
   platform: PlatformBridge,
 ): MountedApp {
   const api = new PlayerApiClient();
+  const libraryApi = new LibraryApiClient();
   const playerStore = new PlayerStore(disconnectedPlayerState);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
@@ -91,6 +94,11 @@ export function mountApp(
   const navigate = (screen: ScreenId): void => {
     closeOverlays();
     store.setActiveScreen(screen);
+  };
+  const addLocalFolder = async () => {
+    const nativePath = await platform.openFolder();
+    if (!nativePath) return null;
+    return libraryApi.addLocalSource(nativePath);
   };
 
   const topBar = createTopBar(() => {
@@ -196,6 +204,20 @@ export function mountApp(
       state,
       playerState: playerStore.getState(),
       playerActions: actions,
+      libraryApi,
+      addLocalFolder,
+      openLibrarySource: (sourceId) => {
+        librarySession.openSource(sourceId);
+        navigate("library");
+      },
+      openLibraryEntry: async (sourceId, entryId) => {
+        trackTransitions.noteTrackCommand();
+        await libraryApi.openEntry(sourceId, entryId);
+        navigate("nowPlaying");
+      },
+      removeLibrarySource: (sourceId) => {
+        librarySession.removeSource(sourceId);
+      },
       setAnimationsEnabled: (enabled) => {
         store.setAnimationsEnabled(enabled);
       },

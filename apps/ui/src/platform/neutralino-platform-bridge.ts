@@ -33,6 +33,22 @@ export class NeutralinoPlatformBridge implements PlatformBridge {
     }
   }
 
+  async openFolder(): Promise<string | null> {
+    try {
+      const result = await this.runtime.os.showFolderDialog(
+        "Select a music folder",
+      );
+      return typeof result === "string" && result.length > 0 ? result : null;
+    } catch (error) {
+      throw new Error(
+        `The native folder dialog failed: ${errorMessage(error)}`,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
   subscribeToDroppedFiles(
     callback: (paths: readonly string[]) => void,
   ): () => void {

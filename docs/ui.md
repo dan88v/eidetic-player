@@ -53,6 +53,25 @@ At 1280 × 800, artwork and visualizer share the same structural row. The stereo
 meter keeps its approved 16 px L/R bars and 10 px gap, while the reduced
 visualizer container is controlled by `--now-playing-visualizer-height`.
 
+## Sources and hierarchical Library
+
+Sources uses real Local Folder cards with Open, Rename, Remove, and conditional
+Retry actions. Rename is an accessible modal with Escape, focus trap, and focus
+restoration; Remove states that files are not deleted. USB Storage and Network
+Shares remain subdued static placeholders.
+
+Library starts with configured sources, then loads one directory level at a
+time. Folders use a stable touch grid; audio uses a separate fixed-height list
+with 64 px artwork. Filename/extension render immediately, while title, artist,
+duration, format, and artwork update in place without reordering. Current state
+changes only the row class and `aria-current`.
+
+Back and the keyboard-accessible breadcrumb use logical locations only. Existing
+content remains visible during the next request and the result commits once.
+Source, directory, selected row, and per-directory scroll survive Library to
+Now Playing to Library for the UI session. At 1024 x 600 the grid reduces
+columns without shrinking touch targets.
+
 ## Artwork presentation
 
 Now Playing, the mini-player, and Queue share one lightweight artwork component.

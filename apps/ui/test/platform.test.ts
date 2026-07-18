@@ -19,15 +19,18 @@ import type {
 function createRuntime(options?: {
   readonly initError?: Error;
   readonly dialogResult?: unknown;
+  readonly folderDialogResult?: unknown;
 }): {
   readonly runtime: NeutralinoRuntime;
   readonly getInitCount: () => number;
   readonly getReadyListenerCount: () => number;
   readonly getListenerCount: (name: string) => number;
   readonly getDialogMultiple: () => boolean | undefined;
+  readonly getFolderDialogCount: () => number;
 } {
   let initCount = 0;
   let dialogMultiple: boolean | undefined;
+  let folderDialogCount = 0;
   const listeners = new Map<string, Set<NeutralinoListener>>();
   const runtime: NeutralinoRuntime = {
     init() {
@@ -39,6 +42,10 @@ function createRuntime(options?: {
       showOpenDialog: (_title, dialogOptions) => {
         dialogMultiple = dialogOptions?.multiSelections;
         return Promise.resolve(options?.dialogResult ?? []);
+      },
+      showFolderDialog: () => {
+        folderDialogCount += 1;
+        return Promise.resolve(options?.folderDialogResult);
       },
     },
     events: {
@@ -58,6 +65,7 @@ function createRuntime(options?: {
     getReadyListenerCount: () => listeners.get("ready")?.size ?? 0,
     getListenerCount: (name) => listeners.get(name)?.size ?? 0,
     getDialogMultiple: () => dialogMultiple,
+    getFolderDialogCount: () => folderDialogCount,
   };
 }
 
@@ -97,6 +105,24 @@ void test("maps native dialog cancellation to an empty selection", async () => {
     [],
   );
   assert.equal(fake.getDialogMultiple(), false);
+});
+
+void test("opens the native folder dialog and maps cancellation", async () => {
+  const folder = "C:\\Music";
+  const selected = createRuntime({ folderDialogResult: folder });
+  const selectedPlatform = await initializePlatform(
+    neutralinoScope(selected.runtime),
+    100,
+  );
+  assert.equal(await selectedPlatform.bridge.openFolder(), folder);
+  assert.equal(selected.getFolderDialogCount(), 1);
+
+  const cancelled = createRuntime({ folderDialogResult: undefined });
+  const cancelledPlatform = await initializePlatform(
+    neutralinoScope(cancelled.runtime),
+    100,
+  );
+  assert.equal(await cancelledPlatform.bridge.openFolder(), null);
 });
 
 void test("main Open Files forwards only the ninth file selected by the UI", async () => {

@@ -204,6 +204,9 @@ void test("PlayerService replaces the Queue and opens the selected ninth item", 
   try {
     await player.initialize();
     const platform: PlatformBridge = {
+      openFolder() {
+        return Promise.resolve(null);
+      },
       openAudioFiles(options) {
         assert.equal(options.multiple, false);
         return Promise.resolve([(first[8] ?? "").replaceAll("\\", "/")]);

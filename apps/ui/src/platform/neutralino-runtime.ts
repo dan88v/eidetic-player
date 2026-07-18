@@ -13,6 +13,10 @@ export interface NeutralinoRuntime {
         }[];
       },
     ): Promise<unknown>;
+    showFolderDialog(
+      title?: string,
+      options?: { readonly defaultPath?: string },
+    ): Promise<unknown>;
   };
   readonly events: {
     on(name: string, listener: NeutralinoListener): unknown;
@@ -32,6 +36,7 @@ export interface PlatformDiagnostics {
   readonly nlMode: string | null;
   readonly neutralinoAvailable: boolean;
   readonly openDialogAvailable: boolean;
+  readonly folderDialogAvailable: boolean;
   readonly namespacePresent: boolean;
   readonly globalsAvailable: boolean;
 }
@@ -49,10 +54,12 @@ export function getNeutralinoDiagnostics(
   const events =
     namespacePresent && isObject(namespace.events) ? namespace.events : null;
   const openDialogAvailable = typeof os?.showOpenDialog === "function";
+  const folderDialogAvailable = typeof os?.showFolderDialog === "function";
   const neutralinoAvailable =
     namespacePresent &&
     typeof namespace.init === "function" &&
     openDialogAvailable &&
+    folderDialogAvailable &&
     typeof events?.on === "function" &&
     typeof events.off === "function";
   const globalsAvailable =
@@ -66,6 +73,7 @@ export function getNeutralinoDiagnostics(
     nlMode: typeof scope.NL_MODE === "string" ? scope.NL_MODE : null,
     neutralinoAvailable,
     openDialogAvailable,
+    folderDialogAvailable,
     namespacePresent,
     globalsAvailable,
   };

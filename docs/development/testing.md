@@ -51,6 +51,18 @@ Real-media tests use user-provided local folders read-only.
 - Include files with embedded artwork, folder artwork, missing artwork,
   incomplete metadata, long titles, and Unicode paths when available.
 
+For Sources/Library, also verify the real Neutralino folder dialog, restart
+persistence, display-only Rename, non-destructive Remove, unavailable/Retry,
+logical breadcrumb/Back, session scroll restoration, lazy enrichment, and an
+exact non-first Queue index. Confirm no Source/browse response contains a native
+absolute path.
+
+Filesystem tests exercise `path.win32` and `path.posix` independently of the
+host: drive/UNC/POSIX roots, slash forms, case rules, Unicode/spaces, prefix
+collisions, traversal/null/mixed separators, canonical containment,
+symlink/junction exclusion, XDG/APPDATA configuration, atomic persistence,
+corruption recovery, and remove-without-delete.
+
 For a folder Queue test:
 
 1. capture the natural order;

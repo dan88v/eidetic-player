@@ -2,7 +2,7 @@
 
 Eidetic Player is a lightweight, touch-first local audio player targeting a
 horizontal 1280 × 800 display and a future Raspberry Pi 3B deployment. The
-current Step 2.3 build uses a vanilla TypeScript UI, a Node.js control service,
+current Step 2.4 build uses a vanilla TypeScript UI, a Node.js control service,
 Neutralinojs for native file paths, and one persistent MPV process for decoding
 and system audio output.
 
@@ -85,6 +85,28 @@ The Open Files actions on Now Playing and Sources use the same native
 A regular browser fallback cannot open trusted absolute local paths and reports
 that the native shell is required.
 
+## Local Sources and Library
+
+Sources can add a real local folder through Neutralino's native folder dialog.
+Rename changes only its display name, while Remove only removes configuration:
+media files are never changed or deleted. USB Storage and Network Shares remain
+non-functional placeholders.
+
+Sources persist in `%APPDATA%\Eidetic Player\sources.json` on Windows and
+`${XDG_CONFIG_HOME:-~/.config}/eidetic-player/sources.json` on Linux using
+atomic writes and corruption recovery.
+
+Library reads one directory level on demand. It separates folders and audio,
+loads metadata/artwork lazily with limits of two, and preserves logical
+location and scroll for the UI session. Opening a row builds the naturally
+sorted directory Queue and starts at the exact selected index through the
+existing atomic `PlayerService` path.
+
+Native roots remain backend-only after Add Folder. UI contracts use opaque
+source/entry IDs and logical relative paths. Central Windows/POSIX containment
+checks block traversal and prefix collisions; symlinks and junctions are not
+browsable. The directory LRU is limited to 32 entries.
+
 ## Playback behavior
 
 The real controls cover play/pause, previous (restart after three seconds),
@@ -122,11 +144,12 @@ graphics remain available.
 `EIDETIC_ANALYZER_ENABLED=false` disables real-time analysis and
 `EIDETIC_WAVEFORM_PRELOAD_NEXT=false` disables next-track waveform preload.
 
-## Step 2.3 limits
+## Step 2.4 limits
 
-There is no database, indexed library, online artwork lookup, thumbnail
-generation, network source, USB detection, DAC selection, session restore,
-online lookup, audio DSP, or modification of the signal played by MPV. FFmpeg
-performance has not yet been validated on Raspberry Pi 3B.
+There is no database, indexed/searchable Artist/Album/Genre library, recursive
+scan, filesystem watcher, online artwork lookup, thumbnail generation, real
+network/USB provider, DAC selection, Queue/playback restore, tag editing, audio
+DSP, or modification of the signal played by MPV. Runtime Linux and FFmpeg
+performance on Raspberry Pi 3B have not yet been validated.
 
 See [Architecture](docs/architecture.md) and [UI calibration](docs/ui.md).

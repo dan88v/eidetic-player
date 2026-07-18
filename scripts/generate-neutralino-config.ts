@@ -26,7 +26,7 @@ const config = {
   enableServer: true,
   enableNativeAPI: true,
   enableExtensions: false,
-  nativeAllowList: ["os.showOpenDialog"],
+  nativeAllowList: ["os.showOpenDialog", "os.showFolderDialog"],
   globalVariables: {},
   modes: {
     window: {

@@ -6,6 +6,11 @@ export class BrowserPlatformBridge implements PlatformBridge {
       new Error("Open Files requires the Eidetic Player native shell."),
     );
   }
+  openFolder(): Promise<string | null> {
+    return Promise.reject(
+      new Error("Add Folder requires the Eidetic Player native shell."),
+    );
+  }
   subscribeToDroppedFiles(): () => void {
     return () => {
       // Browser pages do not expose trusted absolute file paths.

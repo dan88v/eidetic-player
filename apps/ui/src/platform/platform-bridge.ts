@@ -4,6 +4,7 @@ export interface OpenAudioFilesOptions {
 
 export interface PlatformBridge {
   openAudioFiles(options: OpenAudioFilesOptions): Promise<string[]>;
+  openFolder(): Promise<string | null>;
   subscribeToDroppedFiles(
     callback: (paths: readonly string[]) => void,
   ): () => void;

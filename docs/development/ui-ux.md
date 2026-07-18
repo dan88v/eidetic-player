@@ -101,6 +101,19 @@ change produces no measurable layout shift. Waveform changes first draw the
 neutral empty rail. The visualizer rejects frames from other generations and
 decays its existing buffers to zero through its single existing render loop.
 
+## Library browser
+
+- Render directory entries before metadata enrichment.
+- Keep folders/audio in separate stable regions and never reorder from tags.
+- Retain existing content with discreet `aria-busy` until the next directory
+  can be committed in one replacement.
+- Player ticks update only row class and `aria-current`, never list structure or
+  scroll.
+- Store navigation by source ID plus logical relative path. Native paths never
+  enter DOM attributes, labels, breadcrumbs, URLs, or session keys.
+- Back, breadcrumb, source actions, dialogs, and rows remain semantic
+  keyboard/touch controls with visible focus.
+
 ## Timeline and Canvas
 
 - A narrow visible track must have a much larger transparent touch area.

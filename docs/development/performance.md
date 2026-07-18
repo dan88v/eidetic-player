@@ -93,6 +93,12 @@ justify a deliberate change.
 
 Do not add a cache dependency for simple bounded LRU behavior.
 
+Library browsing adds a bounded 32-directory session LRU. A miss performs one
+non-recursive `readdir` plus immediate-child `lstat`; a hit checks directory
+modification identity. Responses retain no artwork buffers. UI/backend metadata
+work and artwork resolution each have independent limits of two. Navigation
+starts no recursive traversal, watcher, poll, worker, or EventSource.
+
 Track-transition preload is deliberately bounded to three identities:
 
 1. current metadata/artwork;

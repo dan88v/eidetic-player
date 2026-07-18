@@ -153,7 +153,6 @@ export class PlayerService {
   }
 
   async open(paths: readonly string[]): Promise<void> {
-    const controller = this.requireController();
     const queue = await buildQueue(paths);
     const selectedKey = this.pathKey(paths[0] ?? "");
     const selectedIndex =
@@ -163,6 +162,24 @@ export class PlayerService {
             queue.findIndex((path) => this.pathKey(path) === selectedKey),
           )
         : 0;
+    await this.openResolvedQueue(queue, selectedIndex);
+  }
+
+  async openResolvedQueue(
+    paths: readonly string[],
+    selectedIndex: number,
+  ): Promise<void> {
+    const queue = await buildExplicitQueue(paths);
+    if (
+      !Number.isInteger(selectedIndex) ||
+      selectedIndex < 0 ||
+      selectedIndex >= queue.length
+    )
+      throw new PlayerError(
+        "INVALID_QUEUE_INDEX",
+        "The selected library item is unavailable.",
+      );
+    const controller = this.requireController();
     const hadQueue = this.state.queue.length > 0;
     this.itemIds.clear();
     this.enrichmentGeneration += 1;
@@ -195,6 +212,10 @@ export class PlayerService {
         422,
       );
     }
+  }
+
+  getCurrentPath(): string | null {
+    return this.state.currentTrack?.path ?? null;
   }
 
   async append(paths: readonly string[]): Promise<void> {

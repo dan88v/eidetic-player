@@ -43,6 +43,9 @@ future Raspberry shell.
 - `WaveformService` owns at most one fast-decode waveform process.
 - The frontend player store receives authoritative state; a component may keep
   only short-lived interaction state such as a seek preview.
+- `SourceService` owns persistent source identity, display name, and
+  availability. `DirectoryBrowserService` owns one-level listings and its
+  bounded cache; `PathService` is the only logical/native path authority.
 
 Do not introduce a second owner for any of these concerns.
 
@@ -53,6 +56,8 @@ Do not introduce a second owner for any of these concerns.
 - Visualizer SSE carries only the active mode's compact realtime data.
 - Artwork and waveform use dedicated, opaque-ID HTTP endpoints.
 - Large binary data, local paths, base64, and PCM never belong in player SSE.
+- Library responses use opaque IDs and logical relative paths. Absolute roots
+  remain backend-only after the native Add Source command.
 
 Components use central API clients. Shared request, response, state, and event
 types live in `packages/shared`.

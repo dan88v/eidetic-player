@@ -23,6 +23,25 @@ events. Components depend on `PlatformBridge`; they do not import Neutralino.
 The Neutralino adapter is the sole native API boundary, while the browser
 adapter is an explicit development fallback without access to absolute paths.
 
+## Filesystem and Library boundary
+
+The native Add Folder path is stored and resolved exclusively by the backend.
+Later frontend contracts use `sourceId`, opaque `entryId`, and `/`-separated
+logical relative paths.
+
+`PathService` centrally selects `path.win32` or `path.posix`. Canonical
+containment uses `path.relative`, blocking traversal, cross-drive and
+string-prefix collisions with the correct Windows/Linux case rules. Logical
+paths reject absolute, drive, UNC, mixed-separator, empty-segment, null-byte,
+and parent forms. `realpath` closes symlink escapes; listed symlinks and Windows
+junctions are excluded.
+
+`SourceRepository` atomically persists versioned JSON. `SourceService` owns
+availability and display-only Rename/Remove. `DirectoryBrowserService` reads
+one level, sorts directories before audio, and keeps a 32-entry session LRU.
+Metadata and artwork have independent concurrency limits of two. There is no
+recursive scan, watcher, database, or artwork buffer in the directory cache.
+
 ## Backend and MPV
 
 Discovery checks `EIDETIC_MPV_PATH` first and then `mpv` in `PATH`. Every
@@ -101,6 +120,13 @@ Commands use validated JSON POST endpoints:
 - `GET /api/player/queue/:queueItemId/waveform`
 - `GET|HEAD /api/artwork/:opaqueId`
 - `GET|HEAD /api/player/queue/:queueItemId/artwork`
+- `GET /api/sources` and `POST /api/sources/local`
+- `PATCH|DELETE /api/sources/:sourceId`
+- `POST /api/sources/:sourceId/retry`
+- `GET /api/sources/:sourceId/browse?relativePath=...`
+- `GET /api/sources/:sourceId/entries/:entryId/metadata`
+- `GET|HEAD /api/sources/:sourceId/entries/:entryId/artwork`
+- `POST /api/sources/:sourceId/entries/:entryId/open`
 
 `GET /api/player/state` returns a full snapshot. `GET /api/player/events` is an
 SSE stream that sends an immediate snapshot, subsequent state, and a lightweight
@@ -126,9 +152,10 @@ multi-selection keeps only validated explicit paths in input order and removes
 duplicates. Append never expands a one-file selection. Removal accepts only an
 opaque Queue ID.
 
-Only volume, mute, shuffle, repeat mode, animations, visualizer mode, and
-timeline style persist in browser storage. The queue and media session start
-empty on every launch.
+Local Source records and display names persist in backend JSON. Only volume,
+mute, shuffle, repeat mode, animations, visualizer mode, and timeline style
+persist in browser storage. Library location/scroll lasts for the UI session;
+Queue and media session start empty on every launch.
 
 ## FFmpeg analysis boundary
 

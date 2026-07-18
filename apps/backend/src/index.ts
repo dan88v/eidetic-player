@@ -19,8 +19,33 @@ import { AudioAnalyzerService } from "./analysis/audio-analyzer-service.js";
 import { VisualizerHub } from "./analysis/visualizer-hub.js";
 import { WaveformService } from "./analysis/waveform-service.js";
 import { analysisConfig } from "./analysis/analysis-config.js";
+import { LocalFilesystemProvider } from "./filesystem/local-filesystem-provider.js";
+import { PathService } from "./filesystem/path-service.js";
+import { SourceRepository } from "./filesystem/source-repository.js";
+import { SourceService } from "./filesystem/source-service.js";
+import { DirectoryBrowserService } from "./filesystem/directory-browser-service.js";
+import { FilesystemError } from "./filesystem/filesystem-errors.js";
+import type {
+  AddLocalSourceRequest,
+  RenameSourceRequest,
+} from "../../../packages/shared/src/library.js";
+import type { ArtworkResource } from "./artwork/artwork-service.js";
 
 const player = new PlayerService();
+const filesystemProvider = new LocalFilesystemProvider();
+const pathService = PathService.forCurrentPlatform(filesystemProvider);
+const sourceRepository = new SourceRepository();
+const sources = new SourceService(
+  filesystemProvider,
+  pathService,
+  sourceRepository,
+);
+const library = new DirectoryBrowserService(
+  filesystemProvider,
+  pathService,
+  sources,
+  () => player.getCurrentPath(),
+);
 const events = new SseHub(player);
 const analyzer = new AudioAnalyzerService();
 const visualizerEvents = new VisualizerHub(analyzer);
@@ -72,22 +97,33 @@ async function sendArtwork(
   response: ServerResponse,
   artworkId: string,
 ): Promise<boolean> {
-  const resource = await player.getArtworkResource(artworkId);
+  const resource =
+    (await player.getArtworkResource(artworkId)) ??
+    (await library.getArtworkResource(artworkId));
   if (!resource) return false;
+  await sendArtworkResource(request, response, resource);
+  return true;
+}
+
+async function sendArtworkResource(
+  request: IncomingMessage,
+  response: ServerResponse,
+  resource: ArtworkResource,
+): Promise<void> {
   response.setHeader("etag", resource.etag);
   response.setHeader("cache-control", "private, max-age=31536000, immutable");
   response.setHeader("x-content-type-options", "nosniff");
   if (request.headers["if-none-match"] === resource.etag) {
     response.writeHead(304);
     response.end();
-    return true;
+    return;
   }
   response.setHeader("content-type", resource.mimeType);
   response.setHeader("content-length", String(resource.size));
   if (request.method === "HEAD") {
     response.writeHead(200);
     response.end();
-    return true;
+    return;
   }
   response.writeHead(200);
   await new Promise<void>((resolve, reject) => {
@@ -97,7 +133,6 @@ async function sendArtwork(
     response.once("finish", resolve);
     stream.pipe(response);
   });
-  return true;
 }
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
@@ -159,6 +194,36 @@ async function execute(command: PlayerCommand): Promise<void> {
   }
 }
 
+function objectBody(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new FilesystemError(
+      "MALFORMED_REQUEST",
+      "The request body is invalid.",
+    );
+  return value as Record<string, unknown>;
+}
+
+function addSourceBody(value: unknown): AddLocalSourceRequest {
+  const body = objectBody(value);
+  if (
+    typeof body.nativePath !== "string" ||
+    body.nativePath.length === 0 ||
+    body.nativePath.length > 32_768
+  )
+    throw new FilesystemError("INVALID_SOURCE", "Select a valid music folder.");
+  return { nativePath: body.nativePath };
+}
+
+function renameSourceBody(value: unknown): RenameSourceRequest {
+  const body = objectBody(value);
+  if (typeof body.displayName !== "string")
+    throw new FilesystemError(
+      "INVALID_DISPLAY_NAME",
+      "Enter a valid source name.",
+    );
+  return { displayName: body.displayName };
+}
+
 const commandRoutes = new Map<string, PlayerCommand["type"]>([
   ["/api/player/open", "open"],
   ["/api/player/seek", "seek"],
@@ -201,7 +266,7 @@ async function handleRequest(
         response.setHeader("access-control-allow-headers", "content-type");
         response.setHeader(
           "access-control-allow-methods",
-          "GET, POST, OPTIONS",
+          "GET, POST, PATCH, DELETE, OPTIONS",
         );
       }
     }
@@ -221,6 +286,122 @@ async function handleRequest(
     if (request.method === "GET" && url.pathname === "/api/player/state") {
       sendJson(response, 200, { ok: true, data: player.getState() });
       return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/sources") {
+      sendJson(response, 200, {
+        ok: true,
+        data: { sources: await sources.list() },
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/diagnostics"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: library.getDiagnostics(),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/sources/local") {
+      const body = addSourceBody(await readBody(request));
+      sendJson(response, 201, {
+        ok: true,
+        data: await sources.addLocal(body.nativePath),
+      });
+      return;
+    }
+    const sourceMatch = /^\/api\/sources\/([0-9a-f-]{36})$/i.exec(url.pathname);
+    if (sourceMatch && request.method === "PATCH") {
+      const sourceId = sourceMatch[1] ?? "";
+      const body = renameSourceBody(await readBody(request));
+      sendJson(response, 200, {
+        ok: true,
+        data: await sources.rename(sourceId, body.displayName),
+      });
+      return;
+    }
+    if (sourceMatch && request.method === "DELETE") {
+      const sourceId = sourceMatch[1] ?? "";
+      await readBody(request);
+      await sources.remove(sourceId);
+      library.invalidateSource(sourceId);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+    const retryMatch = /^\/api\/sources\/([0-9a-f-]{36})\/retry$/i.exec(
+      url.pathname,
+    );
+    if (retryMatch && request.method === "POST") {
+      const sourceId = retryMatch[1] ?? "";
+      await readBody(request);
+      library.invalidateSource(sourceId);
+      sendJson(response, 200, {
+        ok: true,
+        data: await sources.retry(sourceId),
+      });
+      return;
+    }
+    const browseMatch = /^\/api\/sources\/([0-9a-f-]{36})\/browse$/i.exec(
+      url.pathname,
+    );
+    if (browseMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await library.browse(
+          browseMatch[1] ?? "",
+          url.searchParams.get("relativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    const entryMatch =
+      /^\/api\/sources\/([0-9a-f-]{36})\/entries\/(entry-[0-9a-f]{32})\/(metadata|artwork|open)$/i.exec(
+        url.pathname,
+      );
+    if (entryMatch) {
+      const sourceId = entryMatch[1] ?? "";
+      const entryId = entryMatch[2] ?? "";
+      const action = entryMatch[3] ?? "";
+      if (request.method === "GET" && action === "metadata") {
+        sendJson(response, 200, {
+          ok: true,
+          data: await library.metadataFor(sourceId, entryId),
+        });
+        return;
+      }
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        action === "artwork"
+      ) {
+        const resource = await library.artworkFor(sourceId, entryId);
+        if (!resource) {
+          sendJson(response, 404, {
+            ok: false,
+            error: {
+              code: "LIBRARY_ARTWORK_NOT_FOUND",
+              message: "Artwork not found.",
+            },
+          });
+          return;
+        }
+        await sendArtworkResource(request, response, resource);
+        return;
+      }
+      if (request.method === "POST" && action === "open") {
+        await readBody(request);
+        const queue = await library.queueForEntry(sourceId, entryId);
+        await player.openResolvedQueue(queue.paths, queue.selectedIndex);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            selectedIndex: queue.selectedIndex,
+            queueLength: queue.paths.length,
+          },
+        });
+        return;
+      }
     }
     if (request.method === "GET" && url.pathname === "/api/player/events") {
       events.add(response);
@@ -327,14 +508,14 @@ async function handleRequest(
     });
   } catch (error) {
     const playerError =
-      error instanceof PlayerError
+      error instanceof PlayerError || error instanceof FilesystemError
         ? error
         : new PlayerError(
             "INTERNAL_ERROR",
             "The player could not complete the request.",
             500,
           );
-    if (!(error instanceof PlayerError))
+    if (!(error instanceof PlayerError) && !(error instanceof FilesystemError))
       console.error("[backend] request failed", error);
     sendJson(response, playerError.statusCode, {
       ok: false,
@@ -370,6 +551,7 @@ function shutdown(signal: NodeJS.Signals): void {
   void Promise.all([
     visualizerEvents.close(),
     waveform.close(),
+    library.close(),
     player.shutdown(),
   ]).finally(() => {
     process.exitCode = 0;
