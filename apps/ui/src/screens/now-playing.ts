@@ -10,6 +10,7 @@ import type { ComponentView } from "../components/types";
 import { createVisualizer } from "../components/visualizer";
 import { t } from "../i18n";
 import type { TimelineStyle, VisualizerMode } from "../state/types";
+import { WaveformLoader } from "../timeline/waveform-loader";
 
 export interface PlayerActions {
   readonly openFiles: () => void;
@@ -40,6 +41,8 @@ export function createNowPlayingScreen(
   options: NowPlayingOptions,
 ): ComponentView {
   let playerState = options.initialPlayerState;
+  let waveformQueueItemId: string | null = null;
+  const waveformLoader = new WaveformLoader();
   const section = document.createElement("section");
   section.className = "screen now-playing";
   section.setAttribute("aria-labelledby", "screen-heading");
@@ -235,6 +238,16 @@ export function createNowPlayingScreen(
     );
     timeline.setPlayback(state.positionSeconds, state.durationSeconds);
     timeline.setEnabled(usable);
+    const queueItemId = state.queue[state.currentQueueIndex]?.id ?? null;
+    if (queueItemId !== waveformQueueItemId) {
+      waveformQueueItemId = queueItemId;
+      timeline.setWaveform(null);
+      if (queueItemId && options.timelineStyle === "waveform")
+        waveformLoader.load(queueItemId, (points) => {
+          if (waveformQueueItemId === queueItemId) timeline.setWaveform(points);
+        });
+      else waveformLoader.cancel();
+    }
   };
   update(playerState);
   return {
@@ -244,6 +257,7 @@ export function createNowPlayingScreen(
       visualizer.destroy();
       timeline.destroy();
       artwork.destroy();
+      waveformLoader.cancel();
     },
   };
 }

@@ -9,6 +9,8 @@ export type PlayerCommand =
   | { readonly type: "shuffle"; readonly enabled: boolean }
   | { readonly type: "repeat"; readonly mode: RepeatMode }
   | { readonly type: "queue-play"; readonly index: number }
+  | { readonly type: "queue-append"; readonly paths: readonly string[] }
+  | { readonly type: "queue-remove"; readonly queueItemId: string }
   | { readonly type: "empty" };
 
 function record(value: unknown): Record<string, unknown> {
@@ -23,7 +25,8 @@ export function validateCommandBody(
 ): PlayerCommand {
   const value = record(body);
   switch (type) {
-    case "open": {
+    case "open":
+    case "queue-append": {
       if (
         !Array.isArray(value.paths) ||
         value.paths.length === 0 ||
@@ -90,6 +93,18 @@ export function validateCommandBody(
           "index must be a non-negative integer.",
         );
       return { type, index: value.index };
+    case "queue-remove":
+      if (
+        typeof value.queueItemId !== "string" ||
+        !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          value.queueItemId,
+        )
+      )
+        throw new PlayerError(
+          "INVALID_QUEUE_ITEM",
+          "queueItemId must be an opaque Queue item ID.",
+        );
+      return { type, queueItemId: value.queueItemId };
     case "empty":
       return { type };
   }

@@ -17,6 +17,8 @@
     "test": "tsx --test apps/backend/test/*.test.ts apps/ui/test/*.test.ts",
     "test:mpv": "tsx --test apps/backend/test/mpv.integration.ts",
     "mpv:doctor": "tsx scripts/mpv-doctor.ts",
+    "ffmpeg:doctor": "tsx scripts/ffmpeg-doctor.ts",
+    "test:ffmpeg": "tsx --test apps/backend/test/ffmpeg.integration.ts",
     "shell:config:dev": "tsx scripts/generate-neutralino-config.ts development",
     "shell:config:prod": "tsx scripts/generate-neutralino-config.ts production",
     "neutralino:update": "neu update --latest"

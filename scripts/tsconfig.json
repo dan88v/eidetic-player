@@ -11,6 +11,7 @@
     "**/*.ts",
     "../packages/config/src/**/*.ts",
     "../packages/shared/src/**/*.ts",
-    "../apps/backend/src/player/**/*.ts"
+    "../apps/backend/src/player/**/*.ts",
+    "../apps/backend/src/analysis/**/*.ts"
   ]
 }

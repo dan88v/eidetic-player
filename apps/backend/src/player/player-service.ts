@@ -1,4 +1,5 @@
-import { basename, extname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { basename, extname, resolve } from "node:path";
 import type {
   ArtworkRef,
   PlayerState,
@@ -18,7 +19,7 @@ import { discoverMpv } from "./mpv-discovery.js";
 import { MpvController } from "./mpv-controller.js";
 import type { MpvResponse } from "./mpv-transport.js";
 import { PlayerError } from "./player-error.js";
-import { buildQueue } from "./queue-builder.js";
+import { buildExplicitQueue, buildQueue } from "./queue-builder.js";
 import { LimitedConcurrency } from "../utils/limited-concurrency.js";
 
 type StateListener = (state: PlayerState) => void;
@@ -37,6 +38,7 @@ const initialState: PlayerState = {
   repeatMode: "off",
   currentQueueIndex: -1,
   queue: [],
+  queueRevision: 0,
   audioDevice: "Default output",
   error: null,
 };
@@ -52,6 +54,12 @@ interface AudioParameters {
   readonly samplerate?: unknown;
 }
 
+function isQueueItemId(value: string): boolean {
+  return /^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 export class PlayerService {
   private state: PlayerState = initialState;
   private controller: MpvController | null = null;
@@ -61,7 +69,6 @@ export class PlayerService {
   private readonly properties = new Map<string, unknown>();
   private originalQueue: string[] = [];
   private readonly itemIds = new Map<string, string>();
-  private nextItemId = 0;
   private restartAttempted = false;
   private shuttingDown = false;
   private positionTimer: NodeJS.Timeout | null = null;
@@ -77,6 +84,7 @@ export class PlayerService {
   private preloadParsing: Promise<void> = Promise.resolve();
   private nextArtwork: ArtworkRef | null = null;
   private readonly queueArtworkConcurrency = new LimitedConcurrency(2);
+  private preparingPlaylist = false;
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -85,6 +93,10 @@ export class PlayerService {
 
   getState(): PlayerState {
     return this.state;
+  }
+
+  getMpvExecutable(): string | null {
+    return this.executable;
   }
 
   subscribe(listener: StateListener): () => void {
@@ -114,8 +126,7 @@ export class PlayerService {
     });
     try {
       await this.startController();
-      this.update({ status: "idle", paused: true });
-      await this.refreshProperties();
+      await this.resetQueue();
     } catch (error) {
       await this.controller?.stop().catch(() => {
         // Preserve the original startup error.
@@ -132,15 +143,44 @@ export class PlayerService {
   async open(paths: readonly string[]): Promise<void> {
     const controller = this.requireController();
     const queue = await buildQueue(paths);
-    this.update({ status: "loading", error: null });
+    const selectedKey = this.pathKey(paths[0] ?? "");
+    const selectedIndex =
+      paths.length === 1
+        ? Math.max(
+            0,
+            queue.findIndex((path) => this.pathKey(path) === selectedKey),
+          )
+        : 0;
+    const hadQueue = this.state.queue.length > 0;
+    this.itemIds.clear();
+    this.enrichmentGeneration += 1;
+    this.enrichmentPathKey = null;
+    this.currentEnrichment = null;
+    this.nextArtwork = null;
+    this.artworkService.setPinned([]);
+    this.update({
+      status: "loading",
+      currentTrack: null,
+      positionSeconds: 0,
+      durationSeconds: 0,
+      currentQueueIndex: -1,
+      queue: [],
+      queueRevision: hadQueue
+        ? this.state.queueRevision + 1
+        : this.state.queueRevision,
+      error: null,
+    });
     this.originalQueue = [...queue];
+    this.preparingPlaylist = true;
     try {
-      await controller.loadPlaylist(queue);
+      await controller.loadPlaylist(queue, selectedIndex);
       if (this.state.shuffleEnabled)
         await controller.command(["playlist-shuffle"]);
       await controller.setProperty("pause", false);
+      this.preparingPlaylist = false;
       await this.refreshProperties();
     } catch (error) {
+      this.preparingPlaylist = false;
       this.updateError(
         "OPEN_FAILED",
         "The selected audio files could not be opened.",
@@ -152,6 +192,64 @@ export class PlayerService {
         422,
       );
     }
+  }
+
+  async append(paths: readonly string[]): Promise<void> {
+    const controller = this.requireController();
+    const candidates = await buildExplicitQueue(paths);
+    const existing = new Set(
+      this.state.queue.map((item) => this.pathKey(item.path)),
+    );
+    const appended = candidates.filter(
+      (path) => !existing.has(this.pathKey(path)),
+    );
+    if (appended.length === 0) return;
+    if (this.state.queue.length === 0) {
+      await controller.loadPlaylist(appended, 0);
+      this.originalQueue = [...appended];
+      await controller.setProperty("pause", false);
+    } else {
+      await controller.appendToPlaylist(appended);
+      this.originalQueue.push(...appended);
+    }
+    await this.refreshProperties();
+  }
+
+  async removeQueueItem(queueItemId: string): Promise<void> {
+    if (!isQueueItemId(queueItemId))
+      throw new PlayerError(
+        "INVALID_QUEUE_ITEM",
+        "A valid Queue item ID is required.",
+      );
+    const index = this.state.queue.findIndex((item) => item.id === queueItemId);
+    if (index < 0)
+      throw new PlayerError(
+        "QUEUE_ITEM_NOT_FOUND",
+        "Queue item not found.",
+        404,
+      );
+    const wasCurrent = index === this.state.currentQueueIndex;
+    const remainingCount = this.state.queue.length - 1;
+    const removedPath = this.state.queue[index]?.path ?? "";
+    await this.requireController().command(["playlist-remove", index]);
+    this.originalQueue = this.originalQueue.filter(
+      (path) => this.pathKey(path) !== this.pathKey(removedPath),
+    );
+    if (remainingCount === 0) {
+      await this.clearQueue();
+      return;
+    }
+    if (wasCurrent) {
+      const target = Math.min(index, remainingCount - 1);
+      await this.requireController().setProperty("playlist-pos", target);
+      await this.requireController().setProperty("pause", false);
+    }
+    await this.refreshProperties();
+  }
+
+  async clearQueue(): Promise<void> {
+    await this.requireController().clearPlaylist();
+    this.resetLocalState();
   }
 
   async playPause(): Promise<void> {
@@ -253,7 +351,7 @@ export class PlayerService {
   }
 
   async resolveQueueArtwork(queueItemId: string): Promise<ArtworkRef | null> {
-    if (!/^queue-\d+$/.test(queueItemId)) return null;
+    if (!isQueueItemId(queueItemId)) return null;
     const item = this.state.queue.find(
       (candidate) => candidate.id === queueItemId,
     );
@@ -261,6 +359,19 @@ export class PlayerService {
     return this.queueArtworkConcurrency.run(async () => {
       try {
         const result = await this.resolveEnrichment(item.path);
+        const current = this.state.queue.find(
+          (candidate) =>
+            candidate.id === queueItemId &&
+            this.pathKey(candidate.path) === this.pathKey(item.path),
+        );
+        if (current) {
+          const queue = this.withQueueArtwork(item.path, result.artwork);
+          if (queue !== this.state.queue)
+            this.update({
+              queue,
+              queueRevision: this.state.queueRevision + 1,
+            });
+        }
         return result.artwork;
       } catch (error) {
         console.warn("[metadata] queue artwork resolution failed", error);
@@ -269,11 +380,21 @@ export class PlayerService {
     });
   }
 
+  getQueueItemPath(queueItemId: string): string | null {
+    if (!isQueueItemId(queueItemId)) return null;
+    return (
+      this.state.queue.find((candidate) => candidate.id === queueItemId)
+        ?.path ?? null
+    );
+  }
+
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
     this.enrichmentGeneration += 1;
     if (this.positionTimer) clearTimeout(this.positionTimer);
     this.positionTimer = null;
+    await this.controller?.clearPlaylist().catch(() => undefined);
+    this.resetLocalState();
     this.unsubscribeMpv?.();
     this.unsubscribeMpv = null;
     await this.controller?.stop();
@@ -296,6 +417,37 @@ export class PlayerService {
     });
   }
 
+  private async resetQueue(): Promise<void> {
+    await this.requireController().clearPlaylist();
+    this.properties.clear();
+    this.resetLocalState();
+    await this.refreshProperties();
+  }
+
+  private resetLocalState(): void {
+    this.originalQueue = [];
+    this.itemIds.clear();
+    this.enrichmentGeneration += 1;
+    this.enrichmentPathKey = null;
+    this.currentEnrichment = null;
+    this.nextArtwork = null;
+    this.artworkService.setPinned([]);
+    this.update({
+      status: "idle",
+      currentTrack: null,
+      queue: [],
+      queueRevision:
+        this.state.queue.length > 0
+          ? this.state.queueRevision + 1
+          : this.state.queueRevision,
+      currentQueueIndex: -1,
+      positionSeconds: 0,
+      durationSeconds: 0,
+      paused: true,
+      error: null,
+    });
+  }
+
   private async handleUnexpectedExit(): Promise<void> {
     this.controller = null;
     this.unsubscribeMpv?.();
@@ -312,6 +464,10 @@ export class PlayerService {
         status: "idle",
         currentTrack: null,
         queue: [],
+        queueRevision:
+          this.state.queue.length > 0
+            ? this.state.queueRevision + 1
+            : this.state.queueRevision,
         currentQueueIndex: -1,
         positionSeconds: 0,
         durationSeconds: 0,
@@ -329,6 +485,7 @@ export class PlayerService {
       typeof message.name === "string"
     ) {
       this.properties.set(message.name, message.data);
+      if (this.preparingPlaylist) return;
       if (message.name === "time-pos") {
         this.queuePositionUpdate(this.asNumber(message.data));
       } else {
@@ -339,6 +496,7 @@ export class PlayerService {
     }
     switch (message.event) {
       case "start-file":
+        if (this.preparingPlaylist) break;
         this.enrichmentGeneration += 1;
         this.enrichmentPathKey = null;
         this.currentEnrichment = null;
@@ -348,6 +506,7 @@ export class PlayerService {
         break;
       case "file-loaded":
       case "playback-restart":
+        if (this.preparingPlaylist) break;
         void this.refreshProperties();
         break;
       case "end-file":
@@ -412,6 +571,7 @@ export class PlayerService {
       this.properties.get("playlist"),
       playlistIndex,
     );
+    const queueChanged = queue !== this.state.queue;
     const nextPathKey = path ? this.pathKey(path) : null;
     const trackChanged = nextPathKey !== this.enrichmentPathKey;
     if (trackChanged) {
@@ -438,6 +598,9 @@ export class PlayerService {
       ),
       currentQueueIndex: playlistIndex,
       queue,
+      queueRevision: queueChanged
+        ? this.state.queueRevision + 1
+        : this.state.queueRevision,
       currentTrack,
       volume: Math.max(
         0,
@@ -458,7 +621,7 @@ export class PlayerService {
 
   private createQueue(value: unknown, currentIndex: number): QueueItem[] {
     if (!Array.isArray(value)) return this.state.queue as QueueItem[];
-    return value.flatMap((entry, index) => {
+    const next = value.flatMap((entry, index) => {
       if (!entry || typeof entry !== "object") return [];
       const playlistEntry = entry as MpvPlaylistEntry;
       const path = this.asString(playlistEntry.filename);
@@ -470,7 +633,7 @@ export class PlayerService {
       );
       let id = this.itemIds.get(key);
       if (!id) {
-        id = `queue-${String(++this.nextItemId)}`;
+        id = `queue-${randomUUID()}`;
         this.itemIds.set(key, id);
       }
       return [
@@ -490,6 +653,23 @@ export class PlayerService {
         },
       ];
     });
+    if (
+      next.length === this.state.queue.length &&
+      next.every((item, index) => {
+        const previous = this.state.queue[index];
+        return (
+          previous?.id === item.id &&
+          previous.index === item.index &&
+          previous.path === item.path &&
+          previous.filename === item.filename &&
+          previous.displayTitle === item.displayTitle &&
+          previous.artwork?.id === item.artwork?.id &&
+          previous.isCurrent === item.isCurrent
+        );
+      })
+    )
+      return this.state.queue as QueueItem[];
+    return next;
   }
 
   private createTrack(path: string, durationSeconds: number): PlayerTrack {
@@ -587,15 +767,21 @@ export class PlayerService {
           artwork: result.artwork,
         };
         const current = this.state.currentTrack;
-        if (current && this.pathKey(current.path) === this.pathKey(path))
+        if (current && this.pathKey(current.path) === this.pathKey(path)) {
+          const queue = this.withQueueArtwork(path, result.artwork);
           this.update({
             currentTrack: mergeTrackMetadata(
               current,
               result.metadata,
               result.artwork,
             ),
-            queue: this.withQueueArtwork(path, result.artwork),
+            queue,
+            queueRevision:
+              queue === this.state.queue
+                ? this.state.queueRevision
+                : this.state.queueRevision + 1,
           });
+        }
         this.artworkService.setPinned([result.artwork, this.nextArtwork]);
         if (nextPath) this.schedulePreload(nextPath, generation);
       })
@@ -615,7 +801,14 @@ export class PlayerService {
         const result = await this.resolveEnrichment(path);
         if (!this.canApplyGeneration(generation)) return;
         this.nextArtwork = result.artwork;
-        this.update({ queue: this.withQueueArtwork(path, result.artwork) });
+        const queue = this.withQueueArtwork(path, result.artwork);
+        this.update({
+          queue,
+          queueRevision:
+            queue === this.state.queue
+              ? this.state.queueRevision
+              : this.state.queueRevision + 1,
+        });
         this.artworkService.setPinned([
           this.currentEnrichment?.artwork ?? null,
           result.artwork,
@@ -716,7 +909,7 @@ export class PlayerService {
   }
 
   private pathKey(path: string): string {
-    return path.toLocaleLowerCase("en");
+    return resolve(path).toLocaleLowerCase("en");
   }
   private asString(value: unknown): string | null {
     return typeof value === "string" && value ? value : null;

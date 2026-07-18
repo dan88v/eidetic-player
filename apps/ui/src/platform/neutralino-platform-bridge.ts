@@ -1,6 +1,6 @@
 import { supportedAudioExtensions } from "../../../../packages/shared/src/audio";
 import type { NeutralinoRuntime } from "./neutralino-runtime";
-import type { PlatformBridge } from "./platform-bridge";
+import type { OpenAudioFilesOptions, PlatformBridge } from "./platform-bridge";
 
 interface FilesDroppedDetail {
   readonly files?: readonly string[];
@@ -16,10 +16,10 @@ function errorMessage(error: unknown): string {
 export class NeutralinoPlatformBridge implements PlatformBridge {
   constructor(private readonly runtime: NeutralinoRuntime) {}
 
-  async openAudioFiles(): Promise<string[]> {
+  async openAudioFiles(options: OpenAudioFilesOptions): Promise<string[]> {
     try {
       const result = await this.runtime.os.showOpenDialog("Open audio files", {
-        multiSelections: true,
+        multiSelections: options.multiple,
         filters: [
           { name: "Audio files", extensions: [...supportedAudioExtensions] },
         ],

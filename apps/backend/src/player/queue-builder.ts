@@ -67,13 +67,12 @@ export async function expandQueueFromSingleFile(
     (candidate) =>
       candidate.toLocaleLowerCase("en") === selected.toLocaleLowerCase("en"),
   );
-  return selectedIndex < 0 ? [selected] : sorted.slice(selectedIndex);
+  return selectedIndex < 0 ? [selected] : sorted;
 }
 
-export async function buildQueue(paths: readonly string[]): Promise<string[]> {
-  if (paths.length === 0)
-    throw new PlayerError("NO_VALID_FILES", "No audio files were selected.");
-  if (paths.length === 1) return expandQueueFromSingleFile(paths[0] ?? "");
+export async function buildExplicitQueue(
+  paths: readonly string[],
+): Promise<string[]> {
   const unique = deduplicatePaths(paths);
   const validated = await Promise.all(unique.map(validateFile));
   const result = validated.filter((path): path is string => path !== null);
@@ -83,4 +82,11 @@ export async function buildQueue(paths: readonly string[]): Promise<string[]> {
       "None of the selected files is a readable supported audio file.",
     );
   return result;
+}
+
+export async function buildQueue(paths: readonly string[]): Promise<string[]> {
+  if (paths.length === 0)
+    throw new PlayerError("NO_VALID_FILES", "No audio files were selected.");
+  if (paths.length === 1) return expandQueueFromSingleFile(paths[0] ?? "");
+  return buildExplicitQueue(paths);
 }

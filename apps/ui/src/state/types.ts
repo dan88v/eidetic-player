@@ -7,7 +7,8 @@ export const screenIds = [
 ] as const;
 
 export type ScreenId = (typeof screenIds)[number];
-export type VisualizerMode = "meter" | "spectrum";
+export type VisualizerMode =
+  "meter" | "spectrumMono" | "spectrumStereo" | "none";
 export type TimelineStyle = "waveform" | "line";
 
 export interface AppState {

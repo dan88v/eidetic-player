@@ -14,9 +14,46 @@ import { SseHub } from "./api/sse-hub.js";
 import { config } from "./config.js";
 import { PlayerError } from "./player/player-error.js";
 import { PlayerService } from "./player/player-service.js";
+import { AudioAnalyzerService } from "./analysis/audio-analyzer-service.js";
+import { VisualizerHub } from "./analysis/visualizer-hub.js";
+import { WaveformService } from "./analysis/waveform-service.js";
+import { analysisConfig } from "./analysis/analysis-config.js";
 
 const player = new PlayerService();
 const events = new SseHub(player);
+const analyzer = new AudioAnalyzerService();
+const visualizerEvents = new VisualizerHub(analyzer);
+const waveform = new WaveformService(() => analyzer.getDiscovery());
+let waveformPreloadSignature = "";
+function preloadWaveforms(force = false): void {
+  const state = player.getState();
+  const current = state.queue[state.currentQueueIndex];
+  const next = state.queue[state.currentQueueIndex + 1];
+  const signature = `${current?.id ?? ""}:${next?.id ?? ""}`;
+  if (!force && signature === waveformPreloadSignature) return;
+  waveformPreloadSignature = signature;
+  if (!current) {
+    waveform.cancel();
+    return;
+  }
+  void waveform
+    .get(current.id, current.path)
+    .then(async () => {
+      if (
+        analysisConfig.waveformNextPreloadEnabled &&
+        next &&
+        waveformPreloadSignature === signature
+      )
+        await waveform.get(next.id, next.path);
+    })
+    .catch(() => {
+      // The frontend keeps its deterministic fallback.
+    });
+}
+const unsubscribeAnalyzerState = player.subscribe((state) => {
+  analyzer.updatePlayerState(state);
+  preloadWaveforms();
+});
 
 function sendJson(
   response: ServerResponse,
@@ -93,6 +130,7 @@ async function execute(command: PlayerCommand): Promise<void> {
       break;
     case "seek":
       await player.seek(command.positionSeconds);
+      analyzer.restartAtCurrentPosition();
       break;
     case "volume":
       await player.setVolume(command.volume);
@@ -109,6 +147,12 @@ async function execute(command: PlayerCommand): Promise<void> {
     case "queue-play":
       await player.playQueueIndex(command.index);
       break;
+    case "queue-append":
+      await player.append(command.paths);
+      break;
+    case "queue-remove":
+      await player.removeQueueItem(command.queueItemId);
+      break;
     case "empty":
       break;
   }
@@ -122,6 +166,8 @@ const commandRoutes = new Map<string, PlayerCommand["type"]>([
   ["/api/player/shuffle", "shuffle"],
   ["/api/player/repeat", "repeat"],
   ["/api/player/queue/play", "queue-play"],
+  ["/api/player/queue/append", "queue-append"],
+  ["/api/player/queue/remove", "queue-remove"],
 ]);
 
 const emptyCommands = new Map<string, () => Promise<void>>([
@@ -130,6 +176,7 @@ const emptyCommands = new Map<string, () => Promise<void>>([
   ["/api/player/pause", () => player.pause()],
   ["/api/player/previous", () => player.previous()],
   ["/api/player/next", () => player.next()],
+  ["/api/player/queue/clear", () => player.clearQueue()],
 ]);
 
 async function handleRequest(
@@ -176,6 +223,48 @@ async function handleRequest(
     }
     if (request.method === "GET" && url.pathname === "/api/player/events") {
       events.add(response);
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/visualizer/events") {
+      const mode = url.searchParams.get("mode");
+      visualizerEvents.add(
+        response,
+        mode === "spectrumMono" || mode === "spectrumStereo" ? mode : "meter",
+      );
+      return;
+    }
+    const waveformMatch = /^\/api\/player\/queue\/([^/]+)\/waveform$/.exec(
+      url.pathname,
+    );
+    if (request.method === "GET" && waveformMatch) {
+      const queueItemId = waveformMatch[1] ?? "";
+      const path = player.getQueueItemPath(queueItemId);
+      if (!path) {
+        sendJson(response, 404, {
+          ok: false,
+          error: {
+            code: "QUEUE_ITEM_NOT_FOUND",
+            message: "Queue item not found.",
+          },
+        });
+        return;
+      }
+      const abortController = new AbortController();
+      request.once("aborted", () => {
+        abortController.abort();
+      });
+      const payload = await waveform.get(
+        queueItemId,
+        path,
+        abortController.signal,
+      );
+      const etag = `"${payload.fingerprint}"`;
+      response.setHeader("etag", etag);
+      response.setHeader("cache-control", "private, no-cache");
+      if (request.headers["if-none-match"] === etag) {
+        response.writeHead(304);
+        response.end();
+      } else sendJson(response, 200, payload);
       return;
     }
     const artworkMatch = /^\/api\/artwork\/([^/]+)$/.exec(url.pathname);
@@ -254,7 +343,12 @@ server.listen(config.backendPort, config.backendHost, () => {
   console.log(
     `[backend] listening on http://${config.backendHost}:${String(config.backendPort)}`,
   );
-  void player.initialize();
+  void player
+    .initialize()
+    .then(() => analyzer.initialize(player.getMpvExecutable() ?? undefined))
+    .then(() => {
+      preloadWaveforms(true);
+    });
 });
 
 let shuttingDown = false;
@@ -263,8 +357,13 @@ function shutdown(signal: NodeJS.Signals): void {
   shuttingDown = true;
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
+  unsubscribeAnalyzerState();
   server.close();
-  void player.shutdown().finally(() => {
+  void Promise.all([
+    visualizerEvents.close(),
+    waveform.close(),
+    player.shutdown(),
+  ]).finally(() => {
     process.exitCode = 0;
   });
   setTimeout(() => {

@@ -31,8 +31,11 @@ export function createArtwork(options: {
   let generation = 0;
   let currentRevision: string | null = null;
   let image: HTMLImageElement | null = null;
+  let revealFrame: number | null = null;
 
   const clear = (): void => {
+    if (revealFrame !== null) cancelAnimationFrame(revealFrame);
+    revealFrame = null;
     image?.remove();
     image = null;
     currentRevision = null;
@@ -80,11 +83,13 @@ export function createArtwork(options: {
               }
               image = next;
               element.append(next);
-              next.getBoundingClientRect();
-              if (requestGeneration === generation) {
-                element.classList.add("artwork--loaded");
-                placeholder.setAttribute("aria-hidden", "true");
-              }
+              revealFrame = requestAnimationFrame(() => {
+                revealFrame = null;
+                if (requestGeneration === generation) {
+                  element.classList.add("artwork--loaded");
+                  placeholder.setAttribute("aria-hidden", "true");
+                }
+              });
               resolve();
             });
         },

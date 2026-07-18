@@ -91,6 +91,15 @@ export class PlayerApiClient {
   playQueue(index: number): Promise<void> {
     return this.post("queue/play", { index });
   }
+  appendQueue(paths: readonly string[]): Promise<void> {
+    return this.post("queue/append", { paths });
+  }
+  removeQueueItem(queueItemId: string): Promise<void> {
+    return this.post("queue/remove", { queueItemId });
+  }
+  clearQueue(): Promise<void> {
+    return this.post("queue/clear", {});
+  }
 
   private async post(path: string, body: unknown): Promise<void> {
     const response = await fetch(`${this.baseUrl}/api/player/${path}`, {

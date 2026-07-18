@@ -25,19 +25,20 @@ export function createTopBar(
   const element = document.createElement("header");
   element.className = "top-bar";
   element.innerHTML = `
-    <button class="top-bar__menu icon-button" type="button" aria-label="${t("nav.openMenu")}" aria-expanded="false" aria-controls="side-menu">${icon("menu")}</button>
     <button class="top-bar__home icon-button" type="button" aria-label="${t("nav.goToNowPlaying")}">${icon("home")}</button>
+    <button class="top-bar__menu icon-button" type="button" aria-label="${t("nav.openMenu")}" aria-expanded="false" aria-controls="side-menu">${icon("menu")}</button>
     <h1 class="top-bar__title"></h1>
     <div class="top-bar__info">
-      <span class="top-bar__audio"></span>
+      <span class="top-bar__audio"><span class="top-bar__audio-dot" aria-hidden="true"></span><span class="top-bar__audio-name"></span></span>
       <time class="top-bar__clock" aria-label="${t("topBar.clockLabel")}"></time>
     </div>`;
   const menuButton = element.querySelector<HTMLButtonElement>(".top-bar__menu");
   const homeButton = element.querySelector<HTMLButtonElement>(".top-bar__home");
   const title = element.querySelector<HTMLHeadingElement>(".top-bar__title");
   const audio = element.querySelector<HTMLElement>(".top-bar__audio");
+  const audioName = element.querySelector<HTMLElement>(".top-bar__audio-name");
   const clock = element.querySelector<HTMLTimeElement>(".top-bar__clock");
-  if (!menuButton || !homeButton || !title || !audio || !clock)
+  if (!menuButton || !homeButton || !title || !audio || !audioName || !clock)
     throw new Error("Top bar is incomplete");
   const updateClock = (): void => {
     const now = new Date();
@@ -56,7 +57,7 @@ export function createTopBar(
       title.textContent = screenTitle;
     },
     setAudioDevice(device) {
-      audio.textContent = device;
+      audioName.textContent = device;
     },
     destroy() {
       window.clearInterval(clockTimer);

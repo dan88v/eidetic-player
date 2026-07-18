@@ -22,46 +22,41 @@ density.
 
 ## Playback interface
 
-Meter and Spectrum are deterministic static Canvas placeholders. They do not
-consume audio data and have no render loop. The visualizer is integrated directly
-into Now Playing: tap it, or use Enter/Space, to switch mode. Spectrum uses 32
-bands and the responsive waveform uses roughly 160–240 Canvas bars.
+Meter, Mono Spectrum, Stereo Spectrum, and None cycle by tap or Enter/Space.
+Meter consumes real L/R peak values; Mono uses 32 logarithmic bands; Stereo uses
+16 bands per channel with low frequencies at the center and higher frequencies
+toward the outer edges. None is visually empty and closes its analysis stream.
+All modes use a fixed 164 px slot at 1280 × 800, half the previous
+visualizer height, with the lower edge aligned to the artwork.
 
-No explanatory mock labels are shown in the player. Waveform and Line keep their
-approved deterministic renderers, preview locally during pointer drag, and send
-one absolute seek on release. Tap and keyboard seek are also connected. The
-Queue drawer renders the current MPV playlist, highlights the current item, and
-allows direct selection; removal and reordering remain out of scope.
+Waveform uses 512 real points when FFmpeg is available and keeps the approved
+deterministic fallback. Waveform and Line preview locally during pointer drag
+and send one absolute seek on release. Tap and keyboard seek remain connected.
+The mini-player retains its 108 px height and adds a 36 px touch timeline with
+tap, Pointer Capture drag, Home/End, and arrow-key seek.
 
-The top bar keeps Home immediately after Menu on every screen, while its right
-side contains only the real audio device and clock. The lower row uses three
-stable zones: Library/Volume at the left edge; the symmetric
-Shuffle/Previous/Play/Next/Repeat group at center; and Queue at the right edge.
-Play/Pause remains centered on the viewport. The Volume popover opens upward
-from its lower trigger. Menu, queue, and volume overlays are mutually exclusive
-and restore focus when closed.
+The Queue drawer highlights the current item and provides Add Files, individual
+56 × 56 px Remove controls, and Clear Queue with focus trapping, Escape, and
+focus restoration. Drag reordering remains out of scope.
 
-At 1280 × 800, the artwork uses the same perceived gap on its left and below:
-the lower reference is the first visible waveform pixel rather than the larger
-invisible slider hit area. Artwork and visualizer share the same structural grid
-row, keeping their lower edges aligned.
+The top bar keeps Home first and Hamburger second. Its right side contains the
+real audio device with a stable inline-flex status dot and a 25 px tabular
+clock. The lower row uses three stable zones: Library/Volume at the left edge;
+the symmetric Shuffle/Previous/Play/Next/Repeat group at center; and Queue at
+the right edge. Play/Pause remains centered on the viewport.
 
-The approved artwork stays a fixed placeholder. The stereo meter uses thin
-16 px L/R bars with a 10 px gap and is bottom-anchored to the artwork; Spectrum
-is unchanged. Timeline times use larger 25 px tabular numerals. Meter and
-Spectrum remain simulated graphics until a later real-audio visualization step.
+At 1280 × 800, artwork and visualizer share the same structural row. The stereo
+meter keeps its approved 16 px L/R bars and 10 px gap, while the reduced
+visualizer container is controlled by `--now-playing-visualizer-height`.
 
 ## Artwork presentation
 
 Now Playing, the mini-player, and Queue share one lightweight artwork component.
-It keeps the existing abstract placeholder until a validated image is decoded,
-uses `object-fit: cover` without changing approved geometry, and applies a
-170 ms opacity transition only when animations are enabled. Reduced motion and
-Animations Off switch immediately.
+It keeps the abstract placeholder until a validated image is decoded, uses
+`object-fit: cover`, and applies a 170 ms opacity transition only when animations
+are enabled. Reduced motion and Animations Off switch immediately.
 
-Now Playing uses descriptive localized alt text. Mini-player and 56 × 56 px
-Queue images are decorative. Queue rows start with placeholders and use one
-`IntersectionObserver` with a 120 px root margin; at most two images load at
-once. Current and next artwork references can render immediately, while other
-rows request only their own opaque Queue endpoint. No online image, base64
-payload, or generated thumbnail is used.
+Now Playing uses descriptive localized alt text. Mini-player and Queue images
+are decorative. Queue rows use one `IntersectionObserver` with a 120 px root
+margin and at most two image loads at once. No online image, base64 payload, or
+generated thumbnail is used.

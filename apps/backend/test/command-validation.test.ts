@@ -11,6 +11,15 @@ void test("valid command bodies are parsed", () => {
     type: "repeat",
     mode: "one",
   });
+  assert.deepEqual(
+    validateCommandBody("queue-remove", {
+      queueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+    }),
+    {
+      type: "queue-remove",
+      queueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+    },
+  );
 });
 
 void test("invalid command bodies are rejected", () => {
@@ -23,4 +32,8 @@ void test("invalid command bodies are rejected", () => {
     /non-negative/,
   );
   assert.throws(() => validateCommandBody("open", { paths: [] }), /non-empty/);
+  assert.throws(
+    () => validateCommandBody("queue-remove", { queueItemId: "../track" }),
+    /opaque/,
+  );
 });

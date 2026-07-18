@@ -1,6 +1,6 @@
 # Architecture
 
-Step 2.2 keeps the established runtime boundaries:
+Step 2.3 keeps the established runtime boundaries:
 
 ```text
 Neutralino PlatformBridge ── full local paths ──> Vanilla TypeScript UI
@@ -11,6 +11,11 @@ Neutralino PlatformBridge ── full local paths ──> Vanilla TypeScript UI
                                                     │ JSON IPC
                                                     ▼
                                               persistent MPV
+
+              Now Playing Canvas <── separate SSE ── VisualizerHub
+                                                       │ shared PCM frames
+                                                       ▼
+                                                FFmpeg sidecar
 ```
 
 Neutralino owns only the multi-file native dialog and native dropped-file
@@ -38,7 +43,9 @@ metadata, shuffle restoration, repeat configuration, and the controller. It
 coalesces `time-pos` to approximately five state updates per second, while
 discrete changes publish immediately. An unexpected MPV exit rejects transport
 requests, moves state to error, and permits at most one controlled idle restart.
-Shutdown closes SSE, requests MPV quit, waits briefly, force-stops only as a
+Startup and shutdown both stop playback and clear MPV's playlist. Shutdown
+closes both SSE hubs, analyzer and waveform children, requests MPV quit, waits
+briefly, force-stops only as a
 fallback, closes IPC, and removes a Unix socket.
 
 ## Metadata and artwork
@@ -71,6 +78,9 @@ Commands use validated JSON POST endpoints:
 - `/api/player/play-pause`, `/play`, `/pause`, `/previous`, `/next`
 - `/api/player/seek`, `/volume`, `/mute`, `/shuffle`, `/repeat`
 - `/api/player/queue/play`
+- `/api/player/queue/append`, `/remove`, `/clear`
+- `GET /api/visualizer/events`
+- `GET /api/player/queue/:queueItemId/waveform`
 - `GET|HEAD /api/artwork/:opaqueId`
 - `GET|HEAD /api/player/queue/:queueItemId/artwork`
 
@@ -92,15 +102,26 @@ one API client and one player store; components never issue raw `fetch` calls.
 ## Queue and persistence
 
 The backend validates extension, existence, file type, and readability. A
-single file expands only the non-recursive parent folder from that natural-sort
-position onward. A multi-selection keeps only validated explicit paths in input
-order and removes duplicates. MPV loads the first path with `replace` and later
-paths with `append` via JSON arguments.
+single file expands the complete non-recursive parent folder in natural order.
+MPV prepares it paused and then selects the requested index before play. A
+multi-selection keeps only validated explicit paths in input order and removes
+duplicates. Append never expands a one-file selection. Removal accepts only an
+opaque Queue ID.
 
 Only volume, mute, shuffle, repeat mode, animations, visualizer mode, and
 timeline style persist in browser storage. The queue and media session start
 empty on every launch.
 
-The Canvas waveform and visualizers remain low-cost deterministic UI graphics.
-No Node or UI module reads audio payloads, decodes media, or runs a high-frequency
-render loop.
+## FFmpeg analysis boundary
+
+`FfmpegDiscovery` checks `EIDETIC_FFMPEG_PATH`, an executable beside configured
+MPV, then `ffmpeg` in `PATH`, verifying `-version`. `AudioAnalyzerService` owns
+at most one realtime child. `PcmStreamParser` joins partial float32 chunks and
+`AudioAnalysisEngine` applies a Hann window, internal radix-2 FFT, logarithmic
+bands, peak/RMS and attack/release. `VisualizerHub` broadcasts at most about
+20 frames/s to all clients without adding frames to `PlayerState`.
+
+`WaveformService` owns at most one independent fast-decode child and compacts
+mono s16 PCM incrementally. Its 64-entry session LRU returns 512 numeric points
+through opaque Queue IDs with ETag support. Both services fail independently of
+MPV and leave the deterministic frontend fallback intact.

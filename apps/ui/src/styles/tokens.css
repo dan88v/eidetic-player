@@ -47,9 +47,10 @@
   --now-playing-artwork-size: 31.25rem;
   --now-playing-column-gap: 2rem;
   --now-playing-artwork-timeline-gap: 1.75rem;
-  --now-playing-title-artist-gap: 0.6875rem;
-  --now-playing-artist-album-gap: 0.4375rem;
-  --now-playing-album-technical-gap: 1rem;
+  --now-playing-title-artist-gap: 0.75rem;
+  --now-playing-artist-album-gap: 0.5rem;
+  --now-playing-album-technical-gap: 1.125rem;
+  --now-playing-visualizer-height: 10.25rem;
 
   --duration-fast: 120ms;
   --duration-medium: 180ms;

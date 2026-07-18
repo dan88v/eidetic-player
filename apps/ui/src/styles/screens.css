@@ -113,7 +113,7 @@
     display: -webkit-box;
     min-width: 0;
     overflow: hidden;
-    font-size: clamp(2.5rem, 3.2vw, 2.75rem);
+    font-size: clamp(2.75rem, 3.6vw, 3rem);
     font-weight: 720;
     letter-spacing: -0.045em;
     line-height: 1.07;
@@ -127,7 +127,7 @@
     overflow: hidden;
     margin-top: var(--now-playing-title-artist-gap);
     color: var(--color-text-secondary);
-    font-size: 1.6875rem;
+    font-size: 1.8125rem;
     line-height: 1.15;
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
@@ -138,7 +138,7 @@
     overflow: hidden;
     margin-top: var(--now-playing-artist-album-gap);
     color: var(--color-text-muted);
-    font-size: 1.3125rem;
+    font-size: 1.4375rem;
     line-height: 1.2;
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
@@ -156,9 +156,9 @@
     line-height: 1.3;
   }
   .now-playing__visualizer-slot {
-    flex: 1;
-    min-height: 0;
-    margin-top: var(--space-3);
+    height: var(--now-playing-visualizer-height);
+    min-height: var(--now-playing-visualizer-height);
+    margin-top: auto;
   }
   .now-playing__open {
     align-self: flex-start;
@@ -180,6 +180,9 @@
     border-radius: var(--radius-sm);
     cursor: pointer;
     touch-action: manipulation;
+  }
+  .visualizer[data-mode="none"] .visualizer__canvas {
+    visibility: hidden;
   }
   .visualizer__canvas {
     display: block;
@@ -396,6 +399,11 @@
   }
   .setting-row:last-child {
     border-bottom: 0;
+  }
+  .segmented-control--visualizer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row;
+    min-width: 24rem;
   }
   .setting-row__copy {
     display: grid;

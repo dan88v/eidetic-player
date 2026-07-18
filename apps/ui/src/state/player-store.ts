@@ -40,6 +40,7 @@ export const disconnectedPlayerState: PlayerState = {
   repeatMode: "off",
   currentQueueIndex: -1,
   queue: [],
+  queueRevision: 0,
   audioDevice: "Default output",
   error: null,
 };

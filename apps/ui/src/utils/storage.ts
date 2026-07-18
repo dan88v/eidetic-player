@@ -37,7 +37,14 @@ export function saveAnimationsEnabled(enabled: boolean): void {
 }
 
 export function loadVisualizerMode(): VisualizerMode {
-  return read(storageKeys.visualizerMode) === "spectrum" ? "spectrum" : "meter";
+  const value = read(storageKeys.visualizerMode);
+  if (value === "spectrum") return "spectrumMono";
+  return value === "meter" ||
+    value === "spectrumMono" ||
+    value === "spectrumStereo" ||
+    value === "none"
+    ? value
+    : "meter";
 }
 
 export function saveVisualizerMode(mode: VisualizerMode): void {

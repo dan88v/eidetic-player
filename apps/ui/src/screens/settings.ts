@@ -56,10 +56,13 @@ export function createSettingsScreen(
     value: options.visualizerMode,
     items: [
       { value: "meter", label: t("visualizer.meter") },
-      { value: "spectrum", label: t("visualizer.spectrum") },
+      { value: "spectrumMono", label: t("visualizer.spectrumMono") },
+      { value: "spectrumStereo", label: t("visualizer.spectrumStereo") },
+      { value: "none", label: t("visualizer.none") },
     ],
     onChange: options.onVisualizerModeChange,
   });
+  visualizer.element.classList.add("segmented-control--visualizer");
   const timeline = createSegmentedControl<TimelineStyle>({
     label: t("settings.timeline"),
     value: options.timelineStyle,

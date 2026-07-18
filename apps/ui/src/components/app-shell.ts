@@ -5,6 +5,7 @@ import { config } from "../config";
 import { t } from "../i18n";
 import { getNavigationItem } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
+import { runSingleAudioFileSelection } from "../platform/audio-file-selection";
 import { createScreen } from "../screens";
 import { disconnectedPlayerState, PlayerStore } from "../state/player-store";
 import type { AppStore } from "../state/store";
@@ -70,14 +71,13 @@ export function mountApp(
     if (supported.length > 0) run(api.open(supported));
   };
   const openFiles = (): void => {
-    void platform
-      .openAudioFiles()
-      .then(handlePaths)
-      .catch((error: unknown) => {
+    void runSingleAudioFileSelection(platform, handlePaths).catch(
+      (error: unknown) => {
         showMessage(
           error instanceof Error ? error.message : t("error.nativeDialog"),
         );
-      });
+      },
+    );
   };
   const closeOverlays = (): void => {
     store.setMenuOpen(false);
@@ -112,6 +112,25 @@ export function mountApp(
     },
     onPlay: (index) => {
       run(api.playQueue(index));
+    },
+    onAdd: () => {
+      void platform
+        .openAudioFiles({ multiple: true })
+        .then((paths) => {
+          const supported = paths.filter(isSupportedAudioPath);
+          if (supported.length > 0) run(api.appendQueue(supported));
+        })
+        .catch((error: unknown) => {
+          showMessage(
+            error instanceof Error ? error.message : t("error.nativeDialog"),
+          );
+        });
+    },
+    onClear: () => {
+      run(api.clearQueue());
+    },
+    onRemove: (queueItemId) => {
+      run(api.removeQueueItem(queueItemId));
     },
   });
   const volumePopover = createVolumePopover({
@@ -224,9 +243,13 @@ export function mountApp(
       showMiniPlayer,
     );
     if (showMiniPlayer && !miniPlayer) {
-      miniPlayer = createMiniPlayer(() => {
-        navigate("nowPlaying");
-      }, actions.playPause);
+      miniPlayer = createMiniPlayer(
+        () => {
+          navigate("nowPlaying");
+        },
+        actions.playPause,
+        actions.seek,
+      );
       miniPlayer.update(playerStore.getState());
       contentShell.append(miniPlayer.element);
     } else if (!showMiniPlayer && miniPlayer) {
@@ -341,7 +364,7 @@ export function mountApp(
     } else if (state.queueOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
-        store.setQueueOpen(false);
+        if (!queueDrawer.dismissConfirmation()) store.setQueueOpen(false);
       } else queueDrawer.containFocus(event);
     } else if (state.menuOpen) {
       if (event.key === "Escape") {

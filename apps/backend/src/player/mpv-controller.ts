@@ -79,13 +79,37 @@ export class MpvController {
     return this.command(["set_property", name, value]);
   }
 
-  async loadPlaylist(paths: readonly string[]): Promise<void> {
+  async loadPlaylist(
+    paths: readonly string[],
+    selectedIndex = 0,
+  ): Promise<void> {
     const first = paths[0];
-    if (!first) throw new Error("Cannot load an empty playlist");
-    await this.command(["loadfile", first, "replace"]);
-    for (const path of paths.slice(1)) {
+    if (!first || !paths[selectedIndex])
+      throw new Error("Cannot load an empty playlist");
+    await this.setProperty("pause", true);
+    const selected = paths[selectedIndex] ?? first;
+    await this.command(["loadfile", selected, "replace"]);
+    for (let index = 0; index < selectedIndex; index += 1) {
+      const path = paths[index];
+      if (path) await this.command(["loadfile", path, "insert-at", index]);
+    }
+    for (const path of paths.slice(selectedIndex + 1)) {
       await this.command(["loadfile", path, "append"]);
     }
+    const currentIndex = await this.getProperty("playlist-pos");
+    if (currentIndex !== selectedIndex)
+      throw new Error(
+        `MPV selected index mismatch: expected ${String(selectedIndex)}, got ${String(currentIndex)}`,
+      );
+  }
+
+  async appendToPlaylist(paths: readonly string[]): Promise<void> {
+    for (const path of paths) await this.command(["loadfile", path, "append"]);
+  }
+
+  async clearPlaylist(): Promise<void> {
+    await this.command(["stop"]).catch(() => undefined);
+    await this.command(["playlist-clear"]).catch(() => undefined);
   }
 
   async stop(): Promise<void> {

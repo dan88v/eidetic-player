@@ -63,6 +63,27 @@ function pictures(raw: IAudioMetadata): PictureCandidate[] {
   }));
 }
 
+export const emptyMetadata: NormalizedMetadata = Object.freeze({
+  title: null,
+  artist: null,
+  artists: [],
+  album: null,
+  albumArtist: null,
+  trackNumber: null,
+  trackTotal: null,
+  discNumber: null,
+  discTotal: null,
+  year: null,
+  genre: [],
+  durationSeconds: null,
+  codec: null,
+  container: null,
+  sampleRate: null,
+  bitDepth: null,
+  bitrate: null,
+  lossless: null,
+});
+
 export class MetadataService {
   readonly maxRecords: number;
   private readonly cache = new Map<string, CacheEntry>();
@@ -104,6 +125,21 @@ export class MetadataService {
           cacheKey,
           metadata,
           pictures: pictures(raw),
+          artwork: null,
+          fromCache: false,
+        } satisfies MetadataResult;
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          `[metadata] parser failed for ${canonicalPath}; using MPV and folder-artwork fallbacks`,
+          error,
+        );
+        this.cache.set(cacheKey, { metadata: emptyMetadata, artwork: null });
+        this.trim();
+        return {
+          cacheKey,
+          metadata: emptyMetadata,
+          pictures: [],
           artwork: null,
           fromCache: false,
         } satisfies MetadataResult;

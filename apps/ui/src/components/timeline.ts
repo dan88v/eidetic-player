@@ -8,6 +8,7 @@ export interface TimelineView extends ComponentView {
   readonly position: number;
   setPlayback(positionSeconds: number, durationSeconds: number): void;
   setEnabled(enabled: boolean): void;
+  setWaveform(points: readonly number[] | null): void;
 }
 
 export function formatTime(seconds: number): string {
@@ -32,6 +33,7 @@ export function createTimeline(options: {
   let durationSeconds = options.durationSeconds;
   let enabled = durationSeconds > 0;
   let dragging = false;
+  let waveform: readonly number[] | null = null;
   const element = document.createElement("section");
   element.className = "timeline";
   const elapsed = document.createElement("time");
@@ -55,7 +57,9 @@ export function createTimeline(options: {
     const context = canvas.getContext("2d");
     if (!size || !context) return;
     if (options.style === "waveform") {
-      canvas.dataset.barCount = String(renderWaveform(context, size, progress));
+      canvas.dataset.barCount = String(
+        renderWaveform(context, size, progress, waveform ?? undefined),
+      );
     } else {
       delete canvas.dataset.barCount;
       renderLine(context, size, progress);
@@ -148,6 +152,10 @@ export function createTimeline(options: {
       enabled = nextEnabled && durationSeconds > 0;
       slider.tabIndex = enabled ? 0 : -1;
       slider.setAttribute("aria-disabled", String(!enabled));
+    },
+    setWaveform(points) {
+      waveform = points;
+      draw();
     },
     destroy() {
       observer.disconnect();

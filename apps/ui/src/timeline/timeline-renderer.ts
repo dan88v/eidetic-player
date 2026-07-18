@@ -1,29 +1,33 @@
 import type { CanvasSize } from "../visualizer/canvas";
 
-function waveformLevel(index: number): number {
-  return (
-    0.24 +
-    Math.abs(Math.sin(index * 0.73) * 0.54 + Math.sin(index * 0.19) * 0.2)
-  );
-}
-
 export function renderWaveform(
   context: CanvasRenderingContext2D,
   size: CanvasSize,
   progress: number,
+  points?: readonly number[],
 ): number {
   const { width, height } = size;
   const bars = Math.max(160, Math.min(240, Math.round(width / 5)));
   const gap = 1.5;
   const barWidth = Math.max(1, (width - gap * (bars - 1)) / bars);
   const center = height / 2;
+  const hasWaveform = Boolean(points?.length);
   for (let index = 0; index < bars; index += 1) {
     const x = index * (barWidth + gap);
-    const barHeight = Math.max(5, waveformLevel(index) * (height - 8));
-    context.fillStyle = x / width <= progress ? "#2f7dff" : "#394253";
+    const pointIndex =
+      points && points.length > 0
+        ? Math.round((index * (points.length - 1)) / Math.max(1, bars - 1))
+        : -1;
+    const level = pointIndex >= 0 ? (points?.[pointIndex] ?? 0) : 0;
+    const barHeight = hasWaveform ? Math.max(5, level * (height - 8)) : 3;
+    context.fillStyle = hasWaveform
+      ? x / width <= progress
+        ? "#2f7dff"
+        : "#394253"
+      : "#242b38";
     context.fillRect(x, center - barHeight / 2, barWidth, barHeight);
   }
-  drawPlayhead(context, size, progress);
+  if (hasWaveform) drawPlayhead(context, size, progress);
   return bars;
 }
 

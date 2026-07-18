@@ -22,7 +22,7 @@ void test("deduplication keeps the first path", () => {
   assert.match(paths[0] ?? "", /one\.flac$/i);
 });
 
-void test("single selection expands only later supported files, non-recursively", async () => {
+void test("single selection expands the whole folder, non-recursively", async () => {
   const folder = await mkdtemp(join(tmpdir(), "eidetic-queue-"));
   try {
     for (const name of [
@@ -37,7 +37,7 @@ void test("single selection expands only later supported files, non-recursively"
     const queue = await buildQueue([join(folder, "02 - Song.flac")]);
     assert.deepEqual(
       queue.map((path) => path.split(/[\\/]/).at(-1)),
-      ["02 - Song.flac", "03 - Finale.mp3"],
+      ["01 - Intro.flac", "02 - Song.flac", "03 - Finale.mp3"],
     );
   } finally {
     await rm(folder, { recursive: true, force: true });

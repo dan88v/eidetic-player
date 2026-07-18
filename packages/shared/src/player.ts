@@ -71,6 +71,7 @@ export interface PlayerState {
   readonly repeatMode: RepeatMode;
   readonly currentQueueIndex: number;
   readonly queue: readonly QueueItem[];
+  readonly queueRevision: number;
   readonly audioDevice: string;
   readonly error: PlayerErrorState | null;
 }
