@@ -19,6 +19,7 @@ import {
   saveVisualizerSnapshot,
   visualizerSnapshotKey,
 } from "../visualizer/visualizer-snapshot-store";
+import { nextVisualizerMode } from "../visualizer/visualizer-mode";
 import type { ComponentView } from "./types";
 
 const TARGET_FRAME_INTERVAL = 1_000 / 30;
@@ -235,16 +236,7 @@ export function createVisualizer(options: {
   };
 
   const updateAccessibleState = (): void => {
-    const nextMode: VisualizerMode =
-      mode === "spectrumMono"
-        ? "spectrumStereo"
-        : mode === "spectrumStereo"
-          ? "meter"
-          : mode === "meter"
-            ? "technical"
-            : mode === "technical"
-              ? "none"
-              : "spectrumMono";
+    const nextMode = nextVisualizerMode(mode);
     element.dataset.mode = mode;
     element.setAttribute("aria-label", `Show ${t(`visualizer.${nextMode}`)}`);
     canvas.dataset.bands =
@@ -266,16 +258,7 @@ export function createVisualizer(options: {
   };
 
   const toggleMode = (): void => {
-    mode =
-      mode === "meter"
-        ? "spectrumMono"
-        : mode === "spectrumMono"
-          ? "spectrumStereo"
-          : mode === "spectrumStereo"
-            ? "technical"
-            : mode === "technical"
-              ? "none"
-              : "meter";
+    mode = nextVisualizerMode(mode);
     meter.reset();
     technicalCrestDb = null;
     shortTermLufs = null;

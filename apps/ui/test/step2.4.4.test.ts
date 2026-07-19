@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { crestFactorDb } from "../src/visualizer/technical-renderer.js";
+import { nextVisualizerMode } from "../src/visualizer/visualizer-mode.js";
 
 const read = (path: string): Promise<string> =>
   readFile(new URL(`../src/${path}`, import.meta.url), "utf8");
@@ -25,9 +26,16 @@ void test("visualizers use the requested presentation order", async () => {
     settings,
     /\["spectrumMono",[\s\S]*?\["spectrumStereo",[\s\S]*?\["meter",[\s\S]*?\["technical",[\s\S]*?\["none",/,
   );
-  assert.match(
-    visualizer,
-    /mode === "spectrumMono"[\s\S]*?\? "spectrumStereo"[\s\S]*?mode === "spectrumStereo"[\s\S]*?\? "meter"[\s\S]*?mode === "meter"[\s\S]*?\? "technical"[\s\S]*?mode === "technical"[\s\S]*?\? "none"/,
+  assert.match(visualizer, /mode = nextVisualizerMode\(mode\)/);
+  assert.deepEqual(
+    [
+      nextVisualizerMode("spectrumMono"),
+      nextVisualizerMode("spectrumStereo"),
+      nextVisualizerMode("meter"),
+      nextVisualizerMode("technical"),
+      nextVisualizerMode("none"),
+    ],
+    ["spectrumStereo", "meter", "technical", "none", "spectrumMono"],
   );
   assert.match(i18n, /"visualizer\.technical": "Technical"/);
 });

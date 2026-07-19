@@ -1,13 +1,13 @@
-# Step 2.4.5-W — Windows x64 automatic regression validation
+# Step 2.4.5-W — Windows x64 regression validation
 
 Data: 19 luglio 2026  
-Esito: **PASS per la regressione automatica Windows**, con tre regressioni
-corrette. La QA visuale/interattiva 1280 × 800 e i dialoghi nativi restano
-**NOT TESTED** perché il controller browser non era disponibile; non vengono
-dichiarati PASS. Lo Step 2.5 non è stato iniziato.
+Esito: **PASS per la regressione automatica e manuale Windows**, con cinque
+regressioni corrette. La QA è stata eseguita nell'app Neutralino reale avviata
+con `npm.cmd run dev`, inclusi 1280 × 800, layout di fallback, dialoghi nativi,
+Queue, Folders, Settings e visualizzatori. Lo Step 2.5 non è stato iniziato.
 
 Branch: `main`  
-HEAD: `9b67fae06eb8cad32e9a9e6d42784b0b0c297d24`
+HEAD durante la QA finale: `03a10c50633291e1eddb7889a189e67d0e882fa3`
 
 ## Ambiente e inventario
 
@@ -29,18 +29,18 @@ HEAD: `9b67fae06eb8cad32e9a9e6d42784b0b0c297d24`
 
 ## Installazione, statici e test
 
-- `npm.cmd ci`: **PASS**, 211 pacchetti / 212 controllati, 11,693 s nella run
+- `npm.cmd ci`: **PASS**, 211 pacchetti / 212 controllati, 13,164 s nella run
   finale; nessuna modifica a `package-lock.json`.
-- `npm.cmd audit`: **PASS**, 0 vulnerabilità, 2,616 s.
+- `npm.cmd audit`: **PASS**, 0 vulnerabilità, 2,540 s.
 - Gli avvisi `inflight`, `glob@7`, `yaeti` e i quattro install script pendenti
   sono dipendenze dev transitive già documentate nello Step 2.4.5; non sono
   stati approvati né aggiornati.
-- `format:check`: **PASS**, 6,234 s.
-- `typecheck`: **PASS**, 8,225 s.
-- `lint`: **PASS**, 17,857 s.
-- `build`: **PASS**, 7,482 s complessivi; fase Vite 472 ms.
-- `npm.cmd test`: **PASS**, 183 test totali in 3,664 s
-  (181 PASS, 2 SKIPPED Linux/POSIX previsti, 0 FAIL; runner 2,570 s).
+- `format:check`: **PASS**, 6,243 s.
+- `typecheck`: **PASS**, 8,338 s.
+- `lint`: **PASS**, 17,501 s.
+- `build`: **PASS**, 7,876 s complessivi; fase Vite 519 ms.
+- `npm.cmd test`: **PASS**, 183 test totali in 3,933 s
+  (181 PASS, 2 SKIPPED Linux/POSIX previsti, 0 FAIL; runner 2,819 s).
 - `test:case-sensitive`: **FAIL supplementare/non applicabile su Windows**.
   È una utility Linux-only e, se invocata direttamente su NTFS, interpreta gli
   import con separatori Windows come mismatch. Non fa parte del gate Windows e
@@ -71,13 +71,13 @@ Folders, Settings/inactivity, toast unico, mini-player e responsive contract.
 
 ## MPV e FFmpeg
 
-- `mpv:doctor`: **PASS**, 1,499 s; avvio headless e JSON IPC OK.
+- `mpv:doctor`: **PASS**, 1,398 s; avvio headless e JSON IPC OK.
 - IPC Windows: named pipe `\\.\pipe\eidetic-player-<pid>-<uuid>`, non socket
   Unix.
-- `test:mpv`: **PASS 4/4**, 4,349 s: command/reply, selected fifth/ninth item
+- `test:mpv`: **PASS 4/4**, 4,390 s: command/reply, selected fifth/ninth item
   diretto, Queue, metadata, artwork, shutdown e riavvio.
-- `ffmpeg:doctor`: **PASS**, 1,202 s.
-- `test:ffmpeg`: **PASS 3/3**, 3,271 s: waveform reale, massimo un analyzer
+- `ffmpeg:doctor`: **PASS**, 1,187 s.
+- `test:ffmpeg`: **PASS 3/3**, 3,244 s: waveform reale, massimo un analyzer
   realtime e LUFS-S confrontato con `ebur128`.
 - MPV e FFmpeg sono risolti tramite configurazione esistente; non è stato
   aggiunto alcun hardcode personale o path Linux.
@@ -98,7 +98,7 @@ Folders, Settings/inactivity, toast unico, mini-player e responsive contract.
 
 ## Neutralino, WebView2 e font
 
-- `npx.cmd neu build --release`: **PASS**, 4,157 s.
+- `npx.cmd neu build --release`: **PASS**, 4,311 s.
 - Artefatto Windows:
   `dist/eidetic-player/eidetic-player-win_x64.exe`, PE machine `0x8664`
   (x86-64), 1.729.024 byte.
@@ -110,23 +110,55 @@ Folders, Settings/inactivity, toast unico, mini-player e responsive contract.
 - Smoke reale: una istanza Neutralino Windows x64 e un processo WebView2 figlio
   diretto; CLI collegata all’app.
 - Open Sans è locale, `font-display: block`, nessuna richiesta Google Fonts:
-  HTML 2,48 kB; CSS 42,84 kB (7,73 gzip); JS 111,57 kB (32,13 gzip);
+  HTML 2,48 kB; CSS 42,84 kB (7,73 gzip); JS 111,47 kB (32,13 gzip);
   TTF 532.636 byte.
 - Regressione corretta: la licenza OFL esisteva nel sorgente ma non entrava nel
   bundle. La build copia ora `licenses/OpenSans-OFL.txt` (4.216 byte);
   TTF, licenza e config sono presenti dentro `resources.neu`.
+
+## QA manuale nell'app Neutralino
+
+- `npm.cmd run dev`: **PASS**; area client misurata esattamente 1280 × 800
+  (finestra esterna 1296 × 839), con Open Sans locale, artwork, waveform e
+  trasporto centrato. Nessun flash bianco, overflow, salto o superficie vuota
+  osservato durante navigazione e caricamenti.
+- Side menu, Queue drawer reale con 14 righe keyed e miniature, Settings root,
+  Interface, Sources, Folders grid/list e directory sono stati aperti e
+  ispezionati. La vista Folders è stata ripristinata su grid.
+- Il dialogo Windows **Open Files** è stato aperto da Queue > Add Files e
+  annullato; il dialogo Windows **Add Folder** è stato aperto da Sources e
+  annullato. Nessun file o source è stato modificato.
+- Selezione reale di un elemento non iniziale della Queue: **PASS**. La sessione
+  è stata poi ripristinata su indice 2, pausa attiva e mute disattivato.
+- Technical in stato neutro e popolato: **PASS**; rilevati Crest 9,1 dB e
+  LUFS-S -13,9 durante la prova, con un solo FFmpeg. Meter enhanced popolato:
+  **PASS**, barre L/R attive e un solo FFmpeg.
+- Toast singolo: **PASS**. Il tentativo di aggiungere da Folders un brano già
+  presente ha mostrato una sola notifica “Track is already in Queue” e la Queue
+  è rimasta a 14 elementi.
+- Ciclo visualizzatore reale verificato dopo la correzione:
+  Mono → Stereo → Meter → Technical → None → Mono. Tre tap partendo da Mono
+  raggiungono Technical, quindi Meter non viene più saltato.
+- Stress reale sotto `npm.cmd run dev`: 20 comandi Queue/play in 66 ms, Queue
+  invariata a 14 elementi, ID stabili, ultimo indice richiesto corretto, un
+  MPV, un FFmpeg e nessun errore. Il backend ha coalesciuto correttamente le
+  richieste rapide in un solo cambio di stato pubblicato.
+- Layout ispezionati anche a 1366 × 768, 1600 × 900, 1280 × 720 e 1024 × 600:
+  **PASS**. Il layout emergency riduce i dettagli tecnici mantenendo controlli
+  touch ampi e senza overflow. La finestra è stata ripristinata a 1280 × 800.
 
 ## Smoke development e shutdown
 
 - `npm.cmd run dev`: **PASS** con timeout controllato.
 - Backend `/health`: `ok`; UI Vite: HTTP 200; bootstrap: **PASS**; MPV
   disponibile; FFmpeg avviabile; shell Neutralino e WebView2 collegati.
-- Vite ready finale: 496 ms. Il tempo esatto backend/Neutralino non era
+- Vite ready nella prova finale: 455 ms. Il tempo esatto backend/Neutralino non era
   strumentato; Neutralino è comunque entrato nello stato collegato entro il
   timeout di 60 s. Una rilevazione processi precedente lo collocava a circa
   9 s dall’avvio del runner.
-- Chiusura della sola shell di test: backend ha ricevuto `SIGTERM` tramite il
-  percorso di shutdown ordinato; shutdown finale 1,449 s.
+- Chiusura della sola shell di test tramite `WM_CLOSE`: backend ha ricevuto
+  `SIGTERM` tramite il percorso di shutdown ordinato; l'ultima chiusura è
+  terminata senza residui.
 - Finale: zero listener 4310/5173, zero processi Node/Vite/backend del progetto,
   zero Neutralino, zero MPV, zero FFmpeg, zero log/PID temporanei creati dallo
   smoke.
@@ -142,6 +174,10 @@ Folders, Settings/inactivity, toast unico, mini-player e responsive contract.
    copia dell’OFL e test del contratto.
 4. **Residuo su rifiuto socket lungo**: validazione spostata prima di
    `mkdir/chmod` e test no-side-effect.
+5. **Ciclo touch del visualizzatore incoerente**: il Canvas passava da Stereo
+   direttamente a Technical e rendeva Meter raggiungibile solo da Settings.
+   Correzione: una funzione pura condivisa definisce l'ordine canonico usato
+   sia dal tap sia dall'etichetta accessibile, con test comportamentale.
 
 Nessuna dipendenza è stata aggiunta o aggiornata. Nessun refactor UI, database,
 Library indexing, USB, SMB, output audio, kiosk o packaging Raspberry Pi è
@@ -152,19 +188,20 @@ stato implementato.
 - `apps/backend/src/player/mpv-endpoint.ts`
 - `apps/backend/test/filesystem-path.test.ts`
 - `apps/backend/test/linux-platform.test.ts`
+- `apps/ui/src/components/visualizer.ts`
+- `apps/ui/src/visualizer/visualizer-mode.ts`
 - `apps/ui/test/step2.4.4.test.ts`
 - `apps/ui/vite.config.ts`
 - `prompts/step2.4.5_windows_regression_output.md`
 
 ## Limiti e stato finale
 
-- QA visuale/touch a 1280 × 800, dialoghi Open/Add Folder, interazione manuale
-  con Settings/Folders/Queue/Technical e transizioni real-media:
-  **NOT TESTED** in questa run, perché il controller browser era indisponibile.
-  L’avvio Neutralino/WebView2 e i contratti automatici sono PASS ma non
-  sostituiscono l’ispezione visiva.
-- Audio udibile e selezione device: **NOT TESTED**; le integrazioni usano output
-  non udibile.
+- Touchscreen fisico Raspberry Pi: **NOT TESTED**; la QA touch è stata eseguita
+  nella WebView2 Windows con input puntatore reale.
+- Audio udibile e selezione device: **NOT TESTED**; durante le prove di
+  riproduzione l'output è stato intenzionalmente silenziato.
 - `git diff --check`: **PASS**.
-- Nessun commit, push, merge, rebase o force-push eseguito.
+- Nessun nuovo commit, push, merge, rebase o force-push è stato eseguito
+  durante questa integrazione manuale; la correzione del ciclo visualizzatore
+  resta nel working tree.
 - Le correzioni Linux restano preservate e lo Step 2.5 non è stato iniziato.
