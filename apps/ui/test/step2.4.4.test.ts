@@ -158,10 +158,17 @@ void test("Windows dev shutdown gives artwork cleanup a graceful backend path", 
 });
 
 void test("the UI uses the bundled cross-platform Open Sans font", async () => {
-  const base = await read("styles/base.css");
+  const [base, viteConfig, license] = await Promise.all([
+    read("styles/base.css"),
+    readWorkspace("apps/ui/vite.config.ts"),
+    read("assets/fonts/OFL.txt"),
+  ]);
   assert.match(base, /@font-face/);
   assert.match(base, /font-family: "Open Sans Bundled"/);
   assert.match(base, /OpenSans-Variable\.ttf/);
   assert.match(base, /font-display: block/);
   assert.doesNotMatch(base, /\bInter,/);
+  assert.match(viteConfig, /bundle-open-sans-license/);
+  assert.match(viteConfig, /OpenSans-OFL\.txt/);
+  assert.match(license, /SIL OPEN FONT LICENSE Version 1\.1/);
 });

@@ -52,28 +52,36 @@ void test("Linux application directories have safe XDG fallbacks", () => {
   assert.match(paths.runtime, /^\/tmp\/eidetic-player-\d+$/);
 });
 
-void test("MPV Unix endpoints are private, unique, stale-safe, and cleaned", async () => {
-  const root = await mkdtemp(join(tmpdir(), "eidetic endpoint Ü "));
+void test(
+  "MPV Unix endpoints are private, unique, stale-safe, and cleaned",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "eidetic endpoint Ü "));
+    try {
+      const runtime = join(root, "run");
+      const first = await createMpvEndpoint("linux", {}, runtime);
+      const second = await createMpvEndpoint("linux", {}, runtime);
+      assert.notEqual(first.path, second.path);
+      assert.equal((await stat(runtime)).mode & 0o777, 0o700);
+      await writeFile(first.path, "stale");
+      await first.cleanup();
+      await assert.rejects(access(first.path));
+      await second.cleanup();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+void test("MPV Unix endpoints reject paths beyond portable socket limits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-long-endpoint-"));
+  const runtime = join(root, "x".repeat(100));
   try {
-    const runtime = join(root, "run");
-    const first = await createMpvEndpoint("linux", {}, runtime);
-    const second = await createMpvEndpoint("linux", {}, runtime);
-    assert.notEqual(first.path, second.path);
-    assert.equal((await stat(runtime)).mode & 0o777, 0o700);
-    await writeFile(first.path, "stale");
-    await first.cleanup();
-    await assert.rejects(access(first.path));
-    await second.cleanup();
+    await assert.rejects(createMpvEndpoint("linux", {}, runtime), /too long/);
+    await assert.rejects(access(runtime));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-void test("MPV Unix endpoints reject paths beyond portable socket limits", async () => {
-  await assert.rejects(
-    createMpvEndpoint("linux", {}, `/tmp/${"x".repeat(100)}`),
-    /too long/,
-  );
 });
 
 void test(

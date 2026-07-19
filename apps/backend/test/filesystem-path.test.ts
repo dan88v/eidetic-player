@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { LocalFilesystemProvider } from "../src/filesystem/local-filesystem-provider.js";
 import { PathService } from "../src/filesystem/path-service.js";
+import { resolveAppDirectories } from "../src/platform/app-directories.js";
+import { playerSessionConfigPath } from "../src/player-session/player-session-repository.js";
 import {
   SourceRepository,
   sourcesConfigPath,
@@ -86,9 +88,27 @@ void test("logical path validator rejects traversal and native path forms", () =
 });
 
 void test("configuration paths follow Windows APPDATA and Linux XDG", () => {
+  const windowsEnvironment = {
+    APPDATA: "C:\\Profile\\Roaming",
+    LOCALAPPDATA: "D:\\Profile\\Local",
+    TEMP: "E:\\Temp",
+  };
+  assert.deepEqual(
+    resolveAppDirectories("win32", windowsEnvironment, "C:\\Home"),
+    {
+      config: "C:\\Profile\\Roaming\\Eidetic Player",
+      cache: "D:\\Profile\\Local\\Eidetic Player\\Cache",
+      data: "D:\\Profile\\Local\\Eidetic Player\\Data",
+      runtime: "E:\\Temp\\Eidetic Player\\Runtime",
+    },
+  );
   assert.equal(
-    sourcesConfigPath("win32", { APPDATA: "C:\\Profile\\Roaming" }, "C:\\Home"),
+    sourcesConfigPath("win32", windowsEnvironment, "C:\\Home"),
     "C:\\Profile\\Roaming\\Eidetic Player\\sources.json",
+  );
+  assert.equal(
+    playerSessionConfigPath("win32", windowsEnvironment, "C:\\Home"),
+    "C:\\Profile\\Roaming\\Eidetic Player\\player-session.json",
   );
   assert.equal(
     sourcesConfigPath("linux", { XDG_CONFIG_HOME: "/config" }, "/home/user"),
