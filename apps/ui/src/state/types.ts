@@ -9,7 +9,7 @@ export const screenIds = [
 
 export type ScreenId = (typeof screenIds)[number];
 export type VisualizerMode =
-  "meter" | "spectrumMono" | "spectrumStereo" | "none";
+  "meter" | "spectrumMono" | "spectrumStereo" | "technical" | "none";
 export type TimelineStyle = "waveform" | "line";
 export type TimelineTimeMode = "total" | "remaining";
 export type FolderViewMode = "list" | "grid";

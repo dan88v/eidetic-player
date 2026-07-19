@@ -3,7 +3,7 @@ import type { VisualizerFrame } from "../../../../packages/shared/src/visualizer
 import { AudioAnalyzerService } from "./audio-analyzer-service.js";
 
 export type VisualizerTransportMode =
-  "meter" | "spectrumMono" | "spectrumStereo";
+  "meter" | "spectrumMono" | "spectrumStereo" | "technical";
 
 export class VisualizerHub {
   private readonly clients = new Map<ServerResponse, VisualizerTransportMode>();
@@ -54,12 +54,19 @@ export class VisualizerHub {
         const values = (source: readonly number[]): number[] =>
           source.map(round);
         const compact: VisualizerFrame = {
+          playerSessionId: frame.playerSessionId,
           trackId: frame.trackId,
           trackTransitionId: frame.trackTransitionId,
           positionSeconds: Math.round(frame.positionSeconds * 1_000) / 1_000,
           sequence: frame.sequence,
+          sampleRate: frame.sampleRate,
+          mode,
+          shortTermLufs:
+            mode === "technical" && frame.shortTermLufs !== null
+              ? Math.round(frame.shortTermLufs * 10) / 10
+              : null,
           meter:
-            mode === "meter"
+            mode === "meter" || mode === "technical"
               ? {
                   leftPeak: round(frame.meter.leftPeak),
                   leftRms: round(frame.meter.leftRms),

@@ -104,6 +104,7 @@ export function loadVisualizerMode(): VisualizerMode {
   return value === "meter" ||
     value === "spectrumMono" ||
     value === "spectrumStereo" ||
+    value === "technical" ||
     value === "none"
     ? value
     : "meter";

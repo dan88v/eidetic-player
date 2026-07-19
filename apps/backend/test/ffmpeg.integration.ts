@@ -9,6 +9,7 @@ import { discoverFfmpeg } from "../src/analysis/ffmpeg-discovery.js";
 import { PcmStreamParser } from "../src/analysis/pcm-stream-parser.js";
 import { WaveformService } from "../src/analysis/waveform-service.js";
 import { AudioAnalyzerService } from "../src/analysis/audio-analyzer-service.js";
+import { ShortTermLoudnessMeter } from "../src/analysis/short-term-loudness-meter.js";
 import type { PlayerState } from "../../../packages/shared/src/player.js";
 
 function stereoWave(seconds = 1): Buffer {
@@ -171,6 +172,74 @@ void test("rapid player updates keep exactly one realtime FFmpeg process", async
   } finally {
     await analyzer.close();
     assert.equal(analyzer.getDiagnostics().activeProcesses, 0);
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+void test("LUFS-S matches offline FFmpeg ebur128 within tolerance", async (context) => {
+  const discovery = await discoverFfmpeg();
+  if (!discovery) {
+    context.skip("FFmpeg is unavailable");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-lufs-reference-"));
+  const path = join(folder, "reference.wav");
+  try {
+    await writeFile(path, stereoWave(6));
+    const meter = new ShortTermLoudnessMeter(24_000);
+    const decode = spawn(
+      discovery.executable,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        path,
+        "-ac",
+        "2",
+        "-ar",
+        "24000",
+        "-f",
+        "f32le",
+        "pipe:1",
+      ],
+      { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const parser = new PcmStreamParser();
+    for await (const chunk of decode.stdout)
+      meter.push(parser.push(chunk as Buffer));
+    const measured = meter.value();
+    assert.ok(measured !== null);
+
+    const reference = spawn(
+      discovery.executable,
+      [
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "verbose",
+        "-i",
+        path,
+        "-filter_complex",
+        "ebur128=framelog=verbose",
+        "-f",
+        "null",
+        "-",
+      ],
+      { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let output = "";
+    for await (const chunk of reference.stderr) output += String(chunk);
+    const values = [...output.matchAll(/\bS:\s*(-?\d+(?:\.\d+)?)/g)]
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value) && value > -70);
+    const expected = values.at(-1);
+    assert.ok(expected !== undefined);
+    assert.ok(
+      Math.abs(measured - expected) <= 0.3,
+      `measured ${measured.toFixed(3)} LUFS-S, FFmpeg ${expected.toFixed(3)} LUFS-S`,
+    );
+  } finally {
     await rm(folder, { recursive: true, force: true });
   }
 });

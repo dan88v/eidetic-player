@@ -1105,14 +1105,11 @@ export class PlayerService {
     readonly metadata: NormalizedMetadata;
     readonly artwork: ArtworkRef | null;
   }> {
-    let result = await this.metadataService.read(path);
-    if (
-      result.artwork &&
-      !(await this.artworkService.getResource(result.artwork.id))
-    ) {
-      this.metadataService.invalidate(result.cacheKey);
-      result = await this.metadataService.read(path);
-    }
+    const result = await this.metadataService.readForArtwork(
+      path,
+      async (artwork) =>
+        (await this.artworkService.getResource(artwork.id)) !== null,
+    );
     const artwork =
       result.artwork ??
       (await this.artworkService.resolve(

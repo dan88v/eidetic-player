@@ -33,5 +33,6 @@ export interface MetadataResult {
   readonly metadata: NormalizedMetadata;
   readonly pictures: readonly PictureCandidate[];
   readonly artwork: ArtworkRef | null;
+  readonly hasEmbeddedArtwork: boolean;
   readonly fromCache: boolean;
 }

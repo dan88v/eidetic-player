@@ -1,5 +1,6 @@
 import type { VisualizerFrame } from "../../../../packages/shared/src/visualizer.js";
 import { analysisConfig } from "./analysis-config.js";
+import { ShortTermLoudnessMeter } from "./short-term-loudness-meter.js";
 
 export const ANALYSIS_SAMPLE_RATE = analysisConfig.sampleRate;
 export const FFT_SIZE = 1_024;
@@ -79,8 +80,8 @@ export class AudioAnalysisEngine {
   private left: number[] = [];
   private right: number[] = [];
   private readonly window = hannWindow(FFT_SIZE);
+  private readonly loudness = new ShortTermLoudnessMeter(ANALYSIS_SAMPLE_RATE);
   private sequence = 0;
-  private displayedMeter = [0, 0, 0, 0];
   private consumedSamples = 0;
 
   push(
@@ -88,24 +89,29 @@ export class AudioAnalysisEngine {
     trackId: string,
     startPosition: number,
     trackTransitionId = 0,
+    playerSessionId = "",
   ): VisualizerFrame[] {
-    for (let index = 0; index + 1 < interleaved.length; index += 2) {
-      this.left.push(clampSigned(interleaved[index] ?? 0));
-      this.right.push(clampSigned(interleaved[index + 1] ?? 0));
-    }
     const frames: VisualizerFrame[] = [];
-    while (this.left.length >= FFT_SIZE && this.right.length >= FFT_SIZE) {
-      frames.push(
-        this.analyze(
-          trackId,
-          startPosition +
-            (this.consumedSamples + FFT_SIZE / 2) / ANALYSIS_SAMPLE_RATE,
-          trackTransitionId,
-        ),
-      );
-      this.left.splice(0, HOP_SIZE);
-      this.right.splice(0, HOP_SIZE);
-      this.consumedSamples += HOP_SIZE;
+    for (let index = 0; index + 1 < interleaved.length; index += 2) {
+      const left = clampSigned(interleaved[index] ?? 0);
+      const right = clampSigned(interleaved[index + 1] ?? 0);
+      this.left.push(left);
+      this.right.push(right);
+      this.loudness.pushStereo(left, right);
+      if (this.left.length >= FFT_SIZE && this.right.length >= FFT_SIZE) {
+        frames.push(
+          this.analyze(
+            trackId,
+            startPosition +
+              (this.consumedSamples + FFT_SIZE / 2) / ANALYSIS_SAMPLE_RATE,
+            trackTransitionId,
+            playerSessionId,
+          ),
+        );
+        this.left.splice(0, HOP_SIZE);
+        this.right.splice(0, HOP_SIZE);
+        this.consumedSamples += HOP_SIZE;
+      }
     }
     return frames;
   }
@@ -113,7 +119,7 @@ export class AudioAnalysisEngine {
   reset(): void {
     this.left = [];
     this.right = [];
-    this.displayedMeter = [0, 0, 0, 0];
+    this.loudness.reset();
     this.consumedSamples = 0;
   }
 
@@ -121,6 +127,7 @@ export class AudioAnalysisEngine {
     trackId: string,
     positionSeconds: number,
     trackTransitionId: number,
+    playerSessionId: string,
   ): VisualizerFrame {
     const left = Float32Array.from(this.left.slice(0, FFT_SIZE));
     const right = Float32Array.from(this.right.slice(0, FFT_SIZE));
@@ -144,16 +151,6 @@ export class AudioAnalysisEngine {
     };
     const leftMeter = meter(left);
     const rightMeter = meter(right);
-    const rawMeter = [
-      leftMeter.peak,
-      leftMeter.rms,
-      rightMeter.peak,
-      rightMeter.rms,
-    ];
-    this.displayedMeter = rawMeter.map((value, index) => {
-      const previous = this.displayedMeter[index] ?? 0;
-      return value >= previous ? value : previous * 0.82 + value * 0.18;
-    });
     const leftWindowed = Float32Array.from(
       left,
       (value, index) => value * (this.window[index] ?? 0),
@@ -168,15 +165,19 @@ export class AudioAnalysisEngine {
       Math.sqrt((value * value + (rightMagnitudes[index] ?? 0) ** 2) / 2),
     );
     return {
+      playerSessionId,
       trackId,
       trackTransitionId,
       positionSeconds,
       sequence: ++this.sequence,
+      sampleRate: ANALYSIS_SAMPLE_RATE,
+      mode: "meter",
+      shortTermLufs: this.loudness.value(),
       meter: {
-        leftPeak: clamp(this.displayedMeter[0] ?? 0),
-        leftRms: clamp(this.displayedMeter[1] ?? 0),
-        rightPeak: clamp(this.displayedMeter[2] ?? 0),
-        rightRms: clamp(this.displayedMeter[3] ?? 0),
+        leftPeak: leftMeter.peak,
+        leftRms: leftMeter.rms,
+        rightPeak: rightMeter.peak,
+        rightRms: rightMeter.rms,
       },
       monoBands: logarithmicBands(monoMagnitudes, 32),
       leftBands: logarithmicBands(leftMagnitudes, 16),
@@ -194,12 +195,17 @@ export function zeroFrame(
   trackId: string | null,
   sequence = 0,
   trackTransitionId = 0,
+  playerSessionId = "",
 ): VisualizerFrame {
   return {
+    playerSessionId,
     trackId,
     trackTransitionId,
     positionSeconds: 0,
     sequence,
+    sampleRate: ANALYSIS_SAMPLE_RATE,
+    mode: "meter",
+    shortTermLufs: null,
     meter: { leftPeak: 0, leftRms: 0, rightPeak: 0, rightRms: 0 },
     monoBands: Array(32).fill(0) as number[],
     leftBands: Array(16).fill(0) as number[],

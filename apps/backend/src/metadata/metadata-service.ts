@@ -11,6 +11,7 @@ export type MetadataParser = (path: string) => Promise<IAudioMetadata>;
 
 interface CacheEntry {
   readonly metadata: NormalizedMetadata;
+  readonly hasEmbeddedArtwork: boolean;
   artwork: ArtworkRef | null;
 }
 
@@ -110,6 +111,7 @@ export class MetadataService {
         metadata: cached.metadata,
         pictures: [],
         artwork: cached.artwork,
+        hasEmbeddedArtwork: cached.hasEmbeddedArtwork,
         fromCache: true,
       };
     }
@@ -119,13 +121,19 @@ export class MetadataService {
     const operation = this.parser(canonicalPath)
       .then((raw) => {
         const metadata = normalizeMetadata(raw);
-        this.cache.set(cacheKey, { metadata, artwork: null });
+        const embeddedPictures = pictures(raw);
+        this.cache.set(cacheKey, {
+          metadata,
+          artwork: null,
+          hasEmbeddedArtwork: embeddedPictures.length > 0,
+        });
         this.trim();
         return {
           cacheKey,
           metadata,
-          pictures: pictures(raw),
+          pictures: embeddedPictures,
           artwork: null,
+          hasEmbeddedArtwork: embeddedPictures.length > 0,
           fromCache: false,
         } satisfies MetadataResult;
       })
@@ -139,6 +147,7 @@ export class MetadataService {
           metadata: emptyMetadata,
           pictures: [],
           artwork: null,
+          hasEmbeddedArtwork: false,
           fromCache: false,
         } satisfies MetadataResult;
       })
@@ -147,6 +156,22 @@ export class MetadataService {
       });
     this.inFlight.set(cacheKey, operation);
     return operation;
+  }
+
+  async readForArtwork(
+    path: string,
+    isAvailable: (artwork: ArtworkRef) => Promise<boolean>,
+  ): Promise<MetadataResult> {
+    let result = await this.read(path);
+    if (
+      result.fromCache &&
+      result.hasEmbeddedArtwork &&
+      (!result.artwork || !(await isAvailable(result.artwork)))
+    ) {
+      this.invalidate(result.cacheKey);
+      result = await this.read(path);
+    }
+    return result;
   }
 
   rememberArtwork(cacheKey: string, artwork: ArtworkRef | null): void {

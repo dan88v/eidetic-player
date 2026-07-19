@@ -2,9 +2,19 @@
 
 Eidetic Player is a lightweight, touch-first local audio player targeting a
 horizontal 1280 × 800 display and a future Raspberry Pi 3B deployment. The
-current Step 2.4.1 build uses a vanilla TypeScript UI, a Node.js control service,
-Neutralinojs for native file paths, and one persistent MPV process for decoding
-and system audio output.
+current Step 2.4.4 build uses a vanilla TypeScript UI, a Node.js control
+service, Neutralinojs for native file paths, and one persistent MPV process for
+decoding and system audio output.
+
+## Screenshots
+
+### Now Playing — Technical Meter
+
+![Now Playing with Crest Factor, LUFS-S, and the technical stereo meter](docs/images/now-playing-technical.png)
+
+### Folders
+
+![Folders grid with sorting, artwork previews, and file counts](docs/images/folders.png)
 
 ## Requirements
 
@@ -105,9 +115,9 @@ container/codec, bitrate, bit-depth, and sample-rate quality without a second
 metadata parse. Opening a row or playing a folder uses the existing atomic
 `PlayerService` path; adding a folder appends without starting an empty Queue.
 
-Library is a separate placeholder for the indexed database planned in the next
-step. Folders and Library have independent navigation entries and Now Playing
-shortcuts so both workflows can coexist.
+Library is a separate placeholder for the indexed database planned for a later
+product step. Folders and Library already have independent navigation entries
+and Now Playing shortcuts so both workflows can coexist.
 
 Native roots remain backend-only after Add Folder. UI contracts use opaque
 source/entry IDs and logical relative paths. Central Windows/POSIX containment
@@ -119,7 +129,9 @@ browsable. The directory LRU is limited to 32 entries.
 The real controls cover play/pause, previous (restart after three seconds),
 next, absolute seek, queue selection, software volume, mute, Shuffle, and Repeat
 Off/All/One. Volume, mute, shuffle, repeat, and existing UI preferences persist
-locally. Queue, track, position, metadata, and play/pause state do not persist.
+locally. Queue order and current-track identity are restored through the
+backend session, paused at position zero. Playback position and play/pause
+state are deliberately not persisted.
 
 MPV remains authoritative for playback, duration, codec, output sample rate,
 audio device, and controls. The backend uses `music-metadata` for asynchronous
@@ -137,10 +149,15 @@ preloaded, while other Queue artwork loads lazily.
 
 FFmpeg runs only as a sidecar and never changes MPV's playback signal. One
 shared, real-time process decodes stereo float PCM at 24 kHz for a 20 Hz SSE
-stream. The internal engine computes L/R peak and RMS plus logarithmic FFT bands
-for Meter, Mono Spectrum, and Stereo Spectrum. It stops on pause, seek, track
-change, Queue clear, leaving Now Playing, mode None, or the last subscriber
-disconnecting.
+stream. The internal engine computes honest sample peak, L/R RMS, logarithmic
+FFT bands, and a three-second K-weighted LUFS-S value from the same PCM. Meter
+uses enhanced dB geometry plus time-based attack/release and peak hold.
+Technical mode presents Crest Factor, LUFS-S, and the compact peak-hold stereo
+meter; it does not claim true peak, integrated loudness, LRA, or normalization.
+Visualizer frames use a small 120 ms presentation lead to compensate for the
+combined analyzer, event-stream, and display latency without changing playback.
+The analyzer stops on pause, seek, track change, Queue clear, leaving Now
+Playing, mode None, or the last subscriber disconnecting.
 
 Waveforms decode mono PCM at 8 kHz without `-re`, aggregate incrementally into
 512 normalized points, and use a 64-entry session LRU keyed by canonical file
@@ -151,12 +168,29 @@ graphics remain available.
 `EIDETIC_ANALYZER_ENABLED=false` disables real-time analysis and
 `EIDETIC_WAVEFORM_PRELOAD_NEXT=false` disables next-track waveform preload.
 
-## Step 2.4.1 limits
+## Current scope and limits (through Step 2.4.4)
 
-There is no database, indexed/searchable Artist/Album/Genre library, recursive
-scan, filesystem watcher, online artwork lookup, thumbnail generation, real
-network/USB provider, DAC selection, Queue/playback restore, tag editing, audio
-DSP, or modification of the signal played by MPV. Runtime Linux and FFmpeg
-performance on Raspberry Pi 3B have not yet been validated.
+The Windows/Neutralino runtime currently provides local Sources, one-level
+Folders navigation, persistent Queue/current-track restore, metadata and
+artwork enrichment, real waveform generation, Meter/Mono/Stereo visualizers,
+and the Technical Crest Factor/LUFS-S view. Visual QA covers the supported
+desktop viewports from 1024 × 600 through 1600 × 900.
+
+The following remain outside the implemented scope:
+
+- no indexed/searchable Artist, Album, or Genre database; Library is still a
+  placeholder;
+- no recursive scan, filesystem watcher, tag editing, online artwork lookup,
+  or generated thumbnail service;
+- no functional network-share or USB-storage provider and no dedicated DAC
+  selection workflow;
+- no audio DSP or modification of MPV's playback signal;
+- no true-peak meter, integrated loudness, loudness range, or normalization;
+- no completed Linux/Debian runtime audit and no Raspberry Pi 3B performance
+  validation.
+
+The next planned milestone is Step 2.4.5, the Linux/Debian/Raspberry Pi runtime
+audit. See the [Step 2.4.4 report](prompts/step2.4.4_output.md) for measurements
+and the complete verification record.
 
 See [Architecture](docs/architecture.md) and [UI calibration](docs/ui.md).

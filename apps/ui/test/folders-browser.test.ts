@@ -130,6 +130,10 @@ void test("Folders separates adaptive folder collection and audio list", () => {
 
 void test("responsive layout reduces folder columns without shrinking targets", () => {
   assert.match(
+    styles,
+    /\.folders-folder-collection \{[\s\S]*repeat\(4, minmax\(0, 1fr\)\)/,
+  );
+  assert.match(
     responsive,
     /@media \(max-width: 50rem\)[\s\S]*\.folders-folder-collection \{[\s\S]*repeat\(2/,
   );

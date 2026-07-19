@@ -38,13 +38,17 @@ export class VisualizerStreamClient {
   }
 
   takeForPosition(
+    playerSessionId: string,
     trackId: string | null,
     trackTransitionId: number,
     positionSeconds: number,
   ): VisualizerFrame | null {
+    const activeMode = this.mode && this.mode !== "none" ? this.mode : "meter";
     return this.buffer.takeForPosition(
+      playerSessionId,
       trackId,
       trackTransitionId,
+      activeMode,
       positionSeconds,
     );
   }

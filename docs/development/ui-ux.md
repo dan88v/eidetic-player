@@ -95,11 +95,29 @@ image to the permanent dark placeholder immediately. Artwork and real waveform
 reveals use 140 ms opacity transitions, with no delayed frame when animations
 are off or reduced motion is requested.
 
-The title always reserves two lines. Artist, album, technical data, visualizer,
-timeline, artwork, and mini-player reserve fixed geometry so a normal track
-change produces no measurable layout shift. Waveform changes first draw the
-neutral empty rail. The visualizer rejects frames from other generations and
-decays its existing buffers to zero through its single existing render loop.
+The title normally reserves two lines. At short desktop heights it deliberately
+uses one line so metadata and the visualizer cannot overlap. Artist, album,
+technical data, visualizer, timeline, artwork, and mini-player otherwise
+reserve fixed geometry so a normal track change produces no measurable layout
+shift. Waveform changes first draw the neutral empty rail. The visualizer
+rejects frames from other generations and decays its existing buffers to zero
+through its single existing render loop.
+
+The L/R meter uses one continuous enhanced dB mapping: −60…−24 dB occupies
+0…30%, −24…−12 dB 30…60%, −12…−6 dB 60…80%, and −6…0 dB 80…100%. Ballistics
+run in the dB domain with a 10 ms attack, 350 ms release, 900 ms peak hold, and
+12 dB/s hold decay. Pause freezes values; seek, track change, and incompatible
+identity reset them.
+
+The visualizer cycle and Settings use the same order: Mono Spectrum, Stereo
+Spectrum, Meter, Technical, and None. Technical shows channel-aware Crest
+Factor, standards-based 3-second LUFS-S, and the same compact enhanced stereo
+peak-hold meter. The meter is blue below −18 dBFS, orange from −18 dBFS, and
+red from −3 dBFS. Neutral state uses em dashes. Presentation uses a fixed
+120 ms lead over the reported audible position to compensate for analyzer,
+event-stream, and display latency. It reuses the single analyzer, EventSource,
+Canvas, and animation loop and must remain readable at all supported desktop
+viewports.
 
 ## Folders browser
 
@@ -111,6 +129,9 @@ decays its existing buffers to zero through its single existing render loop.
 - Folder cards use separate artwork/body Open targets and a sibling menu; never
   nest buttons. Show the direct playable-file count instead of a generic type.
 - Persist folder sorting independently from the List/Grid presentation.
+- Keep the desktop Grid at a deterministic four columns so a scrollbar cannot
+  change the count after returning from a directory; responsive breakpoints
+  reduce it to two and then one column.
 - Audio rows keep their main Play target and add a sibling menu for Play now and
   Add to Queue. Both Play targets must use the same request path, keep controls
   enabled again after completion, and apply current-row state only when the

@@ -18,6 +18,11 @@
     .transport {
       padding-top: var(--space-2);
     }
+
+    .now-playing__track {
+      height: 1.25em;
+      -webkit-line-clamp: 1;
+    }
   }
 
   @media (max-width: 68.75rem) and (max-height: 40rem) {
@@ -196,12 +201,14 @@
 @media (max-height: 47.5rem) {
   :root {
     --now-playing-artwork-size: 20rem;
+    --now-playing-visualizer-height: 8rem;
   }
 }
 
 @media (max-width: 68.75rem) and (max-height: 40rem) {
   :root {
     --now-playing-artwork-size: 16rem;
+    --now-playing-visualizer-height: 7rem;
   }
 }
 

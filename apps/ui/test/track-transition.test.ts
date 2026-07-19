@@ -192,10 +192,10 @@ void test("visualizer rejects obsolete track frames", async () => {
   assert.match(source, /frame\.trackTransitionId !== trackTransitionId/);
 });
 
-void test("visualizer decays existing targets to zero on a track change", async () => {
+void test("visualizer resets meter and decays spectrum on a track change", async () => {
   const source = await readFile("apps/ui/src/components/visualizer.ts", "utf8");
-  assert.match(source, /meterTarget\.fill\(0\)/);
-  assert.match(source, /decaying = hasFrame/);
+  assert.match(source, /meter\.reset\(\)/);
+  assert.match(source, /decaying = mode === "technical" \? false : hasFrame/);
 });
 
 void test("position and duration are clamped as one coherent pair", () => {

@@ -277,6 +277,20 @@ async function handleRequest(
       request.url ?? "/",
       `http://${config.backendHost}:${String(config.backendPort)}`,
     );
+    if (
+      config.development &&
+      process.env.EIDETIC_DEV_SHUTDOWN_TOKEN &&
+      request.headers["x-eidetic-shutdown-token"] ===
+        process.env.EIDETIC_DEV_SHUTDOWN_TOKEN &&
+      request.method === "POST" &&
+      url.pathname === "/api/development/shutdown"
+    ) {
+      sendJson(response, 202, { ok: true });
+      setImmediate(() => {
+        shutdown("SIGTERM");
+      });
+      return;
+    }
     const origin = request.headers.origin;
     if (origin) {
       const originUrl = new URL(origin);
@@ -544,7 +558,11 @@ async function handleRequest(
       const mode = url.searchParams.get("mode");
       visualizerEvents.add(
         response,
-        mode === "spectrumMono" || mode === "spectrumStereo" ? mode : "meter",
+        mode === "spectrumMono" ||
+          mode === "spectrumStereo" ||
+          mode === "technical"
+          ? mode
+          : "meter",
       );
       return;
     }

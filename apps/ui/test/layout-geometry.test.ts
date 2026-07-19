@@ -32,8 +32,8 @@ void test("meter geometry fills the visualizer and remains bottom anchored", () 
 void test("meter maps linear peaks onto a logarithmic decibel scale", () => {
   assert.equal(linearPeakToMeterPosition(0), 0);
   assert.equal(linearPeakToMeterPosition(1), 1);
-  assert.ok(Math.abs(linearPeakToMeterPosition(0.1) - 2 / 3) < 0.000_001);
-  assert.ok(Math.abs(linearPeakToMeterPosition(0.01) - 1 / 3) < 0.000_001);
+  assert.ok(Math.abs(linearPeakToMeterPosition(0.1) - 0.4) < 0.000_001);
+  assert.ok(Math.abs(linearPeakToMeterPosition(0.01) - 1 / 6) < 0.000_001);
   assert.equal(meterPositionForDb(-60), 0);
   assert.equal(meterPositionForDb(0), 1);
   assert.ok(linearPeakToMeterPosition(0.1) > 0.1);

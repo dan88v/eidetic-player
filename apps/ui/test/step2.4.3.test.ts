@@ -4,6 +4,7 @@ import test from "node:test";
 import type { VisualizerFrame } from "../../../packages/shared/src/visualizer";
 import {
   VisualizerFrameBuffer,
+  VISUALIZER_PRESENTATION_LEAD_SECONDS,
   VISUALIZER_SYNC_BUFFER_CAPACITY,
 } from "../src/visualizer/visualizer-frame-buffer";
 
@@ -14,10 +15,14 @@ function frame(
   trackTransitionId = 7,
 ): VisualizerFrame {
   return {
+    playerSessionId: "session-a",
     trackId,
     trackTransitionId,
     positionSeconds,
     sequence,
+    sampleRate: 24_000,
+    mode: "meter",
+    shortTermLufs: null,
     meter: { leftPeak: 0, leftRms: 0, rightPeak: 0, rightRms: 0 },
     monoBands: [],
     leftBands: [],
@@ -98,9 +103,21 @@ void test("visualizer buffer waits for future audio and remains bounded", () => 
   const buffer = new VisualizerFrameBuffer();
   buffer.push(frame(1));
   buffer.push(frame(1.2));
-  assert.equal(buffer.takeForPosition("track-a", 7, 1.04)?.positionSeconds, 1);
-  assert.equal(buffer.takeForPosition("track-a", 7, 1.1), null);
-  assert.equal(buffer.takeForPosition("track-a", 7, 1.2)?.positionSeconds, 1.2);
+  assert.equal(VISUALIZER_PRESENTATION_LEAD_SECONDS, 0.12);
+  assert.equal(
+    buffer.takeForPosition("session-a", "track-a", 7, "meter", 0.88)
+      ?.positionSeconds,
+    1,
+  );
+  assert.equal(
+    buffer.takeForPosition("session-a", "track-a", 7, "meter", 1.07),
+    null,
+  );
+  assert.equal(
+    buffer.takeForPosition("session-a", "track-a", 7, "meter", 1.2)
+      ?.positionSeconds,
+    1.2,
+  );
 
   for (let index = 0; index < VISUALIZER_SYNC_BUFFER_CAPACITY + 9; index += 1)
     buffer.push(frame(index, index));

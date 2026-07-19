@@ -121,9 +121,10 @@ export function createSettingsScreen(
 
     if (page === "visualizer") {
       const modes: readonly [VisualizerMode, string][] = [
-        ["meter", t("visualizer.meter")],
         ["spectrumMono", t("visualizer.spectrumMono")],
         ["spectrumStereo", t("visualizer.spectrumStereo")],
+        ["meter", t("visualizer.meter")],
+        ["technical", t("visualizer.technical")],
         ["none", t("visualizer.none")],
       ];
       for (const [value, label] of modes)

@@ -201,3 +201,24 @@ Artwork regression runs must distinguish cold and warm caches, scroll/remount,
 List/Grid, and restart. Exercise embedded JPEG/PNG, FLAC, missing artwork, and
 transient parse/load/decode failure. Verify retries are entry-scoped, positive
 caches remain intact, and no artist/path-specific condition exists.
+
+## Step 2.4.4 meter and visual QA checks
+
+Assert the enhanced meter's exact segment endpoints, monotonicity, continuity,
+and clamping. Test attack/release by elapsed time rather than frame count,
+900 ms hold, 12 dB/s decay, pause freeze, and reset on seek/track identity.
+
+Validate LUFS-S at 44.1 and 48 kHz with a deterministic three-second window,
+K-weighting filter state, startup/silence behavior, stereo summation, ring
+wrap, bounded memory, and no allocation in the per-sample hot path. Compare a
+real-file window with FFmpeg `ebur128`; document the position and difference.
+Do not label sample peak as true peak and do not add integrated loudness, LRA,
+gating history, or normalization.
+
+Run the real Neutralino/WebView at 1280×800, 1366×768, 1600×900, 1280×720,
+and 1024×600. Inspect populated and neutral Technical states, all four meter
+modes plus None, pause/resume/seek, MP3 and FLAC, List/Grid, toast layering,
+scroll/remount, warm reload, and at least 20 rapid track-change commands.
+For the Taylor 14-track fixture, verify every metadata result, artwork ref,
+HTTP image response, and visible row thumbnail, including the bottom of the
+scrolled list.

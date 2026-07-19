@@ -2,6 +2,7 @@ import type { VisualizerFrame } from "../../../../packages/shared/src/visualizer
 import { t } from "../i18n";
 import type { VisualizerMode } from "../state/types";
 import { prepareCanvas, type CanvasSize } from "../visualizer/canvas";
+import { MeterBallistics } from "../visualizer/meter-ballistics";
 import { renderMeter } from "../visualizer/meter-renderer";
 import {
   renderSpectrum,
@@ -9,6 +10,10 @@ import {
   SPECTRUM_BAND_COUNT,
 } from "../visualizer/spectrum-renderer";
 import { VisualizerStreamClient } from "../visualizer/visualizer-stream-client";
+import {
+  crestFactorDb,
+  renderTechnical,
+} from "../visualizer/technical-renderer";
 import {
   readVisualizerSnapshot,
   saveVisualizerSnapshot,
@@ -75,8 +80,9 @@ export function createVisualizer(options: {
   let playbackPositionSeconds = 0;
   let playbackPositionUpdatedAt = performance.now();
   let playbackPaused = true;
-  const meterTarget = new Float32Array(2);
-  const meterDisplayed = new Float32Array(2);
+  const meter = new MeterBallistics();
+  let technicalCrestDb: number | null = null;
+  let shortTermLufs: number | null = null;
   const monoTarget = new Float32Array(32);
   const monoDisplayed = new Float32Array(32);
   const leftTarget = new Float32Array(16);
@@ -103,9 +109,14 @@ export function createVisualizer(options: {
     const context = canvas.getContext("2d");
     if (!size || !context || mode === "none") return;
     context.clearRect(0, 0, size.width, size.height);
-    if (!hasFrame) return;
+    if (!hasFrame && mode !== "technical") return;
     if (mode === "meter") {
-      const geometry = renderMeter(context, size, meterDisplayed);
+      const geometry = renderMeter(
+        context,
+        size,
+        meter.displayedDb,
+        meter.peakHoldDb,
+      );
       if (import.meta.env.DEV) {
         canvas.dataset.meterBarHeight = String(geometry.barHeight);
         canvas.dataset.meterRowGap = String(geometry.rowGap);
@@ -115,8 +126,15 @@ export function createVisualizer(options: {
       }
     } else if (mode === "spectrumMono") {
       renderSpectrum(context, size, monoDisplayed);
-    } else {
+    } else if (mode === "spectrumStereo") {
       renderStereoSpectrum(context, size, leftDisplayed, rightDisplayed);
+    } else {
+      renderTechnical(context, size, {
+        crestDb: technicalCrestDb,
+        shortTermLufs,
+        meterDb: meter.displayedDb,
+        peakHoldDb: meter.peakHoldDb,
+      });
     }
     if (import.meta.env.DEV)
       canvas.dataset.draws = String(Number(canvas.dataset.draws ?? "0") + 1);
@@ -133,8 +151,8 @@ export function createVisualizer(options: {
     receiveFrameForPosition(timestamp);
     let changing = false;
     if (hasFrame) {
-      if (mode === "meter")
-        changing = smooth(meterDisplayed, meterTarget, decaying);
+      if (mode === "meter" || mode === "technical")
+        changing = meter.update(timestamp);
       else if (mode === "spectrumMono")
         changing = smooth(monoDisplayed, monoTarget, decaying);
       else {
@@ -168,19 +186,33 @@ export function createVisualizer(options: {
   };
 
   const receiveFrameForPosition = (timestamp: number): void => {
+    if (playbackPaused) return;
     const position =
       playbackPositionSeconds +
-      (playbackPaused
-        ? 0
-        : Math.max(0, timestamp - playbackPositionUpdatedAt) / 1_000);
+      Math.max(0, timestamp - playbackPositionUpdatedAt) / 1_000;
     const frame: VisualizerFrame | null = stream.takeForPosition(
+      expectedPlayerSessionId,
       expectedTrackId,
       expectedGeneration,
       position,
     );
     if (!frame) return;
-    meterTarget[0] = frame.meter.leftPeak;
-    meterTarget[1] = frame.meter.rightPeak;
+    if (
+      frame.playerSessionId !== expectedPlayerSessionId ||
+      frame.mode !== mode ||
+      frame.sampleRate <= 0
+    )
+      return;
+    meter.setPeaks(frame.meter.leftPeak, frame.meter.rightPeak);
+    if (mode === "technical") {
+      technicalCrestDb = crestFactorDb(
+        frame.meter.leftPeak,
+        frame.meter.leftRms,
+        frame.meter.rightPeak,
+        frame.meter.rightRms,
+      );
+      if (frame.shortTermLufs !== null) shortTermLufs = frame.shortTermLufs;
+    }
     copy(frame.monoBands, monoTarget);
     copy(frame.leftBands, leftTarget);
     copy(frame.rightBands, rightTarget);
@@ -204,13 +236,15 @@ export function createVisualizer(options: {
 
   const updateAccessibleState = (): void => {
     const nextMode: VisualizerMode =
-      mode === "meter"
-        ? "spectrumMono"
-        : mode === "spectrumMono"
-          ? "spectrumStereo"
-          : mode === "spectrumStereo"
-            ? "none"
-            : "meter";
+      mode === "spectrumMono"
+        ? "spectrumStereo"
+        : mode === "spectrumStereo"
+          ? "meter"
+          : mode === "meter"
+            ? "technical"
+            : mode === "technical"
+              ? "none"
+              : "spectrumMono";
     element.dataset.mode = mode;
     element.setAttribute("aria-label", `Show ${t(`visualizer.${nextMode}`)}`);
     canvas.dataset.bands =
@@ -238,8 +272,14 @@ export function createVisualizer(options: {
         : mode === "spectrumMono"
           ? "spectrumStereo"
           : mode === "spectrumStereo"
-            ? "none"
-            : "meter";
+            ? "technical"
+            : mode === "technical"
+              ? "none"
+              : "meter";
+    meter.reset();
+    technicalCrestDb = null;
+    shortTermLufs = null;
+    hasFrame = false;
     updateAccessibleState();
     options.onModeChange(mode);
   };
@@ -282,24 +322,30 @@ export function createVisualizer(options: {
               visualizerSnapshotKey(playerSessionId, trackId, generation, mode),
             );
       if (snapshot) {
-        copy(snapshot.meter, meterDisplayed);
-        copy(snapshot.meter, meterTarget);
+        copy(snapshot.meter, meter.displayedDb);
+        copy(snapshot.meter, meter.targetDb);
+        copy(snapshot.meterPeakHold, meter.peakHoldDb);
         copy(snapshot.mono, monoDisplayed);
         copy(snapshot.mono, monoTarget);
         copy(snapshot.left, leftDisplayed);
         copy(snapshot.left, leftTarget);
         copy(snapshot.right, rightDisplayed);
         copy(snapshot.right, rightTarget);
+        technicalCrestDb = snapshot.technicalCrestDb;
+        shortTermLufs = snapshot.shortTermLufs;
         hasFrame = true;
         needsRender = true;
         startLoop();
         return;
       }
-      meterTarget.fill(0);
+      meter.reset();
+      technicalCrestDb = null;
+      shortTermLufs = null;
       monoTarget.fill(0);
       leftTarget.fill(0);
       rightTarget.fill(0);
-      decaying = hasFrame;
+      decaying = mode === "technical" ? false : hasFrame;
+      if (mode === "technical") hasFrame = false;
       needsRender = true;
       startLoop();
     },
@@ -320,13 +366,18 @@ export function createVisualizer(options: {
       playbackPositionSeconds = audiblePositionSeconds;
       playbackPositionUpdatedAt = now;
       playbackPaused = paused;
+      meter.setPaused(paused, now);
       if (seekDetected) {
         stream.clearFrames();
-        meterTarget.fill(0);
+        meter.reset();
+        meter.setPaused(paused, now);
+        technicalCrestDb = null;
+        shortTermLufs = null;
         monoTarget.fill(0);
         leftTarget.fill(0);
         rightTarget.fill(0);
-        decaying = hasFrame;
+        decaying = mode === "technical" ? false : hasFrame;
+        if (mode === "technical") hasFrame = false;
         needsRender = true;
       }
       startLoop();
@@ -341,10 +392,13 @@ export function createVisualizer(options: {
             mode,
           ),
           {
-            meter: [...meterDisplayed],
+            meter: [...meter.displayedDb],
+            meterPeakHold: [...meter.peakHoldDb],
             mono: [...monoDisplayed],
             left: [...leftDisplayed],
             right: [...rightDisplayed],
+            technicalCrestDb,
+            shortTermLufs,
           },
         );
       observer.disconnect();

@@ -39,6 +39,8 @@ Rules for the hot path:
 - no `getBoundingClientRect`, computed style, gradient creation, or Canvas
   backing-store resize per frame;
 - no Queue, metadata, artwork, or player-state updates from visualizer frames;
+- peak ballistics, peak hold, and Technical rendering reuse the same active
+  animation-frame loop; never add a meter-specific timer or loop;
 - drop stale identity/generation frames instead of building a backlog;
 - freeze the position anchor on pause and clear incompatible frames on seeks or
   track changes;
@@ -53,6 +55,9 @@ subscriber exists, and cancel rendering.
 - Maintain one player-state subscription per application.
 - Maintain at most one visualizer EventSource for active Now Playing.
 - A single backend analyzer is shared by all visualizer clients.
+- Meter, spectrum, and Technical modes consume the same analyzer PCM. The
+  LUFS-S path uses a preallocated 3-second stereo energy ring and fixed filter
+  state; it must not allocate per sample.
 - Coalesce playback position to the established modest frequency.
 - Send discrete state changes immediately.
 - Keep visualizer payloads mode-specific and compact.
@@ -100,6 +105,13 @@ Do not add a cache dependency for simple bounded LRU behavior.
 Transient parser, artwork-resolution, load, decode, and abort failures must not
 be retained as negative cache entries. Retry only the affected entry and leave
 valid positive cache records intact.
+Metadata cache entries remember whether embedded artwork existed without
+retaining its bytes. If a bounded artwork-registry record has been evicted,
+only that file is reparsed to reconstruct the embedded image.
+Normal backend shutdown removes both player and Folders artwork registries.
+Development shutdown must request that graceful path before terminating the
+watch runner. Startup removes only correctly named artwork directories owned
+by dead process IDs.
 
 Folders browsing adds a bounded 32-directory session LRU. A miss performs one
 non-recursive `readdir` plus immediate-child `lstat`; a hit checks directory
@@ -148,6 +160,6 @@ For changes affecting realtime behavior, measure before and after:
 - Queue full rebuild count;
 - average payload size.
 
-Test Meter, Mono Spectrum, Stereo Spectrum, and None independently with real
-FLAC and MP3 files. Record limitations honestly; do not claim Raspberry Pi 3B
-performance until measured on that hardware.
+Test Meter, Mono Spectrum, Stereo Spectrum, Technical, and None independently
+with real FLAC and MP3 files. Record limitations honestly; do not claim
+Raspberry Pi 3B performance until measured on that hardware.

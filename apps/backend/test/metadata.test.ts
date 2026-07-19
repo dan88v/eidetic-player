@@ -10,7 +10,10 @@ import {
   formatSampleRate,
   formatTechnicalName,
 } from "../../../packages/shared/src/metadata.js";
-import type { PlayerTrack } from "../../../packages/shared/src/player.js";
+import type {
+  ArtworkRef,
+  PlayerTrack,
+} from "../../../packages/shared/src/player.js";
 import { isCurrentEnrichment } from "../src/metadata/enrichment-guard.js";
 import {
   fallbackAlbum,
@@ -161,6 +164,49 @@ void test("metadata cache hits unchanged files and invalidates changed files", a
     await appendFile(path, "changed");
     const third = await service.read(path);
     assert.equal(third.fromCache, false);
+    assert.equal(parses, 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+void test("metadata cache reparses only when an embedded artwork reference is unavailable", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eidetic-artwork-retry-"));
+  const path = join(directory, "track.mp3");
+  await writeFile(path, "audio");
+  let parses = 0;
+  const service = new MetadataService(() => {
+    parses += 1;
+    const raw = rawMetadata();
+    raw.common.picture = [
+      { data: Buffer.from([0xff, 0xd8, 0xff]), format: "image/jpeg" },
+    ];
+    return Promise.resolve(raw);
+  });
+  const ref: ArtworkRef = {
+    id: "artwork-id",
+    mimeType: "image/jpeg",
+    sourceType: "embedded",
+    revision: "revision",
+  };
+  try {
+    const first = await service.read(path);
+    assert.equal(first.hasEmbeddedArtwork, true);
+    service.rememberArtwork(first.cacheKey, ref);
+
+    const recovered = await service.readForArtwork(path, () =>
+      Promise.resolve(false),
+    );
+    assert.equal(recovered.fromCache, false);
+    assert.equal(recovered.pictures.length, 1);
+    assert.equal(parses, 2);
+
+    service.rememberArtwork(recovered.cacheKey, ref);
+    const cached = await service.readForArtwork(path, () =>
+      Promise.resolve(true),
+    );
+    assert.equal(cached.fromCache, true);
+    assert.equal(cached.artwork, ref);
     assert.equal(parses, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });

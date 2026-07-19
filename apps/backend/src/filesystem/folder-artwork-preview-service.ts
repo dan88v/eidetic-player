@@ -81,7 +81,11 @@ export class FolderArtworkPreviewService {
       const sample = audio.slice(0, 8);
       if (!sidecar) {
         for (const file of sample) {
-          const result = await this.metadata.read(file.path);
+          const result = await this.metadata.readForArtwork(
+            file.path,
+            async (artwork) =>
+              (await this.artwork.getResource(artwork.id)) !== null,
+          );
           const ref =
             result.artwork?.sourceType === "embedded"
               ? result.artwork

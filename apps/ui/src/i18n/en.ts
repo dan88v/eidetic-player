@@ -53,6 +53,7 @@ export const en = {
   "visualizer.spectrum": "Spectrum",
   "visualizer.spectrumMono": "Mono Spectrum",
   "visualizer.spectrumStereo": "Stereo Spectrum",
+  "visualizer.technical": "Technical",
   "visualizer.none": "None",
   "visualizer.switchToMeter": "Show stereo meter",
   "visualizer.switchToSpectrum": "Show spectrum",

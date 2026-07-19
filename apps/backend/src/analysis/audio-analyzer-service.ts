@@ -236,6 +236,7 @@ export class AudioAnalyzerService {
         trackId,
         this.startPosition,
         state.trackTransitionId,
+        state.playerSessionId,
       );
       this.samplesReceived += Math.floor(values.length / 2);
       for (const frame of frames) {
@@ -267,7 +268,9 @@ export class AudioAnalyzerService {
         console.warn(
           `[analyzer] FFmpeg exited (${String(code)}): ${errorText.trim()}`,
         );
-        this.emit(zeroFrame(trackId, 0, state.trackTransitionId));
+        this.emit(
+          zeroFrame(trackId, 0, state.trackTransitionId, state.playerSessionId),
+        );
       }
       this.synchronize();
     });
@@ -293,7 +296,14 @@ export class AudioAnalyzerService {
       });
     }
     if (emitZero)
-      this.emit(zeroFrame(this.activeTrackId, 0, this.activeTransitionId));
+      this.emit(
+        zeroFrame(
+          this.activeTrackId,
+          0,
+          this.activeTransitionId,
+          this.state?.playerSessionId ?? "",
+        ),
+      );
     this.activeTrackId = null;
     this.activeTransitionId = -1;
   }

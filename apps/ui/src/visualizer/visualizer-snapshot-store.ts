@@ -2,9 +2,12 @@ import type { VisualizerMode } from "../state/types";
 
 export interface VisualizerSnapshot {
   readonly meter: readonly number[];
+  readonly meterPeakHold: readonly number[];
   readonly mono: readonly number[];
   readonly left: readonly number[];
   readonly right: readonly number[];
+  readonly technicalCrestDb: number | null;
+  readonly shortTermLufs: number | null;
 }
 
 const snapshots = new Map<string, VisualizerSnapshot>();

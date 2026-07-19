@@ -49,6 +49,33 @@ const folderCandidates = [
   "front.webp",
 ] as const;
 
+const artworkDirectoryPattern =
+  /^eidetic-player-artwork-(\d+)-[0-9a-f]{8}-[0-9a-f-]{27}$/i;
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+export async function cleanupStaleArtworkDirectories(): Promise<void> {
+  const root = resolve(tmpdir());
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const match = artworkDirectoryPattern.exec(entry.name);
+    const pid = Number(match?.[1]);
+    if (!match || !Number.isSafeInteger(pid) || pid === process.pid) continue;
+    if (processIsRunning(pid)) continue;
+    await rm(join(root, entry.name), { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+  }
+}
+
 function digest(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -135,6 +162,10 @@ export class ArtworkService {
   private readonly warnings = new Set<string>();
   private totalBytes = 0;
   private closed = false;
+
+  constructor() {
+    void cleanupStaleArtworkDirectories();
+  }
 
   has(id: string): boolean {
     return this.records.has(id);

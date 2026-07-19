@@ -1,8 +1,15 @@
+export type VisualizerFrameMode =
+  "meter" | "spectrumMono" | "spectrumStereo" | "technical";
+
 export interface VisualizerFrame {
+  readonly playerSessionId: string;
   readonly trackId: string | null;
   readonly trackTransitionId: number;
   readonly positionSeconds: number;
   readonly sequence: number;
+  readonly sampleRate: number;
+  readonly mode: VisualizerFrameMode;
+  readonly shortTermLufs: number | null;
   readonly meter: {
     readonly leftPeak: number;
     readonly leftRms: number;

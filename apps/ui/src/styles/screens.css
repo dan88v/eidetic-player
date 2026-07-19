@@ -674,7 +674,7 @@
   }
   .folders-folder-collection {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-4);
   }
   .folders-folder-card {

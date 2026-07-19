@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   ArtworkService,
+  cleanupStaleArtworkDirectories,
   detectImageMime,
   isOpaqueArtworkId,
   MAX_ARTWORK_BYTES,
@@ -31,6 +32,17 @@ void test("JPEG, PNG, and WebP signatures are recognized", () => {
   assert.equal(detectImageMime(jpeg), "image/jpeg");
   assert.equal(detectImageMime(png), "image/png");
   assert.equal(detectImageMime(webp), "image/webp");
+});
+
+void test("stale artwork directories from dead app processes are removed", async () => {
+  const directory = join(
+    tmpdir(),
+    "eidetic-player-artwork-2147483647-00000000-0000-4000-8000-000000000000",
+  );
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "stale.jpg"), jpeg);
+  await cleanupStaleArtworkDirectories();
+  await assert.rejects(access(directory));
 });
 
 void test("false MIME and oversized artwork are rejected", () => {

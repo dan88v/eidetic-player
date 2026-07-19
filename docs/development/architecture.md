@@ -40,6 +40,9 @@ future Raspberry shell.
 - `MetadataService` enriches tracks asynchronously and must not delay playback.
 - `ArtworkService` validates, registers, caches, streams, and cleans artwork.
 - `AudioAnalyzerService` owns at most one realtime FFmpeg process.
+- `AudioAnalysisEngine` derives peak, spectrum, and 3-second K-weighted
+  short-term loudness from that same PCM stream. Technical mode is a transport
+  and presentation mode, not a second analyzer.
 - `WaveformService` owns at most one fast-decode waveform process.
 - The frontend player store receives authoritative state; a component may keep
   only short-lived interaction state such as a seek preview.
@@ -55,6 +58,8 @@ Do not introduce a second owner for any of these concerns.
 - REST carries discrete, validated commands.
 - Player SSE carries low-frequency state and discrete changes.
 - Visualizer SSE carries only the active mode's compact realtime data.
+- Every visualizer frame carries player session, track, transition generation,
+  sample-rate, and mode identity; the UI rejects any mismatched frame.
 - Artwork and waveform use dedicated, opaque-ID HTTP endpoints.
 - Large binary data, local paths, base64, and PCM never belong in player SSE.
 - Folders responses use opaque IDs and logical relative paths. Absolute roots

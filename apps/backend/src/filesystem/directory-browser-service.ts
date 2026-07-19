@@ -243,7 +243,10 @@ export class DirectoryBrowserService {
       this.activeMetadata += 1;
       this.maxMetadata = Math.max(this.maxMetadata, this.activeMetadata);
       try {
-        const result = await this.metadata.read(entry.nativePath);
+        const result = await this.metadata.readForArtwork(
+          entry.nativePath,
+          async (ref) => (await this.artwork.getResource(ref.id)) !== null,
+        );
         let artwork;
         try {
           artwork = await this.artworkConcurrency.run(async () => {

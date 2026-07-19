@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
@@ -9,12 +10,14 @@ const cli = {
   neu: "node_modules/@neutralinojs/neu/bin/neu.js",
 };
 const children = new Set();
+const backendShutdownToken = randomUUID();
 let stopping = false;
+let cleanupPromise = null;
 
-function run(command, args, name) {
+function run(command, args, name, env = process.env) {
   const child = spawn(command, args, {
     cwd: workspace,
-    env: process.env,
+    env,
     stdio: "inherit",
     windowsHide: true,
   });
@@ -36,11 +39,35 @@ function terminate(child) {
   }
 }
 
+async function stopBackendGracefully() {
+  try {
+    await fetch("http://127.0.0.1:4310/api/development/shutdown", {
+      method: "POST",
+      headers: { "x-eidetic-shutdown-token": backendShutdownToken },
+    });
+  } catch {
+    return;
+  }
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch("http://127.0.0.1:4310/health");
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 function cleanup(exitCode = 0) {
-  if (stopping) return;
+  if (cleanupPromise) return cleanupPromise;
   stopping = true;
-  for (const child of children) terminate(child);
-  process.exitCode = exitCode;
+  cleanupPromise = (async () => {
+    if (process.platform === "win32") await stopBackendGracefully();
+    for (const child of children) terminate(child);
+    process.exitCode = exitCode;
+  })();
+  return cleanupPromise;
 }
 
 async function waitFor(url, name, timeoutMs = 60_000) {
@@ -57,8 +84,8 @@ async function waitFor(url, name, timeoutMs = 60_000) {
   throw new Error(`${name} did not become ready within ${String(timeoutMs)}ms`);
 }
 
-process.once("SIGINT", () => cleanup(130));
-process.once("SIGTERM", () => cleanup(143));
+process.once("SIGINT", () => void cleanup(130));
+process.once("SIGTERM", () => void cleanup(143));
 process.once("exit", () => {
   for (const child of children) terminate(child);
 });
@@ -79,6 +106,10 @@ try {
     process.execPath,
     [cli.tsx, "watch", "apps/backend/src/index.ts"],
     "backend",
+    {
+      ...process.env,
+      EIDETIC_DEV_SHUTDOWN_TOKEN: backendShutdownToken,
+    },
   );
   const frontend = run(
     process.execPath,
@@ -105,8 +136,8 @@ try {
 
   const shell = run(process.execPath, [cli.neu, "run"], "shell");
   const shellCode = await new Promise((resolve) => shell.once("exit", resolve));
-  cleanup(shellCode ?? 0);
+  await cleanup(shellCode ?? 0);
 } catch (error) {
   console.error("[dev]", error instanceof Error ? error.message : error);
-  cleanup(1);
+  await cleanup(1);
 }
