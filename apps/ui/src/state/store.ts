@@ -4,6 +4,8 @@ import type {
   TimelineStyle,
   TimelineTimeMode,
   VisualizerMode,
+  MusicBrowsingVisibility,
+  ReturnToNowPlayingSeconds,
 } from "./types";
 
 type StateListener = (state: AppState, previousState: AppState) => void;
@@ -18,6 +20,8 @@ export interface AppStore {
   setVisualizerMode(mode: VisualizerMode): void;
   setTimelineStyle(style: TimelineStyle): void;
   setTimelineTimeMode(mode: TimelineTimeMode): void;
+  setMusicBrowsingVisibility(value: MusicBrowsingVisibility): void;
+  setReturnToNowPlayingSeconds(value: ReturnToNowPlayingSeconds): void;
   subscribe(listener: StateListener): () => void;
 }
 
@@ -35,7 +39,9 @@ export function createAppStore(initialState: AppState): AppStore {
       nextState.animationsEnabled === state.animationsEnabled &&
       nextState.visualizerMode === state.visualizerMode &&
       nextState.timelineStyle === state.timelineStyle &&
-      nextState.timelineTimeMode === state.timelineTimeMode
+      nextState.timelineTimeMode === state.timelineTimeMode &&
+      nextState.musicBrowsingVisibility === state.musicBrowsingVisibility &&
+      nextState.returnToNowPlayingSeconds === state.returnToNowPlayingSeconds
     ) {
       return;
     }
@@ -70,6 +76,12 @@ export function createAppStore(initialState: AppState): AppStore {
     },
     setTimelineTimeMode: (timelineTimeMode) => {
       update({ timelineTimeMode });
+    },
+    setMusicBrowsingVisibility: (musicBrowsingVisibility) => {
+      update({ musicBrowsingVisibility });
+    },
+    setReturnToNowPlayingSeconds: (returnToNowPlayingSeconds) => {
+      update({ returnToNowPlayingSeconds });
     },
     subscribe(listener) {
       listeners.add(listener);

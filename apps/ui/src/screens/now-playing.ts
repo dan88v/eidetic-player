@@ -12,6 +12,7 @@ import type {
   TimelineStyle,
   TimelineTimeMode,
   VisualizerMode,
+  MusicBrowsingVisibility,
 } from "../state/types";
 import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
 import { WaveformLoader } from "../timeline/waveform-loader";
@@ -30,12 +31,14 @@ export interface NowPlayingOptions {
   readonly visualizerMode: VisualizerMode;
   readonly timelineStyle: TimelineStyle;
   readonly timelineTimeMode: TimelineTimeMode;
+  readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly initialPlayerState: PlayerState;
   readonly actions: PlayerActions;
   readonly onVisualizerModeChange: (mode: VisualizerMode) => void;
   readonly onTimelineTimeModeChange: (mode: TimelineTimeMode) => void;
   readonly onOpenQueue: (trigger: HTMLButtonElement) => void;
   readonly onOpenLibrary: () => void;
+  readonly onOpenFolders: () => void;
   readonly onToggleVolume: (trigger: HTMLButtonElement) => void;
 }
 
@@ -61,7 +64,6 @@ export function createNowPlayingScreen(
         <p class="now-playing__artist"></p>
         <p class="now-playing__album"></p>
         <div class="now-playing__technical"><span></span><span></span></div>
-        <button class="now-playing__open primary-action" type="button">${t("common.openFiles")}</button>
         <div class="now-playing__visualizer-slot"></div>
       </div>
     </div>
@@ -69,6 +71,7 @@ export function createNowPlayingScreen(
     <div class="transport" aria-label="${t("nowPlaying.controls")}">
       <div class="transport__zone transport__zone--left">
         <button class="transport__button transport__button--small" type="button" data-control="library" aria-label="${t("nav.openLibrary")}">${icon("library")}<span>${t("screen.library.title")}</span></button>
+        <button class="transport__button transport__button--small" type="button" data-control="folders" aria-label="${t("nav.openFolders")}">${icon("folder")}<span>${t("screen.folders.title")}</span></button>
       </div>
       <div class="transport__zone transport__zone--center">
         <button class="transport__button transport__button--small transport__button--outer" type="button" data-control="shuffle" aria-pressed="false" aria-label="${t("nowPlaying.shuffle")}">${icon("shuffle")}<span>${t("nowPlaying.shuffle")}</span></button>
@@ -82,6 +85,16 @@ export function createNowPlayingScreen(
         <button class="transport__button transport__button--small" type="button" data-control="queue" aria-haspopup="dialog" aria-controls="queue-drawer" aria-expanded="false" aria-label="${t("nowPlaying.queue")}">${icon("queue")}<span>${t("screen.queue.title")}</span></button>
       </div>
     </div>`;
+  const libraryNavigation = section.querySelector<HTMLElement>(
+    '[data-control="library"]',
+  );
+  const foldersNavigation = section.querySelector<HTMLElement>(
+    '[data-control="folders"]',
+  );
+  if (libraryNavigation)
+    libraryNavigation.hidden = options.musicBrowsingVisibility === "folders";
+  if (foldersNavigation)
+    foldersNavigation.hidden = options.musicBrowsingVisibility === "library";
 
   const visualizer = createVisualizer({
     mode: options.visualizerMode,
@@ -114,8 +127,6 @@ export function createNowPlayingScreen(
   );
   const technicalFormat = technical[0];
   const technicalSource = technical[1];
-  const openButton =
-    section.querySelector<HTMLButtonElement>(".now-playing__open");
   const playButton = section.querySelector<HTMLButtonElement>(
     '[data-control="play"]',
   );
@@ -137,6 +148,9 @@ export function createNowPlayingScreen(
   const libraryButton = section.querySelector<HTMLButtonElement>(
     '[data-control="library"]',
   );
+  const foldersButton = section.querySelector<HTMLButtonElement>(
+    '[data-control="folders"]',
+  );
   const volumeButton = section.querySelector<HTMLButtonElement>(
     '[data-control="volume"]',
   );
@@ -146,7 +160,6 @@ export function createNowPlayingScreen(
     !album ||
     !technicalFormat ||
     !technicalSource ||
-    !openButton ||
     !playButton ||
     !previousButton ||
     !nextButton ||
@@ -154,10 +167,10 @@ export function createNowPlayingScreen(
     !repeatButton ||
     !queueButton ||
     !libraryButton ||
+    !foldersButton ||
     !volumeButton
   )
     throw new Error("Now Playing controls are missing");
-  openButton.addEventListener("click", options.actions.openFiles);
   playButton.addEventListener("click", options.actions.playPause);
   previousButton.addEventListener("click", options.actions.previous);
   nextButton.addEventListener("click", options.actions.next);
@@ -168,6 +181,7 @@ export function createNowPlayingScreen(
     options.actions.repeat(nextRepeat(playerState.repeatMode));
   });
   libraryButton.addEventListener("click", options.onOpenLibrary);
+  foldersButton.addEventListener("click", options.onOpenFolders);
   volumeButton.addEventListener("click", () => {
     options.onToggleVolume(volumeButton);
   });
@@ -218,11 +232,6 @@ export function createNowPlayingScreen(
         : t("artwork.album");
     artwork.update(presentation.artwork, artworkAlt, presentation.generation);
     visualizer.setTrack(presentation.trackId, presentation.generation);
-    openButton.hidden = Boolean(track);
-    setText(
-      openButton,
-      unavailable ? t("common.openFilesMpvMissing") : t("common.openFiles"),
-    );
     const usable = Boolean(track) && state.status !== "loading";
     playButton.disabled = !usable;
     previousButton.disabled = !usable;

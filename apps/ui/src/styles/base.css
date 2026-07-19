@@ -21,6 +21,10 @@
 }
 
 @layer base {
+  [hidden] {
+    display: none !important;
+  }
+
   :root {
     font-family:
       Inter,

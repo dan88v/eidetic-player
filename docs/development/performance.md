@@ -93,11 +93,16 @@ justify a deliberate change.
 
 Do not add a cache dependency for simple bounded LRU behavior.
 
-Library browsing adds a bounded 32-directory session LRU. A miss performs one
+Folders browsing adds a bounded 32-directory session LRU. A miss performs one
 non-recursive `readdir` plus immediate-child `lstat`; a hit checks directory
 modification identity. Responses retain no artwork buffers. UI/backend metadata
 work and artwork resolution each have independent limits of two. Navigation
 starts no recursive traversal, watcher, poll, worker, or EventSource.
+
+Folder previews are visibility-driven by one Folders `IntersectionObserver`.
+The backend admits at most two preview jobs, samples the first eight naturally
+sorted direct audio files, stops after four unique covers, and caches 32
+revision-keyed results. The List/Grid toggle only changes a root data attribute.
 
 Track-transition preload is deliberately bounded to three identities:
 
@@ -110,6 +115,15 @@ requests and makes all late results inapplicable. Rapid Previous/Next commands
 keep only the latest target identity; they do not disable controls or create
 additional fades, timers, EventSource connections, animation loops, analyzers,
 or unbounded parse work.
+
+The bootstrap splash has a 700 ms minimum and a 5 s safety timeout; its only
+optional transition is a 140 ms opacity fade. Player-session writes are
+structural, debounced by 120 ms, atomic, and exclude playback-position ticks.
+
+Visualizer samples used for a paused remount live in one bounded module-level
+snapshot store keyed by Queue item, transition generation, and mode. A remount
+draws the snapshot but still owns only one EventSource and one animation-frame
+handle.
 
 ## Required performance evidence
 

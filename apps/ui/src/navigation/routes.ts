@@ -17,6 +17,12 @@ export const navigationItems: readonly NavigationItem[] = [
     icon: "nowPlaying",
   },
   {
+    id: "folders",
+    titleKey: "screen.folders.title",
+    descriptionKey: "screen.folders.description",
+    icon: "folder",
+  },
+  {
     id: "library",
     titleKey: "screen.library.title",
     descriptionKey: "screen.library.description",

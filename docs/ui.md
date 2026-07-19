@@ -44,7 +44,8 @@ focus restoration. Drag reordering remains out of scope.
 The top bar begins with a 64 px Hamburger and the screen title. Its right side
 contains neutral, non-interactive Ethernet, Wi-Fi, and USB/DAC placeholder SVGs
 followed by the unchanged 25 px tabular clock; no Home or audio-device chrome is
-rendered there. The lower row uses three stable zones: Library at the left edge;
+rendered there. The lower row uses three stable zones: Library and Folders at
+the left edge;
 the symmetric Shuffle/Previous/Play/Next/Repeat group at center; and
 Volume/Queue at the right edge. Play/Pause remains centered on the viewport.
 The development viewport badge is not mounted in the normal UI.
@@ -53,24 +54,33 @@ At 1280 × 800, artwork and visualizer share the same structural row. The stereo
 meter keeps its approved 16 px L/R bars and 10 px gap, while the reduced
 visualizer container is controlled by `--now-playing-visualizer-height`.
 
-## Sources and hierarchical Library
+## Sources, Folders, and Library
 
 Sources uses real Local Folder cards with Open, Rename, Remove, and conditional
 Retry actions. Rename is an accessible modal with Escape, focus trap, and focus
 restoration; Remove states that files are not deleted. USB Storage and Network
 Shares remain subdued static placeholders.
 
-Library starts with configured sources, then loads one directory level at a
-time. Folders use a stable touch grid; audio uses a separate fixed-height list
-with 64 px artwork. Filename/extension render immediately, while title, artist,
-duration, format, and artwork update in place without reordering. Current state
-changes only the row class and `aria-current`.
+Folders starts with a minimal configured-source collection and no duplicate
+hero or Add Folder action. Source/folder cards share persistent sorting and
+List/Grid presentation, real single/mosaic artwork, clickable artwork/body Open
+targets, direct-audio counts, and a sibling accessible action menu. Switching
+view changes CSS state only: it performs no request, artwork reload, screen
+rebuild, or scroll reset. Library remains a separate database placeholder.
+
+Inside a folder, Back, the compact current title, sorting, List/Grid, and Play share the
+primary row; a compact second row contains only ancestor breadcrumbs. Audio
+keeps its separate fixed-height list with 64 px artwork. Filename/extension
+render immediately, while title, artist, duration, compact quality, and artwork
+update in place without reordering. Every audio row has a sibling action menu
+for Play now and Add to Queue. Current state changes only the row class and
+`aria-current`.
 
 Back and the keyboard-accessible breadcrumb use logical locations only. Existing
 content remains visible during the next request and the result commits once.
-Source, directory, selected row, and per-directory scroll survive Library to
-Now Playing to Library for the UI session. At 1024 x 600 the grid reduces
-columns without shrinking touch targets.
+Source, directory, selected row, List/Grid preference, and per-directory scroll
+survive navigation. Empty source/folder states provide the contextual next
+action. At 1024 x 600 the grid reduces columns without shrinking touch targets.
 
 ## Artwork presentation
 

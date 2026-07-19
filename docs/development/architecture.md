@@ -45,7 +45,8 @@ future Raspberry shell.
   only short-lived interaction state such as a seek preview.
 - `SourceService` owns persistent source identity, display name, and
   availability. `DirectoryBrowserService` owns one-level listings and its
-  bounded cache; `PathService` is the only logical/native path authority.
+  bounded cache; `FolderArtworkPreviewService` owns bounded direct-child folder
+  previews; `PathService` is the only logical/native path authority.
 
 Do not introduce a second owner for any of these concerns.
 
@@ -56,7 +57,7 @@ Do not introduce a second owner for any of these concerns.
 - Visualizer SSE carries only the active mode's compact realtime data.
 - Artwork and waveform use dedicated, opaque-ID HTTP endpoints.
 - Large binary data, local paths, base64, and PCM never belong in player SSE.
-- Library responses use opaque IDs and logical relative paths. Absolute roots
+- Folders responses use opaque IDs and logical relative paths. Absolute roots
   remain backend-only after the native Add Source command.
 
 Components use central API clients. Shared request, response, state, and event
@@ -90,6 +91,19 @@ Every async result that can outlive its target must be guarded:
 
 Correct content with a placeholder is preferable to stale content that looks
 complete.
+
+## Bootstrap and player-session ownership
+
+The backend owns the durable player session. `PlayerSessionService` observes
+structural Queue/current-item changes, debounces atomic repository writes, and
+stores either a Folders source ID plus logical relative path or a backend-only
+direct native path. Position and play state are deliberately not persisted.
+
+`GET /api/bootstrap` completes only after MPV discovery/startup and session
+restore. The UI keeps the static splash visible until this endpoint completes,
+subject to the minimum display interval and safety timeout, then mounts the
+shell once with the returned state. A restored Queue always starts paused at
+the beginning of its saved current item.
 
 ## Cross-platform behavior
 

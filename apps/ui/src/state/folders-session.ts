@@ -1,10 +1,10 @@
-interface LibrarySessionState {
+interface FoldersSessionState {
   sourceId: string | null;
   relativePath: string;
   selectedEntryId: string | null;
 }
 
-const state: LibrarySessionState = {
+const state: FoldersSessionState = {
   sourceId: null,
   relativePath: "",
   selectedEntryId: null,
@@ -16,8 +16,8 @@ function key(sourceId: string, relativePath: string): string {
   return `${sourceId}\0${relativePath}`;
 }
 
-export const librarySession = {
-  getLocation(): Readonly<LibrarySessionState> {
+export const foldersSession = {
+  getLocation(): Readonly<FoldersSessionState> {
     return { ...state };
   },
   openSource(sourceId: string): void {

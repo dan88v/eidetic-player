@@ -2,7 +2,7 @@
 
 Eidetic Player is a lightweight, touch-first local audio player targeting a
 horizontal 1280 × 800 display and a future Raspberry Pi 3B deployment. The
-current Step 2.4 build uses a vanilla TypeScript UI, a Node.js control service,
+current Step 2.4.1 build uses a vanilla TypeScript UI, a Node.js control service,
 Neutralinojs for native file paths, and one persistent MPV process for decoding
 and system audio output.
 
@@ -80,12 +80,12 @@ used by the native dialog, UI drop filter, backend validation, and tests.
   folder or interrupting playback. Individual opaque Queue IDs can be removed;
   `Clear Queue` uses an accessible confirmation and resets playback.
 
-The Open Files actions on Now Playing and Sources use the same native
+File actions outside the empty Now Playing screen use the native
 `PlatformBridge`. Native `filesDropped` events enter the same backend open flow.
 A regular browser fallback cannot open trusted absolute local paths and reports
 that the native shell is required.
 
-## Local Sources and Library
+## Local Sources, Folders, and Library
 
 Sources can add a real local folder through Neutralino's native folder dialog.
 Rename changes only its display name, while Remove only removes configuration:
@@ -96,11 +96,18 @@ Sources persist in `%APPDATA%\Eidetic Player\sources.json` on Windows and
 `${XDG_CONFIG_HOME:-~/.config}/eidetic-player/sources.json` on Linux using
 atomic writes and corruption recovery.
 
-Library reads one directory level on demand. It separates folders and audio,
-loads metadata/artwork lazily with limits of two, and preserves logical
-location and scroll for the UI session. Opening a row builds the naturally
-sorted directory Queue and starts at the exact selected index through the
-existing atomic `PlayerService` path.
+Folders reads one directory level on demand. Its source/folder cards support
+persistent sorting and List/Grid preferences, clickable body/artwork Open
+targets, per-folder file counts, and lazy real-artwork previews (sidecar first,
+otherwise up to four unique embedded covers from the first eight direct audio
+files). Folder and audio-row menus expose Play/Add to Queue. Audio rows add compact
+container/codec, bitrate, bit-depth, and sample-rate quality without a second
+metadata parse. Opening a row or playing a folder uses the existing atomic
+`PlayerService` path; adding a folder appends without starting an empty Queue.
+
+Library is a separate placeholder for the indexed database planned in the next
+step. Folders and Library have independent navigation entries and Now Playing
+shortcuts so both workflows can coexist.
 
 Native roots remain backend-only after Add Folder. UI contracts use opaque
 source/entry IDs and logical relative paths. Central Windows/POSIX containment
@@ -144,7 +151,7 @@ graphics remain available.
 `EIDETIC_ANALYZER_ENABLED=false` disables real-time analysis and
 `EIDETIC_WAVEFORM_PRELOAD_NEXT=false` disables next-track waveform preload.
 
-## Step 2.4 limits
+## Step 2.4.1 limits
 
 There is no database, indexed/searchable Artist/Album/Genre library, recursive
 scan, filesystem watcher, online artwork lookup, thumbnail generation, real

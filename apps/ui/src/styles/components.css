@@ -439,6 +439,12 @@
     width: var(--touch-medium);
     height: var(--touch-medium);
   }
+  .mini-player__home {
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    background: var(--color-accent-soft);
+    color: var(--color-accent-strong);
+  }
 
   .mini-player__timeline {
     position: absolute;

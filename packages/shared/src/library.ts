@@ -27,7 +27,26 @@ export interface LibraryMetadataSummary {
   readonly artist: string | null;
   readonly durationSeconds: number | null;
   readonly format: string | null;
+  readonly codec: string | null;
+  readonly container: string | null;
+  readonly bitrate: number | null;
+  readonly sampleRate: number | null;
+  readonly bitDepth: number | null;
+  readonly lossless: boolean | null;
+  readonly isVariableBitrate: boolean | null;
   readonly artwork: ArtworkRef | null;
+}
+
+export type LibraryFolderViewMode = "list" | "grid";
+
+export interface FolderArtworkPreview {
+  readonly sourceId: string;
+  readonly relativePath: string;
+  readonly revision: string;
+  readonly mode: "none" | "single" | "mosaic";
+  readonly artwork: readonly ArtworkRef[];
+  readonly playableFileCount: number;
+  readonly sampledFileCount: number;
 }
 
 export interface DirectoryEntry {
@@ -50,6 +69,7 @@ export interface DirectoryBrowseResponse {
   readonly entries: readonly DirectoryEntry[];
   readonly fingerprint: string;
   readonly fromCache: boolean;
+  readonly containsUnsupportedFiles: boolean;
 }
 
 export interface SourceListResponse {
@@ -64,6 +84,11 @@ export interface AddLocalSourceResponse {
 export interface OpenLibraryEntryResponse {
   readonly selectedIndex: number;
   readonly queueLength: number;
+}
+
+export interface DirectoryQueueResponse {
+  readonly queueLength: number;
+  readonly appendedCount: number;
 }
 
 export interface AddLocalSourceRequest {

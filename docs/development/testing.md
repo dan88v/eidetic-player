@@ -51,11 +51,17 @@ Real-media tests use user-provided local folders read-only.
 - Include files with embedded artwork, folder artwork, missing artwork,
   incomplete metadata, long titles, and Unicode paths when available.
 
-For Sources/Library, also verify the real Neutralino folder dialog, restart
+For Sources/Folders, also verify the real Neutralino folder dialog, restart
 persistence, display-only Rename, non-destructive Remove, unavailable/Retry,
 logical breadcrumb/Back, session scroll restoration, lazy enrichment, and an
 exact non-first Queue index. Confirm no Source/browse response contains a native
 absolute path.
+
+For Step 2.4.1 also verify sidecar-over-embedded preview priority, no recursive
+sampling, the 8-file/4-cover bounds, List/Grid persistence without requests or
+scroll loss, direct-folder Play ordering, and Add to Queue in both playing and
+empty states. Empty-state append must remain paused with no current track,
+unchanged `trackTransitionId`, stable keyed IDs, and one `queueRevision`.
 
 Filesystem tests exercise `path.win32` and `path.posix` independently of the
 host: drive/UNC/POSIX roots, slash forms, case rules, Unicode/spaces, prefix
@@ -133,3 +139,16 @@ Test closure while idle and while actively playing. After closure confirm:
 
 Unexpected failure or skipped integration must be stated precisely in the step
 report. Do not report an unexecuted manual test as passed.
+
+## Step 2.4.2 startup/session checks
+
+Verify a clean launch and a restored launch separately. For restore, save a
+Queue, terminate through the normal shutdown path, restart with
+`npm.cmd run dev`, and assert the same current identity, Queue order, paused
+state, and position zero. Also cover a missing secondary item, a missing
+current item (no fallback), corrupt JSON recovery, and logical Folders origins.
+
+For interface preferences, verify immediate Folders/Library visibility,
+redirect when the active section becomes hidden, Sources remaining visible,
+and inactivity reset/suspension for overlays, fields, selection sub-screens,
+and native dialogs.

@@ -1,7 +1,7 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import { PlayerApiClient } from "../api/player-api-client";
-import { LibraryApiClient } from "../api/library-api-client";
+import { FoldersApiClient } from "../api/folders-api-client";
 import { t } from "../i18n";
 import { getNavigationItem } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
@@ -11,7 +11,7 @@ import { disconnectedPlayerState, PlayerStore } from "../state/player-store";
 import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
-import { librarySession } from "../state/library-session";
+import { foldersSession } from "../state/folders-session";
 import {
   loadPlaybackPreferences,
   saveAnimationsEnabled,
@@ -19,6 +19,8 @@ import {
   saveTimelineStyle,
   saveTimelineTimeMode,
   saveVisualizerMode,
+  saveMusicBrowsingVisibility,
+  saveReturnToNowPlayingSeconds,
 } from "../utils/storage";
 import { createMiniPlayer, type MiniPlayer } from "./mini-player";
 import { ArtworkPreloader } from "./artwork";
@@ -36,10 +38,11 @@ export function mountApp(
   root: HTMLElement,
   store: AppStore,
   platform: PlatformBridge,
+  initialPlayerState: PlayerState = disconnectedPlayerState,
 ): MountedApp {
   const api = new PlayerApiClient();
-  const libraryApi = new LibraryApiClient();
-  const playerStore = new PlayerStore(disconnectedPlayerState);
+  const foldersApi = new FoldersApiClient();
+  const playerStore = new PlayerStore(initialPlayerState);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
   const toast = document.createElement("div");
@@ -50,6 +53,7 @@ export function mountApp(
   dropOverlay.className = "drop-overlay";
   dropOverlay.innerHTML = `<strong>${t("drop.title")}</strong><span>${t("drop.description")}</span>`;
   let toastTimer = 0;
+  let nativeDialogOpen = false;
   const showMessage = (message: string): void => {
     toast.textContent = message;
     toast.classList.add("app-toast--visible");
@@ -78,13 +82,17 @@ export function mountApp(
     }
   };
   const openFiles = (): void => {
-    void runSingleAudioFileSelection(platform, handlePaths).catch(
-      (error: unknown) => {
+    nativeDialogOpen = true;
+    void runSingleAudioFileSelection(platform, handlePaths)
+      .catch((error: unknown) => {
         showMessage(
           error instanceof Error ? error.message : t("error.nativeDialog"),
         );
-      },
-    );
+      })
+      .finally(() => {
+        nativeDialogOpen = false;
+        scheduleInactivity();
+      });
   };
   const closeOverlays = (): void => {
     store.setMenuOpen(false);
@@ -96,9 +104,15 @@ export function mountApp(
     store.setActiveScreen(screen);
   };
   const addLocalFolder = async () => {
-    const nativePath = await platform.openFolder();
-    if (!nativePath) return null;
-    return libraryApi.addLocalSource(nativePath);
+    nativeDialogOpen = true;
+    try {
+      const nativePath = await platform.openFolder();
+      if (!nativePath) return null;
+      return await foldersApi.addLocalSource(nativePath);
+    } finally {
+      nativeDialogOpen = false;
+      scheduleInactivity();
+    }
   };
 
   const topBar = createTopBar(() => {
@@ -112,6 +126,7 @@ export function mountApp(
     },
     onNavigate: navigate,
   });
+  sideMenu.setMusicBrowsingVisibility(store.getState().musicBrowsingVisibility);
   const queueDrawer = createQueueDrawer({
     onClose: () => {
       store.setQueueOpen(false);
@@ -121,6 +136,7 @@ export function mountApp(
       run(api.playQueue(index));
     },
     onAdd: () => {
+      nativeDialogOpen = true;
       void platform
         .openAudioFiles({ multiple: true })
         .then((paths) => {
@@ -131,6 +147,10 @@ export function mountApp(
           showMessage(
             error instanceof Error ? error.message : t("error.nativeDialog"),
           );
+        })
+        .finally(() => {
+          nativeDialogOpen = false;
+          scheduleInactivity();
         });
     },
     onClear: () => {
@@ -204,19 +224,26 @@ export function mountApp(
       state,
       playerState: playerStore.getState(),
       playerActions: actions,
-      libraryApi,
+      foldersApi,
       addLocalFolder,
-      openLibrarySource: (sourceId) => {
-        librarySession.openSource(sourceId);
-        navigate("library");
+      openFolderSource: (sourceId) => {
+        foldersSession.openSource(sourceId);
+        navigate("folders");
       },
-      openLibraryEntry: async (sourceId, entryId) => {
+      openFolderEntry: async (sourceId, entryId) => {
         trackTransitions.noteTrackCommand();
-        await libraryApi.openEntry(sourceId, entryId);
-        navigate("nowPlaying");
+        await foldersApi.openEntry(sourceId, entryId);
       },
-      removeLibrarySource: (sourceId) => {
-        librarySession.removeSource(sourceId);
+      playFolderDirectory: async (sourceId, relativePath) => {
+        trackTransitions.noteTrackCommand();
+        const result = await foldersApi.playDirectory(sourceId, relativePath);
+        return result;
+      },
+      openSources: () => {
+        navigate("sources");
+      },
+      removeFolderSource: (sourceId) => {
+        foldersSession.removeSource(sourceId);
       },
       setAnimationsEnabled: (enabled) => {
         store.setAnimationsEnabled(enabled);
@@ -230,6 +257,12 @@ export function mountApp(
       setTimelineTimeMode: (mode) => {
         store.setTimelineTimeMode(mode);
       },
+      setMusicBrowsingVisibility: (value) => {
+        store.setMusicBrowsingVisibility(value);
+      },
+      setReturnToNowPlayingSeconds: (value) => {
+        store.setReturnToNowPlayingSeconds(value);
+      },
       openQueue: (trigger) => {
         queueDrawer.setReturnFocus(trigger);
         store.setMenuOpen(false);
@@ -238,6 +271,9 @@ export function mountApp(
       },
       openLibrary: () => {
         navigate("library");
+      },
+      openFolders: () => {
+        navigate("folders");
       },
       toggleVolume: (trigger) => {
         const open = !store.getState().volumeOpen;
@@ -288,6 +324,42 @@ export function mountApp(
   queueDrawer.setOpen(false);
   volumePopover.setOpen(false);
 
+  let inactivityTimer = 0;
+  const inactivitySuspended = (): boolean => {
+    const state = store.getState();
+    const active = document.activeElement;
+    return (
+      state.menuOpen ||
+      state.queueOpen ||
+      state.volumeOpen ||
+      nativeDialogOpen ||
+      dropOverlay.classList.contains("drop-overlay--visible") ||
+      screenRegion.querySelector('[data-settings-subscreen="true"]') !== null ||
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    );
+  };
+  function scheduleInactivity(): void {
+    window.clearTimeout(inactivityTimer);
+    const seconds = store.getState().returnToNowPlayingSeconds;
+    if (seconds === 0) return;
+    inactivityTimer = window.setTimeout(() => {
+      if (inactivitySuspended()) {
+        scheduleInactivity();
+        return;
+      }
+      closeOverlays();
+      if (store.getState().activeScreen !== "nowPlaying")
+        store.setActiveScreen("nowPlaying");
+    }, seconds * 1_000);
+  }
+  const noteActivity = (): void => {
+    scheduleInactivity();
+  };
+  for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
+    document.addEventListener(eventName, noteActivity, { passive: true });
+  scheduleInactivity();
+
   const unsubscribeApp = store.subscribe((state, previousState) => {
     if (state.activeScreen !== previousState.activeScreen)
       renderScreen(state.activeScreen);
@@ -319,6 +391,29 @@ export function mountApp(
       saveTimelineStyle(state.timelineStyle);
     if (state.timelineTimeMode !== previousState.timelineTimeMode)
       saveTimelineTimeMode(state.timelineTimeMode);
+    if (
+      state.musicBrowsingVisibility !== previousState.musicBrowsingVisibility
+    ) {
+      saveMusicBrowsingVisibility(state.musicBrowsingVisibility);
+      sideMenu.setMusicBrowsingVisibility(state.musicBrowsingVisibility);
+      if (
+        state.activeScreen === "folders" &&
+        state.musicBrowsingVisibility === "library"
+      )
+        navigate("library");
+      else if (
+        state.activeScreen === "library" &&
+        state.musicBrowsingVisibility === "folders"
+      )
+        navigate("folders");
+    }
+    if (
+      state.returnToNowPlayingSeconds !==
+      previousState.returnToNowPlayingSeconds
+    ) {
+      saveReturnToNowPlayingSeconds(state.returnToNowPlayingSeconds);
+      scheduleInactivity();
+    }
   });
   const unsubscribePlayer = playerStore.subscribe((state) => {
     currentScreen?.updatePlayerState?.(state);
@@ -349,10 +444,8 @@ export function mountApp(
       // EventSource retries automatically; the last valid state remains visible.
     },
   );
-  void api
-    .getState()
+  void Promise.resolve(initialPlayerState)
     .then(async (state) => {
-      playerStore.setState(trackTransitions.accept(state));
       if (!state.mpvAvailable) return;
       await Promise.all([
         api.volume(preferences.volume),
@@ -413,6 +506,9 @@ export function mountApp(
       artworkPreloader.destroy();
       topBar.destroy();
       window.clearTimeout(toastTimer);
+      window.clearTimeout(inactivityTimer);
+      for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
+        document.removeEventListener(eventName, noteActivity);
       document.removeEventListener("keydown", handleKeydown);
       window.removeEventListener("dragenter", showDrop);
       window.removeEventListener("dragover", showDrop);

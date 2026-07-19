@@ -322,6 +322,15 @@ void test("PlayerService enriches a silent real file and cleans artwork", async 
     await player.clearQueue();
     assert.equal(player.getState().queue.length, 0);
     assert.equal(player.getState().currentTrack, null);
+    const transitionBeforeAppend = player.getState().trackTransitionId;
+    const revisionBeforeAppend = player.getState().queueRevision;
+    const appended = await player.append([first, second]);
+    assert.equal(appended, 2);
+    assert.equal(player.getState().queue.length, 2);
+    assert.equal(player.getState().currentTrack, null);
+    assert.equal(player.getState().trackTransitionId, transitionBeforeAppend);
+    assert.equal(player.getState().queueRevision, revisionBeforeAppend + 1);
+    await player.clearQueue();
   } finally {
     await player.shutdown();
     await rm(folder, { recursive: true, force: true });

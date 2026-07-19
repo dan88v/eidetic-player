@@ -1,0 +1,143 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { LocalFilesystemProvider } from "../src/filesystem/local-filesystem-provider.js";
+import { PathService } from "../src/filesystem/path-service.js";
+import type { SourceService } from "../src/filesystem/source-service.js";
+import type { PlayerService } from "../src/player/player-service.js";
+import { PlayerSessionRepository } from "../src/player-session/player-session-repository.js";
+import { PlayerSessionService } from "../src/player-session/player-session-service.js";
+import type {
+  PlayerSessionSnapshot,
+  ResolvedQueueItem,
+} from "../src/player-session/player-session-types.js";
+
+const currentId = "queue-11111111-1111-4111-8111-111111111111";
+const secondaryId = "queue-22222222-2222-4222-8222-222222222222";
+
+void test("session restore keeps the current item, drops missing secondary files, and starts paused", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-session-"));
+  try {
+    const currentPath = join(root, "current.mp3");
+    const missingPath = join(root, "missing.mp3");
+    await writeFile(currentPath, "");
+    const repository = new PlayerSessionRepository(join(root, "session.json"));
+    await repository.write({
+      version: 1,
+      currentQueueItemId: currentId,
+      queue: [
+        {
+          id: currentId,
+          origin: { kind: "direct", nativePath: currentPath },
+          filename: "current.mp3",
+          displayTitle: "Current",
+        },
+        {
+          id: secondaryId,
+          origin: { kind: "direct", nativePath: missingPath },
+          filename: "missing.mp3",
+          displayTitle: "Missing",
+        },
+      ],
+    });
+    let restored: readonly ResolvedQueueItem[] = [];
+    let selectedIndex = -1;
+    const snapshot: PlayerSessionSnapshot = {
+      currentQueueItemId: currentId,
+      queue: [
+        {
+          id: currentId,
+          origin: { kind: "direct", nativePath: currentPath },
+          filename: "current.mp3",
+          displayTitle: "Current",
+        },
+      ],
+    };
+    const player = {
+      restoreResolvedQueue(items: readonly ResolvedQueueItem[], index: number) {
+        restored = items;
+        selectedIndex = index;
+        return Promise.resolve();
+      },
+      getSessionSnapshot() {
+        return snapshot;
+      },
+      subscribe() {
+        return () => undefined;
+      },
+    } as unknown as PlayerService;
+    const provider = new LocalFilesystemProvider();
+    const service = new PlayerSessionService(
+      repository,
+      provider,
+      PathService.forCurrentPlatform(provider),
+      {} as SourceService,
+      player,
+    );
+    const result = await service.restore();
+    assert.equal(result.status, "restored");
+    assert.equal(result.discardedCount, 1);
+    assert.equal(restored.length, 1);
+    assert.equal(restored[0]?.id, currentId);
+    assert.equal(selectedIndex, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("an unavailable saved current item invalidates the whole session without fallback", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-session-"));
+  try {
+    const availablePath = join(root, "available.mp3");
+    await writeFile(availablePath, "");
+    const configPath = join(root, "session.json");
+    const repository = new PlayerSessionRepository(configPath);
+    await repository.write({
+      version: 1,
+      currentQueueItemId: currentId,
+      queue: [
+        {
+          id: currentId,
+          origin: { kind: "direct", nativePath: join(root, "gone.mp3") },
+          filename: "gone.mp3",
+          displayTitle: "Gone",
+        },
+        {
+          id: secondaryId,
+          origin: { kind: "direct", nativePath: availablePath },
+          filename: "available.mp3",
+          displayTitle: "Available",
+        },
+      ],
+    });
+    let restoreCalls = 0;
+    const player = {
+      restoreResolvedQueue() {
+        restoreCalls += 1;
+        return Promise.resolve();
+      },
+      getSessionSnapshot() {
+        return { currentQueueItemId: null, queue: [] };
+      },
+      subscribe() {
+        return () => undefined;
+      },
+    } as unknown as PlayerService;
+    const provider = new LocalFilesystemProvider();
+    const service = new PlayerSessionService(
+      repository,
+      provider,
+      PathService.forCurrentPlatform(provider),
+      {} as SourceService,
+      player,
+    );
+    const result = await service.restore();
+    assert.equal(result.status, "empty");
+    assert.equal(restoreCalls, 0);
+    await assert.rejects(readFile(configPath), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

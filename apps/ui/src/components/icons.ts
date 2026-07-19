@@ -7,6 +7,9 @@ export type IconName =
   | "home"
   | "library"
   | "menu"
+  | "grid"
+  | "list"
+  | "more"
   | "next"
   | "nowPlaying"
   | "pause"
@@ -34,6 +37,9 @@ const paths: Record<IconName, string> = {
   home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/>',
   library: '<path d="M5 4v16M10 4v16M15 5v15M19 4v16"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  grid: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="5" cy="6" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="18" r="1"/>',
+  more: '<circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/>',
   next: '<path d="m8 5 8 7-8 7V5Z"/><path d="M18 5v14"/>',
   nowPlaying: '<path d="M5 9v6M9 6v12M13 4v16M17 7v10M21 10v4"/>',
   pause: '<path d="M8 5v14M16 5v14"/>',

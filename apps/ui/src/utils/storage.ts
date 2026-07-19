@@ -2,6 +2,10 @@ import type {
   TimelineStyle,
   TimelineTimeMode,
   VisualizerMode,
+  FolderSortMode,
+  FolderViewMode,
+  MusicBrowsingVisibility,
+  ReturnToNowPlayingSeconds,
 } from "../state/types";
 import type { RepeatMode } from "../../../../packages/shared/src/player";
 
@@ -14,7 +18,59 @@ const storageKeys = {
   muted: "eidetic-player.player.muted",
   shuffle: "eidetic-player.player.shuffle",
   repeat: "eidetic-player.player.repeat",
+  folderView: "eidetic-player.interface.folder-view",
+  legacyLibraryFolderView: "eidetic-player.interface.library-folder-view",
+  folderSort: "eidetic-player.interface.folder-sort",
+  musicBrowsing: "eidetic-player.interface.music-browsing",
+  returnToNowPlaying: "eidetic-player.interface.return-to-now-playing",
 } as const;
+
+export function loadMusicBrowsingVisibility(): MusicBrowsingVisibility {
+  const value = read(storageKeys.musicBrowsing);
+  return value === "folders" || value === "library" ? value : "both";
+}
+
+export function saveMusicBrowsingVisibility(
+  value: MusicBrowsingVisibility,
+): void {
+  write(storageKeys.musicBrowsing, value);
+}
+
+export function loadReturnToNowPlayingSeconds(): ReturnToNowPlayingSeconds {
+  const value = Number(read(storageKeys.returnToNowPlaying));
+  return value === 10 || value === 30 || value === 60 || value === 120
+    ? value
+    : 0;
+}
+
+export function saveReturnToNowPlayingSeconds(
+  value: ReturnToNowPlayingSeconds,
+): void {
+  write(storageKeys.returnToNowPlaying, String(value));
+}
+
+export function loadFolderViewMode(): FolderViewMode {
+  const value =
+    read(storageKeys.folderView) ?? read(storageKeys.legacyLibraryFolderView);
+  return value === "list" ? "list" : "grid";
+}
+
+export function saveFolderViewMode(mode: FolderViewMode): void {
+  write(storageKeys.folderView, mode);
+}
+
+export function loadFolderSortMode(): FolderSortMode {
+  const value = read(storageKeys.folderSort);
+  return value === "name-desc" ||
+    value === "files-desc" ||
+    value === "files-asc"
+    ? value
+    : "name-asc";
+}
+
+export function saveFolderSortMode(mode: FolderSortMode): void {
+  write(storageKeys.folderSort, mode);
+}
 
 function read(key: string): string | null {
   try {

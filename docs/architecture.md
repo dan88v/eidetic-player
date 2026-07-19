@@ -23,7 +23,7 @@ events. Components depend on `PlatformBridge`; they do not import Neutralino.
 The Neutralino adapter is the sole native API boundary, while the browser
 adapter is an explicit development fallback without access to absolute paths.
 
-## Filesystem and Library boundary
+## Filesystem and Folders boundary
 
 The native Add Folder path is stored and resolved exclusively by the backend.
 Later frontend contracts use `sourceId`, opaque `entryId`, and `/`-separated
@@ -39,8 +39,13 @@ junctions are excluded.
 `SourceRepository` atomically persists versioned JSON. `SourceService` owns
 availability and display-only Rename/Remove. `DirectoryBrowserService` reads
 one level, sorts directories before audio, and keeps a 32-entry session LRU.
-Metadata and artwork have independent concurrency limits of two. There is no
-recursive scan, watcher, database, or artwork buffer in the directory cache.
+`FolderArtworkPreviewService` separately samples at most eight direct audio
+files, prioritizes a folder sidecar, returns at most four opaque artwork refs,
+and keeps a 32-entry revision-keyed LRU with concurrency two. Folder Play
+replaces the Queue atomically; folder Add stages an idle Queue when necessary,
+so it changes no current track or transition generation. There is no recursive
+scan, watcher, database, generated thumbnail, or artwork buffer in either
+directory cache.
 
 ## Backend and MPV
 
@@ -154,7 +159,7 @@ opaque Queue ID.
 
 Local Source records and display names persist in backend JSON. Only volume,
 mute, shuffle, repeat mode, animations, visualizer mode, and timeline style
-persist in browser storage. Library location/scroll lasts for the UI session;
+persist in browser storage. Folders location/scroll lasts for the UI session;
 Queue and media session start empty on every launch.
 
 ## FFmpeg analysis boundary

@@ -166,6 +166,43 @@ export class ArtworkService {
     return folder;
   }
 
+  async resolveEmbedded(
+    pictures: readonly PictureCandidate[],
+  ): Promise<ArtworkRef | null> {
+    if (this.closed) return null;
+    const selected = selectEmbeddedPicture(pictures);
+    return selected ? this.registerEmbedded(selected) : null;
+  }
+
+  async resolveFolderSidecar(
+    directoryPath: string,
+  ): Promise<ArtworkRef | null> {
+    if (this.closed) return null;
+    let entries;
+    try {
+      entries = await readdir(await realpath(directoryPath), {
+        withFileTypes: true,
+      });
+    } catch {
+      this.warnOnce(`folder:${directoryPath}`, "folder artwork lookup failed");
+      return null;
+    }
+    const files = new Map(
+      entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => [entry.name.toLowerCase(), entry.name]),
+    );
+    for (const candidate of folderCandidates) {
+      const actualName = files.get(candidate);
+      if (!actualName) continue;
+      const registered = await this.registerFolder(
+        join(await realpath(directoryPath), actualName),
+      );
+      if (registered) return registered;
+    }
+    return null;
+  }
+
   async getResource(id: string): Promise<ArtworkResource | null> {
     if (!isOpaqueArtworkId(id)) return null;
     const record = this.records.get(id);

@@ -9,6 +9,11 @@ import {
   SPECTRUM_BAND_COUNT,
 } from "../visualizer/spectrum-renderer";
 import { VisualizerStreamClient } from "../visualizer/visualizer-stream-client";
+import {
+  readVisualizerSnapshot,
+  saveVisualizerSnapshot,
+  visualizerSnapshotKey,
+} from "../visualizer/visualizer-snapshot-store";
 import type { ComponentView } from "./types";
 
 const TARGET_FRAME_INTERVAL = 1_000 / 30;
@@ -243,6 +248,26 @@ export function createVisualizer(options: {
         return;
       expectedGeneration = generation;
       expectedTrackId = trackId;
+      const snapshot =
+        trackId === null
+          ? null
+          : readVisualizerSnapshot(
+              visualizerSnapshotKey(trackId, generation, mode),
+            );
+      if (snapshot) {
+        copy(snapshot.meter, meterDisplayed);
+        copy(snapshot.meter, meterTarget);
+        copy(snapshot.mono, monoDisplayed);
+        copy(snapshot.mono, monoTarget);
+        copy(snapshot.left, leftDisplayed);
+        copy(snapshot.left, leftTarget);
+        copy(snapshot.right, rightDisplayed);
+        copy(snapshot.right, rightTarget);
+        hasFrame = true;
+        needsRender = true;
+        startLoop();
+        return;
+      }
       meterTarget.fill(0);
       monoTarget.fill(0);
       leftTarget.fill(0);
@@ -252,6 +277,16 @@ export function createVisualizer(options: {
       startLoop();
     },
     destroy() {
+      if (expectedTrackId && hasFrame)
+        saveVisualizerSnapshot(
+          visualizerSnapshotKey(expectedTrackId, expectedGeneration, mode),
+          {
+            meter: [...meterDisplayed],
+            mono: [...monoDisplayed],
+            left: [...leftDisplayed],
+            right: [...rightDisplayed],
+          },
+        );
       observer.disconnect();
       stream.close();
       stopLoop();

@@ -308,3 +308,29 @@ void test("38. all Now Playing transport zones share one vertical axis", async (
   );
   assert.match(css, /\.transport__zone\s*\{[\s\S]*?align-items:\s*center/);
 });
+
+void test("39. Now Playing separates Library and Folders without Open Files", async () => {
+  const nowPlaying = await read("screens/now-playing.ts");
+  assert.match(nowPlaying, /data-control="library"/);
+  assert.match(nowPlaying, /data-control="folders"/);
+  assert.doesNotMatch(nowPlaying, /now-playing__open|common\.openFiles/);
+});
+
+void test("40. Library and Folders are independent routes", async () => {
+  const [routes, screens] = await Promise.all([
+    read("navigation/routes.ts"),
+    read("screens/index.ts"),
+  ]);
+  assert.match(routes, /id:\s*"folders"/);
+  assert.match(routes, /id:\s*"library"/);
+  assert.match(screens, /case "folders":[\s\S]*createFoldersScreen/);
+  assert.match(screens, /case "library":[\s\S]*createPlaceholderScreen/);
+});
+
+void test("41. Home keeps its final position and gains a themed circle", async () => {
+  const css = await read("styles/components.css");
+  assert.match(
+    css,
+    /\.mini-player__home\s*\{[\s\S]*?border-radius:\s*50%;[\s\S]*?background:\s*var\(--color-accent-soft\)/,
+  );
+});

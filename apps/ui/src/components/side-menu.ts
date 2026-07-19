@@ -3,6 +3,7 @@ import { config } from "../config";
 import { t } from "../i18n";
 import { navigationItems } from "../navigation/routes";
 import type { ScreenId } from "../state/types";
+import type { MusicBrowsingVisibility } from "../state/types";
 
 export interface SideMenu {
   readonly element: HTMLElement;
@@ -12,6 +13,7 @@ export interface SideMenu {
   setActiveScreen(screen: ScreenId): void;
   focusInitialControl(): void;
   containFocus(event: KeyboardEvent): void;
+  setMusicBrowsingVisibility(value: MusicBrowsingVisibility): void;
 }
 
 export interface SideMenuOptions {
@@ -108,6 +110,16 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
         event.preventDefault();
         first.focus();
       }
+    },
+    setMusicBrowsingVisibility(value) {
+      const folders = element.querySelector<HTMLElement>(
+        '[data-screen="folders"]',
+      );
+      const library = element.querySelector<HTMLElement>(
+        '[data-screen="library"]',
+      );
+      if (folders) folders.hidden = value === "library";
+      if (library) library.hidden = value === "folders";
     },
   };
 }

@@ -30,6 +30,8 @@ import type {
   RenameSourceRequest,
 } from "../../../packages/shared/src/library.js";
 import type { ArtworkResource } from "./artwork/artwork-service.js";
+import { PlayerSessionRepository } from "./player-session/player-session-repository.js";
+import { PlayerSessionService } from "./player-session/player-session-service.js";
 
 const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
@@ -45,6 +47,13 @@ const library = new DirectoryBrowserService(
   pathService,
   sources,
   () => player.getCurrentPath(),
+);
+const playerSession = new PlayerSessionService(
+  new PlayerSessionRepository(),
+  filesystemProvider,
+  pathService,
+  sources,
+  player,
 );
 const events = new SseHub(player);
 const analyzer = new AudioAnalyzerService();
@@ -80,6 +89,20 @@ const unsubscribeAnalyzerState = player.subscribe((state) => {
   analyzer.updatePlayerState(state);
   preloadWaveforms();
 });
+const bootstrapPromise = player
+  .initialize()
+  .then(async () => {
+    const restore = await playerSession.restore();
+    playerSession.start();
+    await analyzer.initialize(player.getMpvExecutable() ?? undefined);
+    preloadWaveforms(true);
+    return restore;
+  })
+  .catch((error: unknown) => {
+    console.error("[backend] bootstrap failed", error);
+    playerSession.start();
+    throw error;
+  });
 
 function sendJson(
   response: ServerResponse,
@@ -287,6 +310,21 @@ async function handleRequest(
       sendJson(response, 200, { ok: true, data: player.getState() });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/bootstrap") {
+      const restore = await bootstrapPromise;
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          playerState: player.getState(),
+          restore: {
+            status: restore.status,
+            restoredCount: restore.restoredCount,
+            discardedCount: restore.discardedCount,
+          },
+        },
+      });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/sources") {
       sendJson(response, 200, {
         ok: true,
@@ -356,8 +394,64 @@ async function handleRequest(
       });
       return;
     }
+    const folderArtworkMatch =
+      /^\/api\/sources\/([0-9a-f-]{36})\/folder-artwork$/i.exec(url.pathname);
+    if (folderArtworkMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await library.folderArtworkFor(
+          folderArtworkMatch[1] ?? "",
+          url.searchParams.get("relativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    const directoryActionMatch =
+      /^\/api\/sources\/([0-9a-f-]{36})\/directory\/(play|queue)$/i.exec(
+        url.pathname,
+      );
+    if (directoryActionMatch && request.method === "POST") {
+      const sourceId = directoryActionMatch[1] ?? "";
+      const action = directoryActionMatch[2] ?? "";
+      const body = (await readBody(request)) as { relativePath?: unknown };
+      const relativePath =
+        typeof body.relativePath === "string" ? body.relativePath : "";
+      const queue = await library.queueForDirectoryWithOrigins(
+        sourceId,
+        relativePath,
+      );
+      const origins = queue.relativePaths.map((entryRelativePath) => ({
+        kind: "folders" as const,
+        sourceId,
+        relativePath: entryRelativePath,
+      }));
+      if (action === "play") {
+        if (queue.paths.length > 0)
+          await player.openResolvedQueue(queue.paths, 0, origins);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: queue.paths.length,
+            appendedCount: queue.paths.length,
+          },
+        });
+      } else {
+        const appendedCount =
+          queue.paths.length > 0
+            ? await player.append(queue.paths, origins)
+            : 0;
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            appendedCount,
+          },
+        });
+      }
+      return;
+    }
     const entryMatch =
-      /^\/api\/sources\/([0-9a-f-]{36})\/entries\/(entry-[0-9a-f]{32})\/(metadata|artwork|open)$/i.exec(
+      /^\/api\/sources\/([0-9a-f-]{36})\/entries\/(entry-[0-9a-f]{32})\/(metadata|artwork|open|queue)$/i.exec(
         url.pathname,
       );
     if (entryMatch) {
@@ -392,12 +486,42 @@ async function handleRequest(
       if (request.method === "POST" && action === "open") {
         await readBody(request);
         const queue = await library.queueForEntry(sourceId, entryId);
-        await player.openResolvedQueue(queue.paths, queue.selectedIndex);
+        await player.openResolvedQueue(
+          queue.paths,
+          queue.selectedIndex,
+          queue.relativePaths.map((relativePath) => ({
+            kind: "folders" as const,
+            sourceId,
+            relativePath,
+          })),
+        );
         sendJson(response, 200, {
           ok: true,
           data: {
             selectedIndex: queue.selectedIndex,
             queueLength: queue.paths.length,
+          },
+        });
+        return;
+      }
+      if (request.method === "POST" && action === "queue") {
+        await readBody(request);
+        const path = await library.pathForEntry(sourceId, entryId);
+        const appendedCount = await player.append(
+          [path],
+          [
+            {
+              kind: "folders",
+              sourceId,
+              relativePath: library.relativePathForEntry(sourceId, entryId),
+            },
+          ],
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            appendedCount,
           },
         });
         return;
@@ -532,12 +656,7 @@ server.listen(config.backendPort, config.backendHost, () => {
   console.log(
     `[backend] listening on http://${config.backendHost}:${String(config.backendPort)}`,
   );
-  void player
-    .initialize()
-    .then(() => analyzer.initialize(player.getMpvExecutable() ?? undefined))
-    .then(() => {
-      preloadWaveforms(true);
-    });
+  void bootstrapPromise.catch(() => undefined);
 });
 
 let shuttingDown = false;
@@ -548,14 +667,21 @@ function shutdown(signal: NodeJS.Signals): void {
   events.close();
   unsubscribeAnalyzerState();
   server.close();
-  void Promise.all([
-    visualizerEvents.close(),
-    waveform.close(),
-    library.close(),
-    player.shutdown(),
-  ]).finally(() => {
-    process.exitCode = 0;
-  });
+  playerSession.stop();
+  void bootstrapPromise
+    .catch(() => undefined)
+    .then(() => playerSession.flush())
+    .then(() =>
+      Promise.all([
+        visualizerEvents.close(),
+        waveform.close(),
+        library.close(),
+        player.shutdown(),
+      ]),
+    )
+    .finally(() => {
+      process.exitCode = 0;
+    });
   setTimeout(() => {
     console.error("[backend] forced shutdown after grace period");
     process.exit(1);

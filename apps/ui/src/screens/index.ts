@@ -2,15 +2,20 @@ import type { ComponentView } from "../components/types";
 import type { AppStore } from "../state/store";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import type { PlayerActions } from "./now-playing";
-import type { LibraryApiClient } from "../api/library-api-client";
-import type { AddLocalSourceResponse } from "../../../../packages/shared/src/library";
+import type { FoldersApiClient } from "../api/folders-api-client";
+import type {
+  AddLocalSourceResponse,
+  DirectoryQueueResponse,
+} from "../../../../packages/shared/src/library";
 import type {
   AppState,
   ScreenId,
   TimelineStyle,
   VisualizerMode,
 } from "../state/types";
-import { createLibraryScreen } from "./library";
+import { createFoldersScreen } from "./folders";
+import { createPlaceholderScreen } from "./placeholder";
+import { t } from "../i18n";
 import { createNowPlayingScreen } from "./now-playing";
 import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
@@ -22,19 +27,27 @@ export interface ScreenContext {
   readonly setVisualizerMode: (mode: VisualizerMode) => void;
   readonly setTimelineStyle: (style: TimelineStyle) => void;
   readonly setTimelineTimeMode: AppStore["setTimelineTimeMode"];
+  readonly setMusicBrowsingVisibility: AppStore["setMusicBrowsingVisibility"];
+  readonly setReturnToNowPlayingSeconds: AppStore["setReturnToNowPlayingSeconds"];
   readonly openQueue: (trigger: HTMLButtonElement) => void;
   readonly openLibrary: () => void;
+  readonly openFolders: () => void;
   readonly toggleVolume: (trigger: HTMLButtonElement) => void;
   readonly playerState: PlayerState;
   readonly playerActions: PlayerActions;
-  readonly libraryApi: LibraryApiClient;
+  readonly foldersApi: FoldersApiClient;
   readonly addLocalFolder: () => Promise<AddLocalSourceResponse | null>;
-  readonly openLibrarySource: (sourceId: string) => void;
-  readonly openLibraryEntry: (
+  readonly openFolderSource: (sourceId: string) => void;
+  readonly openFolderEntry: (
     sourceId: string,
     entryId: string,
   ) => Promise<void>;
-  readonly removeLibrarySource: (sourceId: string) => void;
+  readonly playFolderDirectory: (
+    sourceId: string,
+    relativePath: string,
+  ) => Promise<DirectoryQueueResponse>;
+  readonly openSources: () => void;
+  readonly removeFolderSource: (sourceId: string) => void;
 }
 
 function staticView(element: HTMLElement): ComponentView {
@@ -55,28 +68,39 @@ export function createScreen(
       return createNowPlayingScreen({
         visualizerMode: context.state.visualizerMode,
         timelineStyle: context.state.timelineStyle,
+        musicBrowsingVisibility: context.state.musicBrowsingVisibility,
         timelineTimeMode: context.state.timelineTimeMode,
         onVisualizerModeChange: context.setVisualizerMode,
         onTimelineTimeModeChange: context.setTimelineTimeMode,
         onOpenQueue: context.openQueue,
         onOpenLibrary: context.openLibrary,
+        onOpenFolders: context.openFolders,
         onToggleVolume: context.toggleVolume,
         initialPlayerState: context.playerState,
         actions: context.playerActions,
       });
-    case "library":
-      return createLibraryScreen({
-        api: context.libraryApi,
-        addFolder: context.addLocalFolder,
-        openEntry: context.openLibraryEntry,
+    case "folders":
+      return createFoldersScreen({
+        api: context.foldersApi,
+        openSources: context.openSources,
+        openEntry: context.openFolderEntry,
+        playDirectory: context.playFolderDirectory,
         initialPlayerState: context.playerState,
       });
+    case "library":
+      return staticView(
+        createPlaceholderScreen(
+          t("screen.library.title"),
+          t("screen.library.description"),
+          "library",
+        ),
+      );
     case "sources":
       return createSourcesScreen({
-        api: context.libraryApi,
+        api: context.foldersApi,
         addFolder: context.addLocalFolder,
-        openSource: context.openLibrarySource,
-        onSourceRemoved: context.removeLibrarySource,
+        openSource: context.openFolderSource,
+        onSourceRemoved: context.removeFolderSource,
       });
     case "queue":
       return staticView(createQueueScreen());
@@ -85,9 +109,13 @@ export function createScreen(
         animationsEnabled: context.state.animationsEnabled,
         visualizerMode: context.state.visualizerMode,
         timelineStyle: context.state.timelineStyle,
+        musicBrowsingVisibility: context.state.musicBrowsingVisibility,
+        returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
         onAnimationsChange: context.setAnimationsEnabled,
         onVisualizerModeChange: context.setVisualizerMode,
         onTimelineStyleChange: context.setTimelineStyle,
+        onMusicBrowsingVisibilityChange: context.setMusicBrowsingVisibility,
+        onReturnToNowPlayingSecondsChange: context.setReturnToNowPlayingSeconds,
       });
   }
 }

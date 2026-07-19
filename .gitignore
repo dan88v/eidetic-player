@@ -7,6 +7,7 @@ dist/
 Thumbs.db
 .neutralino/
 .tmp/
+.codex-tmp/
 bin/
 neutralino.config.json
 resources.neu

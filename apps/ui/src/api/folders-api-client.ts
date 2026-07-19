@@ -5,6 +5,8 @@ import type {
   LibrarySource,
   OpenLibraryEntryResponse,
   SourceListResponse,
+  FolderArtworkPreview,
+  DirectoryQueueResponse,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -14,7 +16,7 @@ const apiBaseUrl = config.development
   ? ""
   : `http://${config.backendHost}:${String(config.backendPort)}`;
 
-export class LibraryApiClient {
+export class FoldersApiClient {
   listSources(): Promise<SourceListResponse> {
     return this.request("/api/sources");
   }
@@ -79,6 +81,53 @@ export class LibraryApiClient {
     );
   }
 
+  addEntryToQueue(
+    sourceId: string,
+    entryId: string,
+  ): Promise<DirectoryQueueResponse> {
+    return this.request(
+      `/api/sources/${encodeURIComponent(sourceId)}/entries/${encodeURIComponent(entryId)}/queue`,
+      { method: "POST", body: "{}" },
+    );
+  }
+
+  folderArtwork(
+    sourceId: string,
+    relativePath: string,
+    signal?: AbortSignal,
+  ): Promise<FolderArtworkPreview> {
+    const query = new URLSearchParams({ relativePath });
+    return this.request(
+      `/api/sources/${encodeURIComponent(sourceId)}/folder-artwork?${query.toString()}`,
+      signal ? { signal } : {},
+    );
+  }
+
+  playDirectory(
+    sourceId: string,
+    relativePath: string,
+  ): Promise<DirectoryQueueResponse> {
+    return this.directoryAction(sourceId, relativePath, "play");
+  }
+
+  addDirectoryToQueue(
+    sourceId: string,
+    relativePath: string,
+  ): Promise<DirectoryQueueResponse> {
+    return this.directoryAction(sourceId, relativePath, "queue");
+  }
+
+  private directoryAction(
+    sourceId: string,
+    relativePath: string,
+    action: "play" | "queue",
+  ): Promise<DirectoryQueueResponse> {
+    return this.request(
+      `/api/sources/${encodeURIComponent(sourceId)}/directory/${action}`,
+      { method: "POST", body: JSON.stringify({ relativePath }) },
+    );
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const requestInit: RequestInit = { ...init };
     if (init.body !== undefined) {
@@ -92,7 +141,7 @@ export class LibraryApiClient {
       const error = payload.ok ? null : payload.error;
       throw new PlayerApiError(
         error?.code ?? "REQUEST_FAILED",
-        error?.message ?? "Library request failed.",
+        error?.message ?? "Folders request failed.",
       );
     }
     return payload.data as T;

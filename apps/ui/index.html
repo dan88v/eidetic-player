@@ -5,8 +5,80 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111318" />
     <title></title>
+    <style>
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background: #0b0e14;
+        color: #f2eee7;
+        font:
+          600 1rem/1.4 system-ui,
+          sans-serif;
+        transition: opacity 140ms ease;
+      }
+      #app-splash[aria-hidden="true"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #app-splash__content {
+        display: grid;
+        width: min(24rem, 72vw);
+        gap: 1.25rem;
+        text-align: center;
+      }
+      #app-splash__title {
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        font-weight: 650;
+        letter-spacing: 0.08em;
+        line-height: 1;
+      }
+      #app-splash__progress {
+        position: relative;
+        height: 2px;
+        overflow: hidden;
+        background: rgba(214, 183, 127, 0.18);
+      }
+      #app-splash__progress::after {
+        content: "";
+        position: absolute;
+        inset-block: 0;
+        left: -45%;
+        width: 45%;
+        background: #d6b77f;
+        animation: app-splash-progress 1.15s ease-in-out infinite;
+      }
+      #app-splash[data-motion="reduced"] #app-splash__progress::after {
+        left: 0;
+        width: 100%;
+        animation: none;
+      }
+      @keyframes app-splash-progress {
+        to {
+          left: 100%;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash {
+          transition: none;
+        }
+        #app-splash__progress::after {
+          left: 0;
+          width: 100%;
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body style="background: #0b0e14">
+    <div id="app-splash" role="status" aria-label="Loading Eidetic Player">
+      <span id="app-splash__content">
+        <span id="app-splash__title">Eidetic Player</span>
+        <span id="app-splash__progress" aria-hidden="true"></span>
+      </span>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

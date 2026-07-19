@@ -9,8 +9,12 @@ import {
   loadTimelineStyle,
   loadTimelineTimeMode,
   loadVisualizerMode,
+  loadMusicBrowsingVisibility,
+  loadReturnToNowPlayingSeconds,
 } from "./utils/storage";
 import { correctInitialViewportOnce } from "./utils/viewport";
+import { PlayerApiClient } from "./api/player-api-client";
+import { disconnectedPlayerState } from "./state/player-store";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -24,9 +28,11 @@ function showPlatformInitializationError(error: unknown): void {
   const description = document.createElement("p");
   description.textContent = t("platform.initializationErrorDescription");
   root.replaceChildren(heading, description);
+  document.querySelector("#app-splash")?.remove();
 }
 
 async function bootstrap(): Promise<void> {
+  const startedAt = performance.now();
   document.title = config.appName;
   let platform;
   try {
@@ -46,17 +52,58 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  const animationsEnabled = loadAnimationsEnabled();
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  if (!animationsEnabled || reducedMotion)
+    document
+      .querySelector<HTMLElement>("#app-splash")
+      ?.setAttribute("data-motion", "reduced");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => {
+    controller.abort();
+  }, 5_000);
+  let playerState = disconnectedPlayerState;
+  try {
+    playerState = await new PlayerApiClient().bootstrap(controller.signal);
+  } catch (error) {
+    console.error("[bootstrap] backend initialization failed", error);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+  const minimumRemaining = 700 - (performance.now() - startedAt);
+  if (minimumRemaining > 0)
+    await new Promise<void>((resolve) =>
+      window.setTimeout(resolve, minimumRemaining),
+    );
+
   const store = createAppStore({
     activeScreen: "nowPlaying",
     menuOpen: false,
     queueOpen: false,
     volumeOpen: false,
-    animationsEnabled: loadAnimationsEnabled(),
+    animationsEnabled,
     visualizerMode: loadVisualizerMode(),
     timelineStyle: loadTimelineStyle(),
     timelineTimeMode: loadTimelineTimeMode(),
+    musicBrowsingVisibility: loadMusicBrowsingVisibility(),
+    returnToNowPlayingSeconds: loadReturnToNowPlayingSeconds(),
   });
-  const app = mountApp(root, store, platform.bridge);
+  const app = mountApp(root, store, platform.bridge, playerState);
+  const splash = document.querySelector<HTMLElement>("#app-splash");
+  if (splash) {
+    if (!animationsEnabled || reducedMotion) {
+      splash.style.transition = "none";
+      splash.dataset.motion = "reduced";
+    }
+    splash.setAttribute("aria-hidden", "true");
+    const remove = () => {
+      splash.remove();
+    };
+    if (!animationsEnabled || reducedMotion) remove();
+    else window.setTimeout(remove, 160);
+  }
   window.addEventListener(
     "beforeunload",
     () => {

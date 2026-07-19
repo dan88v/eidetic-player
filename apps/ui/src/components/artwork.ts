@@ -192,13 +192,23 @@ export function createArtwork(options: {
           commit(template, artwork.revision, alt, requestNonce);
         })
         .catch(() => {
-          if (requestNonce === nonce) {
-            clear();
-            if (!warned.has(artwork.revision)) {
-              warned.add(artwork.revision);
-              console.warn("[artwork] image could not be loaded");
-            }
-          }
+          if (requestNonce !== nonce) return;
+          window.setTimeout(() => {
+            if (requestNonce !== nonce) return;
+            void decodeCache
+              .prepare(artwork)
+              .then((template) => {
+                commit(template, artwork.revision, alt, requestNonce);
+              })
+              .catch(() => {
+                if (requestNonce !== nonce) return;
+                clear();
+                if (!warned.has(artwork.revision)) {
+                  warned.add(artwork.revision);
+                  console.warn("[artwork] image could not be loaded");
+                }
+              });
+          }, 140);
         });
     },
     loadUrl,

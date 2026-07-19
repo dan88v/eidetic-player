@@ -14,6 +14,7 @@ import type { FilesystemProvider } from "./filesystem-provider.js";
 import { FilesystemError } from "./filesystem-errors.js";
 import { PathService } from "./path-service.js";
 import { SourceService } from "./source-service.js";
+import { FolderArtworkPreviewService } from "./folder-artwork-preview-service.js";
 import {
   type CachedDirectory,
   type InternalDirectoryEntry,
@@ -46,6 +47,7 @@ export class DirectoryBrowserService {
   private maxMetadata = 0;
   private maxArtwork = 0;
   private cacheHits = 0;
+  private readonly folderPreviews: FolderArtworkPreviewService;
 
   constructor(
     private readonly provider: FilesystemProvider,
@@ -55,7 +57,15 @@ export class DirectoryBrowserService {
     private readonly metadata = new MetadataService(),
     private readonly artwork = new ArtworkService(),
     private readonly maxDirectories = 32,
-  ) {}
+  ) {
+    this.folderPreviews = new FolderArtworkPreviewService(
+      provider,
+      paths,
+      sources,
+      metadata,
+      artwork,
+    );
+  }
 
   async browse(
     sourceId: string,
@@ -128,6 +138,7 @@ export class DirectoryBrowserService {
     }
 
     const internalEntries: InternalDirectoryEntry[] = [];
+    let containsUnsupportedFiles = false;
     for (const child of children) {
       if (
         child.name.startsWith(".") ||
@@ -154,7 +165,10 @@ export class DirectoryBrowserService {
         : details.isFile() && isSupportedAudioPath(child.name)
           ? "audio"
           : null;
-      if (!type) continue;
+      if (!type) {
+        if (details.isFile()) containsUnsupportedFiles = true;
+        continue;
+      }
       const id = this.entryId(
         sourceId,
         childRelativePath,
@@ -208,6 +222,7 @@ export class DirectoryBrowserService {
         )
         .digest("hex"),
       fromCache: false,
+      containsUnsupportedFiles,
     };
     const cachedDirectory = {
       response,
@@ -255,6 +270,13 @@ export class DirectoryBrowserService {
             result.metadata.codec ??
             extension?.toUpperCase() ??
             null,
+          codec: result.metadata.codec,
+          container: result.metadata.container,
+          bitrate: result.metadata.bitrate,
+          sampleRate: result.metadata.sampleRate,
+          bitDepth: result.metadata.bitDepth,
+          lossless: result.metadata.lossless,
+          isVariableBitrate: null,
           artwork,
         };
         this.commitMetadata(entryId, summary);
@@ -292,12 +314,14 @@ export class DirectoryBrowserService {
     entryId: string,
   ): Promise<{
     readonly paths: readonly string[];
+    readonly relativePaths: readonly string[];
     readonly selectedIndex: number;
   }> {
     const selected = this.requireAudioEntry(sourceId, entryId);
     const source = await this.sources.getInternal(sourceId);
     const listing = await this.browse(sourceId, selected.parentRelativePath);
     const paths: string[] = [];
+    const relativePaths: string[] = [];
     let selectedIndex = -1;
     for (const publicEntry of listing.entries) {
       if (publicEntry.type !== "audio") continue;
@@ -314,6 +338,7 @@ export class DirectoryBrowserService {
       if (!this.paths.isWithinSource(source.canonicalRoot, canonical)) continue;
       if (publicEntry.id === entryId) selectedIndex = paths.length;
       paths.push(canonical);
+      relativePaths.push(publicEntry.relativePath);
     }
     if (selectedIndex < 0)
       throw new FilesystemError(
@@ -321,10 +346,82 @@ export class DirectoryBrowserService {
         "This audio file is no longer available.",
         404,
       );
-    return { paths, selectedIndex };
+    return { paths, relativePaths, selectedIndex };
+  }
+
+  async pathForEntry(sourceId: string, entryId: string): Promise<string> {
+    const entry = this.requireAudioEntry(sourceId, entryId);
+    const source = await this.sources.getInternal(sourceId);
+    try {
+      const details = await this.provider.lstat(entry.nativePath);
+      const canonical = await this.paths.canonicalizePath(entry.nativePath);
+      if (
+        details.isSymbolicLink() ||
+        !details.isFile() ||
+        !this.paths.isWithinSource(source.canonicalRoot, canonical)
+      )
+        throw new Error("unavailable");
+      return canonical;
+    } catch {
+      throw new FilesystemError(
+        "ENTRY_NOT_FOUND",
+        "This audio file is no longer available.",
+        404,
+      );
+    }
+  }
+
+  relativePathForEntry(sourceId: string, entryId: string): string {
+    return this.requireAudioEntry(sourceId, entryId).publicEntry.relativePath;
+  }
+
+  folderArtworkFor(sourceId: string, relativePath: string) {
+    return this.folderPreviews.resolve(sourceId, relativePath);
+  }
+
+  async queueForDirectory(
+    sourceId: string,
+    relativePath: string,
+  ): Promise<readonly string[]> {
+    return (await this.queueForDirectoryWithOrigins(sourceId, relativePath))
+      .paths;
+  }
+
+  async queueForDirectoryWithOrigins(
+    sourceId: string,
+    relativePath: string,
+  ): Promise<{
+    readonly paths: readonly string[];
+    readonly relativePaths: readonly string[];
+  }> {
+    const source = await this.sources.getInternal(sourceId);
+    const listing = await this.browse(sourceId, relativePath);
+    const paths: string[] = [];
+    const relativePaths: string[] = [];
+    for (const entry of listing.entries) {
+      if (entry.type !== "audio") continue;
+      const record = this.entries.get(entry.id);
+      if (!record) continue;
+      try {
+        const details = await this.provider.lstat(record.nativePath);
+        const canonical = await this.paths.canonicalizePath(record.nativePath);
+        if (
+          !details.isSymbolicLink() &&
+          details.isFile() &&
+          this.paths.isWithinSource(source.canonicalRoot, canonical)
+        ) {
+          paths.push(canonical);
+          relativePaths.push(entry.relativePath);
+        }
+      } catch {
+        // A file removed while listing is simply omitted from the action.
+      }
+    }
+    return { paths, relativePaths };
   }
 
   invalidateSource(sourceId: string): void {
+    this.folderPreviews.invalidateSource(sourceId);
     for (const key of this.cache.keys())
       if (key.startsWith(`${sourceId}\0`)) this.cache.delete(key);
     for (const [id, entry] of this.entries)
@@ -350,6 +447,7 @@ export class DirectoryBrowserService {
     this.cache.clear();
     this.entries.clear();
     this.metadata.clear();
+    this.folderPreviews.clear();
     await this.artwork.close();
   }
 

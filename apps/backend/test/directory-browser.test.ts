@@ -31,6 +31,10 @@ void test("directory browser is one-level, filtered, stable and queue-exact", as
   await writeFile(join(root, "notes.txt"), "ignored");
   await writeFile(join(root, ".secret.flac"), "hidden");
   await writeFile(join(root, "desktop.ini"), "system");
+  await writeFile(
+    join(root, "cover.JPG"),
+    Uint8Array.from([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  );
   await writeFile(join(nested, "nested.mp3"), "nested");
   await writeFile(join(outside, "escape.mp3"), "outside");
   try {
@@ -71,6 +75,7 @@ void test("directory browser is one-level, filtered, stable and queue-exact", as
         first.entries.some((entry) => entry.name === "notes.txt"),
         false,
       );
+      assert.equal(first.containsUnsupportedFiles, true);
       assert.equal(
         first.entries.some((entry) => entry.name.startsWith(".")),
         false,
@@ -103,12 +108,29 @@ void test("directory browser is one-level, filtered, stable and queue-exact", as
         (entry) => entry.name === "2 Middle.flac",
       );
       assert.ok(selected);
+      assert.equal(
+        basename(await browser.pathForEntry(added.source.id, selected.id)),
+        "2 Middle.flac",
+      );
       const queue = await browser.queueForEntry(added.source.id, selected.id);
       assert.deepEqual(
         queue.paths.map((path) => basename(path)),
         ["01 Start.wav", "2 Middle.flac", "10 Finale.MP3"],
       );
       assert.equal(queue.selectedIndex, 1);
+      assert.deepEqual(
+        (await browser.queueForDirectory(added.source.id, "")).map((path) =>
+          basename(path),
+        ),
+        ["01 Start.wav", "2 Middle.flac", "10 Finale.MP3"],
+      );
+      const preview = await browser.folderArtworkFor(added.source.id, "");
+      assert.equal(preview.mode, "single");
+      assert.equal(preview.artwork.length, 1);
+      assert.equal(preview.artwork[0]?.sourceType, "folder");
+      assert.equal(preview.playableFileCount, 3);
+      assert.equal(preview.sampledFileCount, 3);
+      assert.equal(JSON.stringify(preview).includes(root), false);
 
       current = join(root, "2 Middle.flac");
       const refreshed = await browser.browse(added.source.id);

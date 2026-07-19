@@ -21,6 +21,11 @@ import type { MpvResponse } from "./mpv-transport.js";
 import { PlayerError } from "./player-error.js";
 import { buildExplicitQueue, buildQueue } from "./queue-builder.js";
 import { LimitedConcurrency } from "../utils/limited-concurrency.js";
+import type {
+  PersistedQueueOrigin,
+  PlayerSessionSnapshot,
+  ResolvedQueueItem,
+} from "../player-session/player-session-types.js";
 
 type StateListener = (state: PlayerState) => void;
 
@@ -70,7 +75,9 @@ export class PlayerService {
   private readonly listeners = new Set<StateListener>();
   private readonly properties = new Map<string, unknown>();
   private originalQueue: string[] = [];
+  private stagedQueue: string[] | null = null;
   private readonly itemIds = new Map<string, string>();
+  private readonly queueOrigins = new Map<string, PersistedQueueOrigin>();
   private restartAttempted = false;
   private shuttingDown = false;
   private positionTimer: NodeJS.Timeout | null = null;
@@ -168,6 +175,52 @@ export class PlayerService {
   async openResolvedQueue(
     paths: readonly string[],
     selectedIndex: number,
+    origins?: readonly PersistedQueueOrigin[],
+  ): Promise<void> {
+    await this.loadResolvedQueue(paths, selectedIndex, {
+      autoplay: true,
+      ...(origins ? { origins } : {}),
+    });
+  }
+
+  async restoreResolvedQueue(
+    items: readonly ResolvedQueueItem[],
+    selectedIndex: number,
+  ): Promise<void> {
+    await this.loadResolvedQueue(
+      items.map((item) => item.path),
+      selectedIndex,
+      {
+        autoplay: false,
+        origins: items.map((item) => item.origin),
+        itemIds: items.map((item) => item.id),
+      },
+    );
+  }
+
+  getSessionSnapshot(): PlayerSessionSnapshot {
+    const current = this.state.queue[this.state.currentQueueIndex];
+    return {
+      currentQueueItemId: current?.id ?? null,
+      queue: this.state.queue.map((item) => ({
+        id: item.id,
+        origin:
+          this.queueOrigins.get(this.pathKey(item.path)) ??
+          ({ kind: "direct", nativePath: item.path } as const),
+        filename: item.filename,
+        displayTitle: item.displayTitle,
+      })),
+    };
+  }
+
+  private async loadResolvedQueue(
+    paths: readonly string[],
+    selectedIndex: number,
+    options: {
+      readonly autoplay: boolean;
+      readonly origins?: readonly PersistedQueueOrigin[];
+      readonly itemIds?: readonly string[];
+    },
   ): Promise<void> {
     const queue = await buildExplicitQueue(paths);
     if (
@@ -182,6 +235,17 @@ export class PlayerService {
     const controller = this.requireController();
     const hadQueue = this.state.queue.length > 0;
     this.itemIds.clear();
+    this.queueOrigins.clear();
+    for (const path of queue) {
+      const inputIndex = paths.findIndex(
+        (candidate) => this.pathKey(candidate) === this.pathKey(path),
+      );
+      const origin = options.origins?.[inputIndex];
+      const itemId = options.itemIds?.[inputIndex];
+      if (origin) this.queueOrigins.set(this.pathKey(path), origin);
+      if (itemId) this.itemIds.set(this.pathKey(path), itemId);
+    }
+    this.stagedQueue = null;
     this.enrichmentGeneration += 1;
     this.enrichmentPathKey = null;
     this.currentEnrichment = null;
@@ -196,7 +260,7 @@ export class PlayerService {
       await controller.loadPlaylist(queue, selectedIndex);
       if (this.state.shuffleEnabled)
         await controller.command(["playlist-shuffle"]);
-      await controller.setProperty("pause", false);
+      await controller.setProperty("pause", !options.autoplay);
       this.preparingPlaylist = false;
       await this.refreshProperties();
     } catch (error) {
@@ -218,25 +282,69 @@ export class PlayerService {
     return this.state.currentTrack?.path ?? null;
   }
 
-  async append(paths: readonly string[]): Promise<void> {
+  async append(
+    paths: readonly string[],
+    origins?: readonly PersistedQueueOrigin[],
+  ): Promise<number> {
     const controller = this.requireController();
-    const candidates = await buildExplicitQueue(paths);
-    const existing = new Set(
-      this.state.queue.map((item) => this.pathKey(item.path)),
-    );
-    const appended = candidates.filter(
-      (path) => !existing.has(this.pathKey(path)),
-    );
-    if (appended.length === 0) return;
-    if (this.state.queue.length === 0) {
-      await controller.loadPlaylist(appended, 0);
-      this.originalQueue = [...appended];
-      await controller.setProperty("pause", false);
-    } else {
+    this.preparingPlaylist = true;
+    try {
+      const candidates = await buildExplicitQueue(paths);
+      const existing = new Set(
+        this.state.queue.map((item) => this.pathKey(item.path)),
+      );
+      const appended = candidates.filter(
+        (path) => !existing.has(this.pathKey(path)),
+      );
+      if (appended.length === 0) return 0;
+      for (const path of appended) {
+        const inputIndex = paths.findIndex(
+          (candidate) => this.pathKey(candidate) === this.pathKey(path),
+        );
+        const origin = origins?.[inputIndex];
+        if (origin) this.queueOrigins.set(this.pathKey(path), origin);
+      }
+      if (this.stagedQueue || this.state.queue.length === 0) {
+        const staged = [...(this.stagedQueue ?? []), ...appended];
+        this.stagedQueue = staged;
+        this.originalQueue = [...staged];
+        const queue = staged.map((path, index) => {
+          const key = this.pathKey(path);
+          let id = this.itemIds.get(key);
+          if (!id) {
+            id = `queue-${randomUUID()}`;
+            this.itemIds.set(key, id);
+          }
+          const previous = this.state.queue.find((item) => item.id === id);
+          const filename = basename(path);
+          return {
+            id,
+            index,
+            path,
+            filename,
+            displayTitle:
+              previous?.displayTitle ?? filename.replace(/\.[^.]+$/, ""),
+            artwork: previous?.artwork ?? null,
+            isCurrent: false,
+          };
+        });
+        this.update({
+          status: "stopped",
+          currentTrack: null,
+          currentQueueIndex: -1,
+          queue,
+          queueRevision: this.state.queueRevision + 1,
+          paused: true,
+        });
+        return appended.length;
+      }
       await controller.appendToPlaylist(appended);
       this.originalQueue.push(...appended);
+      await this.refreshProperties();
+      return appended.length;
+    } finally {
+      this.preparingPlaylist = false;
     }
-    await this.refreshProperties();
   }
 
   async removeQueueItem(queueItemId: string): Promise<void> {
@@ -255,6 +363,25 @@ export class PlayerService {
     const wasCurrent = index === this.state.currentQueueIndex;
     const remainingCount = this.state.queue.length - 1;
     const removedPath = this.state.queue[index]?.path ?? "";
+    this.queueOrigins.delete(this.pathKey(removedPath));
+    if (this.stagedQueue) {
+      this.stagedQueue = this.stagedQueue.filter(
+        (path) => this.pathKey(path) !== this.pathKey(removedPath),
+      );
+      this.originalQueue = [...this.stagedQueue];
+      const queue = this.state.queue
+        .filter((item) => item.id !== queueItemId)
+        .map((item, nextIndex) => ({ ...item, index: nextIndex }));
+      if (queue.length === 0) {
+        this.resetLocalState();
+      } else {
+        this.update({
+          queue,
+          queueRevision: this.state.queueRevision + 1,
+        });
+      }
+      return;
+    }
     await this.requireController().command(["playlist-remove", index]);
     this.originalQueue = this.originalQueue.filter(
       (path) => this.pathKey(path) !== this.pathKey(removedPath),
@@ -272,8 +399,14 @@ export class PlayerService {
   }
 
   async clearQueue(): Promise<void> {
-    await this.requireController().clearPlaylist();
-    this.resetLocalState();
+    this.preparingPlaylist = true;
+    try {
+      await this.requireController().clearPlaylist();
+      this.properties.clear();
+      this.resetLocalState();
+    } finally {
+      this.preparingPlaylist = false;
+    }
   }
 
   async playPause(): Promise<void> {
@@ -347,6 +480,10 @@ export class PlayerService {
   async setShuffle(enabled: boolean): Promise<void> {
     const controller = this.requireController();
     if (enabled === this.state.shuffleEnabled) return;
+    if (this.stagedQueue) {
+      this.update({ shuffleEnabled: enabled });
+      return;
+    }
     if (this.state.queue.length > 1) {
       if (enabled) {
         await controller.command(["playlist-shuffle"]);
@@ -375,6 +512,10 @@ export class PlayerService {
         "INVALID_QUEUE_INDEX",
         "Queue index is out of range.",
       );
+    if (this.stagedQueue) {
+      await this.openResolvedQueue(this.stagedQueue, index);
+      return;
+    }
     this.pendingTrackTarget = index;
     await this.requireController().setProperty("playlist-pos", index);
   }
@@ -458,10 +599,13 @@ export class PlayerService {
   }
 
   private resetLocalState(): void {
-    if (this.state.currentTrack || this.state.queue.length > 0)
+    if (this.state.currentTrack || this.state.queue.length > 0) {
       this.trackTransitionId += 1;
+    }
     this.originalQueue = [];
+    this.stagedQueue = null;
     this.itemIds.clear();
+    this.queueOrigins.clear();
     this.enrichmentGeneration += 1;
     this.enrichmentPathKey = null;
     this.currentEnrichment = null;

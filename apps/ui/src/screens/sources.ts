@@ -2,13 +2,13 @@ import type {
   AddLocalSourceResponse,
   LibrarySource,
 } from "../../../../packages/shared/src/library";
-import type { LibraryApiClient } from "../api/library-api-client";
+import type { FoldersApiClient } from "../api/folders-api-client";
 import { icon } from "../components/icons";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
 
 export interface SourcesScreenOptions {
-  readonly api: LibraryApiClient;
+  readonly api: FoldersApiClient;
   readonly addFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openSource: (sourceId: string) => void;
   readonly onSourceRemoved: (sourceId: string) => void;
@@ -71,6 +71,9 @@ export function createSourcesScreen(
   const dialogInput = section.querySelector<HTMLInputElement>(
     ".source-dialog input",
   );
+  const dialogActions = section.querySelector<HTMLElement>(
+    ".source-dialog__actions",
+  );
   const cancelButton = section.querySelector<HTMLButtonElement>(
     '[data-action="cancel"]',
   );
@@ -87,6 +90,7 @@ export function createSourcesScreen(
     !dialogDescription ||
     !dialogField ||
     !dialogInput ||
+    !dialogActions ||
     !cancelButton ||
     !confirmButton
   )
@@ -123,13 +127,14 @@ export function createSourcesScreen(
     dialogMode = mode;
     returnFocus = trigger;
     const rename = mode === "rename";
-    dialogTitle.textContent = t(
-      rename ? "sources.renameTitle" : "sources.removeTitle",
-    );
+    dialogTitle.textContent = rename
+      ? t("sources.renameTitle")
+      : `Remove “${source.displayName}”?`;
     dialogDescription.textContent = rename
       ? t("sources.localFolder")
       : t("sources.filesNotDeleted");
-    dialogField.hidden = !rename;
+    if (rename) dialog.insertBefore(dialogField, dialogActions);
+    else dialogField.remove();
     dialogInput.value = rename ? source.displayName : "";
     confirmButton.textContent = t(rename ? "sources.save" : "sources.remove");
     confirmButton.classList.toggle("source-dialog__confirm--danger", !rename);

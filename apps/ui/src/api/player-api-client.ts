@@ -35,6 +35,22 @@ export class PlayerApiClient {
     return payload.data;
   }
 
+  async bootstrap(signal?: AbortSignal): Promise<PlayerState> {
+    const response = await fetch(
+      `${this.baseUrl}/api/bootstrap`,
+      signal ? { signal } : undefined,
+    );
+    const payload = await this.parse<{ readonly playerState: PlayerState }>(
+      response,
+    );
+    if (!payload.data)
+      throw new PlayerApiError(
+        "EMPTY_RESPONSE",
+        "The player returned no bootstrap state.",
+      );
+    return payload.data.playerState;
+  }
+
   subscribe(
     onState: (state: PlayerState) => void,
     onConnectionError: () => void,

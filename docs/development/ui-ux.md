@@ -101,10 +101,21 @@ change produces no measurable layout shift. Waveform changes first draw the
 neutral empty rail. The visualizer rejects frames from other generations and
 decays its existing buffers to zero through its single existing render loop.
 
-## Library browser
+## Folders browser
 
 - Render directory entries before metadata enrichment.
 - Keep folders/audio in separate stable regions and never reorder from tags.
+- Keep the Folders root minimal; source management belongs to Sources.
+- Apply the persisted List/Grid mode to source and folder cards only. Switching
+  it must preserve the same DOM, artwork, scroll, and backend request count.
+- Folder cards use separate artwork/body Open targets and a sibling menu; never
+  nest buttons. Show the direct playable-file count instead of a generic type.
+- Persist folder sorting independently from the List/Grid presentation.
+- Audio rows keep their main Play target and add a sibling menu for Play now and
+  Add to Queue.
+- Folder previews are lazy, direct-child only, and use real opaque artwork refs.
+- The directory header shows Back/current title/view/Play first and ancestor
+  breadcrumbs second; never repeat the current folder in the breadcrumb.
 - Retain existing content with discreet `aria-busy` until the next directory
   can be committed in one replacement.
 - Player ticks update only row class and `aria-current`, never list structure or
@@ -113,6 +124,22 @@ decays its existing buffers to zero through its single existing render loop.
   enter DOM attributes, labels, breadcrumbs, URLs, or session keys.
 - Back, breadcrumb, source actions, dialogs, and rows remain semantic
   keyboard/touch controls with visible focus.
+
+Sorting and List/Grid belong only to the Folders root. A directory keeps its
+Back/title/Play controls and omits sorting and view controls. Sorting uses an
+app-styled popup menu rather than a native select. The breadcrumb element is
+hidden entirely when there are no useful ancestors.
+
+## Settings and inactivity
+
+Settings uses root, Interface, and selection sub-screens. Controls with two
+choices may stay inline; controls with more choices use a row, current-value
+summary, chevron, and dedicated selection screen. Music browsing can expose
+Folders, Library, or both without hiding Sources.
+
+The optional global inactivity timer returns to Now Playing without changing
+playback. It closes transient overlays and is suspended while an overlay,
+editable field, native dialog, or Settings selection sub-screen is active.
 
 ## Timeline and Canvas
 
