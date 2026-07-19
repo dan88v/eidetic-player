@@ -19,6 +19,13 @@
     "mpv:doctor": "tsx scripts/mpv-doctor.ts",
     "ffmpeg:doctor": "tsx scripts/ffmpeg-doctor.ts",
     "test:ffmpeg": "tsx --test apps/backend/test/ffmpeg.integration.ts",
+    "doctor:linux": "tsx scripts/doctor-linux.ts",
+    "test:linux": "npm run test:case-sensitive && npm run test:posix && npm test",
+    "test:posix": "tsx --test apps/backend/test/linux-platform.test.ts",
+    "test:case-sensitive": "tsx scripts/test-case-sensitive.ts",
+    "build:linux": "npm run build && neu build --release",
+    "smoke:linux": "tsx scripts/linux-smoke.ts",
+    "verify:arm": "tsx scripts/verify-arm.ts",
     "shell:config:dev": "tsx scripts/generate-neutralino-config.ts development",
     "shell:config:prod": "tsx scripts/generate-neutralino-config.ts production",
     "neutralino:update": "neu update --latest"

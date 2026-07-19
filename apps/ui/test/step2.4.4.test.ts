@@ -156,3 +156,12 @@ void test("Windows dev shutdown gives artwork cleanup a graceful backend path", 
   assert.match(devRunner, /"x-eidetic-shutdown-token": backendShutdownToken/);
   assert.match(devRunner, /await stopBackendGracefully\(\)/);
 });
+
+void test("the UI uses the bundled cross-platform Open Sans font", async () => {
+  const base = await read("styles/base.css");
+  assert.match(base, /@font-face/);
+  assert.match(base, /font-family: "Open Sans Bundled"/);
+  assert.match(base, /OpenSans-Variable\.ttf/);
+  assert.match(base, /font-display: block/);
+  assert.doesNotMatch(base, /\bInter,/);
+});

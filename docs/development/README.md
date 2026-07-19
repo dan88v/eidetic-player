@@ -14,6 +14,8 @@ These documents expand the mandatory rules in the repository
   safe local media handling, and accessible interaction.
 - [Workflow](workflow.md) — incremental steps, regression discipline, and
   required reports.
+- [Linux and Debian](linux-debian.md) — XDG, Unix IPC, WSLg, systemd, ARM, and
+  Raspberry Pi preparation.
 
 When guidance conflicts, follow this order:
 

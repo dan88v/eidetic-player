@@ -39,6 +39,11 @@ npm run test:ffmpeg
 On systems that block the PowerShell npm shim, use `npm.cmd` with the same
 arguments. Do not change machine execution policy as part of the project.
 
+Linux adds `doctor:linux`, `test:linux`, `test:posix`,
+`test:case-sensitive`, `build:linux`, `smoke:linux`, and `verify:arm`.
+Run them from a native case-sensitive filesystem. Static ARM inspection is not
+runtime evidence.
+
 ## Real media
 
 Real-media tests use user-provided local folders read-only.

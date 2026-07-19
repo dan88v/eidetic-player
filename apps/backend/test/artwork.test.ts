@@ -41,7 +41,7 @@ void test("stale artwork directories from dead app processes are removed", async
   );
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, "stale.jpg"), jpeg);
-  await cleanupStaleArtworkDirectories();
+  await cleanupStaleArtworkDirectories(tmpdir());
   await assert.rejects(access(directory));
 });
 

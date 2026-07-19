@@ -22,8 +22,8 @@ decoding and system audio output.
 - MPV available either as `mpv` in `PATH` or through `EIDETIC_MPV_PATH`
 - FFmpeg is optional for real visualizers and waveform generation; configure
   `EIDETIC_FFMPEG_PATH` or make `ffmpeg` available in `PATH`
-- Windows for the current Neutralino development shell; the MPV IPC layer also
-  supports Unix domain sockets for the future Linux target
+- Windows for the primary development shell and Debian 13 amd64/WSLg for the
+  audited Neutralino Linux development path
 
 MPV is deliberately not bundled, downloaded, or installed by this repository.
 After installing it, verify the setup with:
@@ -186,11 +186,11 @@ The following remain outside the implemented scope:
   selection workflow;
 - no audio DSP or modification of MPV's playback signal;
 - no true-peak meter, integrated loudness, loudness range, or normalization;
-- no completed Linux/Debian runtime audit and no Raspberry Pi 3B performance
-  validation.
+- no Raspberry Pi 3B runtime/performance validation; Linux arm64 and Raspberry
+  Pi OS remain statically prepared rather than hardware-verified.
 
-The next planned milestone is Step 2.4.5, the Linux/Debian/Raspberry Pi runtime
-audit. See the [Step 2.4.4 report](prompts/step2.4.4_output.md) for measurements
-and the complete verification record.
+See the [Linux/Debian guide](docs/development/linux-debian.md) and the
+[Step 2.4.5 report](prompts/step2.4.5_output.md) for the compatibility matrix,
+measurements, and remaining Raspberry Pi checks.
 
 See [Architecture](docs/architecture.md) and [UI calibration](docs/ui.md).

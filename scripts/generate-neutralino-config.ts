@@ -52,7 +52,7 @@ const config = {
     },
   },
   cli: {
-    binaryName: "eidetic-player-${OS}_${ARCH}",
+    binaryName: "eidetic-player",
     resourcesPath: "/dist/ui/",
     clientLibrary: "/node_modules/@neutralinojs/lib/dist/neutralino.js",
     binaryVersion: "6.8.0",
