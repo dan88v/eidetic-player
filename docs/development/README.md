@@ -14,6 +14,9 @@ These documents expand the mandatory rules in the repository
   safe local media handling, and accessible interaction.
 - [Workflow](workflow.md) — incremental steps, regression discipline, and
   required reports.
+- [WSL2 Debian environment](../../wsl-debian-prep/wsl-debian-setup.md) —
+  repeatable local bootstrap for the future Linux compatibility audit. The
+  setup scripts and preparation report live in the same dedicated folder.
 
 When guidance conflicts, follow this order:
 
