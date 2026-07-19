@@ -81,12 +81,12 @@ export class AudioAnalysisEngine {
   private readonly window = hannWindow(FFT_SIZE);
   private sequence = 0;
   private displayedMeter = [0, 0, 0, 0];
+  private consumedSamples = 0;
 
   push(
     interleaved: Float32Array,
     trackId: string,
     startPosition: number,
-    samplesReceived: number,
     trackTransitionId = 0,
   ): VisualizerFrame[] {
     for (let index = 0; index + 1 < interleaved.length; index += 2) {
@@ -98,13 +98,14 @@ export class AudioAnalysisEngine {
       frames.push(
         this.analyze(
           trackId,
-          startPosition + samplesReceived / ANALYSIS_SAMPLE_RATE,
+          startPosition +
+            (this.consumedSamples + FFT_SIZE / 2) / ANALYSIS_SAMPLE_RATE,
           trackTransitionId,
         ),
       );
       this.left.splice(0, HOP_SIZE);
       this.right.splice(0, HOP_SIZE);
-      samplesReceived += HOP_SIZE;
+      this.consumedSamples += HOP_SIZE;
     }
     return frames;
   }
@@ -113,6 +114,7 @@ export class AudioAnalysisEngine {
     this.left = [];
     this.right = [];
     this.displayedMeter = [0, 0, 0, 0];
+    this.consumedSamples = 0;
   }
 
   private analyze(

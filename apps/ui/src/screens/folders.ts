@@ -30,6 +30,10 @@ export interface FoldersScreenOptions {
     relativePath: string,
   ) => Promise<DirectoryQueueResponse>;
   readonly initialPlayerState: PlayerState;
+  readonly showToast: (
+    message: string,
+    tone?: "error" | "success" | "neutral",
+  ) => void;
 }
 
 interface AudioRow {
@@ -94,7 +98,6 @@ export function createFoldersScreen(
       <div class="folders-root-sort"></div>
       <div class="folders-root-actions"></div>
     </div>
-    <p class="folders-status" role="status" aria-live="polite"></p>
     <div class="folders-content"></div>
     <div class="folders-action-menu" role="menu" hidden></div>`;
   const directoryHeader = section.querySelector<HTMLElement>(
@@ -115,7 +118,6 @@ export function createFoldersScreen(
   const rootActions = section.querySelector<HTMLElement>(
     ".folders-root-actions",
   );
-  const status = section.querySelector<HTMLElement>(".folders-status");
   const content = section.querySelector<HTMLElement>(".folders-content");
   const menu = section.querySelector<HTMLElement>(".folders-action-menu");
   if (
@@ -127,12 +129,10 @@ export function createFoldersScreen(
     !directoryActions ||
     !rootSort ||
     !rootActions ||
-    !status ||
     !content ||
     !menu
   )
     throw new Error("Folders screen is incomplete");
-  const stableStatus = status;
   const stableContent = content;
 
   let destroyed = false;
@@ -146,6 +146,7 @@ export function createFoldersScreen(
   let sortMode: FolderSortMode = loadFolderSortMode();
   let menuTarget: ActionTarget | null = null;
   let menuTrigger: HTMLButtonElement | null = null;
+  let audioPlayRequestGeneration = 0;
   const previewViews = new Set<ArtworkView>();
 
   const observer =
@@ -154,6 +155,11 @@ export function createFoldersScreen(
           (entries) => {
             for (const entry of entries) {
               if (!entry.isIntersecting) continue;
+              if (import.meta.env.DEV)
+                console.debug("[folders-artwork]", {
+                  phase: "intersection",
+                  target: (entry.target as HTMLElement).dataset.previewKey,
+                });
               observer?.unobserve(entry.target);
               void loadFolderPreview(entry.target as HTMLElement);
             }
@@ -333,10 +339,8 @@ export function createFoldersScreen(
       return;
     }
     if (trigger) trigger.disabled = true;
-    status.textContent =
-      action === "play"
-        ? t("folders.startingFolder")
-        : t("folders.addingFolder");
+    if (action === "queue")
+      options.showToast(t("folders.addingFolder"), "neutral");
     try {
       if (action === "play") {
         const result = await options.playDirectory(
@@ -344,22 +348,30 @@ export function createFoldersScreen(
           target.relativePath,
         );
         if (result.queueLength === 0)
-          status.textContent = t("folders.noSupported");
+          options.showToast(t("folders.noSupported"), "neutral");
       } else {
         const result = await options.api.addDirectoryToQueue(
           target.sourceId,
           target.relativePath,
         );
-        status.textContent =
-          result.appendedCount > 0
-            ? `${String(result.appendedCount)} track${result.appendedCount === 1 ? "" : "s"} added to Queue.`
-            : t("folders.noNewTracks");
+        if (result.appendedCount > 0)
+          options.showToast(
+            t(
+              result.appendedCount === 1
+                ? "folders.trackAdded"
+                : "folders.tracksAdded",
+            ),
+            "success",
+          );
+        else options.showToast(t("folders.noNewTracks"), "neutral");
       }
     } catch (error) {
-      status.textContent =
+      options.showToast(
         error instanceof Error
           ? error.message
-          : t("folders.folderActionFailed");
+          : t("folders.folderActionFailed"),
+        "error",
+      );
     } finally {
       if (trigger && !destroyed) trigger.disabled = false;
     }
@@ -370,25 +382,42 @@ export function createFoldersScreen(
     action: "play" | "queue",
     trigger?: HTMLButtonElement,
   ): Promise<void> => {
+    const playRequestGeneration =
+      action === "play" ? ++audioPlayRequestGeneration : 0;
     if (trigger) trigger.disabled = true;
-    status.textContent =
-      action === "play" ? t("folders.startingTrack") : t("folders.addingTrack");
+    if (action === "queue")
+      options.showToast(t("folders.addingTrack"), "neutral");
     try {
-      if (action === "play")
+      if (action === "play") {
         await options.openEntry(target.sourceId, target.entryId);
-      else {
+        if (destroyed || playRequestGeneration !== audioPlayRequestGeneration)
+          return;
+        foldersSession.setSelected(target.entryId);
+      } else {
         const result = await options.api.addEntryToQueue(
           target.sourceId,
           target.entryId,
         );
-        status.textContent =
-          result.appendedCount > 0
-            ? t("folders.trackAdded")
-            : t("folders.trackAlreadyQueued");
+        options.showToast(
+          t(
+            result.appendedCount > 0
+              ? "folders.trackAdded"
+              : "folders.trackAlreadyQueued",
+          ),
+          result.appendedCount > 0 ? "success" : "neutral",
+        );
       }
     } catch (error) {
-      status.textContent =
-        error instanceof Error ? error.message : t("folders.trackActionFailed");
+      if (
+        action !== "play" ||
+        playRequestGeneration === audioPlayRequestGeneration
+      )
+        options.showToast(
+          error instanceof Error
+            ? error.message
+            : t("folders.trackActionFailed"),
+          "error",
+        );
     } finally {
       if (trigger && !destroyed) trigger.disabled = false;
     }
@@ -546,6 +575,7 @@ export function createFoldersScreen(
     art.className = "folders-folder-art";
     art.dataset.sourceId = target.sourceId;
     art.dataset.relativePath = target.relativePath;
+    art.dataset.previewKey = `${target.sourceId}:${target.relativePath}`;
     art.innerHTML = icon("folder");
     artButton.append(art);
     artButton.addEventListener("click", () => {
@@ -591,8 +621,7 @@ export function createFoldersScreen(
     const currentFilename = playerState.currentTrack?.filename ?? null;
     for (const row of audioRows) {
       const current =
-        row.entry.current ||
-        (currentFilename !== null && row.entry.name === currentFilename);
+        currentFilename !== null && row.entry.name === currentFilename;
       row.button
         .closest(".folders-audio")
         ?.classList.toggle("folders-audio--current", current);
@@ -622,11 +651,33 @@ export function createFoldersScreen(
         const row = rows[cursor++];
         if (!row) return;
         try {
-          const metadata = await options.api.metadata(
-            sourceId,
-            row.entry.id,
-            controller.signal,
-          );
+          if (import.meta.env.DEV)
+            console.debug("[folders-artwork]", {
+              phase: "metadata-request",
+              entryId: row.entry.id,
+              generation: requestGeneration,
+            });
+          let metadata;
+          try {
+            metadata = await options.api.metadata(
+              sourceId,
+              row.entry.id,
+              controller.signal,
+            );
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            if (import.meta.env.DEV)
+              console.debug("[folders-artwork]", {
+                phase: "metadata-retry",
+                entryId: row.entry.id,
+                generation: requestGeneration,
+              });
+            metadata = await options.api.metadata(
+              sourceId,
+              row.entry.id,
+              controller.signal,
+            );
+          }
           if (destroyed || requestGeneration !== generation) return;
           row.title.textContent = metadata.title || row.entry.name;
           row.artist.textContent = metadata.artist ?? "";
@@ -639,6 +690,14 @@ export function createFoldersScreen(
               ? ""
               : formatTime(metadata.durationSeconds);
           row.artwork.update(metadata.artwork, "", requestGeneration);
+          if (import.meta.env.DEV)
+            console.debug("[folders-artwork]", {
+              phase: "metadata-response",
+              entryId: row.entry.id,
+              artworkId: metadata.artwork?.id ?? null,
+              artworkRevision: metadata.artwork?.revision ?? null,
+              generation: requestGeneration,
+            });
         } catch {
           if (controller.signal.aborted) return;
         }
@@ -753,18 +812,17 @@ export function createFoldersScreen(
         duration.className = "folders-audio__duration";
         button.append(artwork.element, copy, technical, duration);
         button.addEventListener("click", () => {
-          foldersSession.setSelected(entry.id);
           rememberScroll();
-          button.disabled = true;
-          void options
-            .openEntry(response.source.id, entry.id)
-            .catch((error: unknown) => {
-              status.textContent =
-                error instanceof Error
-                  ? error.message
-                  : t("folders.trackActionFailed");
-              button.disabled = false;
-            });
+          void runAudioAction(
+            {
+              kind: "audio",
+              sourceId: response.source.id,
+              entryId: entry.id,
+              name: entry.name,
+            },
+            "play",
+            button,
+          );
         });
         const more = document.createElement("button");
         more.type = "button";
@@ -814,20 +872,19 @@ export function createFoldersScreen(
     relativePath: string,
   ): Promise<void> {
     const requestGeneration = ++generation;
-    stableStatus.textContent = t("folders.loadingFolder");
     stableContent.setAttribute("aria-busy", "true");
     try {
       const response = await options.api.browse(sourceId, relativePath);
       if (destroyed || requestGeneration !== generation) return;
       foldersSession.setLocation(sourceId, response.current.relativePath);
       renderDirectory(response, requestGeneration);
-      stableStatus.textContent = "";
       restoreScroll(sourceId, relativePath);
     } catch (error) {
       if (destroyed || requestGeneration !== generation) return;
-      stableContent.textContent =
-        error instanceof Error ? error.message : t("folders.unableRead");
-      stableStatus.textContent = "";
+      options.showToast(
+        error instanceof Error ? error.message : t("folders.unableRead"),
+        "error",
+      );
     } finally {
       if (!destroyed && requestGeneration === generation)
         stableContent.removeAttribute("aria-busy");
@@ -843,7 +900,6 @@ export function createFoldersScreen(
     rootToolbar.hidden = false;
     rootSort.replaceChildren(sortControls());
     rootActions.replaceChildren(viewControls());
-    status.textContent = t("folders.loadingRoot");
     try {
       const response = await options.api.listSources();
       if (destroyed || requestGeneration !== generation) return;
@@ -875,10 +931,9 @@ export function createFoldersScreen(
       content.replaceChildren(list);
       setViewMode(viewMode);
       sortFolderCards();
-      status.textContent = "";
     } catch {
-      status.textContent = "";
-      content.textContent = t("folders.unableSources");
+      options.showToast(t("folders.unableSources"), "error");
+      content.replaceChildren();
     }
   };
 

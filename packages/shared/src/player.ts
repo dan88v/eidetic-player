@@ -75,6 +75,7 @@ export interface PlayerState {
   readonly queue: readonly QueueItem[];
   readonly queueRevision: number;
   readonly audioDevice: string;
+  readonly audioBufferSeconds?: number;
   readonly error: PlayerErrorState | null;
 }
 

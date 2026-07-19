@@ -64,6 +64,18 @@ void test("analysis produces finite meter and 32/16+16 spectrum bands", () => {
   assert.ok(frame.meter.leftPeak > frame.meter.rightPeak);
 });
 
+void test("analysis timestamps advance by consumed hops across input chunks", () => {
+  const engine = new AudioAnalysisEngine();
+  const first = engine.push(new Float32Array(FFT_SIZE * 2), "queue-1", 10, 3);
+  const second = engine.push(new Float32Array(FFT_SIZE * 2), "queue-1", 10, 3);
+  assert.ok(first.length > 0);
+  assert.ok(second.length > 0);
+  assert.ok(
+    (second[0]?.positionSeconds ?? 0) > (first.at(-1)?.positionSeconds ?? 0),
+  );
+  assert.equal(second[0]?.trackTransitionId, 3);
+});
+
 void test("zero frame has exact dimensions and no NaN", () => {
   const frame = zeroFrame(null);
   assert.deepEqual(Object.values(frame.meter), [0, 0, 0, 0]);

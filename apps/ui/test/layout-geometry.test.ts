@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatTime } from "../src/components/timeline";
 import { renderWaveform } from "../src/timeline/timeline-renderer";
-import { getMeterGeometry } from "../src/visualizer/meter-renderer";
+import {
+  getMeterGeometry,
+  linearPeakToMeterPosition,
+  meterPositionForDb,
+} from "../src/visualizer/meter-renderer";
 import { renderStereoSpectrum } from "../src/visualizer/spectrum-renderer";
 
 void test("timeline formats minute and hour durations without truncation", () => {
@@ -23,6 +27,16 @@ void test("meter geometry fills the visualizer and remains bottom anchored", () 
   assert.ok(first.startY < size.height * 0.3);
   assert.equal(first.graphicBottom, size.height);
   assert.equal(first.startY + first.barHeight * 2 + first.rowGap, size.height);
+});
+
+void test("meter maps linear peaks onto a logarithmic decibel scale", () => {
+  assert.equal(linearPeakToMeterPosition(0), 0);
+  assert.equal(linearPeakToMeterPosition(1), 1);
+  assert.ok(Math.abs(linearPeakToMeterPosition(0.1) - 2 / 3) < 0.000_001);
+  assert.ok(Math.abs(linearPeakToMeterPosition(0.01) - 1 / 3) < 0.000_001);
+  assert.equal(meterPositionForDb(-60), 0);
+  assert.equal(meterPositionForDb(0), 1);
+  assert.ok(linearPeakToMeterPosition(0.1) > 0.1);
 });
 
 void test("waveform without a track renders a quiet empty rail", () => {

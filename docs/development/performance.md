@@ -23,11 +23,14 @@ High-frequency data must not enter the global application store.
 
 The visualizer path is:
 
-1. receive a compact frame;
-2. retain only the newest target values;
-3. draw from one `requestAnimationFrame` loop owned by the active visualizer;
-4. reuse arrays and computed geometry;
-5. cancel the loop on teardown.
+1. receive a compact timestamped frame into a 24-frame bounded buffer;
+2. select the newest non-future frame against extrapolated MPV position after
+   subtracting its bounded runtime `audio-buffer`, with a documented 50 ms
+   scheduling tolerance;
+3. retain only that frame's newest target values;
+4. draw from one `requestAnimationFrame` loop owned by the active visualizer;
+5. reuse arrays and computed geometry;
+6. cancel the loop on teardown.
 
 Rules for the hot path:
 
@@ -36,7 +39,9 @@ Rules for the hot path:
 - no `getBoundingClientRect`, computed style, gradient creation, or Canvas
   backing-store resize per frame;
 - no Queue, metadata, artwork, or player-state updates from visualizer frames;
-- drop stale frames instead of building a backlog;
+- drop stale identity/generation frames instead of building a backlog;
+- freeze the position anchor on pause and clear incompatible frames on seeks or
+  track changes;
 - cap UI rendering and analyzer output independently;
 - cap device-pixel ratio when higher resolution has no visible benefit.
 
@@ -92,6 +97,9 @@ justify a deliberate change.
 - current-track work has priority over next-track preload.
 
 Do not add a cache dependency for simple bounded LRU behavior.
+Transient parser, artwork-resolution, load, decode, and abort failures must not
+be retained as negative cache entries. Retry only the affected entry and leave
+valid positive cache records intact.
 
 Folders browsing adds a bounded 32-directory session LRU. A miss performs one
 non-recursive `readdir` plus immediate-child `lstat`; a hit checks directory
@@ -116,8 +124,8 @@ keep only the latest target identity; they do not disable controls or create
 additional fades, timers, EventSource connections, animation loops, analyzers,
 or unbounded parse work.
 
-The bootstrap splash has a 700 ms minimum and a 5 s safety timeout; its only
-optional transition is a 140 ms opacity fade. Player-session writes are
+The accent-aware bootstrap splash has a 700 ms minimum and a 5 s safety timeout;
+its only optional transition is a 140 ms opacity fade. Player-session writes are
 structural, debounced by 120 ms, atomic, and exclude playback-position ticks.
 
 Visualizer samples used for a paused remount live in one bounded module-level

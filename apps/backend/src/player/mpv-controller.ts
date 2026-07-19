@@ -13,6 +13,7 @@ const observedProperties = [
   "path",
   "audio-params",
   "audio-codec-name",
+  "audio-buffer",
   "volume",
   "mute",
   "idle-active",

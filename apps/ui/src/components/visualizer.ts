@@ -17,6 +17,8 @@ import {
 import type { ComponentView } from "./types";
 
 const TARGET_FRAME_INTERVAL = 1_000 / 30;
+// Player events can drift slightly; a larger jump means the user sought.
+const VISUALIZER_SEEK_DISCONTINUITY_SECONDS = 0.4;
 
 function smooth(
   displayed: Float32Array,
@@ -44,7 +46,16 @@ function copy(source: readonly number[], target: Float32Array): void {
 }
 
 export interface VisualizerView extends ComponentView {
-  setTrack(trackId: string | null, generation: number): void;
+  setTrack(
+    playerSessionId: string,
+    trackId: string | null,
+    generation: number,
+  ): void;
+  setPlaybackState(
+    positionSeconds: number,
+    paused: boolean,
+    audioBufferSeconds?: number,
+  ): void;
 }
 
 export function createVisualizer(options: {
@@ -60,6 +71,10 @@ export function createVisualizer(options: {
   let decaying = false;
   let expectedTrackId: string | null = null;
   let expectedGeneration = -1;
+  let expectedPlayerSessionId = "";
+  let playbackPositionSeconds = 0;
+  let playbackPositionUpdatedAt = performance.now();
+  let playbackPaused = true;
   const meterTarget = new Float32Array(2);
   const meterDisplayed = new Float32Array(2);
   const monoTarget = new Float32Array(32);
@@ -115,6 +130,7 @@ export function createVisualizer(options: {
       return;
     }
     lastRenderTime = timestamp;
+    receiveFrameForPosition(timestamp);
     let changing = false;
     if (hasFrame) {
       if (mode === "meter")
@@ -151,18 +167,18 @@ export function createVisualizer(options: {
     if (import.meta.env.DEV) canvas.dataset.rafActive = "1";
   };
 
-  const receiveLatestFrame = (): void => {
-    const frame: VisualizerFrame | null = stream.takeLatest();
-    const frameIsCurrent =
-      frame?.trackId === expectedTrackId &&
-      frame.trackTransitionId === expectedGeneration;
-    if (!frameIsCurrent) {
-      if (import.meta.env.DEV && frame !== null)
-        canvas.dataset.staleFrames = String(
-          Number(canvas.dataset.staleFrames ?? "0") + 1,
-        );
-      return;
-    }
+  const receiveFrameForPosition = (timestamp: number): void => {
+    const position =
+      playbackPositionSeconds +
+      (playbackPaused
+        ? 0
+        : Math.max(0, timestamp - playbackPositionUpdatedAt) / 1_000);
+    const frame: VisualizerFrame | null = stream.takeForPosition(
+      expectedTrackId,
+      expectedGeneration,
+      position,
+    );
+    if (!frame) return;
     meterTarget[0] = frame.meter.leftPeak;
     meterTarget[1] = frame.meter.rightPeak;
     copy(frame.monoBands, monoTarget);
@@ -176,6 +192,14 @@ export function createVisualizer(options: {
       canvas.dataset.framesReceived = String(
         Number(canvas.dataset.framesReceived ?? "0") + 1,
       );
+    if (import.meta.env.DEV) {
+      canvas.dataset.framePosition = String(frame.positionSeconds);
+      canvas.dataset.playerPosition = String(position);
+      canvas.dataset.syncOffsetMilliseconds = String(
+        Math.round((frame.positionSeconds - position) * 1_000),
+      );
+      canvas.dataset.bufferedFrames = String(stream.bufferedFrameCount());
+    }
   };
 
   const updateAccessibleState = (): void => {
@@ -201,7 +225,7 @@ export function createVisualizer(options: {
       const context = canvas.getContext("2d");
       if (size && context) context.clearRect(0, 0, size.width, size.height);
     } else {
-      stream.open(mode, receiveLatestFrame);
+      stream.open(mode, startLoop);
       needsRender = true;
       startLoop();
     }
@@ -240,19 +264,22 @@ export function createVisualizer(options: {
   updateAccessibleState();
   return {
     element,
-    setTrack(trackId, generation) {
+    setTrack(playerSessionId, trackId, generation) {
       if (
-        generation < expectedGeneration ||
-        (generation === expectedGeneration && trackId === expectedTrackId)
+        playerSessionId === expectedPlayerSessionId &&
+        (generation < expectedGeneration ||
+          (generation === expectedGeneration && trackId === expectedTrackId))
       )
         return;
+      expectedPlayerSessionId = playerSessionId;
       expectedGeneration = generation;
       expectedTrackId = trackId;
+      stream.clearFrames();
       const snapshot =
         trackId === null
           ? null
           : readVisualizerSnapshot(
-              visualizerSnapshotKey(trackId, generation, mode),
+              visualizerSnapshotKey(playerSessionId, trackId, generation, mode),
             );
       if (snapshot) {
         copy(snapshot.meter, meterDisplayed);
@@ -276,10 +303,43 @@ export function createVisualizer(options: {
       needsRender = true;
       startLoop();
     },
+    setPlaybackState(positionSeconds, paused, audioBufferSeconds = 0) {
+      const now = performance.now();
+      const audiblePositionSeconds = Math.max(
+        0,
+        positionSeconds - Math.max(0, audioBufferSeconds),
+      );
+      const estimated =
+        playbackPositionSeconds +
+        (playbackPaused
+          ? 0
+          : Math.max(0, now - playbackPositionUpdatedAt) / 1_000);
+      const seekDetected =
+        Math.abs(audiblePositionSeconds - estimated) >
+        VISUALIZER_SEEK_DISCONTINUITY_SECONDS;
+      playbackPositionSeconds = audiblePositionSeconds;
+      playbackPositionUpdatedAt = now;
+      playbackPaused = paused;
+      if (seekDetected) {
+        stream.clearFrames();
+        meterTarget.fill(0);
+        monoTarget.fill(0);
+        leftTarget.fill(0);
+        rightTarget.fill(0);
+        decaying = hasFrame;
+        needsRender = true;
+      }
+      startLoop();
+    },
     destroy() {
       if (expectedTrackId && hasFrame)
         saveVisualizerSnapshot(
-          visualizerSnapshotKey(expectedTrackId, expectedGeneration, mode),
+          visualizerSnapshotKey(
+            expectedPlayerSessionId,
+            expectedTrackId,
+            expectedGeneration,
+            mode,
+          ),
           {
             meter: [...meterDisplayed],
             mono: [...monoDisplayed],

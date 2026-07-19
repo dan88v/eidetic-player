@@ -12,6 +12,10 @@ export interface SourcesScreenOptions {
   readonly addFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openSource: (sourceId: string) => void;
   readonly onSourceRemoved: (sourceId: string) => void;
+  readonly showToast: (
+    message: string,
+    tone?: "error" | "success" | "neutral",
+  ) => void;
 }
 
 export function createSourcesScreen(
@@ -19,13 +23,12 @@ export function createSourcesScreen(
 ): ComponentView {
   const section = document.createElement("section");
   section.className = "screen sources-screen";
+  section.setAttribute("aria-label", t("screen.sources.title"));
   section.innerHTML = `
     <header class="screen-header sources-header">
-      <span class="screen-header__icon">${icon("sources")}</span>
-      <div><p class="screen-header__eyebrow">${t("app.name")}</p><h1>${t("screen.sources.title")}</h1><p class="screen-header__description">${t("screen.sources.description")}</p></div>
+      <p class="screen-header__description">${t("screen.sources.description")}</p>
       <button class="primary-action sources-header__add" type="button">${icon("plus")}<span>${t("sources.addFolder")}</span></button>
     </header>
-    <p class="sources-feedback" role="status" aria-live="polite"></p>
     <section class="sources-section" aria-labelledby="local-folders-heading">
       <h2 id="local-folders-heading">${t("sources.localFolders")}</h2>
       <div class="sources-list sources-list--local" aria-live="polite"></div>
@@ -54,7 +57,6 @@ export function createSourcesScreen(
   const addButton = section.querySelector<HTMLButtonElement>(
     ".sources-header__add",
   );
-  const feedback = section.querySelector<HTMLElement>(".sources-feedback");
   const dialog = section.querySelector<HTMLElement>(".source-dialog");
   const backdrop = section.querySelector<HTMLElement>(
     ".source-dialog-backdrop",
@@ -83,7 +85,6 @@ export function createSourcesScreen(
   if (
     !localList ||
     !addButton ||
-    !feedback ||
     !dialog ||
     !backdrop ||
     !dialogTitle ||
@@ -101,10 +102,6 @@ export function createSourcesScreen(
   let dialogSource: LibrarySource | null = null;
   let dialogMode: "rename" | "remove" | null = null;
   let returnFocus: HTMLElement | null = null;
-
-  const setFeedback = (message: string): void => {
-    feedback.textContent = message;
-  };
 
   const closeDialog = (): void => {
     dialog.classList.remove("source-dialog--open");
@@ -215,7 +212,7 @@ export function createSourcesScreen(
           .then(load)
           .catch(() => {
             retry.disabled = false;
-            setFeedback(t("sources.unableToRead"));
+            options.showToast(t("sources.unableToRead"), "error");
           });
       });
       fragment.append(card);
@@ -231,7 +228,7 @@ export function createSourcesScreen(
       if (destroyed || generation !== requestGeneration) return;
       render(response.sources);
     } catch {
-      if (!destroyed) setFeedback(t("sources.unableToRead"));
+      if (!destroyed) options.showToast(t("sources.unableToRead"), "error");
     } finally {
       if (!destroyed && generation === requestGeneration)
         localList.removeAttribute("aria-busy");
@@ -240,18 +237,18 @@ export function createSourcesScreen(
 
   addButton.addEventListener("click", () => {
     addButton.disabled = true;
-    setFeedback("");
     void options
       .addFolder()
       .then((result) => {
         if (!result) return;
-        setFeedback(
+        options.showToast(
           t(result.duplicate ? "sources.alreadyAdded" : "sources.available"),
+          result.duplicate ? "neutral" : "success",
         );
         return load();
       })
       .catch(() => {
-        setFeedback(t("sources.unableToRead"));
+        options.showToast(t("sources.unableToRead"), "error");
       })
       .finally(() => {
         addButton.disabled = false;
@@ -272,11 +269,18 @@ export function createSourcesScreen(
       .then(() => {
         if (mode === "remove") options.onSourceRemoved(source.id);
         closeDialog();
+        options.showToast(
+          t(mode === "rename" ? "sources.renamed" : "sources.removed"),
+          "success",
+        );
         return load();
       })
       .catch(() => {
-        setFeedback(
-          t(mode === "rename" ? "sources.renameTitle" : "sources.unableToRead"),
+        options.showToast(
+          t(
+            mode === "rename" ? "sources.renameFailed" : "sources.removeFailed",
+          ),
+          "error",
         );
       })
       .finally(() => {

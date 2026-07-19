@@ -166,6 +166,7 @@ export class AudioAnalyzerService {
     this.activeTrackId = trackId;
     this.activeTransitionId = state.trackTransitionId;
     this.starts += 1;
+    const analyzerStartedAt = Date.now();
     const child = spawn(
       discovery.executable,
       [
@@ -196,14 +197,44 @@ export class AudioAnalyzerService {
       { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
     this.child = child;
+    let startupSamplesToDiscard: number | null = null;
     child.stdout.on("data", (chunk: Buffer) => {
       if (generation !== this.generation) return;
-      const values = this.parser.push(chunk);
+      let values = this.parser.push(chunk);
+      if (startupSamplesToDiscard === null) {
+        const current = this.state;
+        const playerDrift =
+          current?.trackTransitionId === state.trackTransitionId
+            ? Math.max(0, current.positionSeconds - this.startPosition)
+            : 0;
+        const startupDrift =
+          current?.trackTransitionId === state.trackTransitionId &&
+          !current.paused
+            ? Math.max(playerDrift, (Date.now() - analyzerStartedAt) / 1_000)
+            : playerDrift;
+        const catchupSeconds = Math.min(
+          startupDrift,
+          analysisConfig.startupCatchupMaximumSeconds,
+        );
+        startupSamplesToDiscard = Math.floor(
+          catchupSeconds * ANALYSIS_SAMPLE_RATE,
+        );
+        this.startPosition += startupSamplesToDiscard / ANALYSIS_SAMPLE_RATE;
+      }
+      if (startupSamplesToDiscard > 0) {
+        const valuesToDiscard = Math.min(
+          values.length,
+          startupSamplesToDiscard * analysisConfig.channels,
+        );
+        values = values.subarray(valuesToDiscard);
+        startupSamplesToDiscard -= Math.floor(
+          valuesToDiscard / analysisConfig.channels,
+        );
+      }
       const frames = this.engine.push(
         values,
         trackId,
         this.startPosition,
-        this.samplesReceived,
         state.trackTransitionId,
       );
       this.samplesReceived += Math.floor(values.length / 2);

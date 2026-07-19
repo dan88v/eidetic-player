@@ -262,13 +262,20 @@ void test("34. timeline time toggle is disabled without a valid duration", async
   assert.equal(formatRemainingTime(0, 0), "0:00");
 });
 
-void test("35. Sources eyebrow uses the localized Eidetic Player name", async () => {
-  const [sources, i18n] = await Promise.all([
+void test("35. section headers retain only descriptions and actions", async () => {
+  const [sources, placeholder, settings] = await Promise.all([
     read("screens/sources.ts"),
-    read("i18n/en.ts"),
+    read("screens/placeholder.ts"),
+    read("screens/settings.ts"),
   ]);
-  assert.match(sources, /t\("app\.name"\)/);
-  assert.match(i18n, /"app\.name":\s*"Eidetic Player"/);
+  for (const source of [sources, placeholder, settings]) {
+    assert.doesNotMatch(source, /screen-header__eyebrow/);
+    assert.match(source, /screen-header__description/);
+  }
+  assert.doesNotMatch(sources, /<h1/);
+  assert.doesNotMatch(placeholder, /<h1/);
+  assert.doesNotMatch(settings, /<h1/);
+  assert.match(sources, /sources-header__add/);
 });
 
 void test("36. seamless transition machinery remains wired", async () => {

@@ -208,18 +208,12 @@ export function createNowPlayingScreen(
     setText(
       title,
       presentation.title ??
-        t(
-          unavailable ? "nowPlaying.unavailableTitle" : "nowPlaying.emptyTitle",
-        ),
+        (unavailable ? t("nowPlaying.unavailableTitle") : ""),
     );
     setText(
       artist,
       presentation.artist ??
-        t(
-          unavailable
-            ? "nowPlaying.unavailableDescription"
-            : "nowPlaying.emptyDescription",
-        ),
+        (unavailable ? t("nowPlaying.unavailableDescription") : ""),
     );
     setText(album, presentation.album ?? "");
     setText(technicalFormat, presentation.technical);
@@ -231,7 +225,16 @@ export function createNowPlayingScreen(
             .replace("{artist}", track.artist)
         : t("artwork.album");
     artwork.update(presentation.artwork, artworkAlt, presentation.generation);
-    visualizer.setTrack(presentation.trackId, presentation.generation);
+    visualizer.setTrack(
+      state.playerSessionId,
+      presentation.trackId,
+      presentation.generation,
+    );
+    visualizer.setPlaybackState(
+      presentation.positionSeconds,
+      state.paused || state.status !== "playing",
+      state.audioBufferSeconds,
+    );
     const usable = Boolean(track) && state.status !== "loading";
     playButton.disabled = !usable;
     previousButton.disabled = !usable;

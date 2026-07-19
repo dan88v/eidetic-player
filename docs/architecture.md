@@ -94,6 +94,12 @@ small normalized fields and `ArtworkRef`. Parsing is serialized separately for
 the current track and one next-track preload. Queue artwork resolution is lazy
 and limited to two concurrent requests.
 
+Parser, decode, abort, and artwork-resolution failures are retryable session
+events, not permanent negative cache entries. A failed artwork resolution
+invalidates only the affected metadata record so embedded picture bytes can be
+parsed again; positive records remain bounded and keyed by canonical path,
+size, and modification time.
+
 ## Atomic track transitions
 
 `PlayerService` suppresses transient MPV property snapshots from the first
@@ -110,7 +116,9 @@ identity, so an obsolete result cannot be paired with a newer title. Current,
 next, and previous metadata/artwork are cached with current/next/previous
 priority; waveform extraction remains bounded to the existing single process.
 Rapid transport commands maintain a latest target index while controls stay
-enabled.
+enabled. Queue row playback uses the same atomic path: a staged Queue is loaded
+with its stable IDs and logical origins at the requested index with autoplay;
+an already materialized Queue selects that index and explicitly clears pause.
 
 ## HTTP boundary
 
@@ -157,6 +165,13 @@ multi-selection keeps only validated explicit paths in input order and removes
 duplicates. Append never expands a one-file selection. Removal accepts only an
 opaque Queue ID.
 
+Every replacement playback request reserves a monotonically increasing
+generation before asynchronous path or Folders queue resolution begins.
+Resolved opens run through one serialized chain and check that generation
+before loading MPV, so an older slow resolution cannot supersede the most
+recent user choice. The UI independently commits selected-row state only for
+its newest successful request.
+
 Local Source records and display names persist in backend JSON. Only volume,
 mute, shuffle, repeat mode, animations, visualizer mode, and timeline style
 persist in browser storage. Folders location/scroll lasts for the UI session;
@@ -169,7 +184,13 @@ MPV, then `ffmpeg` in `PATH`, verifying `-version`. `AudioAnalyzerService` owns
 at most one realtime child. `PcmStreamParser` joins partial float32 chunks and
 `AudioAnalysisEngine` applies a Hann window, internal radix-2 FFT, logarithmic
 bands, peak/RMS and attack/release. `VisualizerHub` broadcasts at most about
-20 frames/s to all clients without adding frames to `PlayerState`.
+20 frames/s to all clients without adding frames to `PlayerState`. Frames carry
+track identity, transition generation, and analyzer-relative position. The UI
+keeps a bounded 24-frame buffer and consumes only the newest frame at or behind
+the extrapolated MPV audible position (time position minus the bounded,
+runtime-reported `audio-buffer`, with 50 ms tolerance); pause freezes the
+clock, while seek and track changes invalidate incompatible frames. This
+retains one analyzer, one EventSource, and one active render loop.
 
 `WaveformService` owns at most one independent fast-decode child and compacts
 mono s16 PCM incrementally. Its 64-entry session LRU returns 512 numeric points

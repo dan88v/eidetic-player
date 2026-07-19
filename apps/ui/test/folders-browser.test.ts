@@ -56,6 +56,7 @@ void test("current-track updates do not structurally rebuild Folders", () => {
   );
   assert.match(update, /classList\.toggle\("folders-audio--current"/);
   assert.match(update, /setAttribute\("aria-current", "true"\)/);
+  assert.doesNotMatch(update, /row\.entry\.current/);
   assert.doesNotMatch(update, /replaceChildren|innerHTML|append\(/);
 });
 

@@ -3,7 +3,7 @@ import type { PlayerState } from "../../../../packages/shared/src/player";
 import { PlayerApiClient } from "../api/player-api-client";
 import { FoldersApiClient } from "../api/folders-api-client";
 import { t } from "../i18n";
-import { getNavigationItem } from "../navigation/routes";
+import { getNavigationItem, isSettingsRoute } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
 import { runSingleAudioFileSelection } from "../platform/audio-file-selection";
 import { createScreen } from "../screens";
@@ -53,9 +53,19 @@ export function mountApp(
   dropOverlay.className = "drop-overlay";
   dropOverlay.innerHTML = `<strong>${t("drop.title")}</strong><span>${t("drop.description")}</span>`;
   let toastTimer = 0;
+  let lastToastMessage = "";
+  let lastToastAt = 0;
   let nativeDialogOpen = false;
-  const showMessage = (message: string): void => {
+  const showMessage = (
+    message: string,
+    tone: "error" | "success" | "neutral" = "error",
+  ): void => {
+    const now = performance.now();
+    if (message === lastToastMessage && now - lastToastAt < 800) return;
+    lastToastMessage = message;
+    lastToastAt = now;
     toast.textContent = message;
+    toast.dataset.tone = tone;
     toast.classList.add("app-toast--visible");
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => {
@@ -246,22 +256,67 @@ export function mountApp(
         foldersSession.removeSource(sourceId);
       },
       setAnimationsEnabled: (enabled) => {
+        const previous = store.getState().animationsEnabled;
         store.setAnimationsEnabled(enabled);
+        if (!saveAnimationsEnabled(enabled)) {
+          store.setAnimationsEnabled(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
       },
       setVisualizerMode: (mode) => {
+        const previous = store.getState().visualizerMode;
         store.setVisualizerMode(mode);
+        if (!saveVisualizerMode(mode)) {
+          store.setVisualizerMode(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
       },
       setTimelineStyle: (style) => {
+        const previous = store.getState().timelineStyle;
         store.setTimelineStyle(style);
+        if (!saveTimelineStyle(style)) {
+          store.setTimelineStyle(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
       },
       setTimelineTimeMode: (mode) => {
+        const previous = store.getState().timelineTimeMode;
         store.setTimelineTimeMode(mode);
+        if (!saveTimelineTimeMode(mode)) {
+          store.setTimelineTimeMode(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
       },
       setMusicBrowsingVisibility: (value) => {
+        const previous = store.getState().musicBrowsingVisibility;
         store.setMusicBrowsingVisibility(value);
+        if (!saveMusicBrowsingVisibility(value)) {
+          store.setMusicBrowsingVisibility(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
       },
       setReturnToNowPlayingSeconds: (value) => {
+        const previous = store.getState().returnToNowPlayingSeconds;
         store.setReturnToNowPlayingSeconds(value);
+        if (!saveReturnToNowPlayingSeconds(value)) {
+          store.setReturnToNowPlayingSeconds(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
+      },
+      showToast: (message, tone = "neutral") => {
+        showMessage(message, tone);
       },
       openQueue: (trigger) => {
         queueDrawer.setReturnFocus(trigger);
@@ -341,8 +396,15 @@ export function mountApp(
   };
   function scheduleInactivity(): void {
     window.clearTimeout(inactivityTimer);
+    inactivityTimer = 0;
     const seconds = store.getState().returnToNowPlayingSeconds;
-    if (seconds === 0) return;
+    const activeScreen = store.getState().activeScreen;
+    if (
+      seconds === 0 ||
+      activeScreen === "nowPlaying" ||
+      isSettingsRoute(activeScreen)
+    )
+      return;
     inactivityTimer = window.setTimeout(() => {
       if (inactivitySuspended()) {
         scheduleInactivity();
@@ -361,8 +423,10 @@ export function mountApp(
   scheduleInactivity();
 
   const unsubscribeApp = store.subscribe((state, previousState) => {
-    if (state.activeScreen !== previousState.activeScreen)
+    if (state.activeScreen !== previousState.activeScreen) {
       renderScreen(state.activeScreen);
+      scheduleInactivity();
+    }
     const overlayOpen = state.menuOpen || state.queueOpen || state.volumeOpen;
     screenRegion.inert = overlayOpen;
     document.body.classList.toggle("overlay-open", overlayOpen);
@@ -383,18 +447,10 @@ export function mountApp(
     }
     if (state.animationsEnabled !== previousState.animationsEnabled) {
       root.dataset.animations = String(state.animationsEnabled);
-      saveAnimationsEnabled(state.animationsEnabled);
     }
-    if (state.visualizerMode !== previousState.visualizerMode)
-      saveVisualizerMode(state.visualizerMode);
-    if (state.timelineStyle !== previousState.timelineStyle)
-      saveTimelineStyle(state.timelineStyle);
-    if (state.timelineTimeMode !== previousState.timelineTimeMode)
-      saveTimelineTimeMode(state.timelineTimeMode);
     if (
       state.musicBrowsingVisibility !== previousState.musicBrowsingVisibility
     ) {
-      saveMusicBrowsingVisibility(state.musicBrowsingVisibility);
       sideMenu.setMusicBrowsingVisibility(state.musicBrowsingVisibility);
       if (
         state.activeScreen === "folders" &&
@@ -411,7 +467,6 @@ export function mountApp(
       state.returnToNowPlayingSeconds !==
       previousState.returnToNowPlayingSeconds
     ) {
-      saveReturnToNowPlayingSeconds(state.returnToNowPlayingSeconds);
       scheduleInactivity();
     }
   });

@@ -21,7 +21,8 @@ void test("bootstrap splash is tied to the backend barrier and reduced motion", 
 
 void test("Interface settings use selection screens for multi-choice values", async () => {
   const settings = await readFile("apps/ui/src/screens/settings.ts", "utf8");
-  assert.match(settings, /"root" \| "interface" \| "browsing"/);
+  assert.match(settings, /type SettingsPage =/);
+  assert.match(settings, /\| "browsing"/);
   assert.match(settings, /page = "visualizer"/);
   assert.match(settings, /page = "inactivity"/);
   assert.match(settings, /createSegmentedControl<TimelineStyle>/);

@@ -184,9 +184,12 @@ void test("waveform results carry and verify the current generation", async () =
 });
 
 void test("visualizer rejects obsolete track frames", async () => {
-  const source = await readFile("apps/ui/src/components/visualizer.ts", "utf8");
-  assert.match(source, /frame\?\.trackId === expectedTrackId/);
-  assert.match(source, /frame\.trackTransitionId === expectedGeneration/);
+  const source = await readFile(
+    "apps/ui/src/visualizer/visualizer-frame-buffer.ts",
+    "utf8",
+  );
+  assert.match(source, /frame\.trackId !== trackId/);
+  assert.match(source, /frame\.trackTransitionId !== trackTransitionId/);
 });
 
 void test("visualizer decays existing targets to zero on a track change", async () => {

@@ -7,6 +7,8 @@ import type {
   QueueItem,
   RepeatMode,
 } from "../../../../packages/shared/src/player.js";
+
+const MAX_REPORTED_AUDIO_BUFFER_SECONDS = 1;
 import {
   ArtworkService,
   type ArtworkResource,
@@ -104,6 +106,8 @@ export class PlayerService {
   private readonly queueArtworkConcurrency = new LimitedConcurrency(2);
   private preparingPlaylist = false;
   private pendingTrackTarget: number | null = null;
+  private openRequestGeneration = 0;
+  private openRequestChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -160,6 +164,7 @@ export class PlayerService {
   }
 
   async open(paths: readonly string[]): Promise<void> {
+    const requestGeneration = this.reserveOpenRequest();
     const queue = await buildQueue(paths);
     const selectedKey = this.pathKey(paths[0] ?? "");
     const selectedIndex =
@@ -169,18 +174,34 @@ export class PlayerService {
             queue.findIndex((path) => this.pathKey(path) === selectedKey),
           )
         : 0;
-    await this.openResolvedQueue(queue, selectedIndex);
+    await this.openResolvedQueue(
+      queue,
+      selectedIndex,
+      undefined,
+      requestGeneration,
+    );
+  }
+
+  reserveOpenRequest(): number {
+    this.openRequestGeneration += 1;
+    return this.openRequestGeneration;
   }
 
   async openResolvedQueue(
     paths: readonly string[],
     selectedIndex: number,
     origins?: readonly PersistedQueueOrigin[],
+    requestGeneration = this.reserveOpenRequest(),
   ): Promise<void> {
-    await this.loadResolvedQueue(paths, selectedIndex, {
-      autoplay: true,
-      ...(origins ? { origins } : {}),
+    const operation = this.openRequestChain.then(async () => {
+      if (requestGeneration !== this.openRequestGeneration) return;
+      await this.loadResolvedQueue(paths, selectedIndex, {
+        autoplay: true,
+        ...(origins ? { origins } : {}),
+      });
     });
+    this.openRequestChain = operation.catch(() => undefined);
+    await operation;
   }
 
   async restoreResolvedQueue(
@@ -513,11 +534,24 @@ export class PlayerService {
         "Queue index is out of range.",
       );
     if (this.stagedQueue) {
-      await this.openResolvedQueue(this.stagedQueue, index);
+      const staged = [...this.stagedQueue];
+      await this.loadResolvedQueue(staged, index, {
+        autoplay: true,
+        origins: staged.map(
+          (path) =>
+            this.queueOrigins.get(this.pathKey(path)) ??
+            ({ kind: "direct", nativePath: path } as const),
+        ),
+        itemIds: staged.map(
+          (path) =>
+            this.itemIds.get(this.pathKey(path)) ?? `queue-${randomUUID()}`,
+        ),
+      });
       return;
     }
     this.pendingTrackTarget = index;
     await this.requireController().setProperty("playlist-pos", index);
+    await this.requireController().setProperty("pause", false);
   }
 
   getArtworkResource(id: string): Promise<ArtworkResource | null> {
@@ -729,6 +763,7 @@ export class PlayerService {
       "path",
       "audio-params",
       "audio-codec-name",
+      "audio-buffer",
       "volume",
       "mute",
       "idle-active",
@@ -821,6 +856,13 @@ export class PlayerService {
         ? this.state.queueRevision + 1
         : this.state.queueRevision,
       currentTrack,
+      audioBufferSeconds: Math.max(
+        0,
+        Math.min(
+          MAX_REPORTED_AUDIO_BUFFER_SECONDS,
+          this.asNumber(this.properties.get("audio-buffer"), 0),
+        ),
+      ),
       volume: Math.max(
         0,
         Math.min(

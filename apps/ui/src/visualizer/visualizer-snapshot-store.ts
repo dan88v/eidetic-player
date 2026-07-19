@@ -10,11 +10,12 @@ export interface VisualizerSnapshot {
 const snapshots = new Map<string, VisualizerSnapshot>();
 
 export function visualizerSnapshotKey(
+  playerSessionId: string,
   queueItemId: string,
   trackTransitionId: number,
   mode: VisualizerMode,
 ): string {
-  return `${String(trackTransitionId)}:${queueItemId}:${mode}`;
+  return `${playerSessionId}:${String(trackTransitionId)}:${queueItemId}:${mode}`;
 }
 
 export function readVisualizerSnapshot(key: string): VisualizerSnapshot | null {

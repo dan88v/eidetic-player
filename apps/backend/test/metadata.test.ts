@@ -167,6 +167,29 @@ void test("metadata cache hits unchanged files and invalidates changed files", a
   }
 });
 
+void test("transient parser failures are not retained as negative cache entries", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "eidetic-metadata-retry-"));
+  const path = join(directory, "track.mp3");
+  await writeFile(path, "audio");
+  let parses = 0;
+  const service = new MetadataService(() => {
+    parses += 1;
+    return parses === 1
+      ? Promise.reject(new Error("temporary read failure"))
+      : Promise.resolve(rawMetadata());
+  });
+  try {
+    const failed = await service.read(path);
+    const retried = await service.read(path);
+    assert.equal(failed.metadata.title, null);
+    assert.equal(retried.metadata.title, "Parsed title");
+    assert.equal(retried.fromCache, false);
+    assert.equal(parses, 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 void test("obsolete enrichment generations are rejected", () => {
   assert.equal(isCurrentEnrichment(4, 4, "track-b", "track-b"), true);
   assert.equal(isCurrentEnrichment(3, 4, "track-a", "track-b"), false);

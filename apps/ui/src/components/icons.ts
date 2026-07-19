@@ -1,6 +1,7 @@
 export type IconName =
   | "album"
   | "back"
+  | "chevronRight"
   | "close"
   | "ethernet"
   | "folder"
@@ -30,6 +31,7 @@ const paths: Record<IconName, string> = {
   album:
     '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 15 3-3 5 5"/><circle cx="15.5" cy="8.5" r="1.5"/>',
   back: '<path d="m15 18-6-6 6-6"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   ethernet:
     '<path d="M7 3h10v7H7zM9 10v3h6v-3M12 13v3M5 16h14v5H5z"/><path d="M8 18v3M12 18v3M16 18v3"/>',

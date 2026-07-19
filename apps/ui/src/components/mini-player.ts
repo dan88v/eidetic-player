@@ -164,8 +164,8 @@ export function createMiniPlayer(
       timeline.setAttribute("aria-disabled", String(duration <= 0));
       if (!dragging)
         setProgress(duration ? presentation.positionSeconds / duration : 0);
-      setText(title, presentation.title ?? t("nowPlaying.emptyTitle"));
-      setText(artist, presentation.artist ?? t("nowPlaying.emptyDescription"));
+      setText(title, presentation.title ?? "");
+      setText(artist, presentation.artist ?? "");
       artwork.update(presentation.artwork, "", presentation.generation);
       const disabled = !state.currentTrack || state.status === "loading";
       previousButton.disabled = disabled;

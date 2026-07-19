@@ -1,6 +1,6 @@
+import { icon } from "../components/icons";
 import { createSegmentedControl } from "../components/segmented-control";
 import type { ComponentView } from "../components/types";
-import { icon } from "../components/icons";
 import { t } from "../i18n";
 import type {
   MusicBrowsingVisibility,
@@ -15,47 +15,59 @@ export interface SettingsScreenOptions {
   readonly timelineStyle: TimelineStyle;
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
-  readonly onAnimationsChange: (enabled: boolean) => void;
-  readonly onVisualizerModeChange: (mode: VisualizerMode) => void;
-  readonly onTimelineStyleChange: (style: TimelineStyle) => void;
+  readonly onAnimationsChange: (enabled: boolean) => boolean;
+  readonly onVisualizerModeChange: (mode: VisualizerMode) => boolean;
+  readonly onTimelineStyleChange: (style: TimelineStyle) => boolean;
   readonly onMusicBrowsingVisibilityChange: (
     value: MusicBrowsingVisibility,
-  ) => void;
+  ) => boolean;
   readonly onReturnToNowPlayingSecondsChange: (
     value: ReturnToNowPlayingSeconds,
-  ) => void;
+  ) => boolean;
 }
+
+type SettingsPage =
+  "root" | "interface" | "browsing" | "visualizer" | "inactivity";
 
 export function createSettingsScreen(
   options: SettingsScreenOptions,
 ): ComponentView {
   const section = document.createElement("section");
   section.className = "screen settings-screen";
-  let page: "root" | "interface" | "browsing" | "visualizer" | "inactivity" =
-    "root";
+  let page: SettingsPage = "root";
   let animations = options.animationsEnabled;
   let visualizer = options.visualizerMode;
   let browsing = options.musicBrowsingVisibility;
   let inactivity = options.returnToNowPlayingSeconds;
 
+  const chevron = (): string =>
+    `<span class="settings-chevron" aria-hidden="true">${icon("chevronRight")}</span>`;
+
+  const navigateBack = (): void => {
+    page = page === "interface" ? "root" : "interface";
+    render();
+  };
+
   const selectionRow = (
-    value: string,
     label: string,
     selected: boolean,
-    onClick: () => void,
+    commit: () => boolean,
   ): HTMLButtonElement => {
     const button = document.createElement("button");
-    button.className = "setting-choice";
+    button.className = "settings-row-base setting-choice";
     button.type = "button";
-    button.innerHTML = `<span>${label}</span><span aria-hidden="true">${selected ? "✓" : ""}</span>`;
-    button.addEventListener("click", onClick);
+    button.innerHTML = `<span>${label}</span><span class="setting-choice__check" aria-hidden="true">${selected ? "✓" : ""}</span>`;
+    button.addEventListener("click", () => {
+      if (!commit()) return;
+      render();
+      page = "interface";
+      render();
+    });
     return button;
   };
 
-  const render = (): void => {
-    section.dataset.settingsSubscreen = String(
-      page === "browsing" || page === "visualizer" || page === "inactivity",
-    );
+  function render(): void {
+    section.dataset.settingsPage = page;
     section.replaceChildren();
     const header = document.createElement("header");
     header.className = "screen-header screen-header--compact";
@@ -69,27 +81,36 @@ export function createSettingsScreen(
             : page === "visualizer"
               ? t("settings.visualizer")
               : t("settings.returnToNowPlaying");
-    header.innerHTML = `<div><h1 id="screen-heading">${title}</h1></div>`;
+    const description =
+      page === "root"
+        ? t("screen.settings.description")
+        : page === "interface"
+          ? t("settings.interfaceDescription")
+          : page === "browsing"
+            ? t("settings.musicBrowsingDescription")
+            : page === "visualizer"
+              ? t("settings.visualizerDescription")
+              : t("settings.returnToNowPlayingDescription");
+    header.setAttribute("aria-label", title);
+    header.innerHTML = `<p class="screen-header__description">${description}</p>`;
     if (page !== "root") {
       const back = document.createElement("button");
       back.className = "icon-button settings-back";
       back.type = "button";
       back.setAttribute("aria-label", t("common.back"));
       back.innerHTML = icon("back");
-      back.addEventListener("click", () => {
-        page = page === "interface" ? "root" : "interface";
-        render();
-      });
+      back.addEventListener("click", navigateBack);
       header.prepend(back);
     }
     const panel = document.createElement("section");
     panel.className = "settings-panel";
     section.append(header, panel);
+
     if (page === "root") {
       const button = document.createElement("button");
-      button.className = "setting-navigation";
+      button.className = "settings-row-base setting-navigation";
       button.type = "button";
-      button.innerHTML = `<span><strong>${t("settings.interface")}</strong><small>${t("settings.interfaceDescription")}</small></span><span aria-hidden="true">›</span>`;
+      button.innerHTML = `<span><strong>${t("settings.interface")}</strong><small>${t("settings.interfaceDescription")}</small></span>${chevron()}`;
       button.addEventListener("click", () => {
         page = "interface";
         render();
@@ -97,6 +118,7 @@ export function createSettingsScreen(
       panel.append(button);
       return;
     }
+
     if (page === "visualizer") {
       const modes: readonly [VisualizerMode, string][] = [
         ["meter", t("visualizer.meter")],
@@ -106,14 +128,15 @@ export function createSettingsScreen(
       ];
       for (const [value, label] of modes)
         panel.append(
-          selectionRow(value, label, visualizer === value, () => {
+          selectionRow(label, visualizer === value, () => {
+            if (!options.onVisualizerModeChange(value)) return false;
             visualizer = value;
-            options.onVisualizerModeChange(value);
-            render();
+            return true;
           }),
         );
       return;
     }
+
     if (page === "browsing") {
       const values: readonly [MusicBrowsingVisibility, string][] = [
         ["folders", t("screen.folders.title")],
@@ -122,90 +145,112 @@ export function createSettingsScreen(
       ];
       for (const [value, label] of values)
         panel.append(
-          selectionRow(value, label, browsing === value, () => {
+          selectionRow(label, browsing === value, () => {
+            if (!options.onMusicBrowsingVisibilityChange(value)) return false;
             browsing = value;
-            options.onMusicBrowsingVisibilityChange(value);
-            render();
+            return true;
           }),
         );
       return;
     }
+
     if (page === "inactivity") {
       const values: readonly ReturnToNowPlayingSeconds[] = [0, 10, 30, 60, 120];
       for (const value of values)
         panel.append(
           selectionRow(
-            String(value),
             value === 0
               ? t("common.never")
               : `${String(value)} ${t("settings.seconds")}`,
             inactivity === value,
             () => {
+              if (!options.onReturnToNowPlayingSecondsChange(value))
+                return false;
               inactivity = value;
-              options.onReturnToNowPlayingSecondsChange(value);
-              render();
+              return true;
             },
           ),
         );
       return;
     }
-    const toggle = document.createElement("button");
-    toggle.className = "setting-navigation";
-    toggle.type = "button";
-    toggle.setAttribute("role", "switch");
-    toggle.setAttribute("aria-checked", String(animations));
-    toggle.innerHTML = `<span><strong>${t("settings.animations")}</strong><small>${t("settings.animationsDescription")}</small></span><span>${animations ? t("common.on") : t("common.off")}</span>`;
-    toggle.addEventListener("click", () => {
-      animations = !animations;
-      options.onAnimationsChange(animations);
-      render();
+
+    const animationsRow = document.createElement("div");
+    animationsRow.className = "settings-row-base setting-row";
+    animationsRow.innerHTML = `<div class="setting-row__copy"><span class="setting-row__label">${t("settings.animations")}</span><span class="setting-row__description">${t("settings.animationsDescription")}</span></div>`;
+    const animationControl = createSegmentedControl<"on" | "off">({
+      label: t("settings.animations"),
+      value: animations ? "on" : "off",
+      items: [
+        { value: "on", label: t("common.on") },
+        { value: "off", label: t("common.off") },
+      ],
+      onChange(value) {
+        const next = value === "on";
+        if (!options.onAnimationsChange(next)) {
+          animationControl.setValue(animations ? "on" : "off");
+          return;
+        }
+        animations = next;
+      },
     });
+    animationsRow.append(animationControl.element);
+
     const browsingRow = document.createElement("button");
-    browsingRow.className = "setting-navigation";
+    browsingRow.className = "settings-row-base setting-navigation";
     browsingRow.type = "button";
-    browsingRow.innerHTML = `<span><strong>${t("settings.musicBrowsing")}</strong><small>${browsing === "both" ? t("settings.both") : t(`screen.${browsing}.title`)}</small></span><span aria-hidden="true">›</span>`;
+    browsingRow.innerHTML = `<span><strong>${t("settings.musicBrowsing")}</strong><small>${browsing === "both" ? t("settings.both") : t(`screen.${browsing}.title`)}</small></span>${chevron()}`;
     browsingRow.addEventListener("click", () => {
       page = "browsing";
       render();
     });
+
     const visualizerRow = document.createElement("button");
-    visualizerRow.className = "setting-navigation";
+    visualizerRow.className = "settings-row-base setting-navigation";
     visualizerRow.type = "button";
-    visualizerRow.innerHTML = `<span><strong>${t("settings.visualizer")}</strong><small>${t(`visualizer.${visualizer}`)}</small></span><span aria-hidden="true">›</span>`;
+    visualizerRow.innerHTML = `<span><strong>${t("settings.visualizer")}</strong><small>${t(`visualizer.${visualizer}`)}</small></span>${chevron()}`;
     visualizerRow.addEventListener("click", () => {
       page = "visualizer";
       render();
     });
+
     const timelineRow = document.createElement("div");
-    timelineRow.className = "setting-row";
+    timelineRow.className = "settings-row-base setting-row";
     timelineRow.innerHTML = `<div class="setting-row__copy"><span class="setting-row__label">${t("settings.timeline")}</span></div>`;
-    timelineRow.append(
-      createSegmentedControl<TimelineStyle>({
-        label: t("settings.timeline"),
-        value: options.timelineStyle,
-        items: [
-          { value: "waveform", label: t("timeline.waveform") },
-          { value: "line", label: t("timeline.line") },
-        ],
-        onChange: options.onTimelineStyleChange,
-      }).element,
-    );
+    let timeline = options.timelineStyle;
+    const timelineControl = createSegmentedControl<TimelineStyle>({
+      label: t("settings.timeline"),
+      value: timeline,
+      items: [
+        { value: "waveform", label: t("timeline.waveform") },
+        { value: "line", label: t("timeline.line") },
+      ],
+      onChange(value) {
+        if (!options.onTimelineStyleChange(value)) {
+          timelineControl.setValue(timeline);
+          return;
+        }
+        timeline = value;
+      },
+    });
+    timelineRow.append(timelineControl.element);
+
     const inactivityRow = document.createElement("button");
-    inactivityRow.className = "setting-navigation";
+    inactivityRow.className = "settings-row-base setting-navigation";
     inactivityRow.type = "button";
-    inactivityRow.innerHTML = `<span><strong>${t("settings.returnToNowPlaying")}</strong><small>${inactivity === 0 ? t("common.never") : `${String(inactivity)} ${t("settings.seconds")}`}</small></span><span aria-hidden="true">›</span>`;
+    inactivityRow.innerHTML = `<span><strong>${t("settings.returnToNowPlaying")}</strong><small>${inactivity === 0 ? t("common.never") : `${String(inactivity)} ${t("settings.seconds")}`}</small></span>${chevron()}`;
     inactivityRow.addEventListener("click", () => {
       page = "inactivity";
       render();
     });
     panel.append(
-      toggle,
+      animationsRow,
       browsingRow,
       visualizerRow,
       timelineRow,
       inactivityRow,
     );
-  };
+  }
+
   render();
   return {
     element: section,

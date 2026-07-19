@@ -37,11 +37,11 @@ class ArtworkDecodeCache {
           () => {
             void image
               .decode()
-              .catch(() => undefined)
               .then(() => {
                 entry.image = image;
                 resolve(image);
-              });
+              })
+              .catch(reject);
           },
           { once: true },
         );
@@ -97,18 +97,38 @@ export function createArtwork(options: {
     placeholder.setAttribute("aria-hidden", "false");
   };
 
-  const commit = (
+  const commit = async (
     template: HTMLImageElement,
     revision: string,
     alt: string,
     requestNonce: number,
-  ): void => {
+  ): Promise<void> => {
     if (requestNonce !== nonce || currentRevision !== revision) return;
-    const next = template.cloneNode(false) as HTMLImageElement;
+    const next = new Image();
     next.className = "artwork__image";
     next.alt = options.decorative ? "" : alt;
     next.decoding = "async";
     next.draggable = false;
+    const loaded = new Promise<boolean>((resolve) => {
+      next.addEventListener(
+        "load",
+        () => {
+          resolve(true);
+        },
+        { once: true },
+      );
+      next.addEventListener(
+        "error",
+        () => {
+          resolve(false);
+        },
+        { once: true },
+      );
+    });
+    next.src = template.currentSrc || template.src;
+    if (!(await loaded)) throw new Error("Artwork clone could not be loaded");
+    await next.decode();
+    if (requestNonce !== nonce || currentRevision !== revision) return;
     image?.remove();
     image = next;
     element.append(next);
@@ -119,6 +139,14 @@ export function createArtwork(options: {
     if (!animate) {
       element.classList.add("artwork--loaded");
       placeholder.setAttribute("aria-hidden", "true");
+      if (import.meta.env.DEV)
+        console.debug("[artwork]", {
+          phase: "committed",
+          revision,
+          generation: currentGeneration,
+          target: options.className,
+          opacity: 1,
+        });
       return;
     }
     revealFrame = requestAnimationFrame(() => {
@@ -126,6 +154,14 @@ export function createArtwork(options: {
       if (requestNonce !== nonce) return;
       element.classList.add("artwork--loaded");
       placeholder.setAttribute("aria-hidden", "true");
+      if (import.meta.env.DEV)
+        console.debug("[artwork]", {
+          phase: "committed",
+          revision,
+          generation: currentGeneration,
+          target: options.className,
+          opacity: 1,
+        });
     });
   };
 
@@ -136,7 +172,6 @@ export function createArtwork(options: {
     currentRevision = revision;
     const next = new Image();
     next.decoding = "async";
-    next.src = url;
     return new Promise<void>((resolve) => {
       const failed = (): void => {
         if (requestNonce === nonce) clear();
@@ -148,14 +183,17 @@ export function createArtwork(options: {
         () => {
           void next
             .decode()
-            .catch(() => undefined)
             .then(() => {
-              commit(next, revision, alt, requestNonce);
-              resolve();
-            });
+              void commit(next, revision, alt, requestNonce).then(
+                resolve,
+                failed,
+              );
+            })
+            .catch(failed);
         },
         { once: true },
       );
+      next.src = url;
     });
   };
 
@@ -181,7 +219,16 @@ export function createArtwork(options: {
       if (ready) {
         clear();
         currentRevision = artwork.revision;
-        commit(ready, artwork.revision, alt, requestNonce);
+        if (import.meta.env.DEV)
+          console.debug("[artwork]", {
+            phase: "cache-hit",
+            revision: artwork.revision,
+            generation,
+            target: options.className,
+          });
+        void commit(ready, artwork.revision, alt, requestNonce).catch(() => {
+          if (requestNonce === nonce) clear();
+        });
         return;
       }
       clear();
@@ -189,26 +236,30 @@ export function createArtwork(options: {
       void decodeCache
         .prepare(artwork)
         .then((template) => {
-          commit(template, artwork.revision, alt, requestNonce);
+          if (import.meta.env.DEV)
+            console.debug("[artwork]", {
+              phase: "cache-miss",
+              revision: artwork.revision,
+              generation,
+              target: options.className,
+            });
+          return commit(template, artwork.revision, alt, requestNonce);
         })
         .catch(() => {
           if (requestNonce !== nonce) return;
-          window.setTimeout(() => {
-            if (requestNonce !== nonce) return;
-            void decodeCache
-              .prepare(artwork)
-              .then((template) => {
-                commit(template, artwork.revision, alt, requestNonce);
-              })
-              .catch(() => {
-                if (requestNonce !== nonce) return;
-                clear();
-                if (!warned.has(artwork.revision)) {
-                  warned.add(artwork.revision);
-                  console.warn("[artwork] image could not be loaded");
-                }
-              });
-          }, 140);
+          void decodeCache
+            .prepare(artwork)
+            .then((template) =>
+              commit(template, artwork.revision, alt, requestNonce),
+            )
+            .catch(() => {
+              if (requestNonce !== nonce) return;
+              clear();
+              if (!warned.has(artwork.revision)) {
+                warned.add(artwork.revision);
+                console.warn("[artwork] image could not be loaded");
+              }
+            });
         });
     },
     loadUrl,

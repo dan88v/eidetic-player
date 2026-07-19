@@ -244,19 +244,25 @@ export class DirectoryBrowserService {
       this.maxMetadata = Math.max(this.maxMetadata, this.activeMetadata);
       try {
         const result = await this.metadata.read(entry.nativePath);
-        const artwork = await this.artworkConcurrency.run(async () => {
-          this.activeArtwork += 1;
-          this.maxArtwork = Math.max(this.maxArtwork, this.activeArtwork);
-          try {
-            return await this.artwork.resolve(
-              entry.nativePath,
-              result.cacheKey,
-              result.pictures,
-            );
-          } finally {
-            this.activeArtwork -= 1;
-          }
-        });
+        let artwork;
+        try {
+          artwork = await this.artworkConcurrency.run(async () => {
+            this.activeArtwork += 1;
+            this.maxArtwork = Math.max(this.maxArtwork, this.activeArtwork);
+            try {
+              return await this.artwork.resolve(
+                entry.nativePath,
+                result.cacheKey,
+                result.pictures,
+              );
+            } finally {
+              this.activeArtwork -= 1;
+            }
+          });
+        } catch (error) {
+          this.metadata.invalidate(result.cacheKey);
+          throw error;
+        }
         this.metadata.rememberArtwork(result.cacheKey, artwork);
         const extension = entry.publicEntry.extension;
         const summary: LibraryMetadataSummary = {

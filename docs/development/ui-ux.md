@@ -112,14 +112,19 @@ decays its existing buffers to zero through its single existing render loop.
   nest buttons. Show the direct playable-file count instead of a generic type.
 - Persist folder sorting independently from the List/Grid presentation.
 - Audio rows keep their main Play target and add a sibling menu for Play now and
-  Add to Queue.
+  Add to Queue. Both Play targets must use the same request path, keep controls
+  enabled again after completion, and apply current-row state only when the
+  latest requested track has won.
 - Folder previews are lazy, direct-child only, and use real opaque artwork refs.
+- Transient metadata, image load, and decode failures remain retryable; do not
+  turn an abort or decode failure into a persistent negative artwork result.
 - The directory header shows Back/current title/view/Play first and ancestor
   breadcrumbs second; never repeat the current folder in the breadcrumb.
 - Retain existing content with discreet `aria-busy` until the next directory
   can be committed in one replacement.
 - Player ticks update only row class and `aria-current`, never list structure or
-  scroll.
+  scroll. Never retain the browse response's initial `current` flag after the
+  player store has supplied authoritative current-track state.
 - Store navigation by source ID plus logical relative path. Native paths never
   enter DOM attributes, labels, breadcrumbs, URLs, or session keys.
 - Back, breadcrumb, source actions, dialogs, and rows remain semantic
@@ -127,19 +132,50 @@ decays its existing buffers to zero through its single existing render loop.
 
 Sorting and List/Grid belong only to the Folders root. A directory keeps its
 Back/title/Play controls and omits sorting and view controls. Sorting uses an
-app-styled popup menu rather than a native select. The breadcrumb element is
-hidden entirely when there are no useful ancestors.
+app-styled popup menu rather than a native select. Its outer container owns the
+single border; the transparent inner trigger uses an inset accent focus ring.
+The breadcrumb element is hidden entirely when there are no useful ancestors.
 
 ## Settings and inactivity
 
-Settings uses root, Interface, and selection sub-screens. Controls with two
-choices may stay inline; controls with more choices use a row, current-value
-summary, chevron, and dedicated selection screen. Music browsing can expose
-Folders, Library, or both without hiding Sources.
+Settings uses root, Interface, and selection sub-screens. Every boolean uses an
+inline segmented control. Controls with three or more choices use a shared row,
+current-value summary, 30 px SVG chevron, and dedicated selection screen. A
+choice updates the store, persists, renders its checkmark, and returns
+immediately; failed persistence rolls back, shows the existing toast, and does
+not navigate. Music browsing can expose Folders, Library, or both without
+hiding Sources.
 
 The optional global inactivity timer returns to Now Playing without changing
-playback. It closes transient overlays and is suspended while an overlay,
-editable field, native dialog, or Settings selection sub-screen is active.
+playback. It closes transient overlays and is suspended for every route in the
+Settings screen group, including future sub-screens and their dialogs. Entering
+Settings clears the sole timer without retaining a remainder; leaving starts a
+full timeout.
+
+The immediate splash title never wraps and its progress line reads the theme
+accent before the bootstrap barrier. Reduced motion and Animations Off render a
+static accent line.
+
+## Transient feedback
+
+After the application shell is mounted, every temporary progress, success,
+warning, and error message must use the single shared, deduplicated `showToast`
+surface positioned above the mini-player. Screens must not add inline status,
+feedback, alert, or banner content above the page for operation results, and
+must not create a second toast container. Persistent content such as empty
+states, source availability, validation help, and dialog explanations remains
+part of the page. A fatal bootstrap error before the shell and toast exist is
+the only application-level exception.
+
+Do not create a toast when the action itself has an immediate visible result:
+Folders navigation, directory loading, and playback communicate through their
+content or player state. Use the toast for errors and operations without an
+otherwise visible outcome, such as Add to Queue.
+
+Section content headers do not duplicate the page identity already displayed
+by the top bar. Keep only `screen-header__description` at the left, retain
+existing right-side actions, and omit decorative icons, eyebrows, and visible
+`h1` elements.
 
 ## Timeline and Canvas
 

@@ -837,7 +837,7 @@
     position: fixed;
     z-index: var(--z-notification);
     left: 50%;
-    bottom: var(--space-5);
+    bottom: calc(var(--mini-player-height) + var(--space-3));
     max-width: min(42rem, calc(100vw - 2rem));
     padding: var(--space-3) var(--space-5);
     border: 1px solid var(--color-border-strong);
@@ -847,6 +847,9 @@
     opacity: 0;
     transform: translate(-50%, 1rem);
     visibility: hidden;
+  }
+  .app-toast[data-tone="success"] {
+    border-color: var(--color-accent);
   }
   .app-toast--visible {
     opacity: 1;

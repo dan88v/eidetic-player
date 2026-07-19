@@ -416,6 +416,8 @@ async function handleRequest(
       const body = (await readBody(request)) as { relativePath?: unknown };
       const relativePath =
         typeof body.relativePath === "string" ? body.relativePath : "";
+      const openRequestGeneration =
+        action === "play" ? player.reserveOpenRequest() : null;
       const queue = await library.queueForDirectoryWithOrigins(
         sourceId,
         relativePath,
@@ -427,7 +429,12 @@ async function handleRequest(
       }));
       if (action === "play") {
         if (queue.paths.length > 0)
-          await player.openResolvedQueue(queue.paths, 0, origins);
+          await player.openResolvedQueue(
+            queue.paths,
+            0,
+            origins,
+            openRequestGeneration ?? undefined,
+          );
         sendJson(response, 200, {
           ok: true,
           data: {
@@ -485,6 +492,7 @@ async function handleRequest(
       }
       if (request.method === "POST" && action === "open") {
         await readBody(request);
+        const openRequestGeneration = player.reserveOpenRequest();
         const queue = await library.queueForEntry(sourceId, entryId);
         await player.openResolvedQueue(
           queue.paths,
@@ -494,6 +502,7 @@ async function handleRequest(
             sourceId,
             relativePath,
           })),
+          openRequestGeneration,
         );
         sendJson(response, 200, {
           ok: true,

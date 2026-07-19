@@ -152,3 +152,52 @@ For interface preferences, verify immediate Folders/Library visibility,
 redirect when the active section becomes hidden, Sources remaining visible,
 and inactivity reset/suspension for overlays, fields, selection sub-screens,
 and native dialogs.
+
+## Step 2.4.3 corrective checks
+
+Treat Settings as one route group: the sole inactivity timer must be absent on
+root, Interface, every selection screen, and Settings-owned dialogs, then start
+a complete timeout after exit. Verify selection commit order, immediate
+checkmark/back navigation, segmented controls for every boolean, and
+store/storage rollback with the shared toast on failure.
+
+For Queue row playback, cover both staged and materialized paths at a non-zero
+index. Assert autoplay, stable Queue IDs/origins, one transition generation,
+in-place `aria-current`, and no propagation from Remove.
+
+For Folders row playback, rapidly request different tracks through the main row
+target. The last request must win even when directory/metadata resolution
+finishes out of order, current-row state must follow only that request, and
+every clicked control must be enabled again. The main target and menu Play now
+must exercise the same UI action path.
+
+Re-enter a directory whose browse response initially marks a row current, then
+change tracks. Only the filename from the current player store may retain
+`folders-audio--current` and `aria-current`; the initial browse flag must not
+keep a second row highlighted.
+
+Audit mounted screens for transient inline feedback containers. Operation
+progress, success, warning, and error results must reach the shared
+`showToast`; there must be exactly one application toast surface. Do not count
+persistent empty states, availability labels, validation help, or dialog
+explanations as transient feedback.
+
+Folders navigation, loading, and playback must not invoke a toast because their
+result is visible. Queue additions, no-result outcomes, and errors must still
+use the shared toast.
+
+For the stereo meter, assert exact −60 dB and 0 dB endpoints, known mappings
+for linear peaks (0.1 → −20 dB and 0.01 → −40 dB), bounded geometry, and the
+compact scale above the bars. Audit section headers for description-only left
+content, no decorative eyebrow/icon/visible heading, and preserved actions.
+
+For visualizer synchronization, compare each analyzer timestamp to current MPV
+position for real MP3 and FLAC playback. Cover pause/resume, forward/back seek,
+Next/Previous, Queue selection, end-of-file, and paused restore. Confirm the
+24-frame bound, non-future selection, stale-frame discard, and exactly one
+analyzer, EventSource, and rAF handle.
+
+Artwork regression runs must distinguish cold and warm caches, scroll/remount,
+List/Grid, and restart. Exercise embedded JPEG/PNG, FLAC, missing artwork, and
+transient parse/load/decode failure. Verify retries are entry-scoped, positive
+caches remain intact, and no artist/path-specific condition exists.

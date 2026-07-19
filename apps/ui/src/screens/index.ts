@@ -23,12 +23,22 @@ import { createSourcesScreen } from "./sources";
 
 export interface ScreenContext {
   readonly state: AppState;
-  readonly setAnimationsEnabled: (enabled: boolean) => void;
-  readonly setVisualizerMode: (mode: VisualizerMode) => void;
-  readonly setTimelineStyle: (style: TimelineStyle) => void;
-  readonly setTimelineTimeMode: AppStore["setTimelineTimeMode"];
-  readonly setMusicBrowsingVisibility: AppStore["setMusicBrowsingVisibility"];
-  readonly setReturnToNowPlayingSeconds: AppStore["setReturnToNowPlayingSeconds"];
+  readonly setAnimationsEnabled: (enabled: boolean) => boolean;
+  readonly setVisualizerMode: (mode: VisualizerMode) => boolean;
+  readonly setTimelineStyle: (style: TimelineStyle) => boolean;
+  readonly setTimelineTimeMode: (
+    mode: Parameters<AppStore["setTimelineTimeMode"]>[0],
+  ) => boolean;
+  readonly setMusicBrowsingVisibility: (
+    value: Parameters<AppStore["setMusicBrowsingVisibility"]>[0],
+  ) => boolean;
+  readonly setReturnToNowPlayingSeconds: (
+    value: Parameters<AppStore["setReturnToNowPlayingSeconds"]>[0],
+  ) => boolean;
+  readonly showToast: (
+    message: string,
+    tone?: "error" | "success" | "neutral",
+  ) => void;
   readonly openQueue: (trigger: HTMLButtonElement) => void;
   readonly openLibrary: () => void;
   readonly openFolders: () => void;
@@ -86,6 +96,7 @@ export function createScreen(
         openEntry: context.openFolderEntry,
         playDirectory: context.playFolderDirectory,
         initialPlayerState: context.playerState,
+        showToast: context.showToast,
       });
     case "library":
       return staticView(
@@ -101,6 +112,7 @@ export function createScreen(
         addFolder: context.addLocalFolder,
         openSource: context.openFolderSource,
         onSourceRemoved: context.removeFolderSource,
+        showToast: context.showToast,
       });
     case "queue":
       return staticView(createQueueScreen());

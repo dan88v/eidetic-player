@@ -7,6 +7,7 @@
     <title></title>
     <style>
       #app-splash {
+        --color-accent: #2f7dff;
         position: fixed;
         inset: 0;
         z-index: 9999;
@@ -30,16 +31,17 @@
         text-align: center;
       }
       #app-splash__title {
-        font-size: clamp(2rem, 5vw, 3.5rem);
+        font-size: clamp(2rem, 4.4vw, 3.5rem);
         font-weight: 650;
         letter-spacing: 0.08em;
         line-height: 1;
+        white-space: nowrap;
       }
       #app-splash__progress {
         position: relative;
         height: 2px;
         overflow: hidden;
-        background: rgba(214, 183, 127, 0.18);
+        background: color-mix(in srgb, var(--color-accent) 18%, transparent);
       }
       #app-splash__progress::after {
         content: "";
@@ -47,7 +49,7 @@
         inset-block: 0;
         left: -45%;
         width: 45%;
-        background: #d6b77f;
+        background: var(--color-accent);
         animation: app-splash-progress 1.15s ease-in-out infinite;
       }
       #app-splash[data-motion="reduced"] #app-splash__progress::after {

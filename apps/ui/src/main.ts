@@ -53,13 +53,17 @@ async function bootstrap(): Promise<void> {
   }
 
   const animationsEnabled = loadAnimationsEnabled();
+  const immediateSplash = document.querySelector<HTMLElement>("#app-splash");
+  const accent = getComputedStyle(document.documentElement)
+    .getPropertyValue("--color-accent")
+    .trim();
+  if (immediateSplash && accent)
+    immediateSplash.style.setProperty("--color-accent", accent);
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
   if (!animationsEnabled || reducedMotion)
-    document
-      .querySelector<HTMLElement>("#app-splash")
-      ?.setAttribute("data-motion", "reduced");
+    immediateSplash?.setAttribute("data-motion", "reduced");
   const controller = new AbortController();
   const timeout = window.setTimeout(() => {
     controller.abort();

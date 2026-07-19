@@ -23,9 +23,11 @@ density.
 ## Playback interface
 
 Meter, Mono Spectrum, Stereo Spectrum, and None cycle by tap or Enter/Space.
-Meter consumes real L/R peak values; Mono uses 32 logarithmic bands; Stereo uses
-16 bands per channel with low frequencies at the center and higher frequencies
-toward the outer edges. None is visually empty and closes its analysis stream.
+Meter consumes real L/R peak values, converts linear amplitude to a −60–0 dB
+display domain, and renders a compact labeled dB scale above both bars. Mono
+uses 32 logarithmic bands; Stereo uses 16 bands per channel with low
+frequencies at the center and higher frequencies toward the outer edges. None
+is visually empty and closes its analysis stream.
 All modes use a fixed 164 px slot at 1280 × 800, half the previous
 visualizer height, with the lower edge aligned to the artwork.
 
@@ -39,7 +41,9 @@ Home (56 px), with Home always last and no time counter added.
 
 The Queue drawer highlights the current item and provides Add Files, individual
 56 × 56 px Remove controls, and Clear Queue with focus trapping, Escape, and
-focus restoration. Drag reordering remains out of scope.
+focus restoration. Its main row target starts the selected item immediately,
+including when an idle staged Queue must first be materialized; Remove remains
+a separate sibling control. Drag reordering remains out of scope.
 
 The top bar begins with a 64 px Hamburger and the screen title. Its right side
 contains neutral, non-interactive Ethernet, Wi-Fi, and USB/DAC placeholder SVGs
@@ -73,8 +77,15 @@ primary row; a compact second row contains only ancestor breadcrumbs. Audio
 keeps its separate fixed-height list with 64 px artwork. Filename/extension
 render immediately, while title, artist, duration, compact quality, and artwork
 update in place without reordering. Every audio row has a sibling action menu
-for Play now and Add to Queue. Current state changes only the row class and
-`aria-current`.
+for Play now and Add to Queue. The main row and menu Play now share one
+latest-request-wins action path; current state changes only after the newest
+request succeeds, affects only the row class and `aria-current`, and controls
+are always re-enabled. All transient operation feedback uses the single
+application toast, never inline status content above the screen. Persistent
+empty states and availability labels remain in their content context.
+Folders does not toast navigation, loading, or playback because those actions
+have an immediate visible result. Queue additions, results without visible
+state, and errors continue to use the shared toast.
 
 Back and the keyboard-accessible breadcrumb use logical locations only. Existing
 content remains visible during the next request and the result commits once.
@@ -114,9 +125,27 @@ toggles total duration and negative remaining time, persists only the typed
 `total`/`remaining` preference, and is disabled when duration is unavailable.
 Elapsed and remaining use the same integer position boundary, so their seconds
 advance together even when the source duration contains a fractional second.
-The Sources eyebrow uses the localized product name, “Eidetic Player”.
+Section headers rely on the top bar for their page title. Their content area
+shows only `screen-header__description` on the left and preserves any existing
+action on the right; decorative icons, eyebrows, and duplicate visible `h1`
+elements are omitted.
 
 Now Playing title, artist, album, and technical rows reserve additional
 descender and antialiasing space. Single-line artist and album use native
 ellipsis instead of one-line WebKit clamping. The left, center, and right
 transport zones share one vertical center axis.
+
+## Settings and startup
+
+Settings rows share one 72 px base contract with 22 px primary copy and 30 px
+SVG chevrons. Binary values use inline segmented controls; values with three or
+more choices use a selection screen and commit at tap time before returning.
+Storage failure rolls the store back, keeps the selection screen open, and uses
+the application toast. The global inactivity timer is fully suspended for the
+entire Settings route group and restarts with a complete timeout only after
+leaving it.
+
+The immediate splash keeps “Eidetic Player” on one responsive, non-wrapping
+line. Its loading line uses the active theme accent and becomes static when
+Animations are off or reduced motion is requested. Empty Now Playing reserves
+its normal surfaces but renders no instructional sentence.

@@ -134,8 +134,6 @@ export class MetadataService {
           `[metadata] parser failed for ${canonicalPath}; using MPV and folder-artwork fallbacks`,
           error,
         );
-        this.cache.set(cacheKey, { metadata: emptyMetadata, artwork: null });
-        this.trim();
         return {
           cacheKey,
           metadata: emptyMetadata,

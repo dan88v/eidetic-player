@@ -32,8 +32,8 @@ export function loadMusicBrowsingVisibility(): MusicBrowsingVisibility {
 
 export function saveMusicBrowsingVisibility(
   value: MusicBrowsingVisibility,
-): void {
-  write(storageKeys.musicBrowsing, value);
+): boolean {
+  return write(storageKeys.musicBrowsing, value);
 }
 
 export function loadReturnToNowPlayingSeconds(): ReturnToNowPlayingSeconds {
@@ -45,8 +45,8 @@ export function loadReturnToNowPlayingSeconds(): ReturnToNowPlayingSeconds {
 
 export function saveReturnToNowPlayingSeconds(
   value: ReturnToNowPlayingSeconds,
-): void {
-  write(storageKeys.returnToNowPlaying, String(value));
+): boolean {
+  return write(storageKeys.returnToNowPlaying, String(value));
 }
 
 export function loadFolderViewMode(): FolderViewMode {
@@ -55,8 +55,8 @@ export function loadFolderViewMode(): FolderViewMode {
   return value === "list" ? "list" : "grid";
 }
 
-export function saveFolderViewMode(mode: FolderViewMode): void {
-  write(storageKeys.folderView, mode);
+export function saveFolderViewMode(mode: FolderViewMode): boolean {
+  return write(storageKeys.folderView, mode);
 }
 
 export function loadFolderSortMode(): FolderSortMode {
@@ -68,8 +68,8 @@ export function loadFolderSortMode(): FolderSortMode {
     : "name-asc";
 }
 
-export function saveFolderSortMode(mode: FolderSortMode): void {
-  write(storageKeys.folderSort, mode);
+export function saveFolderSortMode(mode: FolderSortMode): boolean {
+  return write(storageKeys.folderSort, mode);
 }
 
 function read(key: string): string | null {
@@ -80,11 +80,12 @@ function read(key: string): string | null {
   }
 }
 
-function write(key: string, value: string): void {
+function write(key: string, value: string): boolean {
   try {
     window.localStorage.setItem(key, value);
+    return true;
   } catch {
-    // The in-memory state remains valid when storage is unavailable.
+    return false;
   }
 }
 
@@ -93,8 +94,8 @@ export function loadAnimationsEnabled(): boolean {
   return storedValue === null ? true : storedValue === "true";
 }
 
-export function saveAnimationsEnabled(enabled: boolean): void {
-  write(storageKeys.animationsEnabled, String(enabled));
+export function saveAnimationsEnabled(enabled: boolean): boolean {
+  return write(storageKeys.animationsEnabled, String(enabled));
 }
 
 export function loadVisualizerMode(): VisualizerMode {
@@ -108,16 +109,16 @@ export function loadVisualizerMode(): VisualizerMode {
     : "meter";
 }
 
-export function saveVisualizerMode(mode: VisualizerMode): void {
-  write(storageKeys.visualizerMode, mode);
+export function saveVisualizerMode(mode: VisualizerMode): boolean {
+  return write(storageKeys.visualizerMode, mode);
 }
 
 export function loadTimelineStyle(): TimelineStyle {
   return read(storageKeys.timelineStyle) === "line" ? "line" : "waveform";
 }
 
-export function saveTimelineStyle(style: TimelineStyle): void {
-  write(storageKeys.timelineStyle, style);
+export function saveTimelineStyle(style: TimelineStyle): boolean {
+  return write(storageKeys.timelineStyle, style);
 }
 
 export function loadTimelineTimeMode(): TimelineTimeMode {
@@ -126,8 +127,8 @@ export function loadTimelineTimeMode(): TimelineTimeMode {
     : "total";
 }
 
-export function saveTimelineTimeMode(mode: TimelineTimeMode): void {
-  write(storageKeys.timelineTimeMode, mode);
+export function saveTimelineTimeMode(mode: TimelineTimeMode): boolean {
+  return write(storageKeys.timelineTimeMode, mode);
 }
 
 export interface PlaybackPreferences {
@@ -151,9 +152,11 @@ export function loadPlaybackPreferences(): PlaybackPreferences {
 
 export function savePlaybackPreferences(
   preferences: PlaybackPreferences,
-): void {
-  write(storageKeys.volume, String(preferences.volume));
-  write(storageKeys.muted, String(preferences.muted));
-  write(storageKeys.shuffle, String(preferences.shuffleEnabled));
-  write(storageKeys.repeat, preferences.repeatMode);
+): boolean {
+  return (
+    write(storageKeys.volume, String(preferences.volume)) &&
+    write(storageKeys.muted, String(preferences.muted)) &&
+    write(storageKeys.shuffle, String(preferences.shuffleEnabled)) &&
+    write(storageKeys.repeat, preferences.repeatMode)
+  );
 }

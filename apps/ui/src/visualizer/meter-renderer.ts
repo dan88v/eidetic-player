@@ -1,5 +1,9 @@
 import type { CanvasSize } from "./canvas";
 
+export const METER_MIN_DB = -60;
+
+const meterScaleDb = [-60, -40, -20, -12, -6, -3, 0] as const;
+
 export interface MeterGeometry {
   readonly barHeight: number;
   readonly rowGap: number;
@@ -16,6 +20,17 @@ const gradients = new WeakMap<
     readonly value: CanvasGradient;
   }
 >();
+
+export function meterPositionForDb(db: number): number {
+  if (!Number.isFinite(db)) return 0;
+  return Math.max(0, Math.min(1, (db - METER_MIN_DB) / -METER_MIN_DB));
+}
+
+export function linearPeakToMeterPosition(level: number): number {
+  if (!Number.isFinite(level) || level <= 0) return 0;
+  const db = 20 * Math.log10(Math.min(1, level));
+  return meterPositionForDb(db);
+}
 
 export function getMeterGeometry(size: CanvasSize): MeterGeometry {
   const barHeight = Math.max(28, Math.min(56, Math.round(size.height * 0.34)));
@@ -45,14 +60,36 @@ export function renderMeter(
   if (!gradientMatches) {
     const value = context.createLinearGradient(labelWidth, 0, width, 0);
     value.addColorStop(0, "#2f7dff");
-    value.addColorStop(0.76, "#50b6ff");
-    value.addColorStop(0.92, "#f5c451");
+    value.addColorStop(meterPositionForDb(-12), "#50b6ff");
+    value.addColorStop(meterPositionForDb(-6), "#f5c451");
     value.addColorStop(1, "#ff6577");
     gradient = { width, labelWidth, value };
     gradients.set(context, gradient);
   }
+  context.fillStyle = "#7f899a";
+  context.font = "500 10px system-ui";
+  context.textBaseline = "bottom";
+  context.textAlign = "left";
+  context.fillText("dB", 0, startY - 7);
+  for (const db of meterScaleDb) {
+    const position = meterPositionForDb(db);
+    const x = labelWidth + meterWidth * position;
+    context.textAlign =
+      db === METER_MIN_DB ? "left" : db === 0 ? "right" : "center";
+    context.fillText(String(db), x, startY - 7);
+    if (db !== METER_MIN_DB && db !== 0) {
+      context.strokeStyle = "rgb(156 166 183 / 45%)";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(x, startY - 4);
+      context.lineTo(x, startY);
+      context.stroke();
+    }
+  }
+
   context.font = "600 20px system-ui";
   context.textBaseline = "middle";
+  context.textAlign = "left";
 
   for (let index = 0; index < levels.length; index += 1) {
     const level = levels[index] ?? 0;
@@ -62,12 +99,17 @@ export function renderMeter(
     context.fillStyle = "#242b38";
     context.fillRect(labelWidth, y, meterWidth, barHeight);
     context.fillStyle = gradient?.value ?? "#2f7dff";
-    context.fillRect(labelWidth, y, meterWidth * level, barHeight);
+    context.fillRect(
+      labelWidth,
+      y,
+      meterWidth * linearPeakToMeterPosition(level),
+      barHeight,
+    );
 
     context.strokeStyle = "rgb(10 12 16 / 38%)";
     context.lineWidth = 1;
-    for (let marker = 1; marker < 12; marker += 1) {
-      const x = labelWidth + (meterWidth * marker) / 12;
+    for (const db of meterScaleDb.slice(1, -1)) {
+      const x = labelWidth + meterWidth * meterPositionForDb(db);
       context.beginPath();
       context.moveTo(x, y);
       context.lineTo(x, y + barHeight);
