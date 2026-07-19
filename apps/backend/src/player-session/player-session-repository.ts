@@ -7,8 +7,8 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, posix, win32 } from "node:path";
+import { resolveAppDirectories } from "../platform/app-directories.js";
 import type {
   PersistedPlayerSession,
   PersistedQueueItem,
@@ -60,18 +60,11 @@ function parseSession(value: unknown): PersistedPlayerSession | null {
 export function playerSessionConfigPath(
   platform = process.platform,
   environment: NodeJS.ProcessEnv = process.env,
-  home = homedir(),
+  home?: string,
 ): string {
   const platformPath = platform === "win32" ? win32 : posix;
-  if (platform === "win32")
-    return platformPath.join(
-      environment.APPDATA ?? platformPath.join(home, "AppData", "Roaming"),
-      "Eidetic Player",
-      "player-session.json",
-    );
   return platformPath.join(
-    environment.XDG_CONFIG_HOME ?? platformPath.join(home, ".config"),
-    "eidetic-player",
+    resolveAppDirectories(platform, environment, home ?? undefined).config,
     "player-session.json",
   );
 }

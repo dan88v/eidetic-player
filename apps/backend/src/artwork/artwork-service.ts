@@ -9,9 +9,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import type { ArtworkRef } from "../../../../packages/shared/src/player.js";
 import type { PictureCandidate } from "../metadata/types.js";
+import { resolveAppDirectories } from "../platform/app-directories.js";
 
 export const MAX_ARTWORK_BYTES = 15 * 1024 * 1024;
 export const MAX_ARTWORK_RECORDS = 64;
@@ -61,8 +61,10 @@ function processIsRunning(pid: number): boolean {
   }
 }
 
-export async function cleanupStaleArtworkDirectories(): Promise<void> {
-  const root = resolve(tmpdir());
+export async function cleanupStaleArtworkDirectories(
+  cacheRoot = resolveAppDirectories().cache,
+): Promise<void> {
+  const root = resolve(cacheRoot);
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -151,10 +153,7 @@ export function isOpaqueArtworkId(id: string): boolean {
 export class ArtworkService {
   readonly maxRecords = MAX_ARTWORK_RECORDS;
   readonly maxBytes = MAX_ARTWORK_CACHE_BYTES;
-  readonly tempDirectory = join(
-    tmpdir(),
-    `eidetic-player-artwork-${String(process.pid)}-${randomUUID()}`,
-  );
+  readonly tempDirectory: string;
   private readonly records = new Map<string, RegistryRecord>();
   private readonly fingerprintIds = new Map<string, string>();
   private readonly mediaArtwork = new Map<string, ArtworkRef | null>();
@@ -163,8 +162,12 @@ export class ArtworkService {
   private totalBytes = 0;
   private closed = false;
 
-  constructor() {
-    void cleanupStaleArtworkDirectories();
+  constructor(cacheRoot = resolveAppDirectories().cache) {
+    this.tempDirectory = join(
+      cacheRoot,
+      `eidetic-player-artwork-${String(process.pid)}-${randomUUID()}`,
+    );
+    void cleanupStaleArtworkDirectories(cacheRoot);
   }
 
   has(id: string): boolean {
@@ -269,7 +272,7 @@ export class ArtworkService {
     this.pinned.clear();
     this.totalBytes = 0;
     const resolvedTemp = resolve(this.tempDirectory);
-    const safeParent = resolve(tmpdir());
+    const safeParent = resolve(dirname(this.tempDirectory));
     if (
       dirname(resolvedTemp) === safeParent &&
       basename(resolvedTemp).startsWith("eidetic-player-artwork-")

@@ -17,6 +17,12 @@ Prefer:
 Any new high-frequency feature must include measurements, a lifecycle, resource
 limits, and a fallback.
 
+The opt-in `EIDETIC_ANALYZER_PROFILE=rpi3` profile is the conservative
+Raspberry Pi 3 preparation: 16 kHz analyzer input and at most 15 output frames
+per second. Desktop remains 24 kHz/20 frames per second. Never infer the
+profile from fragile hardware strings; tune additional bounds only from real
+Pi measurements.
+
 ## Rendering
 
 High-frequency data must not enter the global application store.

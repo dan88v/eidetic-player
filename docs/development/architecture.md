@@ -116,6 +116,12 @@ Keep OS-specific IPC endpoints, executable discovery, native file dialogs, and
 display control behind adapters. Do not spread `process.platform` branches
 through domain services or UI components.
 
+Linux config, cache, data, and runtime roots are resolved centrally according
+to XDG. Persistent Sources and player-session state belong to config,
+regenerable artwork belongs to cache, and MPV Unix sockets belong to a private
+runtime directory. Windows keeps its APPDATA/LOCALAPPDATA and named-pipe
+adapters.
+
 MPV, FFmpeg, and native-shell absence must degrade independently:
 
 - missing MPV disables playback but does not crash the backend;

@@ -1,0 +1,21 @@
+[Unit]
+Description=Eidetic Player backend
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=eidetic
+Group=eidetic
+WorkingDirectory=/opt/eidetic-player
+EnvironmentFile=-/etc/eidetic-player/eidetic-player.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node /opt/eidetic-player/dist/backend/apps/backend/src/index.js
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

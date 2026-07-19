@@ -63,7 +63,7 @@ function cleanup(exitCode = 0) {
   if (cleanupPromise) return cleanupPromise;
   stopping = true;
   cleanupPromise = (async () => {
-    if (process.platform === "win32") await stopBackendGracefully();
+    await stopBackendGracefully();
     for (const child of children) terminate(child);
     process.exitCode = exitCode;
   })();

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, posix, win32 } from "node:path";
+import { resolveAppDirectories } from "../platform/app-directories.js";
 import type { SourceConfig, StoredSource } from "./filesystem-types.js";
 
 function isStoredSource(value: unknown): value is StoredSource {
@@ -25,18 +25,11 @@ function isStoredSource(value: unknown): value is StoredSource {
 export function sourcesConfigPath(
   platform = process.platform,
   environment: NodeJS.ProcessEnv = process.env,
-  home = homedir(),
+  home?: string,
 ): string {
   const platformPath = platform === "win32" ? win32 : posix;
-  if (platform === "win32")
-    return platformPath.join(
-      environment.APPDATA ?? platformPath.join(home, "AppData", "Roaming"),
-      "Eidetic Player",
-      "sources.json",
-    );
   return platformPath.join(
-    environment.XDG_CONFIG_HOME ?? platformPath.join(home, ".config"),
-    "eidetic-player",
+    resolveAppDirectories(platform, environment, home ?? undefined).config,
     "sources.json",
   );
 }

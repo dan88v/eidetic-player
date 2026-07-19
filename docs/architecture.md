@@ -54,8 +54,9 @@ candidate must successfully execute `--version`. MPV runs once in idle,
 headless, audio-only mode with user configuration, terminal, OSC, OSD, video,
 and audio cover display disabled. It uses the system's default audio output.
 
-`mpv-endpoint.ts` creates a unique Windows named pipe or a temporary Unix domain
-socket and owns socket cleanup. `mpv-process.ts` owns the child process.
+`mpv-endpoint.ts` creates a unique Windows named pipe or a Unix domain socket
+inside the private XDG runtime directory and owns socket cleanup.
+`mpv-process.ts` owns the child process.
 `mpv-transport.ts` uses Node `net` and owns incremental request IDs, response
 matching, timeouts, pending-request rejection, and event dispatch.
 `json-line-parser.ts` handles partial chunks and multiple newline-delimited JSON
@@ -83,10 +84,9 @@ retained in the metadata cache.
 over 15 MiB. Priority is embedded front/cover/first valid image, then
 case-insensitive `cover`, `folder`, and `front` names in the audio file's own
 directory. Its opaque registry is limited to 64 records and 128 MiB. Embedded
-data is written under
-`<os.tmpdir()>/eidetic-player-artwork-<pid>-<session-id>/`; eviction and shutdown
-remove only internally generated files. Original folder artwork is never
-deleted.
+data is written under the application XDG cache as
+`eidetic-player-artwork-<pid>-<session-id>/`; eviction and shutdown remove only
+internally generated files. Original folder artwork is never deleted.
 
 PlayerService publishes MPV state immediately, applies parser results only when
 the generation and path still match, and emits a later SSE snapshot containing
