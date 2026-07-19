@@ -50,6 +50,10 @@ future Raspberry shell.
   availability. `DirectoryBrowserService` owns one-level listings and its
   bounded cache; `FolderArtworkPreviewService` owns bounded direct-child folder
   previews; `PathService` is the only logical/native path authority.
+- `IndexedLibraryService` owns the durable SQLite catalog and publishes
+  low-frequency Library snapshots. `LibraryScheduler` owns the single active
+  scan, while `LibraryScanner` owns recursive traversal and incremental
+  metadata ingestion. Folders browsing remains an independent on-demand path.
 
 Do not introduce a second owner for any of these concerns.
 
@@ -64,6 +68,9 @@ Do not introduce a second owner for any of these concerns.
 - Large binary data, local paths, base64, and PCM never belong in player SSE.
 - Folders responses use opaque IDs and logical relative paths. Absolute roots
   remain backend-only after the native Add Source command.
+- Library REST/SSE carries only opaque Source/Track identity, aggregate counts,
+  progress, and safe error codes. Database paths and native roots remain
+  backend-only.
 
 Components use central API clients. Shared request, response, state, and event
 types live in `packages/shared`.
@@ -82,6 +89,10 @@ Treat the UI as several independent update regions:
 
 Do not rebuild `AppShell`, Now Playing, Queue, or the full mini-player for a
 single-field update.
+
+Library scan events update only counters, status text, progress, and action
+state in the already mounted Library screen. They must not rebuild Queue,
+Now Playing, Sources cards, or the screen shell.
 
 ## Async correctness
 
@@ -118,9 +129,9 @@ through domain services or UI components.
 
 Linux config, cache, data, and runtime roots are resolved centrally according
 to XDG. Persistent Sources and player-session state belong to config,
-regenerable artwork belongs to cache, and MPV Unix sockets belong to a private
-runtime directory. Windows keeps its APPDATA/LOCALAPPDATA and named-pipe
-adapters.
+regenerable artwork belongs to cache, the SQLite Library belongs to data, and
+MPV Unix sockets belong to a private runtime directory. Windows keeps its
+APPDATA/LOCALAPPDATA and named-pipe adapters.
 
 MPV, FFmpeg, and native-shell absence must degrade independently:
 

@@ -3,6 +3,7 @@ import type { AppStore } from "../state/store";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import type { PlayerActions } from "./now-playing";
 import type { FoldersApiClient } from "../api/folders-api-client";
+import type { LibraryApiClient } from "../api/library-api-client";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -14,8 +15,7 @@ import type {
   VisualizerMode,
 } from "../state/types";
 import { createFoldersScreen } from "./folders";
-import { createPlaceholderScreen } from "./placeholder";
-import { t } from "../i18n";
+import { createLibraryScreen } from "./library";
 import { createNowPlayingScreen } from "./now-playing";
 import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
@@ -46,6 +46,7 @@ export interface ScreenContext {
   readonly playerState: PlayerState;
   readonly playerActions: PlayerActions;
   readonly foldersApi: FoldersApiClient;
+  readonly libraryApi: LibraryApiClient;
   readonly addLocalFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openFolderSource: (sourceId: string) => void;
   readonly openFolderEntry: (
@@ -99,16 +100,15 @@ export function createScreen(
         showToast: context.showToast,
       });
     case "library":
-      return staticView(
-        createPlaceholderScreen(
-          t("screen.library.title"),
-          t("screen.library.description"),
-          "library",
-        ),
-      );
+      return createLibraryScreen({
+        api: context.libraryApi,
+        openSources: context.openSources,
+        showToast: context.showToast,
+      });
     case "sources":
       return createSourcesScreen({
         api: context.foldersApi,
+        libraryApi: context.libraryApi,
         addFolder: context.addLocalFolder,
         openSource: context.openFolderSource,
         onSourceRemoved: context.removeFolderSource,

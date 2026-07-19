@@ -30,8 +30,9 @@ npm run smoke:linux
 npm run verify:arm
 ```
 
-The project uses Node 24.18.0 in `.nvmrc` and accepts Node 22.12 or newer in
-`package.json`. MPV and FFmpeg are discovered from the explicit
+The project uses Node 24.18.0 in `.nvmrc` and requires Node 24.15 or newer in
+`package.json`, including the built-in `node:sqlite` API used by Library. MPV
+and FFmpeg are discovered from the explicit
 `EIDETIC_MPV_PATH` / `EIDETIC_FFMPEG_PATH` variables and then `PATH`. This
 works with an interactive shell and with a restricted systemd `PATH`.
 
@@ -45,10 +46,10 @@ Linux paths are centralized and separated:
 - runtime: `$XDG_RUNTIME_DIR/eidetic-player`, with a per-user temp fallback.
 
 Sources and the paused-at-zero player session use config. Regenerable artwork
-uses cache. MPV Unix sockets use a private mode-0700 runtime directory, a
-per-process UUID name, a conservative length guard, and cleanup on shutdown.
-Data is reserved for future durable application data; Step 2.4.5 adds no
-Library database.
+uses cache. The versioned SQLite Library is stored in
+`${XDG_DATA_HOME:-$HOME/.local/share}/eidetic-player/library.db`. MPV Unix
+sockets use a private mode-0700 runtime directory, a per-process UUID name, a
+conservative length guard, and cleanup on shutdown.
 
 ## GUI, dialogs, and WSL limits
 

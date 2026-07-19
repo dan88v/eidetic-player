@@ -3,12 +3,14 @@ import type {
   LibrarySource,
 } from "../../../../packages/shared/src/library";
 import type { FoldersApiClient } from "../api/folders-api-client";
+import type { LibraryApiClient } from "../api/library-api-client";
 import { icon } from "../components/icons";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
 
 export interface SourcesScreenOptions {
   readonly api: FoldersApiClient;
+  readonly libraryApi: LibraryApiClient;
   readonly addFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openSource: (sourceId: string) => void;
   readonly onSourceRemoved: (sourceId: string) => void;
@@ -46,6 +48,7 @@ export function createSourcesScreen(
         </article>
       </div>
     </section>
+    <div class="folders-action-menu" role="menu" hidden></div>
     <div class="source-dialog-backdrop" aria-hidden="true"></div>
     <section class="source-dialog" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="source-dialog-title">
       <h2 id="source-dialog-title"></h2>
@@ -82,6 +85,7 @@ export function createSourcesScreen(
   const confirmButton = section.querySelector<HTMLButtonElement>(
     '[data-action="confirm"]',
   );
+  const actionMenu = section.querySelector<HTMLElement>(".folders-action-menu");
   if (
     !localList ||
     !addButton ||
@@ -93,7 +97,8 @@ export function createSourcesScreen(
     !dialogInput ||
     !dialogActions ||
     !cancelButton ||
-    !confirmButton
+    !confirmButton ||
+    !actionMenu
   )
     throw new Error("Sources screen is incomplete");
 
@@ -102,6 +107,16 @@ export function createSourcesScreen(
   let dialogSource: LibrarySource | null = null;
   let dialogMode: "rename" | "remove" | null = null;
   let returnFocus: HTMLElement | null = null;
+  let menuSource: LibrarySource | null = null;
+  let menuTrigger: HTMLButtonElement | null = null;
+  let libraryScanBusy = false;
+
+  const closeMenu = (restoreFocus = false): void => {
+    actionMenu.hidden = true;
+    menuSource = null;
+    if (restoreFocus) menuTrigger?.focus();
+    menuTrigger = null;
+  };
 
   const closeDialog = (): void => {
     dialog.classList.remove("source-dialog--open");
@@ -165,26 +180,17 @@ export function createSourcesScreen(
         <div class="source-card__copy"><h3></h3><p>${t("sources.localFolder")}</p><span class="source-card__status"></span></div>
         <div class="source-card__actions">
           <button type="button" data-source-action="open">${t("sources.open")}</button>
-          <button type="button" data-source-action="rename">${t("sources.rename")}</button>
-          <button type="button" data-source-action="remove">${t("sources.remove")}</button>
-          <button type="button" data-source-action="retry">${t("sources.retry")}</button>
+          <button class="source-card__more" type="button" data-source-action="more" aria-label="${t("sources.actions")}" aria-haspopup="menu">${icon("more")}</button>
         </div>`;
       const heading = card.querySelector<HTMLElement>("h3");
       const status = card.querySelector<HTMLElement>(".source-card__status");
       const open = card.querySelector<HTMLButtonElement>(
         '[data-source-action="open"]',
       );
-      const rename = card.querySelector<HTMLButtonElement>(
-        '[data-source-action="rename"]',
+      const more = card.querySelector<HTMLButtonElement>(
+        '[data-source-action="more"]',
       );
-      const remove = card.querySelector<HTMLButtonElement>(
-        '[data-source-action="remove"]',
-      );
-      const retry = card.querySelector<HTMLButtonElement>(
-        '[data-source-action="retry"]',
-      );
-      if (!heading || !status || !open || !rename || !remove || !retry)
-        continue;
+      if (!heading || !status || !open || !more) continue;
       heading.textContent = source.displayName;
       status.textContent = t(
         source.availability === "available"
@@ -195,25 +201,49 @@ export function createSourcesScreen(
       );
       status.dataset.availability = source.availability;
       open.disabled = source.availability !== "available";
-      retry.hidden = source.availability !== "unavailable";
       open.addEventListener("click", () => {
         options.openSource(source.id);
       });
-      rename.addEventListener("click", () => {
-        openDialog(source, "rename", rename);
-      });
-      remove.addEventListener("click", () => {
-        openDialog(source, "remove", remove);
-      });
-      retry.addEventListener("click", () => {
-        retry.disabled = true;
-        void options.api
-          .retrySource(source.id)
-          .then(load)
-          .catch(() => {
-            retry.disabled = false;
-            options.showToast(t("sources.unableToRead"), "error");
-          });
+      more.addEventListener("click", () => {
+        closeMenu();
+        menuSource = source;
+        menuTrigger = more;
+        const actions: {
+          readonly action: "rescan" | "retry" | "rename" | "remove";
+          readonly label: string;
+          readonly disabled?: boolean;
+        }[] = [
+          {
+            action: "rescan",
+            label: t("sources.rescanLibrary"),
+            disabled: libraryScanBusy,
+          },
+          ...(source.availability === "unavailable"
+            ? [{ action: "retry" as const, label: t("sources.retry") }]
+            : []),
+          { action: "rename", label: t("sources.rename") },
+          { action: "remove", label: t("sources.remove") },
+        ];
+        actionMenu.replaceChildren(
+          ...actions.map((item) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.role = "menuitem";
+            button.dataset.action = item.action;
+            button.textContent = item.label;
+            button.disabled = item.disabled ?? false;
+            return button;
+          }),
+        );
+        actionMenu.hidden = false;
+        const rect = more.getBoundingClientRect();
+        actionMenu.style.top = `${String(rect.bottom + 6)}px`;
+        actionMenu.style.left = `${String(Math.max(8, rect.right - 180))}px`;
+        actionMenu
+          .querySelector<HTMLButtonElement>(
+            'button[role="menuitem"]:not([disabled])',
+          )
+          ?.focus();
       });
       fragment.append(card);
     }
@@ -241,10 +271,8 @@ export function createSourcesScreen(
       .addFolder()
       .then((result) => {
         if (!result) return;
-        options.showToast(
-          t(result.duplicate ? "sources.alreadyAdded" : "sources.available"),
-          result.duplicate ? "neutral" : "success",
-        );
+        if (result.duplicate)
+          options.showToast(t("sources.alreadyAdded"), "neutral");
         return load();
       })
       .catch(() => {
@@ -287,7 +315,47 @@ export function createSourcesScreen(
         confirmButton.disabled = false;
       });
   });
+  actionMenu.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      "button[data-action]",
+    );
+    const source = menuSource;
+    const trigger = menuTrigger;
+    if (!button || !source || !trigger || button.disabled) return;
+    const action = button.dataset.action;
+    closeMenu();
+    if (action === "rename" || action === "remove") {
+      openDialog(source, action, trigger);
+      return;
+    }
+    if (action === "retry") {
+      void options.api
+        .retrySource(source.id)
+        .then(load)
+        .catch(() => {
+          options.showToast(t("sources.unableToRead"), "error");
+        });
+      return;
+    }
+    if (action === "rescan")
+      void options.libraryApi.scan({ sourceId: source.id }).catch(() => {
+        options.showToast(t("library.actionFailed"), "error");
+      });
+  });
+  const handleDocumentPointer = (event: PointerEvent): void => {
+    if (
+      !actionMenu.hidden &&
+      !actionMenu.contains(event.target as Node) &&
+      event.target !== menuTrigger
+    )
+      closeMenu();
+  };
   const handleKeydown = (event: KeyboardEvent): void => {
+    if (!actionMenu.hidden && event.key === "Escape") {
+      event.preventDefault();
+      closeMenu(true);
+      return;
+    }
     if (!dialog.classList.contains("source-dialog--open")) return;
     if (event.key === "Escape") {
       event.preventDefault();
@@ -312,6 +380,21 @@ export function createSourcesScreen(
     }
   };
   document.addEventListener("keydown", handleKeydown);
+  document.addEventListener("pointerdown", handleDocumentPointer);
+  const unsubscribeLibrary = options.libraryApi.subscribe(
+    (snapshot) => {
+      libraryScanBusy =
+        snapshot.status.activeScan !== null ||
+        snapshot.status.queuedSourceIds.length > 0;
+      const rescan = actionMenu.querySelector<HTMLButtonElement>(
+        '[data-action="rescan"]',
+      );
+      if (rescan && menuSource) rescan.disabled = libraryScanBusy;
+    },
+    () => {
+      // Keep the last known compatible action state while SSE reconnects.
+    },
+  );
   dialog.inert = true;
   void load();
   return {
@@ -319,7 +402,10 @@ export function createSourcesScreen(
     destroy() {
       destroyed = true;
       requestGeneration += 1;
+      closeMenu();
+      unsubscribeLibrary();
       document.removeEventListener("keydown", handleKeydown);
+      document.removeEventListener("pointerdown", handleDocumentPointer);
     },
   };
 }

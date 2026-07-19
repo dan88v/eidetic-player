@@ -2,7 +2,7 @@
 
 Eidetic Player is a lightweight, touch-first local audio player targeting a
 horizontal 1280 × 800 display and a future Raspberry Pi 3B deployment. The
-current Step 2.4.4 build uses a vanilla TypeScript UI, a Node.js control
+current Step 2.5 build uses a vanilla TypeScript UI, a Node.js control
 service, Neutralinojs for native file paths, and one persistent MPV process for
 decoding and system audio output.
 
@@ -18,7 +18,7 @@ decoding and system audio output.
 
 ## Requirements
 
-- Node.js 22.12 or newer and npm
+- Node.js 24.15 or newer and npm
 - MPV available either as `mpv` in `PATH` or through `EIDETIC_MPV_PATH`
 - FFmpeg is optional for real visualizers and waveform generation; configure
   `EIDETIC_FFMPEG_PATH` or make `ffmpeg` available in `PATH`
@@ -115,9 +115,19 @@ container/codec, bitrate, bit-depth, and sample-rate quality without a second
 metadata parse. Opening a row or playing a folder uses the existing atomic
 `PlayerService` path; adding a folder appends without starting an empty Queue.
 
-Library is a separate placeholder for the indexed database planned for a later
-product step. Folders and Library already have independent navigation entries
-and Now Playing shortcuts so both workflows can coexist.
+Library maintains a recursive, persistent SQLite index of configured Sources.
+The Step 2.5 screen shows Tracks, Albums, Artists, Unavailable, scan progress,
+last success, Rescan, and cooperative Cancel. First scans run automatically;
+later scans are explicit from Library or a Source menu. Incremental scans skip
+metadata for unchanged size/mtime pairs. Entity browsing and search are
+reserved for Step 2.6.
+
+The database lives at `%LOCALAPPDATA%\Eidetic Player\Data\library.db` on
+Windows and `${XDG_DATA_HOME:-~/.local/share}/eidetic-player/library.db` on
+Linux. It uses the built-in Node SQLite API, versioned migrations, WAL,
+foreign keys, bounded transactions, interrupted-run recovery, and
+corruption-preserving rebuild. See the
+[Indexed Library guide](docs/development/library-index.md).
 
 Native roots remain backend-only after Add Folder. UI contracts use opaque
 source/entry IDs and logical relative paths. Central Windows/POSIX containment
@@ -168,20 +178,21 @@ graphics remain available.
 `EIDETIC_ANALYZER_ENABLED=false` disables real-time analysis and
 `EIDETIC_WAVEFORM_PRELOAD_NEXT=false` disables next-track waveform preload.
 
-## Current scope and limits (through Step 2.4.4)
+## Current scope and limits (through Step 2.5)
 
 The Windows/Neutralino runtime currently provides local Sources, one-level
-Folders navigation, persistent Queue/current-track restore, metadata and
-artwork enrichment, real waveform generation, Meter/Mono/Stereo visualizers,
-and the Technical Crest Factor/LUFS-S view. Visual QA covers the supported
-desktop viewports from 1024 × 600 through 1600 × 900.
+Folders navigation, persistent indexed Library summaries/scanning, persistent
+Queue/current-track restore, metadata and artwork enrichment, real waveform
+generation, Meter/Mono/Stereo visualizers, and the Technical Crest
+Factor/LUFS-S view. Visual QA covers the supported desktop viewports from
+1024 × 600 through 1600 × 900.
 
 The following remain outside the implemented scope:
 
-- no indexed/searchable Artist, Album, or Genre database; Library is still a
-  placeholder;
-- no recursive scan, filesystem watcher, tag editing, online artwork lookup,
-  or generated thumbnail service;
+- no indexed Artist/Album/Track browsing, search, or filters yet; Step 2.5
+  exposes summary and scan controls only;
+- no filesystem watcher, tag editing, online artwork lookup, or generated
+  thumbnail service;
 - no functional network-share or USB-storage provider and no dedicated DAC
   selection workflow;
 - no audio DSP or modification of MPV's playback signal;

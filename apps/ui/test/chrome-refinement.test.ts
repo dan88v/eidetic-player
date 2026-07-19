@@ -331,7 +331,7 @@ void test("40. Library and Folders are independent routes", async () => {
   assert.match(routes, /id:\s*"folders"/);
   assert.match(routes, /id:\s*"library"/);
   assert.match(screens, /case "folders":[\s\S]*createFoldersScreen/);
-  assert.match(screens, /case "library":[\s\S]*createPlaceholderScreen/);
+  assert.match(screens, /case "library":[\s\S]*createLibraryScreen/);
 });
 
 void test("41. Home keeps its final position and gains a themed circle", async () => {

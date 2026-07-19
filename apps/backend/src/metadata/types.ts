@@ -25,7 +25,9 @@ export interface NormalizedMetadata {
   readonly sampleRate: number | null;
   readonly bitDepth: number | null;
   readonly bitrate: number | null;
+  readonly channels: number | null;
   readonly lossless: boolean | null;
+  readonly compilation: boolean;
 }
 
 export interface MetadataResult {
@@ -34,5 +36,6 @@ export interface MetadataResult {
   readonly pictures: readonly PictureCandidate[];
   readonly artwork: ArtworkRef | null;
   readonly hasEmbeddedArtwork: boolean;
+  readonly errorCode: string | null;
   readonly fromCache: boolean;
 }

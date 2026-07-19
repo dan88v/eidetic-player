@@ -227,3 +227,26 @@ scroll/remount, warm reload, and at least 20 rapid track-change commands.
 For the Taylor 14-track fixture, verify every metadata result, artwork ref,
 HTTP image response, and visible row thumbnail, including the bottom of the
 scrolled list.
+
+## Step 2.5 indexed Library checks
+
+Verify the indexed Library separately from on-demand Folders:
+
+1. first launch automatically scans every configured Source once;
+2. restart with a populated database starts no automatic rescan;
+3. a manual all-Source scan and Source-menu scan use the same single scheduler;
+4. unchanged files perform no metadata parse;
+5. new, modified, missing, reappearing, invalid-metadata, Unicode, and
+   same-relative-path/different-Source cases retain correct identity;
+6. hidden/system entries and symlink/junction escapes are excluded;
+7. cancellation and partial traversal mark no unseen Track unavailable;
+8. removal changes no media and preserves catalog identity;
+9. corrupt database recovery preserves a timestamped backup and exposes no
+   path to the UI;
+10. shutdown during a scan leaves no process and restart shows no non-terminal
+    scan.
+
+Use a generated temporary fixture for long cancellation/progress tests. Keep
+it outside the repository and user media directories, and delete it after the
+run. Inspect Library at 1280×800, 1366×768, 1600×900, 1280×720, and
+1024×600 with empty, scanning, cancelled, completed, and populated states.

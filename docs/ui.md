@@ -70,7 +70,20 @@ hero or Add Folder action. Source/folder cards share persistent sorting and
 List/Grid presentation, real single/mosaic artwork, clickable artwork/body Open
 targets, direct-audio counts, and a sibling accessible action menu. Switching
 view changes CSS state only: it performs no request, artwork reload, screen
-rebuild, or scroll reset. Library remains a separate database placeholder.
+rebuild, or scroll reset.
+
+Library is an indexed summary/control screen. Four fixed counter cards show
+Tracks, Albums, Artists, and Unavailable. Its persistent scan panel updates the
+Source, status, indeterminate/determinate progress, found/processed/unchanged/
+new/modified/unavailable/error counters, elapsed time, and last successful
+scan in place. Rescan becomes Cancel only for an active scan and stays disabled
+while work is queued. Empty Sources links to Sources; a completed zero-audio
+catalog keeps a contextual empty message. Browsing indexed entities remains
+outside Step 2.5.
+
+Sources reuses its existing sibling popup for Rescan Library, Rename, Remove,
+and conditional Retry. Rescan is disabled while any Library scan is active or
+queued because the backend admits one scan only.
 
 Inside a folder, Back, the compact current title, sorting, List/Grid, and Play share the
 primary row; a compact second row contains only ancestor breadcrumbs. Audio

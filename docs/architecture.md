@@ -47,6 +47,24 @@ so it changes no current track or transition generation. There is no recursive
 scan, watcher, database, generated thumbnail, or artwork buffer in either
 directory cache.
 
+## Indexed Library boundary
+
+`IndexedLibraryService` is independent of on-demand Folders browsing. It owns
+one built-in SQLite connection in the application data directory, a
+versioned/migrated strict schema, corruption preservation/rebuild, one
+`LibraryScheduler`, and one recursive `LibraryScanner`.
+
+Track identity combines opaque Source ID with logical relative path. Size and
+modification time decide whether metadata can be skipped. The scanner parses
+at most one file at a time, commits bounded batches, yields between batches and
+directories, and defers to player transition enrichment. Only a complete
+successful traversal marks unseen Tracks unavailable; cancel, failure, partial
+access, and an offline Source preserve prior availability.
+
+Library progress is persisted and published through its own low-frequency SSE
+hub. It never enters PlayerState or visualizer streams, never starts MPV or
+FFmpeg, and never exposes native roots or the database path.
+
 ## Backend and MPV
 
 Discovery checks `EIDETIC_MPV_PATH` first and then `mpv` in `PATH`. Every
@@ -140,6 +158,8 @@ Commands use validated JSON POST endpoints:
 - `GET /api/sources/:sourceId/entries/:entryId/metadata`
 - `GET|HEAD /api/sources/:sourceId/entries/:entryId/artwork`
 - `POST /api/sources/:sourceId/entries/:entryId/open`
+- `GET /api/library/snapshot`, `/summary`, `/sources`, `/status`, `/events`
+- `POST /api/library/scan`, `/scan/cancel`, `/recovery/acknowledge`
 
 `GET /api/player/state` returns a full snapshot. `GET /api/player/events` is an
 SSE stream that sends an immediate snapshot, subsequent state, and a lightweight
@@ -153,8 +173,9 @@ and image data never appear in artwork URLs or SSE references. Unknown IDs and
 traversal-like inputs return 404.
 
 Shared contracts in `packages/shared` define `PlayerState`, queue and track
-shapes, status/repeat types, API envelopes, and supported extensions. The UI has
-one API client and one player store; components never issue raw `fetch` calls.
+shapes, status/repeat types, Library snapshots/progress, API envelopes, and
+supported extensions. The UI has central API clients and one player store;
+components never issue raw `fetch` calls.
 
 ## Queue and persistence
 

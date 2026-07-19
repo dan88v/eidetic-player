@@ -32,6 +32,13 @@ import type {
 import type { ArtworkResource } from "./artwork/artwork-service.js";
 import { PlayerSessionRepository } from "./player-session/player-session-repository.js";
 import { PlayerSessionService } from "./player-session/player-session-service.js";
+import { IndexedLibraryService } from "./library/library-service.js";
+import { LibraryError } from "./library/library-errors.js";
+import { LibrarySseHub } from "./api/library-sse-hub.js";
+import type {
+  LibraryCancelScanRequest,
+  LibraryScanRequest,
+} from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
@@ -42,12 +49,25 @@ const sources = new SourceService(
   pathService,
   sourceRepository,
 );
-const library = new DirectoryBrowserService(
+const folders = new DirectoryBrowserService(
   filesystemProvider,
   pathService,
   sources,
   () => player.getCurrentPath(),
 );
+const indexedLibraryPromise = IndexedLibraryService.create(
+  filesystemProvider,
+  pathService,
+  sourceRepository,
+  sources,
+  player,
+);
+const libraryEventsPromise = indexedLibraryPromise.then(
+  (indexedLibrary) => new LibrarySseHub(indexedLibrary),
+);
+void indexedLibraryPromise.catch((error: unknown) => {
+  console.error("[library] initialization failed", error);
+});
 const playerSession = new PlayerSessionService(
   new PlayerSessionRepository(),
   filesystemProvider,
@@ -103,6 +123,13 @@ const bootstrapPromise = player
     playerSession.start();
     throw error;
   });
+void bootstrapPromise
+  .then(async () => {
+    await (await indexedLibraryPromise).startAutomaticScans();
+  })
+  .catch((error: unknown) => {
+    console.error("[library] automatic scan scheduling failed", error);
+  });
 
 function sendJson(
   response: ServerResponse,
@@ -122,7 +149,7 @@ async function sendArtwork(
 ): Promise<boolean> {
   const resource =
     (await player.getArtworkResource(artworkId)) ??
-    (await library.getArtworkResource(artworkId));
+    (await folders.getArtworkResource(artworkId));
   if (!resource) return false;
   await sendArtworkResource(request, response, resource);
   return true;
@@ -247,6 +274,37 @@ function renameSourceBody(value: unknown): RenameSourceRequest {
   return { displayName: body.displayName };
 }
 
+function libraryScanBody(value: unknown): LibraryScanRequest {
+  const body = objectBody(value);
+  if (
+    body.sourceId !== undefined &&
+    (typeof body.sourceId !== "string" ||
+      !/^[0-9a-f-]{36}$/i.test(body.sourceId))
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_SOURCE",
+      "Select a valid Library source.",
+    );
+  return typeof body.sourceId === "string" ? { sourceId: body.sourceId } : {};
+}
+
+function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
+  const body = objectBody(value);
+  for (const field of ["scanId", "sourceId"] as const)
+    if (
+      body[field] !== undefined &&
+      (typeof body[field] !== "string" || !/^[0-9a-f-]{36}$/i.test(body[field]))
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_SCAN",
+        "Select a valid Library scan.",
+      );
+  return {
+    ...(typeof body.scanId === "string" ? { scanId: body.scanId } : {}),
+    ...(typeof body.sourceId === "string" ? { sourceId: body.sourceId } : {}),
+  };
+}
+
 const commandRoutes = new Map<string, PlayerCommand["type"]>([
   ["/api/player/open", "open"],
   ["/api/player/seek", "seek"],
@@ -350,17 +408,84 @@ async function handleRequest(
       request.method === "GET" &&
       url.pathname === "/api/library/diagnostics"
     ) {
+      const indexedLibrary = await indexedLibraryPromise;
       sendJson(response, 200, {
         ok: true,
-        data: library.getDiagnostics(),
+        data: {
+          folders: folders.getDiagnostics(),
+          indexed: indexedLibrary.getDiagnostics(),
+        },
       });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/summary") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).snapshot().summary,
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/snapshot") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).snapshot(),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/sources") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).snapshot().sources,
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/status") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).snapshot().status,
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/events") {
+      (await libraryEventsPromise).add(response);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/library/scan") {
+      const body = libraryScanBody(await readBody(request));
+      sendJson(response, 202, {
+        ok: true,
+        data: await (await indexedLibraryPromise).requestScan(body),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/scan/cancel"
+    ) {
+      const body = libraryCancelBody(await readBody(request));
+      sendJson(response, 202, {
+        ok: true,
+        data: (await indexedLibraryPromise).cancelScan(body),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/recovery/acknowledge"
+    ) {
+      await readBody(request);
+      (await indexedLibraryPromise).acknowledgeRecoveryNotice();
+      sendJson(response, 200, { ok: true });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/sources/local") {
       const body = addSourceBody(await readBody(request));
+      const result = await sources.addLocal(body.nativePath);
+      if (!result.duplicate)
+        await (await indexedLibraryPromise).sourceAdded(result.source.id);
       sendJson(response, 201, {
         ok: true,
-        data: await sources.addLocal(body.nativePath),
+        data: result,
       });
       return;
     }
@@ -368,9 +493,14 @@ async function handleRequest(
     if (sourceMatch && request.method === "PATCH") {
       const sourceId = sourceMatch[1] ?? "";
       const body = renameSourceBody(await readBody(request));
+      const renamed = await sources.rename(sourceId, body.displayName);
+      (await indexedLibraryPromise).sourceRenamed(
+        sourceId,
+        renamed.displayName,
+      );
       sendJson(response, 200, {
         ok: true,
-        data: await sources.rename(sourceId, body.displayName),
+        data: renamed,
       });
       return;
     }
@@ -378,7 +508,8 @@ async function handleRequest(
       const sourceId = sourceMatch[1] ?? "";
       await readBody(request);
       await sources.remove(sourceId);
-      library.invalidateSource(sourceId);
+      folders.invalidateSource(sourceId);
+      (await indexedLibraryPromise).sourceRemoved(sourceId);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -388,7 +519,7 @@ async function handleRequest(
     if (retryMatch && request.method === "POST") {
       const sourceId = retryMatch[1] ?? "";
       await readBody(request);
-      library.invalidateSource(sourceId);
+      folders.invalidateSource(sourceId);
       sendJson(response, 200, {
         ok: true,
         data: await sources.retry(sourceId),
@@ -401,7 +532,7 @@ async function handleRequest(
     if (browseMatch && request.method === "GET") {
       sendJson(response, 200, {
         ok: true,
-        data: await library.browse(
+        data: await folders.browse(
           browseMatch[1] ?? "",
           url.searchParams.get("relativePath") ?? "",
         ),
@@ -413,7 +544,7 @@ async function handleRequest(
     if (folderArtworkMatch && request.method === "GET") {
       sendJson(response, 200, {
         ok: true,
-        data: await library.folderArtworkFor(
+        data: await folders.folderArtworkFor(
           folderArtworkMatch[1] ?? "",
           url.searchParams.get("relativePath") ?? "",
         ),
@@ -432,7 +563,7 @@ async function handleRequest(
         typeof body.relativePath === "string" ? body.relativePath : "";
       const openRequestGeneration =
         action === "play" ? player.reserveOpenRequest() : null;
-      const queue = await library.queueForDirectoryWithOrigins(
+      const queue = await folders.queueForDirectoryWithOrigins(
         sourceId,
         relativePath,
       );
@@ -482,7 +613,7 @@ async function handleRequest(
       if (request.method === "GET" && action === "metadata") {
         sendJson(response, 200, {
           ok: true,
-          data: await library.metadataFor(sourceId, entryId),
+          data: await folders.metadataFor(sourceId, entryId),
         });
         return;
       }
@@ -490,7 +621,7 @@ async function handleRequest(
         (request.method === "GET" || request.method === "HEAD") &&
         action === "artwork"
       ) {
-        const resource = await library.artworkFor(sourceId, entryId);
+        const resource = await folders.artworkFor(sourceId, entryId);
         if (!resource) {
           sendJson(response, 404, {
             ok: false,
@@ -507,7 +638,7 @@ async function handleRequest(
       if (request.method === "POST" && action === "open") {
         await readBody(request);
         const openRequestGeneration = player.reserveOpenRequest();
-        const queue = await library.queueForEntry(sourceId, entryId);
+        const queue = await folders.queueForEntry(sourceId, entryId);
         await player.openResolvedQueue(
           queue.paths,
           queue.selectedIndex,
@@ -529,14 +660,14 @@ async function handleRequest(
       }
       if (request.method === "POST" && action === "queue") {
         await readBody(request);
-        const path = await library.pathForEntry(sourceId, entryId);
+        const path = await folders.pathForEntry(sourceId, entryId);
         const appendedCount = await player.append(
           [path],
           [
             {
               kind: "folders",
               sourceId,
-              relativePath: library.relativePathForEntry(sourceId, entryId),
+              relativePath: folders.relativePathForEntry(sourceId, entryId),
             },
           ],
         );
@@ -659,14 +790,20 @@ async function handleRequest(
     });
   } catch (error) {
     const playerError =
-      error instanceof PlayerError || error instanceof FilesystemError
+      error instanceof PlayerError ||
+      error instanceof FilesystemError ||
+      error instanceof LibraryError
         ? error
         : new PlayerError(
             "INTERNAL_ERROR",
             "The player could not complete the request.",
             500,
           );
-    if (!(error instanceof PlayerError) && !(error instanceof FilesystemError))
+    if (
+      !(error instanceof PlayerError) &&
+      !(error instanceof FilesystemError) &&
+      !(error instanceof LibraryError)
+    )
       console.error("[backend] request failed", error);
     sendJson(response, playerError.statusCode, {
       ok: false,
@@ -702,7 +839,15 @@ function shutdown(signal: NodeJS.Signals): void {
       Promise.all([
         visualizerEvents.close(),
         waveform.close(),
-        library.close(),
+        folders.close(),
+        libraryEventsPromise
+          .then((libraryEvents) => {
+            libraryEvents.close();
+          })
+          .catch(() => undefined),
+        indexedLibraryPromise
+          .then((indexedLibrary) => indexedLibrary.close())
+          .catch(() => undefined),
         player.shutdown(),
       ]),
     )

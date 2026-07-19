@@ -2,6 +2,7 @@ import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import { PlayerApiClient } from "../api/player-api-client";
 import { FoldersApiClient } from "../api/folders-api-client";
+import { LibraryApiClient } from "../api/library-api-client";
 import { t } from "../i18n";
 import { getNavigationItem, isSettingsRoute } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
@@ -42,6 +43,7 @@ export function mountApp(
 ): MountedApp {
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
+  const libraryApi = new LibraryApiClient();
   const playerStore = new PlayerStore(initialPlayerState);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
@@ -77,6 +79,16 @@ export function mountApp(
       showMessage(error instanceof Error ? error.message : t("error.generic"));
     });
   };
+  void libraryApi
+    .status()
+    .then(async (status) => {
+      if (status.recoveryNotice !== "database-rebuilt") return;
+      showMessage(t("library.databaseRebuilt"), "neutral");
+      await libraryApi.acknowledgeRecovery();
+    })
+    .catch((error: unknown) => {
+      console.warn("[library] initial status unavailable", error);
+    });
   const handlePaths = (paths: readonly string[]): void => {
     dropOverlay.classList.remove("drop-overlay--visible");
     const supported = paths.filter(isSupportedAudioPath);
@@ -235,6 +247,7 @@ export function mountApp(
       playerState: playerStore.getState(),
       playerActions: actions,
       foldersApi,
+      libraryApi,
       addLocalFolder,
       openFolderSource: (sourceId) => {
         foldersSession.openSource(sourceId);

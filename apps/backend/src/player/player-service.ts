@@ -108,6 +108,8 @@ export class PlayerService {
   private pendingTrackTarget: number | null = null;
   private openRequestGeneration = 0;
   private openRequestChain: Promise<void> = Promise.resolve();
+  private enrichmentWork = 0;
+  private readonly libraryPriorityWaiters = new Set<() => void>();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -125,6 +127,29 @@ export class PlayerService {
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  async waitForLibraryScanSlot(signal: AbortSignal): Promise<void> {
+    if (!this.hasLibraryPriorityWork()) return;
+    await new Promise<void>((resolve, reject) => {
+      const ready = (): void => {
+        if (this.hasLibraryPriorityWork()) return;
+        cleanup();
+        resolve();
+      };
+      const aborted = (): void => {
+        cleanup();
+        reject(new DOMException("Library scan cancelled.", "AbortError"));
+      };
+      const cleanup = (): void => {
+        this.libraryPriorityWaiters.delete(ready);
+        signal.removeEventListener("abort", aborted);
+      };
+      this.libraryPriorityWaiters.add(ready);
+      signal.addEventListener("abort", aborted, { once: true });
+      if (signal.aborted) aborted();
+      else ready();
+    });
   }
 
   async initialize(): Promise<void> {
@@ -1105,20 +1130,26 @@ export class PlayerService {
     readonly metadata: NormalizedMetadata;
     readonly artwork: ArtworkRef | null;
   }> {
-    const result = await this.metadataService.readForArtwork(
-      path,
-      async (artwork) =>
-        (await this.artworkService.getResource(artwork.id)) !== null,
-    );
-    const artwork =
-      result.artwork ??
-      (await this.artworkService.resolve(
+    this.enrichmentWork += 1;
+    try {
+      const result = await this.metadataService.readForArtwork(
         path,
-        result.cacheKey,
-        result.pictures,
-      ));
-    this.metadataService.rememberArtwork(result.cacheKey, artwork);
-    return { metadata: result.metadata, artwork };
+        async (artwork) =>
+          (await this.artworkService.getResource(artwork.id)) !== null,
+      );
+      const artwork =
+        result.artwork ??
+        (await this.artworkService.resolve(
+          path,
+          result.cacheKey,
+          result.pictures,
+        ));
+      this.metadataService.rememberArtwork(result.cacheKey, artwork);
+      return { metadata: result.metadata, artwork };
+    } finally {
+      this.enrichmentWork = Math.max(0, this.enrichmentWork - 1);
+      this.notifyLibraryPriorityWaiters();
+    }
   }
 
   private withQueueArtwork(
@@ -1183,6 +1214,22 @@ export class PlayerService {
   private update(patch: Partial<PlayerState>): void {
     this.state = Object.freeze({ ...this.state, ...patch });
     for (const listener of this.listeners) listener(this.state);
+    this.notifyLibraryPriorityWaiters();
+  }
+
+  private hasLibraryPriorityWork(): boolean {
+    return (
+      this.state.status === "loading" ||
+      this.transitionPending ||
+      this.preparingPlaylist ||
+      this.pendingTrackTarget !== null ||
+      this.enrichmentWork > 0
+    );
+  }
+
+  private notifyLibraryPriorityWaiters(): void {
+    if (this.hasLibraryPriorityWork()) return;
+    for (const waiter of [...this.libraryPriorityWaiters]) waiter();
   }
 
   private updateError(code: string, message: string): void {

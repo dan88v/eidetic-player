@@ -125,6 +125,19 @@ modification identity. Responses retain no artwork buffers. UI/backend metadata
 work and artwork resolution each have independent limits of two. Navigation
 starts no recursive traversal, watcher, poll, worker, or EventSource.
 
+The indexed Library is the sole intentional recursive path. It has one
+scheduler, one scanner, one SQLite connection, serialized metadata parsing,
+and bounded transactions of 32 Tracks on desktop or 16 in the Raspberry
+profile. It yields after each batch and directory, and it waits for playback
+transition enrichment before starting lower-priority metadata work. Library
+SSE is low-frequency and exists only while a Library or Sources client is
+mounted; it is not a visualizer or position channel.
+
+Incremental identity is `(sourceId, logicalRelativePath, size, mtime)`.
+Unchanged files must cause zero metadata parses. A cancelled, failed, partial,
+or unavailable traversal must not run the missing-file availability update.
+Do not add a watcher or polling loop in place of explicit scans.
+
 Folder previews are visibility-driven by one Folders `IntersectionObserver`.
 The backend admits at most two preview jobs, samples the first eight naturally
 sorted direct audio files, stops after four unique covers, and caches 32
@@ -165,6 +178,12 @@ For changes affecting realtime behavior, measure before and after:
 - memory when practical;
 - Queue full rebuild count;
 - average payload size.
+
+For Library work also record first-scan and unchanged throughput, metadata
+parse count, transaction count/maximum/average duration, database size,
+backend working set/CPU where practical, cancellation latency, populated
+startup time, integrity, and maximum concurrent scans. Desktop results are not
+evidence of Raspberry Pi 3B performance.
 
 Test Meter, Mono Spectrum, Stereo Spectrum, Technical, and None independently
 with real FLAC and MP3 files. Record limitations honestly; do not claim

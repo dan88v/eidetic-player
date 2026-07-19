@@ -12,6 +12,7 @@ export type MetadataParser = (path: string) => Promise<IAudioMetadata>;
 interface CacheEntry {
   readonly metadata: NormalizedMetadata;
   readonly hasEmbeddedArtwork: boolean;
+  readonly errorCode: string | null;
   artwork: ArtworkRef | null;
 }
 
@@ -25,6 +26,11 @@ function positive(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? value
     : null;
+}
+
+function positiveInteger(value: number | null | undefined): number | null {
+  const normalized = positive(value);
+  return normalized === null ? null : Math.round(normalized);
 }
 
 export function normalizeMetadata(raw: IAudioMetadata): NormalizedMetadata {
@@ -47,11 +53,13 @@ export function normalizeMetadata(raw: IAudioMetadata): NormalizedMetadata {
     durationSeconds: positive(raw.format.duration),
     codec: text(raw.format.codec),
     container: text(raw.format.container),
-    sampleRate: positive(raw.format.sampleRate),
-    bitDepth: positive(raw.format.bitsPerSample),
-    bitrate: positive(raw.format.bitrate),
+    sampleRate: positiveInteger(raw.format.sampleRate),
+    bitDepth: positiveInteger(raw.format.bitsPerSample),
+    bitrate: positiveInteger(raw.format.bitrate),
+    channels: positiveInteger(raw.format.numberOfChannels),
     lossless:
       typeof raw.format.lossless === "boolean" ? raw.format.lossless : null,
+    compilation: raw.common.compilation === true,
   };
 }
 
@@ -82,7 +90,9 @@ export const emptyMetadata: NormalizedMetadata = Object.freeze({
   sampleRate: null,
   bitDepth: null,
   bitrate: null,
+  channels: null,
   lossless: null,
+  compilation: false,
 });
 
 export class MetadataService {
@@ -112,6 +122,7 @@ export class MetadataService {
         pictures: [],
         artwork: cached.artwork,
         hasEmbeddedArtwork: cached.hasEmbeddedArtwork,
+        errorCode: cached.errorCode,
         fromCache: true,
       };
     }
@@ -126,6 +137,7 @@ export class MetadataService {
           metadata,
           artwork: null,
           hasEmbeddedArtwork: embeddedPictures.length > 0,
+          errorCode: null,
         });
         this.trim();
         return {
@@ -134,6 +146,7 @@ export class MetadataService {
           pictures: embeddedPictures,
           artwork: null,
           hasEmbeddedArtwork: embeddedPictures.length > 0,
+          errorCode: null,
           fromCache: false,
         } satisfies MetadataResult;
       })
@@ -148,6 +161,7 @@ export class MetadataService {
           pictures: [],
           artwork: null,
           hasEmbeddedArtwork: false,
+          errorCode: "METADATA_PARSE_FAILED",
           fromCache: false,
         } satisfies MetadataResult;
       })

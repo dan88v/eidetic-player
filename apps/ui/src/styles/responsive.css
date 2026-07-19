@@ -106,6 +106,11 @@
       grid-template-columns: 1fr;
     }
 
+    .library-summary,
+    .library-scan-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .source-card {
       grid-template-columns: var(--touch-large) minmax(0, 1fr);
     }
@@ -164,6 +169,7 @@
     }
 
     .sources-header,
+    .library-header,
     .folders-directory-header__primary {
       flex-wrap: wrap;
     }
