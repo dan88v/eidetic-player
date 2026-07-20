@@ -44,6 +44,24 @@ Linux adds `doctor:linux`, `test:linux`, `test:posix`,
 Run them from a native case-sensitive filesystem. Static ARM inspection is not
 runtime evidence.
 
+## GitHub Actions Linux CI
+
+The `Eidetic Player CI` workflow runs on `ubuntu-latest` for pushes to `main`,
+pull requests targeting `main`, and manual dispatches. Node is read from
+`.nvmrc`; `actions/setup-node` uses its standard npm cache with
+`package-lock.json`. After one `npm ci`, separate fail-fast steps run
+`npm audit`, format, typecheck, lint, build, the standard test suite,
+`test:posix`, and `test:case-sensitive`. The granular steps intentionally avoid
+running the standard suite twice through `test:linux`.
+
+The hosted job is a core Linux gate, not native runtime certification. It does
+not run Neutralino/WebView2 or WebKitGTK, MPV, FFmpeg, native dialogs, audio
+hardware, `doctor:linux`, `build:linux`, `smoke:linux`, or `verify:arm`.
+Continue to use `npm.cmd run dev` for real Windows QA, a native
+case-sensitive WSL/Debian clone for Linux diagnosis and platform-sensitive
+checks, and Raspberry Pi hardware for touch, audio, performance, and shutdown
+validation.
+
 ## Real media
 
 Real-media tests use user-provided local folders read-only.

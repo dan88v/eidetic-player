@@ -73,6 +73,22 @@ development.
 | `npm run format:check`      | Verify Prettier formatting                           |
 | `npm run neutralino:update` | Update the platform Neutralino runtime               |
 
+## Continuous integration
+
+The `Eidetic Player CI` GitHub Actions workflow runs on `ubuntu-latest` for
+pushes to `main`, pull requests targeting `main`, and manual dispatches. It
+reads Node from `.nvmrc`, uses the standard npm cache keyed by
+`package-lock.json`, installs with `npm ci`, and gates dependency audit,
+formatting, type-checking, lint, build, the standard test suite, POSIX tests,
+and case-sensitive import checks.
+
+This Linux CI does not exercise Neutralino/WebView2 or WebKitGTK, MPV, FFmpeg,
+audio hardware, native dialogs, or Raspberry Pi runtime behavior. Windows
+changes still require real application QA with `npm.cmd run dev`; use a native
+case-sensitive WSL/Debian clone for Linux diagnosis and platform-sensitive
+checks. Raspberry Pi 3B touch, audio, performance, and shutdown validation
+remain separate hardware work.
+
 ## Local files and queue rules
 
 Supported initial extensions are FLAC, WAV/WAVE, MP3, M4A, AAC, ALAC, OGG,
