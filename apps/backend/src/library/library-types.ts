@@ -73,6 +73,12 @@ export interface LibraryScanResult {
   readonly metadataParses: number;
 }
 
+export interface LibraryContextTrack {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly relativePath: string;
+}
+
 export type LibrarySnapshotListener = (
   snapshot: IndexedLibrarySnapshot,
 ) => void;

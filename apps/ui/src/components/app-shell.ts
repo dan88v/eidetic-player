@@ -268,6 +268,12 @@ export function mountApp(
       removeFolderSource: (sourceId) => {
         foldersSession.removeSource(sourceId);
       },
+      noteTrackCommand: () => {
+        trackTransitions.noteTrackCommand();
+      },
+      setScreenTitle: (title) => {
+        topBar.setTitle(title);
+      },
       setAnimationsEnabled: (enabled) => {
         const previous = store.getState().animationsEnabled;
         store.setAnimationsEnabled(enabled);

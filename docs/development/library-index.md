@@ -1,8 +1,9 @@
 # Indexed Library
 
-Step 2.5 adds a durable, read-only index over configured Local Folder Sources.
-It does not replace Folders navigation or MPV playback, and it does not yet add
-album, artist, genre, search, or filtered browsing views.
+The indexed Library is a durable, read-only catalog over configured Local
+Folder Sources. It does not replace on-demand Folders navigation or MPV
+playback. Step 2.6 adds Album, Artist, and Track browsing over that catalog;
+genre and search remain future work.
 
 ## Storage and ownership
 
@@ -87,6 +88,10 @@ history and stable identity are retained.
 Discrete commands use REST:
 
 - `GET /api/library/snapshot`, `/summary`, `/sources`, `/status`;
+- `GET /api/library/albums`, `/albums/:id`, `/artists`, `/artists/:id`,
+  `/tracks`;
+- `GET` or `HEAD /api/library/tracks/:trackId/artwork`;
+- `POST /api/library/play`, `/queue`, and `/tracks/queue`;
 - `POST /api/library/scan` with an optional `sourceId`;
 - `POST /api/library/scan/cancel`;
 - `POST /api/library/recovery/acknowledge`;
@@ -96,12 +101,27 @@ Discrete commands use REST:
 subscription and keepalive exist only while at least one client is connected.
 There is no polling.
 
-The Step 2.5 Library screen is deliberately a summary/control surface:
-Tracks, Albums, Artists, Unavailable, current/latest scan progress, counters,
-last successful scan, Rescan, Cancel, and contextual empty states. Its DOM is
-mounted once and updated field by field. Sources reuses its existing accessible
-action popup for per-Source Rescan. Album/artist/track browsing remains Step
-2.6 work.
+Album, Artist, and Track collections use opaque base64url keyset cursors over
+stable SQL ordering. Page size defaults to 48 and is capped at 100. Album
+details order explicit discs before unknown discs, then Track number, title,
+and stable ID. Artist membership is the union of direct Track artists and
+album-artist ownership, deduplicated by Track ID; album-less Tracks form a
+stable title-ordered tail.
+
+Browse responses report catalog availability but contain no Source roots or
+logical paths. Play/Add resolves a catalog snapshot to Source/logical identity,
+checks the catalog fingerprint, reconstructs and contains native paths through
+`PathService`, and verifies regular readable files with eight bounded workers.
+Unavailable files are excluded. The queue is mutated only after the full
+context succeeds, and a selected Track ID maps directly to the resolved queue
+index.
+
+The Library UI retains its summary/scan controls and adds persistent
+Albums/Artists/Tracks segments plus an independent Album Grid/List setting.
+Only the newest 192 paged entities stay mounted. Details update the existing
+top-bar title, preserve return scroll state, and use the shared sibling action
+popup. Scan progress updates only compact status fields; completion invalidates
+the Library pages once.
 
 ## Verification
 
@@ -109,7 +129,9 @@ Automated coverage includes migrations, foreign keys, rollback, reopen,
 corruption preservation, future versions, Windows/POSIX paths, recursive
 filters, metadata failures, incremental new/modified/missing/reappearing files,
 unavailable Sources, cancellation, scheduler serialization, first-scan policy,
-and a 1,000-Track workload.
+keyset boundaries, compilation/album-artist aggregation, duplicate joins,
+unavailable context filtering, direct selected-Track playback, UI DOM bounds,
+and a 1,000-Track browse/context workload.
 
 Real validation must additionally use `npm.cmd run dev` on Windows, play real
 media while scanning, inspect all supported viewports, cancel a sufficiently

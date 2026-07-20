@@ -132,11 +132,15 @@ metadata parse. Opening a row or playing a folder uses the existing atomic
 `PlayerService` path; adding a folder appends without starting an empty Queue.
 
 Library maintains a recursive, persistent SQLite index of configured Sources.
-The Step 2.5 screen shows Tracks, Albums, Artists, Unavailable, scan progress,
-last success, Rescan, and cooperative Cancel. First scans run automatically;
-later scans are explicit from Library or a Source menu. Incremental scans skip
-metadata for unchanged size/mtime pairs. Entity browsing and search are
-reserved for Step 2.6.
+Its touch-first browser exposes persistent Albums, Artists, and Tracks
+segments. Albums support independent Grid/List presentation; album and artist
+details provide Play and Add to Queue, and tapping a Track starts its complete
+ordered context directly at that Track. Opaque keyset cursors bound every list,
+and unavailable catalog entries remain visible but cannot be played. The
+compact scan surface still shows summary, progress, last success, Rescan, and
+cooperative Cancel. First scans run automatically; later scans are explicit
+from Library or a Source menu. Incremental scans skip metadata for unchanged
+size/mtime pairs.
 
 The database lives at `%LOCALAPPDATA%\Eidetic Player\Data\library.db` on
 Windows and `${XDG_DATA_HOME:-~/.local/share}/eidetic-player/library.db` on

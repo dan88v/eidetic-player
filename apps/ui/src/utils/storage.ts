@@ -6,6 +6,8 @@ import type {
   FolderViewMode,
   MusicBrowsingVisibility,
   ReturnToNowPlayingSeconds,
+  LibraryAlbumViewMode,
+  LibrarySegment,
 } from "../state/types";
 import type { RepeatMode } from "../../../../packages/shared/src/player";
 
@@ -23,7 +25,26 @@ const storageKeys = {
   folderSort: "eidetic-player.interface.folder-sort",
   musicBrowsing: "eidetic-player.interface.music-browsing",
   returnToNowPlaying: "eidetic-player.interface.return-to-now-playing",
+  librarySegment: "eidetic-player.interface.library-segment",
+  libraryAlbumView: "eidetic-player.interface.library-album-view",
 } as const;
+
+export function loadLibrarySegment(): LibrarySegment {
+  const value = read(storageKeys.librarySegment);
+  return value === "artists" || value === "tracks" ? value : "albums";
+}
+
+export function saveLibrarySegment(value: LibrarySegment): boolean {
+  return write(storageKeys.librarySegment, value);
+}
+
+export function loadLibraryAlbumViewMode(): LibraryAlbumViewMode {
+  return read(storageKeys.libraryAlbumView) === "list" ? "list" : "grid";
+}
+
+export function saveLibraryAlbumViewMode(value: LibraryAlbumViewMode): boolean {
+  return write(storageKeys.libraryAlbumView, value);
+}
 
 export function loadMusicBrowsingVisibility(): MusicBrowsingVisibility {
   const value = read(storageKeys.musicBrowsing);

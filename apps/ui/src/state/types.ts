@@ -13,6 +13,8 @@ export type VisualizerMode =
 export type TimelineStyle = "waveform" | "line";
 export type TimelineTimeMode = "total" | "remaining";
 export type FolderViewMode = "list" | "grid";
+export type LibrarySegment = "albums" | "artists" | "tracks";
+export type LibraryAlbumViewMode = "list" | "grid";
 export type FolderSortMode =
   "name-asc" | "name-desc" | "files-desc" | "files-asc";
 export type MusicBrowsingVisibility = "both" | "folders" | "library";

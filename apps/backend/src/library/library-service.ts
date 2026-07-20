@@ -1,13 +1,20 @@
 import type {
   IndexedLibrarySnapshot,
+  LibraryAlbumDetail,
+  LibraryArtistDetail,
   LibraryCancelScanRequest,
+  LibraryPage,
+  LibraryAlbum,
+  LibraryArtist,
   LibraryScanRequest,
+  LibraryTrack,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
 import { SourceRepository } from "../filesystem/source-repository.js";
 import { SourceService } from "../filesystem/source-service.js";
 import type { PlayerService } from "../player/player-service.js";
+import type { PersistedQueueOrigin } from "../player-session/player-session-types.js";
 import { LibraryDatabase, libraryDatabasePath } from "./library-database.js";
 import { LibraryError } from "./library-errors.js";
 import { LibraryRepository } from "./library-repository.js";
@@ -31,12 +38,25 @@ export interface IndexedLibraryDiagnostics {
   readonly scheduler: ReturnType<LibraryScheduler["getDiagnostics"]>;
 }
 
+export interface ResolvedLibraryContext {
+  readonly paths: readonly string[];
+  readonly origins: readonly PersistedQueueOrigin[];
+  readonly selectedIndex: number;
+  readonly trackIds: readonly string[];
+}
+
+const MIN_PAGE_LIMIT = 1;
+export const DEFAULT_LIBRARY_PAGE_LIMIT = 48;
+export const MAX_LIBRARY_PAGE_LIMIT = 100;
+
 export class IndexedLibraryService {
   private readonly listeners = new Set<LibrarySnapshotListener>();
   private recoveryNotice: "database-rebuilt" | null;
   private closed = false;
 
   private constructor(
+    private readonly provider: FilesystemProvider,
+    private readonly paths: PathService,
     private readonly sourceRepository: SourceRepository,
     private readonly sources: SourceService,
     private readonly database: LibraryDatabase,
@@ -70,6 +90,8 @@ export class IndexedLibraryService {
       service?.publish();
     });
     service = new IndexedLibraryService(
+      provider,
+      paths,
       sourceRepository,
       sources,
       database,
@@ -145,6 +167,150 @@ export class IndexedLibraryService {
     };
   }
 
+  albums(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): LibraryPage<LibraryAlbum> {
+    this.ensureOpen();
+    return this.repository.albums(cursor, this.pageLimit(limit));
+  }
+
+  album(albumId: string): LibraryAlbumDetail {
+    this.ensureOpen();
+    const detail = this.repository.album(albumId);
+    if (!detail)
+      throw new LibraryError(
+        "LIBRARY_ALBUM_NOT_FOUND",
+        "This album is no longer in the Library.",
+        404,
+      );
+    return detail;
+  }
+
+  artists(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): LibraryPage<LibraryArtist> {
+    this.ensureOpen();
+    return this.repository.artists(cursor, this.pageLimit(limit));
+  }
+
+  artist(
+    artistId: string,
+    trackCursor: string | null,
+    trackLimit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): LibraryArtistDetail {
+    this.ensureOpen();
+    const detail = this.repository.artist(
+      artistId,
+      trackCursor,
+      this.pageLimit(trackLimit),
+    );
+    if (!detail)
+      throw new LibraryError(
+        "LIBRARY_ARTIST_NOT_FOUND",
+        "This artist is no longer in the Library.",
+        404,
+      );
+    return detail;
+  }
+
+  tracks(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): LibraryPage<LibraryTrack> {
+    this.ensureOpen();
+    return this.repository.tracks(cursor, this.pageLimit(limit));
+  }
+
+  trackLocation(trackId: string) {
+    this.ensureOpen();
+    return this.repository.trackLocation(trackId);
+  }
+
+  async resolveContext(
+    context: "album" | "artist" | "tracks",
+    id?: string,
+    selectedTrackId?: string,
+  ): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    if (context !== "tracks" && !id)
+      throw new LibraryError(
+        "INVALID_LIBRARY_CONTEXT",
+        "Select a valid Library context.",
+      );
+    const before = this.repository.catalogFingerprint();
+    const records = this.repository.contextTracks(context, id);
+    if (
+      selectedTrackId &&
+      !records.some((record) => record.id === selectedTrackId)
+    )
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    const selectedIndex = selectedTrackId
+      ? resolved.findIndex((record) => record.id === selectedTrackId)
+      : 0;
+    if (resolved.length === 0 || selectedIndex < 0)
+      throw new LibraryError(
+        selectedTrackId ? "LIBRARY_TRACK_UNAVAILABLE" : "LIBRARY_CONTEXT_EMPTY",
+        selectedTrackId
+          ? "This track is no longer available."
+          : "No available tracks were found.",
+        409,
+      );
+    return {
+      paths: resolved.map((record) => record.path),
+      origins: resolved.map((record) => ({
+        kind: "folders",
+        sourceId: record.sourceId,
+        relativePath: record.relativePath,
+      })),
+      selectedIndex,
+      trackIds: resolved.map((record) => record.id),
+    };
+  }
+
+  async resolveTrack(trackId: string): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    const record = this.repository.contextTrack(trackId);
+    if (!record)
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    const resolved = await this.resolveRecords([record]);
+    const item = resolved[0];
+    if (!item)
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    return {
+      paths: [item.path],
+      origins: [
+        {
+          kind: "folders",
+          sourceId: item.sourceId,
+          relativePath: item.relativePath,
+        },
+      ],
+      selectedIndex: 0,
+      trackIds: [item.id],
+    };
+  }
+
   subscribe(listener: LibrarySnapshotListener): () => void {
     this.ensureOpen();
     this.listeners.add(listener);
@@ -201,5 +367,85 @@ export class IndexedLibraryService {
         "The Library is unavailable.",
         503,
       );
+  }
+
+  private pageLimit(limit: number): number {
+    if (
+      !Number.isInteger(limit) ||
+      limit < MIN_PAGE_LIMIT ||
+      limit > MAX_LIBRARY_PAGE_LIMIT
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_PAGE",
+        `Library page size must be between ${String(MIN_PAGE_LIMIT)} and ${String(MAX_LIBRARY_PAGE_LIMIT)}.`,
+      );
+    return limit;
+  }
+
+  private async resolveRecords(
+    records: readonly {
+      readonly id: string;
+      readonly sourceId: string;
+      readonly relativePath: string;
+    }[],
+  ): Promise<
+    readonly {
+      readonly id: string;
+      readonly sourceId: string;
+      readonly relativePath: string;
+      readonly path: string;
+    }[]
+  > {
+    const sourceCache = new Map<
+      string,
+      Awaited<ReturnType<SourceService["getInternal"]>> | null
+    >();
+    for (const sourceId of new Set(records.map((record) => record.sourceId))) {
+      try {
+        const source = await this.sources.getInternal(sourceId);
+        sourceCache.set(
+          sourceId,
+          (await this.sources.availabilityOf(sourceId)) === "available"
+            ? source
+            : null,
+        );
+      } catch {
+        sourceCache.set(sourceId, null);
+      }
+    }
+    const output = new Array<{
+      readonly id: string;
+      readonly sourceId: string;
+      readonly relativePath: string;
+      readonly path: string;
+    } | null>(records.length).fill(null);
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < records.length) {
+        const index = next++;
+        const record = records[index];
+        if (!record) continue;
+        const source = sourceCache.get(record.sourceId);
+        if (!source) continue;
+        try {
+          const path = await this.paths.resolveWithinSource(
+            source.canonicalRoot,
+            record.relativePath,
+          );
+          const details = await this.provider.lstat(path);
+          if (details.isSymbolicLink() || !details.isFile()) continue;
+          await this.provider.access(path);
+          output[index] = { ...record, path };
+        } catch {
+          // Files can disappear after the indexed query; omit them atomically.
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(8, records.length) }, () => worker()),
+    );
+    return output.filter(
+      (item): item is NonNullable<typeof item> => item !== null,
+    );
   }
 }

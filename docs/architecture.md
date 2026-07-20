@@ -65,6 +65,16 @@ Library progress is persisted and published through its own low-frequency SSE
 hub. It never enters PlayerState or visualizer streams, never starts MPV or
 FFmpeg, and never exposes native roots or the database path.
 
+Library entity reads use deterministic SQLite keyset pagination with opaque
+cursors. REST returns only catalog metadata and opaque entity IDs. Play/Add
+commands resolve the requested Album, Artist, or global Track context
+server-side, revalidate catalog/source/file availability with bounded
+concurrency, and only then mutate the existing `PlayerService` queue. Direct
+Track play carries a selected Track ID so MPV starts at its resolved index
+without briefly starting the first item. Library artwork reuses the existing
+metadata/artwork services and opaque image endpoint; no cover bytes or native
+paths enter list responses.
+
 ## Backend and MPV
 
 Discovery checks `EIDETIC_MPV_PATH` first and then `mpv` in `PATH`. Every
@@ -159,6 +169,9 @@ Commands use validated JSON POST endpoints:
 - `GET|HEAD /api/sources/:sourceId/entries/:entryId/artwork`
 - `POST /api/sources/:sourceId/entries/:entryId/open`
 - `GET /api/library/snapshot`, `/summary`, `/sources`, `/status`, `/events`
+- `GET /api/library/albums`, `/albums/:id`, `/artists`, `/artists/:id`,
+  `/tracks`, `/tracks/:trackId/artwork`
+- `POST /api/library/play`, `/queue`, `/tracks/queue`
 - `POST /api/library/scan`, `/scan/cancel`, `/recovery/acknowledge`
 
 `GET /api/player/state` returns a full snapshot. `GET /api/player/events` is an

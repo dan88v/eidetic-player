@@ -37,7 +37,9 @@ import { LibraryError } from "./library/library-errors.js";
 import { LibrarySseHub } from "./api/library-sse-hub.js";
 import type {
   LibraryCancelScanRequest,
+  LibraryContextRequest,
   LibraryScanRequest,
+  LibraryTrackQueueRequest,
 } from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
@@ -288,6 +290,73 @@ function libraryScanBody(value: unknown): LibraryScanRequest {
   return typeof body.sourceId === "string" ? { sourceId: body.sourceId } : {};
 }
 
+function libraryLimit(url: URL): number {
+  const raw = url.searchParams.get("limit");
+  if (raw === null) return 48;
+  const limit = Number(raw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    throw new LibraryError(
+      "INVALID_LIBRARY_PAGE",
+      "Library page size must be between 1 and 100.",
+    );
+  return limit;
+}
+
+function libraryCursor(url: URL, name = "cursor"): string | null {
+  const cursor = url.searchParams.get(name);
+  if (cursor !== null && (cursor.length === 0 || cursor.length > 1024))
+    throw new LibraryError(
+      "INVALID_LIBRARY_CURSOR",
+      "The Library page cursor is invalid.",
+    );
+  return cursor;
+}
+
+function libraryEntityId(
+  value: unknown,
+  kind: "album" | "artist" | "track",
+): string {
+  if (
+    typeof value !== "string" ||
+    !new RegExp(`^${kind}-[0-9a-f]{32}$`).test(value)
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_ID",
+      "Select a valid Library item.",
+    );
+  return value;
+}
+
+function libraryContextBody(value: unknown): LibraryContextRequest {
+  const body = objectBody(value);
+  if (
+    body.context !== "album" &&
+    body.context !== "artist" &&
+    body.context !== "tracks"
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_CONTEXT",
+      "Select a valid Library context.",
+    );
+  const context = body.context;
+  const id =
+    context === "tracks" ? undefined : libraryEntityId(body.id, context);
+  const selectedTrackId =
+    body.selectedTrackId === undefined
+      ? undefined
+      : libraryEntityId(body.selectedTrackId, "track");
+  return {
+    context,
+    ...(id ? { id } : {}),
+    ...(selectedTrackId ? { selectedTrackId } : {}),
+  };
+}
+
+function libraryTrackQueueBody(value: unknown): LibraryTrackQueueRequest {
+  const body = objectBody(value);
+  return { trackId: libraryEntityId(body.trackId, "track") };
+}
+
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
   const body = objectBody(value);
   for (const field of ["scanId", "sourceId"] as const)
@@ -443,6 +512,148 @@ async function handleRequest(
       sendJson(response, 200, {
         ok: true,
         data: (await indexedLibraryPromise).snapshot().status,
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/albums") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).albums(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    const albumMatch = /^\/api\/library\/albums\/(album-[0-9a-f]{32})$/.exec(
+      url.pathname,
+    );
+    if (albumMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).album(albumMatch[1] ?? ""),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/artists") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).artists(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    const artistMatch = /^\/api\/library\/artists\/(artist-[0-9a-f]{32})$/.exec(
+      url.pathname,
+    );
+    if (artistMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).artist(
+          artistMatch[1] ?? "",
+          libraryCursor(url, "trackCursor"),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/tracks") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).tracks(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    const libraryArtworkMatch =
+      /^\/api\/library\/tracks\/(track-[0-9a-f]{32})\/artwork$/.exec(
+        url.pathname,
+      );
+    if (
+      libraryArtworkMatch &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      const indexedLibrary = await indexedLibraryPromise;
+      const location = indexedLibrary.trackLocation(
+        libraryArtworkMatch[1] ?? "",
+      );
+      const resource = location
+        ? await folders.artworkForLogicalPath(
+            location.sourceId,
+            location.relativePath,
+          )
+        : null;
+      if (!resource) {
+        sendJson(response, 404, {
+          ok: false,
+          error: {
+            code: "LIBRARY_ARTWORK_NOT_FOUND",
+            message: "Artwork not found.",
+          },
+        });
+        return;
+      }
+      await sendArtworkResource(request, response, resource);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/library/play") {
+      const body = libraryContextBody(await readBody(request));
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveContext(body.context, body.id, body.selectedTrackId);
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/library/queue") {
+      const body = libraryContextBody(await readBody(request));
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveContext(body.context, body.id);
+      const appendedCount = await player.append(context.paths, context.origins);
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: player.getState().queue.length,
+          selectedIndex: null,
+          appendedCount,
+        },
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/tracks/queue"
+    ) {
+      const body = libraryTrackQueueBody(await readBody(request));
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveTrack(body.trackId);
+      const appendedCount = await player.append(context.paths, context.origins);
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: player.getState().queue.length,
+          selectedIndex: null,
+          appendedCount,
+        },
       });
       return;
     }

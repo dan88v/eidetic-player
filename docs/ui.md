@@ -72,14 +72,21 @@ targets, direct-audio counts, and a sibling accessible action menu. Switching
 view changes CSS state only: it performs no request, artwork reload, screen
 rebuild, or scroll reset.
 
-Library is an indexed summary/control screen. Four fixed counter cards show
-Tracks, Albums, Artists, and Unavailable. Its persistent scan panel updates the
-Source, status, indeterminate/determinate progress, found/processed/unchanged/
-new/modified/unavailable/error counters, elapsed time, and last successful
-scan in place. Rescan becomes Cancel only for an active scan and stays disabled
-while work is queued. Empty Sources links to Sources; a completed zero-audio
-catalog keeps a contextual empty message. Browsing indexed entities remains
-outside Step 2.5.
+Library combines its indexed summary/control surface with Albums, Artists, and
+Tracks browsing. The selected segment persists independently, as does the
+Albums Grid/List mode. Album cards reserve cover geometry before lazy artwork
+decode; album and artist details replace the top-bar title, open at the top,
+and restore the prior list position on Back. Rows use sibling semantic controls
+for their primary action and three-dot menu. Track taps play the complete
+ordered context directly from that row; Play and Add actions are disabled for
+unavailable entities. Lists use keyset pagination and retain at most 192
+rendered items.
+
+Four fixed counter cards still show Tracks, Albums, Artists, and Unavailable.
+The compact scan panel updates Source, status, progress, and last successful
+scan in place. Rescan becomes Cancel only for active work and stays disabled
+while work is queued. Scan completion invalidates only the current Library
+pages; progress events never rebuild browse lists or artwork.
 
 Sources reuses its existing sibling popup for Rescan Library, Rename, Remove,
 and conditional Retry. Rescan is disabled while any Library scan is active or

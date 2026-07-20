@@ -1,8 +1,16 @@
 import type {
+  LibraryAlbum,
+  LibraryAlbumDetail,
+  LibraryArtist,
+  LibraryArtistDetail,
+  LibraryContextRequest,
   IndexedLibrarySnapshot,
   IndexedLibraryStatus,
+  LibraryPage,
+  LibraryQueueActionResponse,
   LibraryCancelScanRequest,
   LibraryScanRequest,
+  LibraryTrack,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -19,6 +27,70 @@ export class LibraryApiClient {
 
   status(): Promise<IndexedLibraryStatus> {
     return this.request("/api/library/status");
+  }
+
+  albums(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<LibraryPage<LibraryAlbum>> {
+    return this.request(this.pagePath("/api/library/albums", cursor, limit));
+  }
+
+  album(albumId: string): Promise<LibraryAlbumDetail> {
+    return this.request(`/api/library/albums/${encodeURIComponent(albumId)}`);
+  }
+
+  artists(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<LibraryPage<LibraryArtist>> {
+    return this.request(this.pagePath("/api/library/artists", cursor, limit));
+  }
+
+  artist(
+    artistId: string,
+    trackCursor: string | null = null,
+    limit = 48,
+  ): Promise<LibraryArtistDetail> {
+    const path = this.pagePath(
+      `/api/library/artists/${encodeURIComponent(artistId)}`,
+      trackCursor,
+      limit,
+      "trackCursor",
+    );
+    return this.request(path);
+  }
+
+  tracks(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<LibraryPage<LibraryTrack>> {
+    return this.request(this.pagePath("/api/library/tracks", cursor, limit));
+  }
+
+  play(request: LibraryContextRequest): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/play", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  queue(request: LibraryContextRequest): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/queue", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  queueTrack(trackId: string): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/tracks/queue", {
+      method: "POST",
+      body: JSON.stringify({ trackId }),
+    });
+  }
+
+  artworkUrl(trackId: string): string {
+    return `${apiBaseUrl}/api/library/tracks/${encodeURIComponent(trackId)}/artwork`;
   }
 
   scan(request: LibraryScanRequest = {}): Promise<IndexedLibrarySnapshot> {
@@ -80,5 +152,16 @@ export class LibraryApiClient {
       );
     }
     return payload.data as T;
+  }
+
+  private pagePath(
+    path: string,
+    cursor: string | null,
+    limit: number,
+    cursorName = "cursor",
+  ): string {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set(cursorName, cursor);
+    return `${path}?${query.toString()}`;
   }
 }

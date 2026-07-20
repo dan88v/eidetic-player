@@ -246,6 +246,35 @@ For the Taylor 14-track fixture, verify every metadata result, artwork ref,
 HTTP image response, and visible row thumbnail, including the bottom of the
 scrolled list.
 
+## Step 2.6 Library browsing checks
+
+In addition to the scanner cases:
+
+1. verify stable Album, Artist, and Track ordering across keyset page
+   boundaries, including duplicate visible names and missing metadata;
+2. verify album disc/track ordering and artist ordering with compilations,
+   album-artist ownership, duplicate joins, and an album-less tail;
+3. verify available, partially available, and unavailable entities without
+   exposing a native path in any browse response;
+4. tap a non-first Track and confirm the complete ordered context is created
+   with that exact Track current immediately;
+5. confirm Album/Artist Play filters unavailable files and fails before queue
+   mutation when no playable file remains;
+6. confirm Add appends without interrupting the current Track and that rapid
+   Play commands remain latest-request-wins;
+7. switch persistent Library segments and the independent Album Grid/List
+   preference, open nested Artist -> Album details, and verify Back restores
+   the prior list position;
+8. inspect lazy artwork placeholders, sibling menu semantics, reduced motion,
+   touch target sizes, and the 192-item DOM cap;
+9. complete a scan while browsing and confirm only Library pages invalidate:
+   there is still one Library SSE connection and no progress-driven refetch;
+10. measure browse/detail/context latency on at least a generated 1,000-Track
+    catalog and label desktop figures as desktop-only.
+
+Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
+1280x720, and 1024x600.
+
 ## Step 2.5 indexed Library checks
 
 Verify the indexed Library separately from on-demand Folders:

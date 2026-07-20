@@ -1,5 +1,11 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type {
+  LibraryAlbum,
+  LibraryAlbumDetail,
+  LibraryArtist,
+  LibraryArtistDetail,
+  LibraryPage,
+  LibraryTrack,
   IndexedLibrarySource,
   IndexedLibrarySummary,
   LibraryScanProgress,
@@ -7,6 +13,7 @@ import type {
 } from "../../../../packages/shared/src/library.js";
 import type { StoredSource } from "../filesystem/filesystem-types.js";
 import { LibraryDatabase } from "./library-database.js";
+import { LibraryError } from "./library-errors.js";
 import {
   albumIdentity,
   artistIdentity,
@@ -16,6 +23,7 @@ import {
 import type {
   IndexedTrackIdentity,
   IndexedTrackInput,
+  LibraryContextTrack,
   ScanCounters,
   ScanRunRecord,
 } from "./library-types.js";
@@ -28,6 +36,103 @@ function numberValue(value: unknown): number {
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  return value === null || value === undefined ? null : numberValue(value);
+}
+
+type CursorValue = string | number | null;
+
+function encodeCursor(values: readonly CursorValue[]): string {
+  return Buffer.from(JSON.stringify(values), "utf8").toString("base64url");
+}
+
+function decodeCursor(
+  cursor: string | null,
+  length: number,
+): readonly CursorValue[] | null {
+  if (!cursor) return null;
+  try {
+    const value = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    ) as unknown;
+    if (
+      !Array.isArray(value) ||
+      value.length !== length ||
+      value.some(
+        (part) =>
+          part !== null && typeof part !== "string" && typeof part !== "number",
+      )
+    )
+      throw new Error("invalid cursor");
+    return value as CursorValue[];
+  } catch {
+    throw new LibraryError(
+      "INVALID_LIBRARY_CURSOR",
+      "The Library page cursor is invalid.",
+    );
+  }
+}
+
+function effectiveAvailability(row: SqlRow): "available" | "unavailable" {
+  return numberValue(row.effective_available) === 1
+    ? "available"
+    : "unavailable";
+}
+
+function aggregateAvailability(
+  trackCount: number,
+  availableTrackCount: number,
+): "available" | "partial" | "unavailable" {
+  if (availableTrackCount === 0) return "unavailable";
+  return availableTrackCount === trackCount ? "available" : "partial";
+}
+
+function trackFromRow(row: SqlRow): LibraryTrack {
+  return {
+    id: String(row.track_id),
+    title: String(row.display_title),
+    artist: nullableString(row.artist_display),
+    album: nullableString(row.album_display),
+    durationSeconds: nullableNumber(row.duration_seconds),
+    discNumber: nullableNumber(row.disc_number),
+    trackNumber: nullableNumber(row.track_number),
+    artworkTrackId:
+      numberValue(row.artwork_available) === 1
+        ? String(row.track_id)
+        : nullableString(row.representative_track_id),
+    availability: effectiveAvailability(row),
+  };
+}
+
+function albumFromRow(row: SqlRow): LibraryAlbum {
+  const trackCount = numberValue(row.track_count);
+  const availableTrackCount = numberValue(row.available_track_count);
+  return {
+    id: String(row.album_id),
+    title: String(row.display_title),
+    albumArtist: nullableString(row.album_artist_display),
+    year: nullableNumber(row.year),
+    artworkTrackId: nullableString(row.representative_track_id),
+    trackCount,
+    availableTrackCount,
+    totalDurationSeconds: numberValue(row.total_duration_seconds),
+    availability: aggregateAvailability(trackCount, availableTrackCount),
+  };
+}
+
+function artistFromRow(row: SqlRow): LibraryArtist {
+  const trackCount = numberValue(row.track_count);
+  const availableTrackCount = numberValue(row.available_track_count);
+  return {
+    id: String(row.artist_id),
+    name: String(row.display_name),
+    albumCount: numberValue(row.album_count),
+    trackCount,
+    availableTrackCount,
+    availability: aggregateAvailability(trackCount, availableTrackCount),
+  };
 }
 
 function scanStatus(value: unknown): LibraryScanStatus {
@@ -155,13 +260,16 @@ export class LibraryRepository {
   }
 
   markSourceRemoved(sourceId: string, now = new Date().toISOString()): void {
-    this.connection
-      .prepare(
-        `UPDATE library_sources
-         SET removed = 1, available = 0, scan_status = 'idle', updated_at = ?
-         WHERE source_id = ?`,
-      )
-      .run(now, sourceId);
+    this.database.transaction(() => {
+      this.connection
+        .prepare(
+          `UPDATE library_sources
+           SET removed = 1, available = 0, scan_status = 'idle', updated_at = ?
+           WHERE source_id = ?`,
+        )
+        .run(now, sourceId);
+      this.rebuildAggregates(now);
+    });
   }
 
   sourceNeedsFirstScan(sourceId: string): boolean {
@@ -350,7 +458,6 @@ export class LibraryRepository {
       const unavailable = Number(missing.changes);
       counters.filesUnavailable = unavailable;
       counters.totalFiles = counters.filesDiscovered;
-      this.rebuildAggregates(now);
       this.connection
         .prepare(
           `UPDATE library_sources
@@ -368,6 +475,7 @@ export class LibraryRepository {
            WHERE source_id = ?`,
         )
         .run(now, now, sourceId, sourceId, now, sourceId);
+      this.rebuildAggregates(now);
       this.finishRun(scanId, "completed", counters, now, null);
       return unavailable;
     });
@@ -395,6 +503,7 @@ export class LibraryRepository {
            WHERE source_id = ?`,
         )
         .run(status, status, now, errorCode, now, sourceId);
+      if (status === "source-unavailable") this.rebuildAggregates(now);
     });
   }
 
@@ -529,6 +638,410 @@ export class LibraryRepository {
       )
       .get() as SqlRow | undefined;
     return numberValue(row?.bytes);
+  }
+
+  albums(cursor: string | null, limit: number): LibraryPage<LibraryAlbum> {
+    const decoded = decodeCursor(cursor, 4);
+    const cursorWhere = decoded
+      ? `WHERE (
+          lower(a.display_title),
+          lower(COALESCE(a.album_artist_display, '')),
+          COALESCE(a.year, 2147483647),
+          a.album_id
+        ) > (?, ?, ?, ?)`
+      : "";
+    const rows = this.connection
+      .prepare(
+        `SELECT a.album_id, a.display_title, a.album_artist_display, a.year,
+                a.representative_track_id, a.track_count,
+                a.available_track_count,
+                COALESCE(SUM(
+                  CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                       THEN t.duration_seconds ELSE 0 END
+                ), 0) AS total_duration_seconds,
+                lower(a.display_title) AS title_key,
+                lower(COALESCE(a.album_artist_display, '')) AS artist_key,
+                COALESCE(a.year, 2147483647) AS year_key
+         FROM albums a
+         LEFT JOIN tracks t ON t.album_id = a.album_id
+         LEFT JOIN library_sources s ON s.source_id = t.source_id
+         ${cursorWhere}
+         GROUP BY a.album_id
+         ORDER BY title_key, artist_key, year_key, a.album_id
+         LIMIT ?`,
+      )
+      .all(...(decoded ?? []), limit + 1) as SqlRow[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(albumFromRow),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([
+              String(last.title_key),
+              String(last.artist_key),
+              numberValue(last.year_key),
+              String(last.album_id),
+            ])
+          : null,
+    };
+  }
+
+  album(albumId: string): LibraryAlbumDetail | null {
+    const row = this.connection
+      .prepare(
+        `SELECT a.album_id, a.display_title, a.album_artist_display, a.year,
+                a.representative_track_id, a.track_count,
+                a.available_track_count,
+                COALESCE(SUM(
+                  CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                       THEN t.duration_seconds ELSE 0 END
+                ), 0) AS total_duration_seconds
+         FROM albums a
+         LEFT JOIN tracks t ON t.album_id = a.album_id
+         LEFT JOIN library_sources s ON s.source_id = t.source_id
+         WHERE a.album_id = ?
+         GROUP BY a.album_id`,
+      )
+      .get(albumId) as SqlRow | undefined;
+    if (!row) return null;
+    const tracks = this.connection
+      .prepare(
+        `SELECT t.track_id, COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available
+         FROM tracks t
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         WHERE t.album_id = ?
+         ORDER BY t.disc_number IS NULL, t.disc_number,
+                  t.track_number IS NULL, t.track_number,
+                  lower(display_title), t.track_id`,
+      )
+      .all(albumId) as SqlRow[];
+    return { ...albumFromRow(row), tracks: tracks.map(trackFromRow) };
+  }
+
+  artists(cursor: string | null, limit: number): LibraryPage<LibraryArtist> {
+    const decoded = decodeCursor(cursor, 2);
+    const rows = this.connection
+      .prepare(
+        `SELECT artist_id, display_name, album_count, track_count,
+                available_track_count, normalized_key
+         FROM artists
+         ${decoded ? "WHERE (normalized_key, artist_id) > (?, ?)" : ""}
+         ORDER BY normalized_key, artist_id
+         LIMIT ?`,
+      )
+      .all(...(decoded ?? []), limit + 1) as SqlRow[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(artistFromRow),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([String(last.normalized_key), String(last.artist_id)])
+          : null,
+    };
+  }
+
+  artist(
+    artistId: string,
+    trackCursor: string | null,
+    trackLimit: number,
+  ): LibraryArtistDetail | null {
+    const artistRow = this.connection
+      .prepare(
+        `SELECT artist_id, display_name, album_count, track_count,
+                available_track_count
+         FROM artists WHERE artist_id = ?`,
+      )
+      .get(artistId) as SqlRow | undefined;
+    if (!artistRow) return null;
+    const albums = this.connection
+      .prepare(
+        `WITH artist_tracks(track_id) AS (
+           SELECT track_id FROM track_artists WHERE artist_id = ?
+           UNION
+           SELECT t.track_id FROM tracks t
+           JOIN albums owned ON owned.album_id = t.album_id
+           WHERE owned.album_artist_id = ?
+         )
+         SELECT a.album_id, a.display_title, a.album_artist_display, a.year,
+                a.representative_track_id, COUNT(DISTINCT t.track_id) AS track_count,
+                COUNT(DISTINCT CASE
+                  WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                  THEN t.track_id END) AS available_track_count,
+                COALESCE(SUM(CASE
+                  WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                  THEN t.duration_seconds ELSE 0 END), 0) AS total_duration_seconds
+         FROM artist_tracks at
+         JOIN tracks t ON t.track_id = at.track_id
+         JOIN albums a ON a.album_id = t.album_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         GROUP BY a.album_id
+         ORDER BY lower(a.display_title),
+                  lower(COALESCE(a.album_artist_display, '')),
+                  COALESCE(a.year, 2147483647), a.album_id`,
+      )
+      .all(artistId, artistId) as SqlRow[];
+    const tracks = this.artistTracks(artistId, trackCursor, trackLimit);
+    return {
+      ...artistFromRow(artistRow),
+      albums: albums.map(albumFromRow),
+      tracks,
+    };
+  }
+
+  tracks(cursor: string | null, limit: number): LibraryPage<LibraryTrack> {
+    const decoded = decodeCursor(cursor, 6);
+    const rows = this.trackRows("", decoded, [limit + 1]);
+    return this.trackPage(rows, limit);
+  }
+
+  contextTracks(
+    context: "album" | "artist" | "tracks",
+    id?: string,
+  ): readonly LibraryContextTrack[] {
+    const effective = "t.available = 1 AND s.available = 1 AND s.removed = 0";
+    const baseSelect = `SELECT DISTINCT t.track_id, t.source_id, t.relative_path,
+      lower(COALESCE(t.title, t.filename)) AS title_key,
+      lower(COALESCE(t.artist_display, '')) AS artist_key,
+      lower(COALESCE(a.display_title, '')) AS album_key,
+      lower(COALESCE(a.album_artist_display, '')) AS album_artist_key,
+      t.disc_number, t.track_number
+      FROM tracks t
+      JOIN library_sources s ON s.source_id = t.source_id
+      LEFT JOIN albums a ON a.album_id = t.album_id`;
+    let rows: SqlRow[];
+    if (context === "album") {
+      rows = this.connection
+        .prepare(
+          `${baseSelect} WHERE t.album_id = ? AND ${effective}
+           ORDER BY t.disc_number IS NULL, t.disc_number,
+                    t.track_number IS NULL, t.track_number,
+                    title_key, t.track_id`,
+        )
+        .all(id ?? "");
+    } else if (context === "artist") {
+      rows = this.connection
+        .prepare(
+          `WITH artist_tracks(track_id) AS (
+             SELECT track_id FROM track_artists WHERE artist_id = ?
+             UNION
+             SELECT t2.track_id FROM tracks t2
+             JOIN albums a2 ON a2.album_id = t2.album_id
+             WHERE a2.album_artist_id = ?
+           )
+           ${baseSelect}
+           JOIN artist_tracks at ON at.track_id = t.track_id
+           WHERE ${effective}
+           ORDER BY t.album_id IS NULL, album_key, album_artist_key,
+                    CASE WHEN t.album_id IS NULL THEN 1
+                         ELSE t.disc_number IS NULL END,
+                    CASE WHEN t.album_id IS NULL THEN 2147483647
+                         ELSE COALESCE(t.disc_number, 2147483647) END,
+                    CASE WHEN t.album_id IS NULL THEN 1
+                         ELSE t.track_number IS NULL END,
+                    CASE WHEN t.album_id IS NULL THEN 2147483647
+                         ELSE COALESCE(t.track_number, 2147483647) END,
+                    title_key, t.track_id`,
+        )
+        .all(id ?? "", id ?? "");
+    } else {
+      rows = this.connection
+        .prepare(
+          `${baseSelect} WHERE ${effective}
+           ORDER BY title_key, artist_key, album_key,
+                    t.disc_number IS NULL, t.disc_number,
+                    t.track_number IS NULL, t.track_number, t.track_id`,
+        )
+        .all();
+    }
+    return rows.map((row) => ({
+      id: String(row.track_id),
+      sourceId: String(row.source_id),
+      relativePath: String(row.relative_path),
+    }));
+  }
+
+  contextTrack(trackId: string): LibraryContextTrack | null {
+    const row = this.connection
+      .prepare(
+        `SELECT t.track_id, t.source_id, t.relative_path
+         FROM tracks t JOIN library_sources s ON s.source_id = t.source_id
+         WHERE t.track_id = ? AND t.available = 1
+           AND s.available = 1 AND s.removed = 0`,
+      )
+      .get(trackId) as SqlRow | undefined;
+    return row
+      ? {
+          id: String(row.track_id),
+          sourceId: String(row.source_id),
+          relativePath: String(row.relative_path),
+        }
+      : null;
+  }
+
+  trackLocation(trackId: string): LibraryContextTrack | null {
+    const row = this.connection
+      .prepare(
+        `SELECT track_id, source_id, relative_path
+         FROM tracks WHERE track_id = ?`,
+      )
+      .get(trackId) as SqlRow | undefined;
+    return row
+      ? {
+          id: String(row.track_id),
+          sourceId: String(row.source_id),
+          relativePath: String(row.relative_path),
+        }
+      : null;
+  }
+
+  catalogFingerprint(): string {
+    const row = this.connection
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM tracks) AS tracks,
+                COALESCE(SUM(current_generation), 0) AS generations,
+                COALESCE(SUM(file_count), 0) AS files,
+                COALESCE(SUM(unavailable_count), 0) AS unavailable
+         FROM library_sources`,
+      )
+      .get() as SqlRow;
+    return [
+      numberValue(row.tracks),
+      numberValue(row.generations),
+      numberValue(row.files),
+      numberValue(row.unavailable),
+    ].join(":");
+  }
+
+  private artistTracks(
+    artistId: string,
+    cursor: string | null,
+    limit: number,
+  ): LibraryPage<LibraryTrack> {
+    const decoded = decodeCursor(cursor, 7);
+    const keys = `t.album_id IS NULL,
+      lower(COALESCE(a.display_title, '')),
+      lower(COALESCE(a.album_artist_display, '')),
+      CASE WHEN t.album_id IS NULL THEN 2147483647
+           ELSE COALESCE(t.disc_number, 2147483647) END,
+      CASE WHEN t.album_id IS NULL THEN 2147483647
+           ELSE COALESCE(t.track_number, 2147483647) END,
+      lower(COALESCE(t.title, t.filename)), t.track_id`;
+    const rows = this.connection
+      .prepare(
+        `WITH artist_tracks(track_id) AS (
+           SELECT track_id FROM track_artists WHERE artist_id = ?
+           UNION
+           SELECT t2.track_id FROM tracks t2
+           JOIN albums a2 ON a2.album_id = t2.album_id
+           WHERE a2.album_artist_id = ?
+         )
+         SELECT t.track_id,
+                COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available,
+                t.album_id IS NULL AS k1,
+                lower(COALESCE(a.display_title, '')) AS k2,
+                lower(COALESCE(a.album_artist_display, '')) AS k3,
+                CASE WHEN t.album_id IS NULL THEN 2147483647
+                     ELSE COALESCE(t.disc_number, 2147483647) END AS k4,
+                CASE WHEN t.album_id IS NULL THEN 2147483647
+                     ELSE COALESCE(t.track_number, 2147483647) END AS k5,
+                lower(COALESCE(t.title, t.filename)) AS k6,
+                t.track_id AS k7
+         FROM artist_tracks at
+         JOIN tracks t ON t.track_id = at.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         ${decoded ? `WHERE (${keys}) > (?, ?, ?, ?, ?, ?, ?)` : ""}
+         ORDER BY ${keys}
+         LIMIT ?`,
+      )
+      .all(artistId, artistId, ...(decoded ?? []), limit + 1) as SqlRow[];
+    return this.trackPage(rows, limit, true);
+  }
+
+  private trackRows(
+    joinPrefix: string,
+    cursor: readonly CursorValue[] | null,
+    tailParameters: readonly CursorValue[],
+  ): SqlRow[] {
+    const keys = `lower(COALESCE(t.title, t.filename)),
+      lower(COALESCE(t.artist_display, '')),
+      lower(COALESCE(a.display_title, '')),
+      COALESCE(t.disc_number, 2147483647),
+      COALESCE(t.track_number, 2147483647), t.track_id`;
+    return this.connection
+      .prepare(
+        `SELECT t.track_id,
+                COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available,
+                lower(COALESCE(t.title, t.filename)) AS k1,
+                lower(COALESCE(t.artist_display, '')) AS k2,
+                lower(COALESCE(a.display_title, '')) AS k3,
+                COALESCE(t.disc_number, 2147483647) AS k4,
+                COALESCE(t.track_number, 2147483647) AS k5,
+                t.track_id AS k6
+         FROM tracks t
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         ${joinPrefix}
+         ${cursor ? `WHERE (${keys}) > (${cursor.map(() => "?").join(", ")})` : ""}
+         ORDER BY ${keys}
+         LIMIT ?`,
+      )
+      .all(...(cursor ?? []), tailParameters.at(-1) ?? 1);
+  }
+
+  private trackPage(
+    rows: readonly SqlRow[],
+    limit: number,
+    artistOrder = false,
+  ): LibraryPage<LibraryTrack> {
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    const cursorValues = last
+      ? artistOrder
+        ? [
+            numberValue(last.k1),
+            String(last.k2),
+            String(last.k3),
+            numberValue(last.k4),
+            numberValue(last.k5),
+            String(last.k6),
+            String(last.k7),
+          ]
+        : [
+            String(last.k1),
+            String(last.k2),
+            String(last.k3),
+            numberValue(last.k4),
+            numberValue(last.k5),
+            String(last.k6),
+          ]
+      : null;
+    return {
+      items: page.map(trackFromRow),
+      nextCursor:
+        rows.length > limit && cursorValues ? encodeCursor(cursorValues) : null,
+    };
   }
 
   private upsertTrack(track: IndexedTrackInput): void {
@@ -772,23 +1285,44 @@ export class LibraryRepository {
       .prepare(
         `UPDATE artists SET
            track_count = (
-             SELECT COUNT(*) FROM track_artists
-             WHERE track_artists.artist_id = artists.artist_id
+             SELECT COUNT(*) FROM (
+               SELECT track_id FROM track_artists
+               WHERE track_artists.artist_id = artists.artist_id
+               UNION
+               SELECT tracks.track_id FROM tracks
+               JOIN albums ON albums.album_id = tracks.album_id
+               WHERE albums.album_artist_id = artists.artist_id
+             )
            ),
            album_count = (
-             SELECT COUNT(DISTINCT tracks.album_id)
-             FROM track_artists
-             JOIN tracks ON tracks.track_id = track_artists.track_id
-             WHERE track_artists.artist_id = artists.artist_id
-               AND tracks.album_id IS NOT NULL
+             SELECT COUNT(DISTINCT album_id) FROM (
+               SELECT tracks.album_id
+               FROM track_artists
+               JOIN tracks ON tracks.track_id = track_artists.track_id
+               WHERE track_artists.artist_id = artists.artist_id
+                 AND tracks.album_id IS NOT NULL
+               UNION
+               SELECT albums.album_id FROM albums
+               WHERE albums.album_artist_id = artists.artist_id
+             )
            ),
            available_track_count = (
-             SELECT COUNT(*)
-             FROM track_artists
-             JOIN tracks ON tracks.track_id = track_artists.track_id
-             JOIN library_sources s ON s.source_id = tracks.source_id
-             WHERE track_artists.artist_id = artists.artist_id
-               AND tracks.available = 1 AND s.available = 1 AND s.removed = 0
+             SELECT COUNT(*) FROM (
+               SELECT tracks.track_id
+               FROM track_artists
+               JOIN tracks ON tracks.track_id = track_artists.track_id
+               JOIN library_sources s ON s.source_id = tracks.source_id
+               WHERE track_artists.artist_id = artists.artist_id
+                 AND tracks.available = 1
+                 AND s.available = 1 AND s.removed = 0
+               UNION
+               SELECT tracks.track_id FROM tracks
+               JOIN albums ON albums.album_id = tracks.album_id
+               JOIN library_sources s ON s.source_id = tracks.source_id
+               WHERE albums.album_artist_id = artists.artist_id
+                 AND tracks.available = 1
+                 AND s.available = 1 AND s.removed = 0
+             )
            ),
            updated_at = ?`,
       )

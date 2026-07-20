@@ -53,7 +53,10 @@ future Raspberry shell.
 - `IndexedLibraryService` owns the durable SQLite catalog and publishes
   low-frequency Library snapshots. `LibraryScheduler` owns the single active
   scan, while `LibraryScanner` owns recursive traversal and incremental
-  metadata ingestion. Folders browsing remains an independent on-demand path.
+  metadata ingestion. `LibraryRepository` owns deterministic entity queries
+  and opaque keyset cursors; `IndexedLibraryService` resolves Play/Add contexts
+  and revalidates their paths before delegating to `PlayerService`. Folders
+  browsing remains an independent on-demand path.
 
 Do not introduce a second owner for any of these concerns.
 
@@ -68,9 +71,11 @@ Do not introduce a second owner for any of these concerns.
 - Large binary data, local paths, base64, and PCM never belong in player SSE.
 - Folders responses use opaque IDs and logical relative paths. Absolute roots
   remain backend-only after the native Add Source command.
-- Library REST/SSE carries only opaque Source/Track identity, aggregate counts,
-  progress, and safe error codes. Database paths and native roots remain
-  backend-only.
+- Library REST/SSE carries only opaque Source/Album/Artist/Track identity,
+  catalog metadata, aggregate counts, progress, and safe error codes. Database
+  paths and native roots remain backend-only. Native paths are reconstructed
+  only inside validated Play/Add commands after Source and file availability
+  checks.
 
 Components use central API clients. Shared request, response, state, and event
 types live in `packages/shared`.
@@ -93,6 +98,12 @@ single-field update.
 Library scan events update only counters, status text, progress, and action
 state in the already mounted Library screen. They must not rebuild Queue,
 Now Playing, Sources cards, or the screen shell.
+
+Library browse pages are independent screen-local state. Scan progress never
+refetches them; a completed generation invalidates only the active Library
+pages. Detail routing swaps the Library root/detail regions without rebuilding
+the application shell, preserves the root scroll position, and updates the
+existing top-bar title.
 
 ## Async correctness
 

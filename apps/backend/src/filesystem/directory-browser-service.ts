@@ -314,6 +314,34 @@ export class DirectoryBrowserService {
       : null;
   }
 
+  async artworkForLogicalPath(
+    sourceId: string,
+    relativePath: string,
+  ): Promise<ArtworkResource | null> {
+    const source = await this.sources.getInternal(sourceId);
+    if ((await this.sources.availabilityOf(sourceId)) !== "available")
+      return null;
+    try {
+      const nativePath = await this.paths.resolveWithinSource(
+        source.canonicalRoot,
+        relativePath,
+      );
+      const details = await this.provider.lstat(nativePath);
+      if (details.isSymbolicLink() || !details.isFile()) return null;
+      const result = await this.metadata.readForArtwork(
+        nativePath,
+        async (ref) => (await this.artwork.getResource(ref.id)) !== null,
+      );
+      const artwork = await this.artworkConcurrency.run(() =>
+        this.artwork.resolve(nativePath, result.cacheKey, result.pictures),
+      );
+      this.metadata.rememberArtwork(result.cacheKey, artwork);
+      return artwork ? await this.artwork.getResource(artwork.id) : null;
+    } catch {
+      return null;
+    }
+  }
+
   getArtworkResource(artworkId: string): Promise<ArtworkResource | null> {
     return this.artwork.getResource(artworkId);
   }

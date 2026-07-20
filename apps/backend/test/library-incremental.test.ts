@@ -90,6 +90,74 @@ void test("1,000 logical tracks use bounded batches and unchanged marker-only up
     assert.equal(repository.summary().albumCount, 100);
     assert.equal(repository.summary().artistCount, 20);
 
+    const browsingStarted = performance.now();
+    const albumPage = repository.albums(null, 48);
+    const albumFirstMilliseconds = performance.now() - browsingStarted;
+    const albumNextStarted = performance.now();
+    repository.albums(albumPage.nextCursor, 48);
+    const albumNextMilliseconds = performance.now() - albumNextStarted;
+    const artistStarted = performance.now();
+    const artistPage = repository.artists(null, 48);
+    const artistMilliseconds = performance.now() - artistStarted;
+    const trackStarted = performance.now();
+    const trackPage = repository.tracks(null, 48);
+    const trackMilliseconds = performance.now() - trackStarted;
+    const albumDetailStarted = performance.now();
+    repository.album(albumPage.items[0]?.id ?? "");
+    const albumDetailMilliseconds = performance.now() - albumDetailStarted;
+    const artistDetailStarted = performance.now();
+    repository.artist(artistPage.items[0]?.id ?? "", null, 48);
+    const artistDetailMilliseconds = performance.now() - artistDetailStarted;
+    const albumContextStarted = performance.now();
+    const albumContext = repository.contextTracks(
+      "album",
+      albumPage.items[0]?.id,
+    );
+    const albumContextMilliseconds = performance.now() - albumContextStarted;
+    const artistContextStarted = performance.now();
+    const artistContext = repository.contextTracks(
+      "artist",
+      artistPage.items[0]?.id,
+    );
+    const artistContextMilliseconds = performance.now() - artistContextStarted;
+    const tracksContextStarted = performance.now();
+    const tracksContext = repository.contextTracks("tracks");
+    const tracksContextMilliseconds = performance.now() - tracksContextStarted;
+    assert.equal(albumPage.items.length, 48);
+    assert.equal(trackPage.items.length, 48);
+    assert.equal(tracksContext.length, 1_000);
+    assert.ok(albumContext.length > 0);
+    assert.ok(artistContext.length > 0);
+    assert.ok(
+      Math.max(
+        albumFirstMilliseconds,
+        albumNextMilliseconds,
+        artistMilliseconds,
+        trackMilliseconds,
+        albumDetailMilliseconds,
+        artistDetailMilliseconds,
+        albumContextMilliseconds,
+        artistContextMilliseconds,
+        tracksContextMilliseconds,
+      ) < 1_000,
+    );
+    console.info(
+      "[library-benchmark]",
+      JSON.stringify({
+        tracks: 1_000,
+        albumFirstMilliseconds,
+        albumNextMilliseconds,
+        artistMilliseconds,
+        trackMilliseconds,
+        albumDetailMilliseconds,
+        artistDetailMilliseconds,
+        albumContextMilliseconds,
+        artistContextMilliseconds,
+        tracksContextMilliseconds,
+        backendHeapUsedBytes: process.memoryUsage().heapUsed,
+      }),
+    );
+
     const second = repository.beginScan(
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       sourceA,

@@ -133,6 +133,14 @@ transition enrichment before starting lower-priority metadata work. Library
 SSE is low-frequency and exists only while a Library or Sources client is
 mounted; it is not a visualizer or position channel.
 
+Entity browsing uses deterministic keyset pagination, never SQL offsets.
+Default pages contain 48 items, requests are capped at 100, and the UI retains
+at most 192 rows/cards. There is one load-more sentinel at a time. Artwork is
+lazy, occupies reserved geometry, and becomes visible only after decode through
+the existing artwork service. Play/Add context path checks use eight bounded
+workers; they create no scanner, observer, timer, SSE connection, or artwork
+pipeline.
+
 Incremental identity is `(sourceId, logicalRelativePath, size, mtime)`.
 Unchanged files must cause zero metadata parses. A cancelled, failed, partial,
 or unavailable traversal must not run the missing-file availability update.
@@ -182,8 +190,9 @@ For changes affecting realtime behavior, measure before and after:
 For Library work also record first-scan and unchanged throughput, metadata
 parse count, transaction count/maximum/average duration, database size,
 backend working set/CPU where practical, cancellation latency, populated
-startup time, integrity, and maximum concurrent scans. Desktop results are not
-evidence of Raspberry Pi 3B performance.
+startup time, integrity, maximum concurrent scans, browse-page latency,
+album/artist detail latency, and Album/Artist/all-Tracks context-build latency.
+Desktop results are not evidence of Raspberry Pi 3B performance.
 
 Test Meter, Mono Spectrum, Stereo Spectrum, Technical, and None independently
 with real FLAC and MP3 files. Record limitations honestly; do not claim

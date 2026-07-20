@@ -59,6 +59,8 @@ export interface ScreenContext {
   ) => Promise<DirectoryQueueResponse>;
   readonly openSources: () => void;
   readonly removeFolderSource: (sourceId: string) => void;
+  readonly noteTrackCommand: () => void;
+  readonly setScreenTitle: (title: string) => void;
 }
 
 function staticView(element: HTMLElement): ComponentView {
@@ -103,6 +105,8 @@ export function createScreen(
       return createLibraryScreen({
         api: context.libraryApi,
         openSources: context.openSources,
+        noteTrackCommand: context.noteTrackCommand,
+        setTitle: context.setScreenTitle,
         showToast: context.showToast,
       });
     case "sources":

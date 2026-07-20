@@ -178,3 +178,70 @@ export interface LibraryCancelScanRequest {
   readonly scanId?: string;
   readonly sourceId?: string;
 }
+
+export type LibraryEntityAvailability = "available" | "partial" | "unavailable";
+
+export interface LibraryPage<T> {
+  readonly items: readonly T[];
+  readonly nextCursor: string | null;
+}
+
+export interface LibraryTrack {
+  readonly id: string;
+  readonly title: string;
+  readonly artist: string | null;
+  readonly album: string | null;
+  readonly durationSeconds: number | null;
+  readonly discNumber: number | null;
+  readonly trackNumber: number | null;
+  readonly artworkTrackId: string | null;
+  readonly availability: "available" | "unavailable";
+}
+
+export interface LibraryAlbum {
+  readonly id: string;
+  readonly title: string;
+  readonly albumArtist: string | null;
+  readonly year: number | null;
+  readonly artworkTrackId: string | null;
+  readonly trackCount: number;
+  readonly availableTrackCount: number;
+  readonly totalDurationSeconds: number;
+  readonly availability: LibraryEntityAvailability;
+}
+
+export interface LibraryArtist {
+  readonly id: string;
+  readonly name: string;
+  readonly albumCount: number;
+  readonly trackCount: number;
+  readonly availableTrackCount: number;
+  readonly availability: LibraryEntityAvailability;
+}
+
+export interface LibraryAlbumDetail extends LibraryAlbum {
+  readonly tracks: readonly LibraryTrack[];
+}
+
+export interface LibraryArtistDetail extends LibraryArtist {
+  readonly albums: readonly LibraryAlbum[];
+  readonly tracks: LibraryPage<LibraryTrack>;
+}
+
+export type LibraryContextKind = "album" | "artist" | "tracks";
+
+export interface LibraryContextRequest {
+  readonly context: LibraryContextKind;
+  readonly id?: string;
+  readonly selectedTrackId?: string;
+}
+
+export interface LibraryTrackQueueRequest {
+  readonly trackId: string;
+}
+
+export interface LibraryQueueActionResponse {
+  readonly queueLength: number;
+  readonly selectedIndex: number | null;
+  readonly appendedCount: number;
+}
