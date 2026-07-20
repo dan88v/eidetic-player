@@ -1,5 +1,6 @@
 import type {
   AddLocalSourceResponse,
+  IndexedLibrarySnapshot,
   LibrarySource,
 } from "../../../../packages/shared/src/library";
 import type { FoldersApiClient } from "../api/folders-api-client";
@@ -11,6 +12,7 @@ import { t } from "../i18n";
 export interface SourcesScreenOptions {
   readonly api: FoldersApiClient;
   readonly libraryApi: LibraryApiClient;
+  readonly initialLibrarySnapshot: IndexedLibrarySnapshot | null;
   readonly addFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openSource: (sourceId: string) => void;
   readonly onSourceRemoved: (sourceId: string) => void;
@@ -110,6 +112,18 @@ export function createSourcesScreen(
   let menuSource: LibrarySource | null = null;
   let menuTrigger: HTMLButtonElement | null = null;
   let libraryScanBusy = false;
+
+  const updateLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
+    libraryScanBusy =
+      snapshot.status.activeScan !== null ||
+      snapshot.status.queuedSourceIds.length > 0;
+    const rescan = actionMenu.querySelector<HTMLButtonElement>(
+      '[data-action="rescan"]',
+    );
+    if (rescan && menuSource) rescan.disabled = libraryScanBusy;
+  };
+  if (options.initialLibrarySnapshot)
+    updateLibrarySnapshot(options.initialLibrarySnapshot);
 
   const closeMenu = (restoreFocus = false): void => {
     actionMenu.hidden = true;
@@ -381,29 +395,15 @@ export function createSourcesScreen(
   };
   document.addEventListener("keydown", handleKeydown);
   document.addEventListener("pointerdown", handleDocumentPointer);
-  const unsubscribeLibrary = options.libraryApi.subscribe(
-    (snapshot) => {
-      libraryScanBusy =
-        snapshot.status.activeScan !== null ||
-        snapshot.status.queuedSourceIds.length > 0;
-      const rescan = actionMenu.querySelector<HTMLButtonElement>(
-        '[data-action="rescan"]',
-      );
-      if (rescan && menuSource) rescan.disabled = libraryScanBusy;
-    },
-    () => {
-      // Keep the last known compatible action state while SSE reconnects.
-    },
-  );
   dialog.inert = true;
   void load();
   return {
     element: section,
+    updateLibrarySnapshot,
     destroy() {
       destroyed = true;
       requestGeneration += 1;
       closeMenu();
-      unsubscribeLibrary();
       document.removeEventListener("keydown", handleKeydown);
       document.removeEventListener("pointerdown", handleDocumentPointer);
     },

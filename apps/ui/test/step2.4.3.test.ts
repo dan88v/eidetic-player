@@ -143,20 +143,18 @@ void test("visualizer discards stale track generations without extra streams", a
 });
 
 void test("queue confirmations use the single deduplicated toast", async () => {
-  const [folders, shell] = await Promise.all([
+  const [folders, shell, toast] = await Promise.all([
     readFile("apps/ui/src/screens/folders.ts", "utf8"),
     readFile("apps/ui/src/components/app-shell.ts", "utf8"),
+    readFile("apps/ui/src/components/toast-host.ts", "utf8"),
   ]);
   assert.match(folders, /options\.showToast\(/);
   assert.doesNotMatch(
     folders,
     /status\.textContent = t\("folders\.trackAdded"\)/,
   );
-  assert.match(shell, /lastToastMessage/);
-  assert.equal(
-    (shell.match(/toast\.className = "app-toast"/g) ?? []).length,
-    1,
-  );
+  assert.match(toast, /lastTransientMessage/);
+  assert.equal((shell.match(/createToastHost\(/g) ?? []).length, 1);
 });
 
 void test("artwork decode failures remain retryable and sorting has one border", async () => {
@@ -218,11 +216,12 @@ void test("rapid Folders row playback is latest-wins and always re-enables contr
 });
 
 void test("mounted application feedback uses only the shared toast surface", async () => {
-  const [folders, sources, shell, css] = await Promise.all([
+  const [folders, sources, shell, css, toast] = await Promise.all([
     readFile("apps/ui/src/screens/folders.ts", "utf8"),
     readFile("apps/ui/src/screens/sources.ts", "utf8"),
     readFile("apps/ui/src/components/app-shell.ts", "utf8"),
     readFile("apps/ui/src/styles/screens.css", "utf8"),
+    readFile("apps/ui/src/components/toast-host.ts", "utf8"),
   ]);
   assert.doesNotMatch(folders, /folders-status|status\.textContent/);
   assert.doesNotMatch(
@@ -232,10 +231,8 @@ void test("mounted application feedback uses only the shared toast surface", asy
   assert.doesNotMatch(css, /\.folders-status|\.sources-feedback/);
   assert.match(folders, /options\.showToast\(/);
   assert.match(sources, /options\.showToast\(/);
-  assert.equal(
-    (shell.match(/toast\.className = "app-toast"/g) ?? []).length,
-    1,
-  );
+  assert.equal((shell.match(/createToastHost\(/g) ?? []).length, 1);
+  assert.match(toast, /host\.append\(transientToast, progressToast\)/);
 });
 
 void test("Folders toasts are limited to queue feedback and errors", async () => {

@@ -7,6 +7,7 @@ import type { LibraryApiClient } from "../api/library-api-client";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
+  IndexedLibrarySnapshot,
 } from "../../../../packages/shared/src/library";
 import type {
   AppState,
@@ -47,6 +48,7 @@ export interface ScreenContext {
   readonly playerActions: PlayerActions;
   readonly foldersApi: FoldersApiClient;
   readonly libraryApi: LibraryApiClient;
+  readonly librarySnapshot: IndexedLibrarySnapshot | null;
   readonly addLocalFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openFolderSource: (sourceId: string) => void;
   readonly openFolderEntry: (
@@ -104,6 +106,7 @@ export function createScreen(
     case "library":
       return createLibraryScreen({
         api: context.libraryApi,
+        initialSnapshot: context.librarySnapshot,
         openSources: context.openSources,
         noteTrackCommand: context.noteTrackCommand,
         setTitle: context.setScreenTitle,
@@ -113,6 +116,7 @@ export function createScreen(
       return createSourcesScreen({
         api: context.foldersApi,
         libraryApi: context.libraryApi,
+        initialLibrarySnapshot: context.librarySnapshot,
         addFolder: context.addLocalFolder,
         openSource: context.openFolderSource,
         onSourceRemoved: context.removeFolderSource,

@@ -275,6 +275,31 @@ In addition to the scanner cases:
 Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
 1280x720, and 1024x600.
 
+## Step 2.6.1 Manage Library and scan-notification checks
+
+1. confirm Library root contains no summary or scan panel and exposes the
+   segmented browser immediately below Rescan/Cancel and Manage Library;
+2. open Manage Library and verify Back restores the exact segment, Album
+   Grid/List mode, loaded pages, prior detail route where applicable, and
+   scroll position;
+3. verify Summary, detailed scan statistics, empty/error states, the compact
+   Source overview, Source Rescan/Retry, and Open Sources without duplicated
+   Add/Rename/Remove controls;
+4. start scans from Library, Manage Library, and Sources and confirm one keyed
+   toast updates in place across queued, scanning, cancelling, completed,
+   cancelled, failed, interrupted, and Source-unavailable states;
+5. verify determinate progress only with a reliable total, otherwise an
+   accessible indeterminate progress state, and no invented percentage;
+6. measure no more than four visual toast updates per second, immediate
+   terminal rendering, 2.5-second completed/cancelled dismissal, persistent
+   failure, and cancellation of pending callbacks on teardown;
+7. navigate while scanning and confirm the passive toast persists without
+   buttons, page-level Manage navigation does not stop the scan, progress
+   updates do not reset inactivity, and exactly one Library EventSource and one
+   toast host exist;
+8. inspect Library, Manage, progress/normal toast stacking, mini-player, and
+   scrolling at 1280x800, 1366x768, 1600x900, 1280x720, and 1024x600.
+
 ## Step 2.5 indexed Library checks
 
 Verify the indexed Library separately from on-demand Folders:

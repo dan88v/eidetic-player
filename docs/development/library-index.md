@@ -116,12 +116,24 @@ Unavailable files are excluded. The queue is mutated only after the full
 context succeeds, and a selected Track ID maps directly to the resolved queue
 index.
 
-The Library UI retains its summary/scan controls and adds persistent
-Albums/Artists/Tracks segments plus an independent Album Grid/List setting.
-Only the newest 192 paged entities stay mounted. Details update the existing
-top-bar title, preserve return scroll state, and use the shared sibling action
-popup. Scan progress updates only compact status fields; completion invalidates
-the Library pages once.
+The Library root contains only Rescan/Cancel, Manage Library, persistent
+Albums/Artists/Tracks segments, the independent Album Grid/List setting, and
+the selected catalog content. Summary, detailed scan state, and the compact
+operational Source overview live on the internal Manage Library subpage.
+Manage is not Settings and does not duplicate Sources configuration, Rename,
+Remove, Add Folder, or native dialogs. Only the newest 192 paged entities stay
+mounted. Details and Manage update the existing top-bar title and preserve the
+originating route and scroll.
+
+One app-lifetime Library EventSource consumes the existing low-frequency SSE
+and distributes snapshots to the mounted screen plus the single toast host.
+The keyed `library-scan-progress` notification is restored only for active or
+queued work, coalesces visual updates to 250 ms, and applies terminal states
+immediately. Complete and cancelled states reuse the same surface and dismiss
+after 2.5 seconds; failure, interruption, and Source-unavailable states remain
+visible until superseded or shutdown. The toast has no controls; management
+stays on the Library screen. No polling,
+second EventSource, second toast host, or scan-specific endpoint is used.
 
 ## Verification
 

@@ -95,15 +95,17 @@ Treat the UI as several independent update regions:
 Do not rebuild `AppShell`, Now Playing, Queue, or the full mini-player for a
 single-field update.
 
-Library scan events update only counters, status text, progress, and action
-state in the already mounted Library screen. They must not rebuild Queue,
-Now Playing, Sources cards, or the screen shell.
+One app-lifetime Library SSE subscription feeds the mounted Library/Sources
+screen and the global keyed scan notification. Library scan events update only
+counters, status text, progress, Source overview fields, and action state. They
+must not rebuild Queue, Now Playing, browse collections, or the screen shell.
 
 Library browse pages are independent screen-local state. Scan progress never
 refetches them; a completed generation invalidates only the active Library
 pages. Detail routing swaps the Library root/detail regions without rebuilding
-the application shell, preserves the root scroll position, and updates the
-existing top-bar title.
+the application shell. Manage Library uses the same internal route owner and
+preserves the root/detail route, segment, Album view, loaded pages, and scroll;
+it updates the existing top-bar title.
 
 ## Async correctness
 

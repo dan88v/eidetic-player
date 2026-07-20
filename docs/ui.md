@@ -72,21 +72,26 @@ targets, direct-audio counts, and a sibling accessible action menu. Switching
 view changes CSS state only: it performs no request, artwork reload, screen
 rebuild, or scroll reset.
 
-Library combines its indexed summary/control surface with Albums, Artists, and
-Tracks browsing. The selected segment persists independently, as does the
-Albums Grid/List mode. Album cards reserve cover geometry before lazy artwork
-decode; album and artist details replace the top-bar title, open at the top,
-and restore the prior list position on Back. Rows use sibling semantic controls
-for their primary action and three-dot menu. Track taps play the complete
-ordered context directly from that row; Play and Add actions are disabled for
-unavailable entities. Lists use keyset pagination and retain at most 192
-rendered items.
+Library root is dedicated to Albums, Artists, and Tracks browsing. Its header
+contains Rescan/Cancel and the secondary Manage Library action; the segmented
+control follows immediately, with the Albums Grid/List mode where applicable.
+The selected segment and Album presentation persist independently. Album cards
+reserve cover geometry before lazy artwork decode; album and artist details
+replace the top-bar title, open at the top, and restore the prior list position
+on Back. Rows use sibling semantic controls for their primary action and
+three-dot menu. Track taps play the complete ordered context directly from that
+row; Play and Add actions are disabled for unavailable entities. Lists use
+keyset pagination and retain at most 192 rendered items.
 
-Four fixed counter cards still show Tracks, Albums, Artists, and Unavailable.
-The compact scan panel updates Source, status, progress, and last successful
-scan in place. Rescan becomes Cancel only for active work and stays disabled
-while work is queued. Scan completion invalidates only the current Library
-pages; progress events never rebuild browse lists or artwork.
+Manage Library is an internal Library subpage, distinct from Settings and from
+the Sources configuration screen. It reuses the four Tracks, Albums, Artists,
+and Unavailable counters, the detailed scan panel, and a compact operational
+Source overview. The overview exposes Source-specific Rescan/Retry and links to
+the existing Sources screen; it does not duplicate Add, Rename, Remove, or
+native dialogs. Back restores the browsing segment, Album view, loaded pages,
+and scroll. Rescan becomes Cancel for active work and stays disabled while work
+is queued. Scan completion invalidates only current Library pages; progress
+events never rebuild browse lists or artwork.
 
 Sources reuses its existing sibling popup for Rescan Library, Rename, Remove,
 and conditional Retry. Rescan is disabled while any Library scan is active or
@@ -169,3 +174,14 @@ The immediate splash keeps “Eidetic Player” on one responsive, non-wrapping
 line. Its loading line uses the active theme accent and becomes static when
 Animations are off or reduced motion is requested. Empty Now Playing reserves
 its normal surfaces but renders no instructional sentence.
+
+Library scans extend the single application toast host with one persistent
+`library-scan-progress` notification. Queued, scanning, cancelling, completed,
+cancelled, and failure states update that keyed surface in place. Visual
+updates are coalesced to at most four per second; terminal states are immediate.
+Complete/cancelled dismiss after 2.5 seconds, while failed, interrupted, and
+unavailable states remain visible until superseded or shutdown. The progress
+toast is passive and contains no buttons; management remains on the Library
+screen. Normal transient
+messages retain their existing duration and may stack in the same host without
+creating another overlay.

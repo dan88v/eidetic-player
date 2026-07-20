@@ -129,9 +129,11 @@ The indexed Library is the sole intentional recursive path. It has one
 scheduler, one scanner, one SQLite connection, serialized metadata parsing,
 and bounded transactions of 32 Tracks on desktop or 16 in the Raspberry
 profile. It yields after each batch and directory, and it waits for playback
-transition enrichment before starting lower-priority metadata work. Library
-SSE is low-frequency and exists only while a Library or Sources client is
-mounted; it is not a visualizer or position channel.
+transition enrichment before starting lower-priority metadata work. One
+low-frequency Library SSE subscription remains app-lifetime so background scan
+state can feed the global keyed notification; it is not a visualizer or
+position channel. Toast rendering coalesces snapshots to at most four visual
+updates per second and applies terminal states immediately.
 
 Entity browsing uses deterministic keyset pagination, never SQL offsets.
 Default pages contain 48 items, requests are capped at 100, and the UI retains

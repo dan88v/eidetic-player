@@ -193,6 +193,14 @@ Folders navigation, directory loading, and playback communicate through their
 content or player state. Use the toast for errors and operations without an
 otherwise visible outcome, such as Add to Queue.
 
+Long Library scans are the controlled persistent exception. They use one keyed
+`library-scan-progress` surface inside the same toast host and update it in
+place at a coalesced maximum of four visual updates per second. The surface is
+passive and contains no buttons; scan controls remain on Library surfaces.
+Completed and cancelled states dismiss after 2.5 seconds; failure states remain
+visible until superseded or shutdown. Normal toasts keep their existing
+transient behavior.
+
 Section content headers do not duplicate the page identity already displayed
 by the top bar. Keep only `screen-header__description` at the left, retain
 existing right-side actions, and omit decorative icons, eyebrows, and visible

@@ -1,5 +1,6 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
+import type { IndexedLibrarySnapshot } from "../../../../packages/shared/src/library";
 import { PlayerApiClient } from "../api/player-api-client";
 import { FoldersApiClient } from "../api/folders-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
@@ -28,6 +29,7 @@ import { ArtworkPreloader } from "./artwork";
 import { createQueueDrawer } from "./queue-drawer";
 import { createSideMenu } from "./side-menu";
 import { createTopBar } from "./top-bar";
+import { createToastHost } from "./toast-host";
 import type { ComponentView } from "./types";
 import { createVolumePopover } from "./volume-popover";
 
@@ -47,48 +49,21 @@ export function mountApp(
   const playerStore = new PlayerStore(initialPlayerState);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
-  const toast = document.createElement("div");
-  toast.className = "app-toast";
-  toast.setAttribute("role", "status");
-  toast.setAttribute("aria-live", "polite");
   const dropOverlay = document.createElement("div");
   dropOverlay.className = "drop-overlay";
   dropOverlay.innerHTML = `<strong>${t("drop.title")}</strong><span>${t("drop.description")}</span>`;
-  let toastTimer = 0;
-  let lastToastMessage = "";
-  let lastToastAt = 0;
   let nativeDialogOpen = false;
   const showMessage = (
     message: string,
     tone: "error" | "success" | "neutral" = "error",
   ): void => {
-    const now = performance.now();
-    if (message === lastToastMessage && now - lastToastAt < 800) return;
-    lastToastMessage = message;
-    lastToastAt = now;
-    toast.textContent = message;
-    toast.dataset.tone = tone;
-    toast.classList.add("app-toast--visible");
-    window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => {
-      toast.classList.remove("app-toast--visible");
-    }, 4_500);
+    toastHost.show(message, tone);
   };
   const run = (operation: Promise<void>): void => {
     void operation.catch((error: unknown) => {
       showMessage(error instanceof Error ? error.message : t("error.generic"));
     });
   };
-  void libraryApi
-    .status()
-    .then(async (status) => {
-      if (status.recoveryNotice !== "database-rebuilt") return;
-      showMessage(t("library.databaseRebuilt"), "neutral");
-      await libraryApi.acknowledgeRecovery();
-    })
-    .catch((error: unknown) => {
-      console.warn("[library] initial status unavailable", error);
-    });
   const handlePaths = (paths: readonly string[]): void => {
     dropOverlay.classList.remove("drop-overlay--visible");
     const supported = paths.filter(isSupportedAudioPath);
@@ -125,6 +100,7 @@ export function mountApp(
     closeOverlays();
     store.setActiveScreen(screen);
   };
+  const toastHost = createToastHost();
   const addLocalFolder = async () => {
     nativeDialogOpen = true;
     try {
@@ -211,11 +187,12 @@ export function mountApp(
     volumePopover.backdrop,
     volumePopover.element,
     dropOverlay,
-    toast,
+    toastHost.element,
   );
   let miniPlayer: MiniPlayer | null = null;
   const artworkPreloader = new ArtworkPreloader();
   let currentScreen: ComponentView | null = null;
+  let currentLibrarySnapshot: IndexedLibrarySnapshot | null = null;
   const actions = {
     openFiles,
     playPause: () => {
@@ -242,12 +219,14 @@ export function mountApp(
   function renderScreen(screen: ScreenId): void {
     currentScreen?.destroy();
     const state = store.getState();
+    topBar.setTitle(t(getNavigationItem(screen).titleKey));
     currentScreen = createScreen(screen, {
       state,
       playerState: playerStore.getState(),
       playerActions: actions,
       foldersApi,
       libraryApi,
+      librarySnapshot: currentLibrarySnapshot,
       addLocalFolder,
       openFolderSource: (sourceId) => {
         foldersSession.openSource(sourceId);
@@ -360,7 +339,6 @@ export function mountApp(
       },
     });
     screenRegion.replaceChildren(currentScreen.element);
-    topBar.setTitle(t(getNavigationItem(screen).titleKey));
     sideMenu.setActiveScreen(screen);
     if (import.meta.env.DEV && screen === "nowPlaying")
       queueMicrotask(() => {
@@ -440,6 +418,38 @@ export function mountApp(
   for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
     document.addEventListener(eventName, noteActivity, { passive: true });
   scheduleInactivity();
+
+  let recoveryNoticeHandled = false;
+  let appDestroyed = false;
+  const receiveLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
+    if (appDestroyed) return;
+    currentLibrarySnapshot = snapshot;
+    toastHost.updateLibrary(snapshot);
+    currentScreen?.updateLibrarySnapshot?.(snapshot);
+    if (
+      !recoveryNoticeHandled &&
+      snapshot.status.recoveryNotice === "database-rebuilt"
+    ) {
+      recoveryNoticeHandled = true;
+      showMessage(t("library.databaseRebuilt"), "neutral");
+      void libraryApi.acknowledgeRecovery().catch((error: unknown) => {
+        console.warn("[library] recovery acknowledgement failed", error);
+      });
+    }
+  };
+  let unsubscribeLibrary = (): void => undefined;
+  void libraryApi
+    .snapshot()
+    .then(receiveLibrarySnapshot)
+    .catch((error: unknown) => {
+      console.warn("[library] initial snapshot unavailable", error);
+    })
+    .finally(() => {
+      if (appDestroyed) return;
+      unsubscribeLibrary = libraryApi.subscribe(receiveLibrarySnapshot, () => {
+        // EventSource reconnects automatically; the last snapshot remains.
+      });
+    });
 
   const unsubscribeApp = store.subscribe((state, previousState) => {
     if (state.activeScreen !== previousState.activeScreen) {
@@ -570,7 +580,9 @@ export function mountApp(
   document.addEventListener("keydown", handleKeydown);
   return {
     destroy() {
+      appDestroyed = true;
       unsubscribeEvents();
+      unsubscribeLibrary();
       unsubscribeDrops();
       unsubscribePlayer();
       unsubscribeApp();
@@ -579,7 +591,7 @@ export function mountApp(
       queueDrawer.destroy();
       artworkPreloader.destroy();
       topBar.destroy();
-      window.clearTimeout(toastTimer);
+      toastHost.destroy();
       window.clearTimeout(inactivityTimer);
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
         document.removeEventListener(eventName, noteActivity);

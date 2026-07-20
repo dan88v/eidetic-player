@@ -49,6 +49,12 @@ See [architecture guidelines](docs/development/architecture.md).
   stable placeholder until artwork has decoded and is safe to swap.
 - Animations must be short, optional, and limited mainly to `transform` and
   `opacity`. Honor both the app setting and `prefers-reduced-motion`.
+- Treat the top bar, mini-player, Home, transport, Queue, and toast as shared
+  regression surfaces for every UI change. Scope new CSS to its owning
+  component; do not add or broaden selectors for `svg`, `path`, `button`, or
+  `.icon` without a documented reason and focused regression coverage. Verify
+  these shared controls visually in the real app with `npm.cmd run dev` on
+  Windows before accepting a UI step.
 
 See [touch UI and seamless rendering](docs/development/ui-ux.md).
 

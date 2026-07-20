@@ -62,8 +62,10 @@ successful traversal marks unseen Tracks unavailable; cancel, failure, partial
 access, and an offline Source preserve prior availability.
 
 Library progress is persisted and published through its own low-frequency SSE
-hub. It never enters PlayerState or visualizer streams, never starts MPV or
-FFmpeg, and never exposes native roots or the database path.
+hub. One app-lifetime frontend subscription feeds the active Library/Sources
+screen and the keyed scan notification in the single toast host. It never
+enters PlayerState or visualizer streams, starts MPV or FFmpeg, or exposes
+native roots or the database path.
 
 Library entity reads use deterministic SQLite keyset pagination with opaque
 cursors. REST returns only catalog metadata and opaque entity IDs. Play/Add

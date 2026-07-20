@@ -6,7 +6,7 @@ import { nextVisualizerMode } from "../src/visualizer/visualizer-mode.js";
 const read = (path: string): Promise<string> =>
   readFile(new URL(`../src/${path}`, import.meta.url), "utf8");
 
-void test("Library is a real summary and scan-control screen", async () => {
+void test("Library keeps the indexed summary and scan controls in Manage Library", async () => {
   const [screens, library, styles, responsive, i18n] = await Promise.all([
     read("screens/index.ts"),
     read("screens/library.ts"),
@@ -21,6 +21,12 @@ void test("Library is a real summary and scan-control screen", async () => {
   );
   for (const counter of ["tracks", "albums", "artists", "unavailable"])
     assert.match(library, new RegExp(`data-library-count="${counter}"`));
+  const rootMarkup = library.slice(
+    library.indexOf('<div class="library-root">'),
+    library.indexOf('<div class="library-manage"'),
+  );
+  assert.doesNotMatch(rootMarkup, /library-summary|library-scan-panel/);
+  assert.match(library, /class="library-manage"/);
   assert.match(library, /library-header__action/);
   assert.match(library, /library\.rescan/);
   assert.match(library, /library\.cancel/);
@@ -37,16 +43,19 @@ void test("Library is a real summary and scan-control screen", async () => {
   assert.match(i18n, /"library\.status\.source-unavailable"/);
 });
 
-void test("Library uses one screen-lifetime EventSource and central API client", async () => {
-  const [client, library, shell] = await Promise.all([
+void test("Library uses one app-lifetime EventSource and central API client", async () => {
+  const [client, library, sources, shell] = await Promise.all([
     read("api/library-api-client.ts"),
     read("screens/library.ts"),
+    read("screens/sources.ts"),
     read("components/app-shell.ts"),
   ]);
   assert.equal((client.match(/new EventSource/g) ?? []).length, 1);
   assert.match(client, /\/api\/library\/events/);
-  assert.match(library, /options\.api\.subscribe/);
-  assert.match(library, /unsubscribe\(\)/);
+  assert.doesNotMatch(library, /options\.api\.subscribe/);
+  assert.doesNotMatch(sources, /options\.libraryApi\.subscribe/);
+  assert.match(shell, /libraryApi\.subscribe\(receiveLibrarySnapshot/);
+  assert.match(shell, /unsubscribeLibrary\(\)/);
   assert.doesNotMatch(library, /\bfetch\(/);
   assert.match(shell, /new LibraryApiClient\(\)/);
   assert.match(shell, /libraryApi,/);

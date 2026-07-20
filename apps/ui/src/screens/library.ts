@@ -24,6 +24,7 @@ import {
 
 export interface LibraryScreenOptions {
   readonly api: LibraryApiClient;
+  readonly initialSnapshot: IndexedLibrarySnapshot | null;
   readonly openSources: () => void;
   readonly noteTrackCommand: () => void;
   readonly setTitle: (title: string) => void;
@@ -35,6 +36,7 @@ export interface LibraryScreenOptions {
 
 type LibraryRoute =
   | { readonly kind: "root" }
+  | { readonly kind: "manage" }
   | {
       readonly kind: "album";
       readonly id: string;
@@ -72,6 +74,19 @@ function formatDuration(seconds: number | null): string {
   return hours > 0
     ? `${String(hours)}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
     : `${String(minutes)}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function message(
@@ -135,29 +150,61 @@ export function createLibraryScreen(
   section.innerHTML = `
     <div class="library-root">
       <header class="screen-header library-header">
-        <p class="screen-header__description">${t("screen.library.description")}</p>
-        <button class="primary-action library-scan-action library-header__action" type="button">${t("library.rescan")}</button>
+        <span aria-hidden="true"></span>
+        <div class="library-header__actions">
+          <button class="primary-action library-scan-action library-header__action" type="button">${t("library.rescan")}</button>
+          <button class="library-manage-action library-header__action" type="button">${t("library.manage")}</button>
+        </div>
       </header>
-      <div class="library-summary" aria-label="${t("library.summary")}">
-        <article class="library-counter"><span>${t("library.tracks")}</span><strong data-library-count="tracks">0</strong></article>
-        <article class="library-counter"><span>${t("library.albums")}</span><strong data-library-count="albums">0</strong></article>
-        <article class="library-counter"><span>${t("library.artists")}</span><strong data-library-count="artists">0</strong></article>
-        <article class="library-counter"><span>${t("library.unavailable")}</span><strong data-library-count="unavailable">0</strong></article>
-      </div>
-      <section class="library-scan-compact library-scan-panel" aria-live="polite">
-        <div><strong data-library-field="source">${t("library.idle")}</strong><span data-library-field="status">${t("library.idle")}</span></div>
-        <progress class="library-progress" aria-label="${t("library.progress")}"></progress>
-        <span class="library-last-scan"></span>
-      </section>
       <div class="library-browser-toolbar">
         <div class="library-segments"></div>
         <div class="library-view-controls"></div>
       </div>
       <div class="library-browser-content"></div>
     </div>
+    <div class="library-manage" hidden>
+      <header class="library-detail-header library-manage__header">
+        <button class="folders-back library-manage-back" type="button">${icon("back")}<span>${t("common.back")}</span></button>
+        <span class="library-detail-header__spacer" aria-hidden="true"></span>
+      </header>
+      <section class="library-manage__section" aria-labelledby="library-summary-heading">
+        <h2 id="library-summary-heading">${t("library.summary")}</h2>
+        <div class="library-summary" aria-label="${t("library.summary")}">
+          <article class="library-counter"><span>${t("library.tracks")}</span><strong data-library-count="tracks">0</strong></article>
+          <article class="library-counter"><span>${t("library.albums")}</span><strong data-library-count="albums">0</strong></article>
+          <article class="library-counter"><span>${t("library.artists")}</span><strong data-library-count="artists">0</strong></article>
+          <article class="library-counter"><span>${t("library.unavailable")}</span><strong data-library-count="unavailable">0</strong></article>
+        </div>
+      </section>
+      <section class="library-manage__section library-scan-panel" aria-labelledby="library-scan-heading">
+        <div class="library-scan-panel__heading">
+          <div><h2 id="library-scan-heading">${t("library.scan")}</h2><span data-library-field="status" role="status" aria-live="polite">${t("library.idle")}</span></div>
+          <button class="primary-action library-manage-scan-action" type="button">${t("library.rescan")}</button>
+        </div>
+        <strong data-library-field="source">${t("library.idle")}</strong>
+        <progress class="library-progress" aria-label="${t("library.progress")}"></progress>
+        <dl class="library-scan-stats">
+          <div><dt>${t("library.found")}</dt><dd data-library-stat="discovered">0</dd></div>
+          <div><dt>${t("library.processed")}</dt><dd data-library-stat="processed">0</dd></div>
+          <div><dt>${t("library.new")}</dt><dd data-library-stat="new">0</dd></div>
+          <div><dt>${t("library.modified")}</dt><dd data-library-stat="modified">0</dd></div>
+          <div><dt>${t("library.unchanged")}</dt><dd data-library-stat="unchanged">0</dd></div>
+          <div><dt>${t("library.unavailable")}</dt><dd data-library-stat="unavailable">0</dd></div>
+          <div><dt>${t("library.errors")}</dt><dd data-library-stat="errors">0</dd></div>
+          <div><dt>${t("library.elapsed")}</dt><dd data-library-stat="elapsed">0:00</dd></div>
+        </dl>
+        <span class="library-last-scan"></span>
+      </section>
+      <section class="library-manage__section" aria-labelledby="library-sources-heading">
+        <h2 id="library-sources-heading">${t("library.sources")}</h2>
+        <div class="library-sources-overview"></div>
+        <button class="library-open-sources" type="button">${t("library.openSources")}</button>
+      </section>
+    </div>
     <div class="library-detail" hidden></div>
     <div class="folders-action-menu library-action-menu" role="menu" hidden></div>`;
   const root = section.querySelector<HTMLElement>(".library-root");
+  const manageRegion = section.querySelector<HTMLElement>(".library-manage");
   const detail = section.querySelector<HTMLElement>(".library-detail");
   const browser = section.querySelector<HTMLElement>(
     ".library-browser-content",
@@ -170,6 +217,21 @@ export function createLibraryScreen(
   const scanAction = section.querySelector<HTMLButtonElement>(
     ".library-scan-action",
   );
+  const manageAction = section.querySelector<HTMLButtonElement>(
+    ".library-manage-action",
+  );
+  const manageScanAction = section.querySelector<HTMLButtonElement>(
+    ".library-manage-scan-action",
+  );
+  const manageBack = section.querySelector<HTMLButtonElement>(
+    ".library-manage-back",
+  );
+  const sourcesOverview = section.querySelector<HTMLElement>(
+    ".library-sources-overview",
+  );
+  const openSources = section.querySelector<HTMLButtonElement>(
+    ".library-open-sources",
+  );
   const progress =
     section.querySelector<HTMLProgressElement>(".library-progress");
   const source = section.querySelector<HTMLElement>(
@@ -181,12 +243,18 @@ export function createLibraryScreen(
   const lastScan = section.querySelector<HTMLElement>(".library-last-scan");
   if (
     !root ||
+    !manageRegion ||
     !detail ||
     !browser ||
     !viewControls ||
     !segmentsHost ||
     !menu ||
     !scanAction ||
+    !manageAction ||
+    !manageScanAction ||
+    !manageBack ||
+    !sourcesOverview ||
+    !openSources ||
     !progress ||
     !source ||
     !status ||
@@ -194,11 +262,17 @@ export function createLibraryScreen(
   )
     throw new Error("Library screen is incomplete");
   const rootRegion = root;
+  const manage = manageRegion;
   const detailRegion = detail;
 
   const counts = new Map(
     [...section.querySelectorAll<HTMLElement>("[data-library-count]")].map(
       (element) => [element.dataset.libraryCount ?? "", element],
+    ),
+  );
+  const scanStats = new Map(
+    [...section.querySelectorAll<HTMLElement>("[data-library-stat]")].map(
+      (element) => [element.dataset.libraryStat ?? "", element],
     ),
   );
   const pages = {
@@ -213,12 +287,16 @@ export function createLibraryScreen(
   let requestGeneration = 0;
   let scanPending = false;
   let activeScan: LibraryScanProgress | null = null;
-  let snapshot: IndexedLibrarySnapshot | null = null;
+  let snapshot: IndexedLibrarySnapshot | null = options.initialSnapshot;
   let completedGeneration = "";
+  let snapshotInitialized = false;
   let restoreFocus: HTMLElement | null = null;
   let activeArtistDetail: LibraryArtistDetail | null = null;
   let rootScrollTop = 0;
   let artistScrollTop = 0;
+  let manageScrollTop = 0;
+  let manageReturnRoute: LibraryRoute = { kind: "root" };
+  let manageReturnScrollTop = 0;
 
   const closeMenu = (focus = false): void => {
     const triggerId = menu.dataset.triggerId;
@@ -468,8 +546,118 @@ export function createLibraryScreen(
     browser.replaceChildren(state);
   };
 
+  const renderSourcesOverview = (): void => {
+    const current = snapshot;
+    const fragment = document.createDocumentFragment();
+    if (!current || current.sources.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "library-sources-empty";
+      empty.textContent = t(
+        current ? "library.noSources" : "library.unavailableState",
+      );
+      fragment.append(empty);
+      if (!current) {
+        const retry = document.createElement("button");
+        retry.className = "library-sources-retry";
+        retry.type = "button";
+        retry.textContent = t("folders.retry");
+        retry.addEventListener("click", () => {
+          retry.disabled = true;
+          void options.api
+            .snapshot()
+            .then(renderSnapshot)
+            .catch((error: unknown) => {
+              options.showToast(
+                error instanceof Error
+                  ? error.message
+                  : t("library.unavailableState"),
+                "error",
+              );
+            })
+            .finally(() => {
+              retry.disabled = false;
+            });
+        });
+        fragment.append(retry);
+      }
+    }
+    const scanBusy =
+      current !== null &&
+      (current.status.activeScan !== null ||
+        current.status.queuedSourceIds.length > 0);
+    for (const item of current?.sources ?? []) {
+      const row = document.createElement("article");
+      row.className = "library-source-overview";
+      row.dataset.sourceId = item.sourceId;
+      const copy = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = item.displayName;
+      const availability = document.createElement("span");
+      availability.dataset.availability = item.availability;
+      availability.textContent = t(
+        item.availability === "available"
+          ? "sources.available"
+          : "sources.unavailable",
+      );
+      const counts = document.createElement("span");
+      counts.textContent = `${String(item.fileCount)} ${t("library.tracks")}${
+        item.unavailableCount > 0
+          ? ` · ${String(item.unavailableCount)} ${t("library.unavailable").toLocaleLowerCase()}`
+          : ""
+      }`;
+      const scanState = document.createElement("span");
+      scanState.textContent = `${scanStatusLabel(item.scanStatus)} · ${t("library.lastScan")} ${formatDate(item.lastSuccessfulScan)}`;
+      copy.append(name, availability, counts, scanState);
+      const more = document.createElement("button");
+      more.className = "library-item-more";
+      more.type = "button";
+      more.disabled = scanBusy;
+      more.setAttribute("aria-haspopup", "menu");
+      more.setAttribute(
+        "aria-label",
+        message("library.sourceActions", { name: item.displayName }),
+      );
+      more.innerHTML = icon("more");
+      more.addEventListener("click", () => {
+        const retry = ["failed", "source-unavailable", "interrupted"].includes(
+          item.scanStatus,
+        );
+        showMenu(more, [
+          {
+            label: t(retry ? "sources.retry" : "library.rescan"),
+            disabled: scanBusy,
+            run: () => {
+              void options.api
+                .scan({ sourceId: item.sourceId })
+                .catch((error: unknown) => {
+                  options.showToast(
+                    error instanceof Error
+                      ? error.message
+                      : t("library.actionFailed"),
+                    "error",
+                  );
+                });
+            },
+          },
+        ]);
+      });
+      row.append(copy, more);
+      fragment.append(row);
+    }
+    sourcesOverview.replaceChildren(fragment);
+  };
+
+  const renderManage = (): void => {
+    rootRegion.hidden = true;
+    detailRegion.hidden = true;
+    manage.hidden = false;
+    options.setTitle(t("library.manage"));
+    renderSourcesOverview();
+  };
+
   const renderRoot = (): void => {
     root.hidden = false;
+    manage.hidden = true;
     detail.hidden = true;
     options.setTitle(t("screen.library.title"));
     section.dataset.librarySegment = segment;
@@ -825,7 +1013,12 @@ export function createLibraryScreen(
       renderRoot();
       return;
     }
+    if (route.kind === "manage") {
+      renderManage();
+      return;
+    }
     rootRegion.hidden = true;
+    manage.hidden = true;
     detailRegion.hidden = false;
     if (section.parentElement) section.parentElement.scrollTop = 0;
     detailRegion.setAttribute("aria-busy", "true");
@@ -874,36 +1067,62 @@ export function createLibraryScreen(
     const scan = activeScan ?? next.status.latestScan;
     const busy =
       queued || scan?.status === "scanning" || scan?.status === "cancelling";
-    scanAction.textContent = t(busy ? "library.cancel" : "library.rescan");
-    scanAction.dataset.action = busy ? "cancel" : "rescan";
-    scanAction.disabled =
-      scanPending || next.summary.sourceCount === 0 || queued;
-    source.textContent = scan?.sourceName ?? t("library.idle");
+    for (const button of [scanAction, manageScanAction]) {
+      button.textContent = t(busy ? "library.cancel" : "library.rescan");
+      button.dataset.action = busy ? "cancel" : "rescan";
+      button.disabled = scanPending || next.summary.sourceCount === 0 || queued;
+    }
+    const displayScan = queued ? null : scan;
+    const queuedSource = queued
+      ? next.sources.find(
+          (item) => item.sourceId === next.status.queuedSourceIds[0],
+        )
+      : null;
+    source.textContent =
+      queuedSource?.displayName ?? displayScan?.sourceName ?? t("library.idle");
     status.textContent = queued
       ? t("library.status.queued")
       : scan
         ? scanStatusLabel(scan.status)
         : t("library.idle");
-    if (scan?.totalFiles) {
-      progress.max = Math.max(1, scan.totalFiles);
-      progress.value = Math.min(scan.filesProcessed, progress.max);
+    if (displayScan?.totalFiles) {
+      progress.max = Math.max(1, displayScan.totalFiles);
+      progress.value = Math.min(displayScan.filesProcessed, progress.max);
     } else progress.removeAttribute("value");
+    const statValues = {
+      discovered: displayScan?.filesDiscovered ?? 0,
+      processed: displayScan?.filesProcessed ?? 0,
+      new: displayScan?.filesNew ?? 0,
+      modified: displayScan?.filesModified ?? 0,
+      unchanged: displayScan?.filesUnchanged ?? 0,
+      unavailable: displayScan?.filesUnavailable ?? 0,
+      errors: displayScan?.filesFailed ?? 0,
+      elapsed: formatElapsed(displayScan?.elapsedMilliseconds ?? 0),
+    };
+    for (const [key, value] of Object.entries(statValues)) {
+      const element = scanStats.get(key);
+      if (element && element.textContent !== String(value))
+        element.textContent = String(value);
+    }
     lastScan.textContent = next.summary.lastSuccessfulScan
-      ? `${t("library.lastScan")} ${new Intl.DateTimeFormat("en", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }).format(new Date(next.summary.lastSuccessfulScan))}`
-      : "";
+      ? `${t("library.lastScan")} ${formatDate(next.summary.lastSuccessfulScan)}`
+      : `${t("library.lastScan")} —`;
+    renderSourcesOverview();
     completedGeneration =
       next.status.latestScan?.status === "completed"
         ? `${next.status.latestScan.sourceId}:${String(next.status.latestScan.generation)}`
         : previousCompletion;
-    if (previousCompletion && completedGeneration !== previousCompletion) {
+    if (
+      snapshotInitialized &&
+      completedGeneration !== "" &&
+      completedGeneration !== previousCompletion
+    ) {
       pages.albums = emptyPage();
       pages.artists = emptyPage();
       pages.tracks = emptyPage();
       void renderRoute();
     }
+    snapshotInitialized = true;
   };
 
   const segments = createSegmentedControl<LibrarySegment>({
@@ -923,12 +1142,13 @@ export function createLibraryScreen(
   });
   segmentsHost.append(segments.element);
 
-  scanAction.addEventListener("click", () => {
+  const runScanAction = (action: HTMLButtonElement): void => {
     if (scanPending) return;
     scanPending = true;
     scanAction.disabled = true;
+    manageScanAction.disabled = true;
     void (
-      scanAction.dataset.action === "cancel"
+      action.dataset.action === "cancel"
         ? options.api.cancel(activeScan ? { scanId: activeScan.scanId } : {})
         : options.api.scan()
     )
@@ -943,7 +1163,32 @@ export function createLibraryScreen(
         scanPending = false;
         if (snapshot) renderSnapshot(snapshot);
       });
+  };
+  scanAction.addEventListener("click", () => {
+    runScanAction(scanAction);
   });
+  manageScanAction.addEventListener("click", () => {
+    runScanAction(manageScanAction);
+  });
+  manageAction.addEventListener("click", () => {
+    rootScrollTop = section.parentElement?.scrollTop ?? 0;
+    manageReturnRoute = { kind: "root" };
+    manageReturnScrollTop = rootScrollTop;
+    route = { kind: "manage" };
+    if (section.parentElement)
+      section.parentElement.scrollTop = manageScrollTop;
+    void renderRoute();
+  });
+  manageBack.addEventListener("click", () => {
+    manageScrollTop = section.parentElement?.scrollTop ?? 0;
+    route = manageReturnRoute;
+    void renderRoute().then(() => {
+      if (section.parentElement)
+        section.parentElement.scrollTop = manageReturnScrollTop;
+      if (route.kind === "root") manageAction.focus();
+    });
+  });
+  openSources.addEventListener("click", options.openSources);
   const handleOutsideMenu = (event: PointerEvent): void => {
     if (!menu.hidden && !menu.contains(event.target as Node)) closeMenu();
   };
@@ -955,23 +1200,15 @@ export function createLibraryScreen(
     }
   });
 
-  const unsubscribe = options.api.subscribe(renderSnapshot, () => {
-    // EventSource reconnects automatically; committed browsing state remains.
-  });
-  void options.api
-    .snapshot()
-    .then(renderSnapshot)
-    .catch(() => {
-      options.showToast(t("library.unavailableState"), "error");
-    });
-  renderRoot();
+  if (snapshot) renderSnapshot(snapshot);
+  void renderRoute();
 
   return {
     element: section,
+    updateLibrarySnapshot: renderSnapshot,
     destroy() {
       destroyed = true;
       requestGeneration += 1;
-      unsubscribe();
       document.removeEventListener("pointerdown", handleOutsideMenu);
       closeMenu();
       options.setTitle(t("screen.library.title"));
