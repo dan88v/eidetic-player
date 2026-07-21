@@ -10,6 +10,7 @@ export const screenIds = [
 export type ScreenId = (typeof screenIds)[number];
 export type VisualizerMode =
   "meter" | "spectrumMono" | "spectrumStereo" | "technical" | "none";
+export type MainPlayerMode = "default" | "cassette";
 export type TimelineStyle = "waveform" | "line";
 export type TimelineTimeMode = "total" | "remaining";
 export type FolderViewMode = "list" | "grid";
@@ -27,6 +28,7 @@ export interface AppState {
   readonly volumeOpen: boolean;
   readonly animationsEnabled: boolean;
   readonly visualizerMode: VisualizerMode;
+  readonly mainPlayerMode: MainPlayerMode;
   readonly timelineStyle: TimelineStyle;
   readonly timelineTimeMode: TimelineTimeMode;
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;

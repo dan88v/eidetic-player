@@ -9,6 +9,7 @@ import {
   loadTimelineStyle,
   loadTimelineTimeMode,
   loadVisualizerMode,
+  loadMainPlayerMode,
   loadMusicBrowsingVisibility,
   loadReturnToNowPlayingSeconds,
 } from "./utils/storage";
@@ -89,6 +90,7 @@ async function bootstrap(): Promise<void> {
     volumeOpen: false,
     animationsEnabled,
     visualizerMode: loadVisualizerMode(),
+    mainPlayerMode: loadMainPlayerMode(),
     timelineStyle: loadTimelineStyle(),
     timelineTimeMode: loadTimelineTimeMode(),
     musicBrowsingVisibility: loadMusicBrowsingVisibility(),

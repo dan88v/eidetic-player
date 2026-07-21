@@ -48,6 +48,7 @@ export interface QueueItem {
   readonly path: string;
   readonly filename: string;
   readonly displayTitle: string;
+  readonly durationSeconds?: number | undefined;
   readonly artwork: ArtworkRef | null;
   readonly isCurrent: boolean;
 }

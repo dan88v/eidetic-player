@@ -209,9 +209,11 @@ recent user choice. The UI independently commits selected-row state only for
 its newest successful request.
 
 Local Source records and display names persist in backend JSON. Only volume,
-mute, shuffle, repeat mode, animations, visualizer mode, and timeline style
-persist in browser storage. Folders location/scroll lasts for the UI session;
-Queue and media session start empty on every launch.
+mute, shuffle, repeat mode, animations, Main player mode, visualizer mode, and
+timeline style persist in browser storage. Main player and visualizer are
+independent typed preferences: Cassette mode does not instantiate the Default
+visualizer surface or its stream. Folders location/scroll lasts for the UI
+session; Queue and media session start empty on every launch.
 
 ## FFmpeg analysis boundary
 

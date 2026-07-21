@@ -7,16 +7,19 @@ import type {
   ReturnToNowPlayingSeconds,
   TimelineStyle,
   VisualizerMode,
+  MainPlayerMode,
 } from "../state/types";
 
 export interface SettingsScreenOptions {
   readonly animationsEnabled: boolean;
   readonly visualizerMode: VisualizerMode;
+  readonly mainPlayerMode: MainPlayerMode;
   readonly timelineStyle: TimelineStyle;
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
   readonly onAnimationsChange: (enabled: boolean) => boolean;
   readonly onVisualizerModeChange: (mode: VisualizerMode) => boolean;
+  readonly onMainPlayerModeChange: (mode: MainPlayerMode) => boolean;
   readonly onTimelineStyleChange: (style: TimelineStyle) => boolean;
   readonly onMusicBrowsingVisibilityChange: (
     value: MusicBrowsingVisibility,
@@ -37,6 +40,7 @@ export function createSettingsScreen(
   let page: SettingsPage = "root";
   let animations = options.animationsEnabled;
   let visualizer = options.visualizerMode;
+  let mainPlayer = options.mainPlayerMode;
   let browsing = options.musicBrowsingVisibility;
   let inactivity = options.returnToNowPlayingSeconds;
 
@@ -196,6 +200,26 @@ export function createSettingsScreen(
     });
     animationsRow.append(animationControl.element);
 
+    const mainPlayerRow = document.createElement("div");
+    mainPlayerRow.className = "settings-row-base setting-row";
+    mainPlayerRow.innerHTML = `<div class="setting-row__copy"><span class="setting-row__label">${t("settings.mainPlayer")}</span><span class="setting-row__description">${t("settings.mainPlayerDescription")}</span></div>`;
+    const mainPlayerControl = createSegmentedControl<MainPlayerMode>({
+      label: t("settings.mainPlayer"),
+      value: mainPlayer,
+      items: [
+        { value: "default", label: t("mainPlayer.default") },
+        { value: "cassette", label: t("mainPlayer.cassette") },
+      ],
+      onChange(value) {
+        if (!options.onMainPlayerModeChange(value)) {
+          mainPlayerControl.setValue(mainPlayer);
+          return;
+        }
+        mainPlayer = value;
+      },
+    });
+    mainPlayerRow.append(mainPlayerControl.element);
+
     const browsingRow = document.createElement("button");
     browsingRow.className = "settings-row-base setting-navigation";
     browsingRow.type = "button";
@@ -245,6 +269,7 @@ export function createSettingsScreen(
     });
     panel.append(
       animationsRow,
+      mainPlayerRow,
       browsingRow,
       visualizerRow,
       timelineRow,

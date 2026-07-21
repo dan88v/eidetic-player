@@ -598,11 +598,15 @@ export class PlayerService {
             this.pathKey(candidate.path) === this.pathKey(item.path),
         );
         if (current) {
-          const queue = this.withQueueArtwork(item.path, result.artwork);
+          const queue = this.withQueueEnrichment(
+            item.path,
+            result.metadata.durationSeconds,
+            result.artwork,
+          );
           if (queue !== this.state.queue)
             this.update({
               queue,
-              queueRevision: this.state.queueRevision + 1,
+              queueRevision: this.state.queueRevision,
             });
         }
         return result.artwork;
@@ -833,8 +837,11 @@ export class PlayerService {
     const queue = this.createQueue(
       this.properties.get("playlist"),
       playlistIndex,
+      duration,
     );
-    const queueChanged = queue !== this.state.queue;
+    const queueStructureChanged =
+      queue.length !== this.state.queue.length ||
+      queue.some((item, index) => item.id !== this.state.queue[index]?.id);
     const nextPathKey = path ? this.pathKey(path) : null;
     const trackChanged = nextPathKey !== this.enrichmentPathKey;
     if (trackChanged) {
@@ -877,7 +884,7 @@ export class PlayerService {
       ),
       currentQueueIndex: playlistIndex,
       queue,
-      queueRevision: queueChanged
+      queueRevision: queueStructureChanged
         ? this.state.queueRevision + 1
         : this.state.queueRevision,
       currentTrack,
@@ -906,7 +913,11 @@ export class PlayerService {
     }
   }
 
-  private createQueue(value: unknown, currentIndex: number): QueueItem[] {
+  private createQueue(
+    value: unknown,
+    currentIndex: number,
+    currentDurationSeconds: number,
+  ): QueueItem[] {
     if (!Array.isArray(value)) return this.state.queue as QueueItem[];
     const next = value.flatMap((entry, index) => {
       if (!entry || typeof entry !== "object") return [];
@@ -932,6 +943,10 @@ export class PlayerService {
           displayTitle:
             this.asString(playlistEntry.title) ??
             filename.replace(/\.[^.]+$/, ""),
+          durationSeconds:
+            index === currentIndex && currentDurationSeconds > 0
+              ? currentDurationSeconds
+              : previous?.durationSeconds,
           artwork: previous?.artwork ?? null,
           isCurrent:
             index === currentIndex ||
@@ -950,6 +965,7 @@ export class PlayerService {
           previous.path === item.path &&
           previous.filename === item.filename &&
           previous.displayTitle === item.displayTitle &&
+          previous.durationSeconds === item.durationSeconds &&
           previous.artwork?.id === item.artwork?.id &&
           previous.isCurrent === item.isCurrent
         );
@@ -1057,7 +1073,11 @@ export class PlayerService {
         this.rememberPreloaded(path, result);
         const current = this.state.currentTrack;
         if (current && this.pathKey(current.path) === this.pathKey(path)) {
-          const queue = this.withQueueArtwork(path, result.artwork);
+          const queue = this.withQueueEnrichment(
+            path,
+            result.metadata.durationSeconds,
+            result.artwork,
+          );
           this.update({
             currentTrack: mergeTrackMetadata(
               current,
@@ -1065,10 +1085,7 @@ export class PlayerService {
               result.artwork,
             ),
             queue,
-            queueRevision:
-              queue === this.state.queue
-                ? this.state.queueRevision
-                : this.state.queueRevision + 1,
+            queueRevision: this.state.queueRevision,
           });
         }
         this.artworkService.setPinned([result.artwork, this.nextArtwork]);
@@ -1097,19 +1114,29 @@ export class PlayerService {
           if (!this.canApplyGeneration(generation)) return;
           this.rememberPreloaded(nextPath, next);
           this.nextArtwork = next.artwork;
-          queue = this.withQueueArtwork(nextPath, next.artwork, queue);
+          queue = this.withQueueEnrichment(
+            nextPath,
+            next.metadata.durationSeconds,
+            next.artwork,
+            queue,
+          );
         }
         if (previousPath) {
           if (!this.canApplyGeneration(generation)) return;
           const previous = await this.resolveEnrichment(previousPath);
           if (!this.canApplyGeneration(generation)) return;
           this.rememberPreloaded(previousPath, previous);
-          queue = this.withQueueArtwork(previousPath, previous.artwork, queue);
+          queue = this.withQueueEnrichment(
+            previousPath,
+            previous.metadata.durationSeconds,
+            previous.artwork,
+            queue,
+          );
         }
         if (queue !== this.state.queue)
           this.update({
             queue,
-            queueRevision: this.state.queueRevision + 1,
+            queueRevision: this.state.queueRevision,
           });
         this.artworkService.setPinned([
           this.currentEnrichment?.artwork ?? null,
@@ -1152,16 +1179,22 @@ export class PlayerService {
     }
   }
 
-  private withQueueArtwork(
+  private withQueueEnrichment(
     path: string,
+    durationSeconds: number | null,
     artwork: ArtworkRef | null,
     source: readonly QueueItem[] = this.state.queue,
   ): readonly QueueItem[] {
     const key = this.pathKey(path);
     const queue = source.map((item) => {
-      if (this.pathKey(item.path) !== key || item.artwork?.id === artwork?.id)
+      if (this.pathKey(item.path) !== key) return item;
+      const duration =
+        typeof durationSeconds === "number" && durationSeconds > 0
+          ? durationSeconds
+          : item.durationSeconds;
+      if (item.artwork?.id === artwork?.id && item.durationSeconds === duration)
         return item;
-      return { ...item, artwork };
+      return { ...item, artwork, durationSeconds: duration };
     });
     return queue.some((item, index) => item !== source[index]) ? queue : source;
   }

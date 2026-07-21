@@ -21,6 +21,7 @@ import {
   saveTimelineStyle,
   saveTimelineTimeMode,
   saveVisualizerMode,
+  saveMainPlayerMode,
   saveMusicBrowsingVisibility,
   saveReturnToNowPlayingSeconds,
 } from "../utils/storage";
@@ -192,6 +193,7 @@ export function mountApp(
   let miniPlayer: MiniPlayer | null = null;
   const artworkPreloader = new ArtworkPreloader();
   let currentScreen: ComponentView | null = null;
+  let cassetteFallbackNotified = false;
   let currentLibrarySnapshot: IndexedLibrarySnapshot | null = null;
   const actions = {
     openFiles,
@@ -273,6 +275,27 @@ export function mountApp(
         }
         return true;
       },
+      setMainPlayerMode: (mode) => {
+        const previous = store.getState().mainPlayerMode;
+        store.setMainPlayerMode(mode);
+        if (!saveMainPlayerMode(mode)) {
+          store.setMainPlayerMode(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
+      },
+      handleCassetteError: () => {
+        queueMicrotask(() => {
+          if (store.getState().mainPlayerMode !== "cassette") return;
+          store.setMainPlayerMode("default");
+          saveMainPlayerMode("default");
+          if (!cassetteFallbackNotified) {
+            cassetteFallbackNotified = true;
+            showMessage(t("cassette.unavailable"), "neutral");
+          }
+        });
+      },
       setTimelineStyle: (style) => {
         const previous = store.getState().timelineStyle;
         store.setTimelineStyle(style);
@@ -348,7 +371,8 @@ export function mountApp(
           },
         );
       });
-    const showMiniPlayer = screen !== "nowPlaying";
+    const showMiniPlayer =
+      screen !== "nowPlaying" || state.mainPlayerMode === "cassette";
     contentShell.classList.toggle(
       "content-shell--with-mini-player",
       showMiniPlayer,
@@ -362,8 +386,15 @@ export function mountApp(
         actions.previous,
         actions.next,
         actions.seek,
+        (positionSeconds) => {
+          currentScreen?.updateSeekPreview?.(positionSeconds);
+        },
       );
       miniPlayer.update(playerStore.getState());
+      miniPlayer.setSurfaceDisabled(
+        state.mainPlayerMode === "cassette" &&
+          playerStore.getState().queue.length === 0,
+      );
       contentShell.append(miniPlayer.element);
     } else if (!showMiniPlayer && miniPlayer) {
       miniPlayer.destroy();
@@ -452,7 +483,12 @@ export function mountApp(
     });
 
   const unsubscribeApp = store.subscribe((state, previousState) => {
-    if (state.activeScreen !== previousState.activeScreen) {
+    if (
+      state.activeScreen !== previousState.activeScreen ||
+      (state.activeScreen === "nowPlaying" &&
+        (state.mainPlayerMode !== previousState.mainPlayerMode ||
+          state.animationsEnabled !== previousState.animationsEnabled))
+    ) {
       renderScreen(state.activeScreen);
       scheduleInactivity();
     }
@@ -502,6 +538,11 @@ export function mountApp(
   const unsubscribePlayer = playerStore.subscribe((state) => {
     currentScreen?.updatePlayerState?.(state);
     miniPlayer?.update(state);
+    miniPlayer?.setSurfaceDisabled(
+      store.getState().activeScreen === "nowPlaying" &&
+        store.getState().mainPlayerMode === "cassette" &&
+        state.queue.length === 0,
+    );
     queueDrawer.update(state);
     artworkPreloader.preload([
       state.currentTrack?.artwork ?? null,

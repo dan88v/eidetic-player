@@ -2,6 +2,7 @@ import type {
   TimelineStyle,
   TimelineTimeMode,
   VisualizerMode,
+  MainPlayerMode,
   FolderSortMode,
   FolderViewMode,
   MusicBrowsingVisibility,
@@ -14,6 +15,7 @@ import type { RepeatMode } from "../../../../packages/shared/src/player";
 const storageKeys = {
   animationsEnabled: "eidetic-player.interface.animations-enabled",
   visualizerMode: "eidetic-player.interface.visualizer-mode",
+  mainPlayerMode: "eidetic-player.interface.main-player-mode",
   timelineStyle: "eidetic-player.interface.timeline-style",
   timelineTimeMode: "eidetic-player.interface.timeline-time-mode",
   volume: "eidetic-player.player.volume",
@@ -133,6 +135,16 @@ export function loadVisualizerMode(): VisualizerMode {
 
 export function saveVisualizerMode(mode: VisualizerMode): boolean {
   return write(storageKeys.visualizerMode, mode);
+}
+
+export function loadMainPlayerMode(): MainPlayerMode {
+  return read(storageKeys.mainPlayerMode) === "cassette"
+    ? "cassette"
+    : "default";
+}
+
+export function saveMainPlayerMode(mode: MainPlayerMode): boolean {
+  return write(storageKeys.mainPlayerMode, mode);
 }
 
 export function loadTimelineStyle(): TimelineStyle {

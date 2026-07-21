@@ -7,6 +7,7 @@ import { createTrackPresentationSnapshot } from "../state/track-transition-coord
 export interface MiniPlayer {
   readonly element: HTMLElement;
   update(state: PlayerState): void;
+  setSurfaceDisabled(disabled: boolean): void;
   destroy(): void;
 }
 
@@ -16,6 +17,7 @@ export function createMiniPlayer(
   onPrevious: () => void,
   onNext: () => void,
   onSeek: (positionSeconds: number) => void,
+  onSeekPreview?: (positionSeconds: number | null) => void,
 ): MiniPlayer {
   const player = document.createElement("aside");
   player.className = "mini-player";
@@ -74,6 +76,8 @@ export function createMiniPlayer(
   let duration = 0;
   let progress = 0;
   let dragging = false;
+  let surfaceDisabled = false;
+  let playbackDisabled = true;
   const setProgress = (value: number): void => {
     progress = Math.max(0, Math.min(1, value));
     const percentage = progress * 100;
@@ -84,6 +88,7 @@ export function createMiniPlayer(
   const updatePointer = (event: PointerEvent): void => {
     const bounds = timeline.getBoundingClientRect();
     setProgress((event.clientX - bounds.left) / bounds.width);
+    onSeekPreview?.(duration * progress);
   };
   timeline.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
@@ -105,6 +110,7 @@ export function createMiniPlayer(
     dragging = false;
     timeline.classList.remove("mini-player__timeline--dragging");
     onSeek(duration * progress);
+    onSeekPreview?.(null);
   });
   timeline.addEventListener("pointercancel", (event) => {
     event.stopPropagation();
@@ -112,6 +118,7 @@ export function createMiniPlayer(
       timeline.releasePointerCapture(event.pointerId);
     dragging = false;
     timeline.classList.remove("mini-player__timeline--dragging");
+    onSeekPreview?.(null);
   });
   timeline.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -131,6 +138,7 @@ export function createMiniPlayer(
     else return;
     event.preventDefault();
     onSeek(duration * progress);
+    onSeekPreview?.(null);
   });
   const artwork = createArtwork({
     className: "mini-player__artwork",
@@ -160,14 +168,18 @@ export function createMiniPlayer(
     update(state) {
       const presentation = createTrackPresentationSnapshot(state);
       duration = presentation.durationSeconds;
-      timeline.tabIndex = duration > 0 ? 0 : -1;
-      timeline.setAttribute("aria-disabled", String(duration <= 0));
+      timeline.tabIndex = duration > 0 && !surfaceDisabled ? 0 : -1;
+      timeline.setAttribute(
+        "aria-disabled",
+        String(duration <= 0 || surfaceDisabled),
+      );
       if (!dragging)
         setProgress(duration ? presentation.positionSeconds / duration : 0);
       setText(title, presentation.title ?? "");
       setText(artist, presentation.artist ?? "");
       artwork.update(presentation.artwork, "", presentation.generation);
-      const disabled = !state.currentTrack || state.status === "loading";
+      playbackDisabled = !state.currentTrack || state.status === "loading";
+      const disabled = playbackDisabled || surfaceDisabled;
       previousButton.disabled = disabled;
       playButton.disabled = disabled;
       nextButton.disabled = disabled;
@@ -180,6 +192,16 @@ export function createMiniPlayer(
         "aria-pressed",
         String(!disabled && !state.paused),
       );
+    },
+    setSurfaceDisabled(disabled) {
+      surfaceDisabled = disabled;
+      summary.disabled = disabled;
+      openButton.disabled = disabled;
+      previousButton.disabled = disabled || playbackDisabled;
+      playButton.disabled = disabled || playbackDisabled;
+      nextButton.disabled = disabled || playbackDisabled;
+      timeline.tabIndex = duration > 0 && !disabled ? 0 : -1;
+      timeline.setAttribute("aria-disabled", String(duration <= 0 || disabled));
     },
     destroy() {
       artwork.destroy();

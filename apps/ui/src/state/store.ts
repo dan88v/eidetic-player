@@ -4,6 +4,7 @@ import type {
   TimelineStyle,
   TimelineTimeMode,
   VisualizerMode,
+  MainPlayerMode,
   MusicBrowsingVisibility,
   ReturnToNowPlayingSeconds,
 } from "./types";
@@ -18,6 +19,7 @@ export interface AppStore {
   setVolumeOpen(open: boolean): void;
   setAnimationsEnabled(enabled: boolean): void;
   setVisualizerMode(mode: VisualizerMode): void;
+  setMainPlayerMode(mode: MainPlayerMode): void;
   setTimelineStyle(style: TimelineStyle): void;
   setTimelineTimeMode(mode: TimelineTimeMode): void;
   setMusicBrowsingVisibility(value: MusicBrowsingVisibility): void;
@@ -38,6 +40,7 @@ export function createAppStore(initialState: AppState): AppStore {
       nextState.volumeOpen === state.volumeOpen &&
       nextState.animationsEnabled === state.animationsEnabled &&
       nextState.visualizerMode === state.visualizerMode &&
+      nextState.mainPlayerMode === state.mainPlayerMode &&
       nextState.timelineStyle === state.timelineStyle &&
       nextState.timelineTimeMode === state.timelineTimeMode &&
       nextState.musicBrowsingVisibility === state.musicBrowsingVisibility &&
@@ -70,6 +73,9 @@ export function createAppStore(initialState: AppState): AppStore {
     },
     setVisualizerMode: (visualizerMode) => {
       update({ visualizerMode });
+    },
+    setMainPlayerMode: (mainPlayerMode) => {
+      update({ mainPlayerMode });
     },
     setTimelineStyle: (timelineStyle) => {
       update({ timelineStyle });

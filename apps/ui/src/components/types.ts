@@ -4,6 +4,7 @@ import type { IndexedLibrarySnapshot } from "../../../../packages/shared/src/lib
 export interface ComponentView<T extends HTMLElement = HTMLElement> {
   readonly element: T;
   updatePlayerState?(state: PlayerState): void;
+  updateSeekPreview?(positionSeconds: number | null): void;
   updateLibrarySnapshot?(snapshot: IndexedLibrarySnapshot): void;
   destroy(): void;
 }

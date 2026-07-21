@@ -162,6 +162,14 @@ transport zones share one vertical center axis.
 
 ## Settings and startup
 
+The Interface screen includes an inline Main player segmented control with
+`Default` and `Cassette`. The choice commits immediately through the central
+store and persistence module. Cassette Now Playing uses the unchanged existing
+mini-player as its sole playback control surface; Default Now Playing retains
+its established geometry and does not display a mini-player. See
+[Cassette main player](development/cassette-player.md) for tape progress and
+animation lifecycle details.
+
 Settings rows share one 72 px base contract with 22 px primary copy and 30 px
 SVG chevrons. Binary values use inline segmented controls; values with three or
 more choices use a selection screen and commit at tap time before returning.

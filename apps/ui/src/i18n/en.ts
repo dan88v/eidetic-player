@@ -41,6 +41,13 @@ export const en = {
   "nowPlaying.shuffle": "Shuffle",
   "nowPlaying.repeat": "Repeat",
   "nowPlaying.queue": "Open queue",
+  "cassette.description": "Animated cassette showing queue tape progress",
+  "settings.mainPlayer": "Main player",
+  "settings.mainPlayerDescription": "Choose the Now Playing surface.",
+  "mainPlayer.default": "Default",
+  "mainPlayer.cassette": "Cassette",
+  "cassette.unavailable":
+    "Cassette mode is unavailable. Default player restored.",
   "nowPlaying.unavailableTitle": "MPV not available",
   "nowPlaying.unavailableDescription":
     "Check EIDETIC_MPV_PATH or your system PATH, then restart Eidetic Player",

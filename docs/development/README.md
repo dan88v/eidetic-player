@@ -8,6 +8,8 @@ These documents expand the mandatory rules in the repository
   transitions.
 - [Performance](performance.md) — Raspberry Pi 3B budgets, Canvas, SSE, MPV,
   and FFmpeg.
+- [Cassette main player](cassette-player.md) — Queue tape progress, mechanics,
+  animation lifecycle, and the Default/visualizer boundary.
 - [Indexed Library](library-index.md) — SQLite ownership, schema, incremental
   scanning, cancellation, recovery, API, and UI lifecycle.
 - [Testing](testing.md) — unit, integration, real-media, native-shell, and

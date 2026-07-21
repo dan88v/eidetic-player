@@ -40,6 +40,7 @@ export function createQueueDrawer(options: {
   let returnFocus: HTMLElement | null = null;
   let isOpen = false;
   let queueRevision = -1;
+  let queueSnapshot: PlayerState["queue"] | null = null;
   let queueIds: readonly string[] = [];
   let loadGeneration = 0;
   let activeLoads = 0;
@@ -221,8 +222,13 @@ export function createQueueDrawer(options: {
     },
     update(state) {
       clearButton.disabled = state.queue.length === 0;
-      if (state.queueRevision === queueRevision) return;
+      if (
+        state.queueRevision === queueRevision &&
+        state.queue === queueSnapshot
+      )
+        return;
       queueRevision = state.queueRevision;
+      queueSnapshot = state.queue;
       const nextIds = state.queue.map((item) => item.id);
       const structureChanged =
         nextIds.length !== queueIds.length ||

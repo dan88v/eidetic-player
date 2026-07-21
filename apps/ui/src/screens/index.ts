@@ -14,10 +14,11 @@ import type {
   ScreenId,
   TimelineStyle,
   VisualizerMode,
+  MainPlayerMode,
 } from "../state/types";
 import { createFoldersScreen } from "./folders";
 import { createLibraryScreen } from "./library";
-import { createNowPlayingScreen } from "./now-playing";
+import { createMainPlayerHost } from "../main-player/main-player-host";
 import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
 import { createSourcesScreen } from "./sources";
@@ -26,6 +27,8 @@ export interface ScreenContext {
   readonly state: AppState;
   readonly setAnimationsEnabled: (enabled: boolean) => boolean;
   readonly setVisualizerMode: (mode: VisualizerMode) => boolean;
+  readonly setMainPlayerMode: (mode: MainPlayerMode) => boolean;
+  readonly handleCassetteError: () => void;
   readonly setTimelineStyle: (style: TimelineStyle) => boolean;
   readonly setTimelineTimeMode: (
     mode: Parameters<AppStore["setTimelineTimeMode"]>[0],
@@ -80,7 +83,9 @@ export function createScreen(
 ): ComponentView {
   switch (screen) {
     case "nowPlaying":
-      return createNowPlayingScreen({
+      return createMainPlayerHost({
+        mode: context.state.mainPlayerMode,
+        animationsEnabled: context.state.animationsEnabled,
         visualizerMode: context.state.visualizerMode,
         timelineStyle: context.state.timelineStyle,
         musicBrowsingVisibility: context.state.musicBrowsingVisibility,
@@ -93,6 +98,7 @@ export function createScreen(
         onToggleVolume: context.toggleVolume,
         initialPlayerState: context.playerState,
         actions: context.playerActions,
+        onCassetteError: context.handleCassetteError,
       });
     case "folders":
       return createFoldersScreen({
@@ -127,11 +133,13 @@ export function createScreen(
     case "settings":
       return createSettingsScreen({
         animationsEnabled: context.state.animationsEnabled,
+        mainPlayerMode: context.state.mainPlayerMode,
         visualizerMode: context.state.visualizerMode,
         timelineStyle: context.state.timelineStyle,
         musicBrowsingVisibility: context.state.musicBrowsingVisibility,
         returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
         onAnimationsChange: context.setAnimationsEnabled,
+        onMainPlayerModeChange: context.setMainPlayerMode,
         onVisualizerModeChange: context.setVisualizerMode,
         onTimelineStyleChange: context.setTimelineStyle,
         onMusicBrowsingVisibilityChange: context.setMusicBrowsingVisibility,
