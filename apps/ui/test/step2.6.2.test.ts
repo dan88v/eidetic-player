@@ -8,6 +8,7 @@ import {
   CASSETTE_CORE_RADIUS,
   CASSETTE_FULL_RADIUS,
   CASSETTE_MAX_ANGULAR_SPEED,
+  CASSETTE_REEL_DIRECTION,
 } from "../src/cassette/cassette-physics";
 import { deriveCassetteProgress } from "../src/cassette/cassette-progress";
 
@@ -90,9 +91,15 @@ void test("reel radii preserve tape area at start, middle and end", () => {
 
 void test("angular velocity is radius-derived, capped and angle integration bounded", () => {
   const velocity = deriveAngularVelocity(10_000, deriveReelGeometry(0.5));
-  assert.equal(velocity.source, CASSETTE_MAX_ANGULAR_SPEED);
-  assert.equal(velocity.destination, CASSETTE_MAX_ANGULAR_SPEED);
-  const angle = integrateAngle(Math.PI * 2 - 0.01, 5, 20);
+  assert.equal(
+    velocity.source,
+    CASSETTE_REEL_DIRECTION * CASSETTE_MAX_ANGULAR_SPEED,
+  );
+  assert.equal(
+    velocity.destination,
+    CASSETTE_REEL_DIRECTION * CASSETTE_MAX_ANGULAR_SPEED,
+  );
+  const angle = integrateAngle(0.01, -5, 20);
   assert.ok(angle >= 0 && angle < Math.PI * 2);
 });
 

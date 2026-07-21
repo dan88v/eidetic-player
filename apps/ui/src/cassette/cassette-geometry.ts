@@ -1,8 +1,21 @@
 export const CASSETTE_VIEWBOX_WIDTH = 1_070;
 export const CASSETTE_VIEWBOX_HEIGHT = 710;
 
-export const CASSETTE_CORE_RADIUS = 28;
-export const CASSETTE_FULL_RADIUS = 56;
+// The tape packs share the lateral reel axes, but are revealed only by the
+// central window. The empty pack just enters the window, while the full pack
+// remains inside the cassette's lateral bounds.
+export const CASSETTE_CORE_RADIUS = 112;
+export const CASSETTE_FULL_RADIUS = 270;
+
+// Lower ivory writing panel. The inset keeps handwriting clear of the label's
+// sloped outer edges and bottom shell border while using both ruled rows.
+export const CASSETTE_METADATA_LABEL_AREA = Object.freeze({
+  x: 150,
+  y: 567,
+  width: 770,
+  height: 82,
+  padding: 8,
+});
 
 export const CASSETTE_LEFT_REEL = Object.freeze({
   centerX: 290,

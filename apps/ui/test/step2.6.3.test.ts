@@ -176,8 +176,8 @@ void test("frame loading is cached once per module session", async () => {
 void test("premium geometry matches the approved frame coordinates", () => {
   assert.equal(CASSETTE_VIEWBOX_WIDTH, 1_070);
   assert.equal(CASSETTE_VIEWBOX_HEIGHT, 710);
-  assert.equal(CASSETTE_CORE_RADIUS, 28);
-  assert.equal(CASSETTE_FULL_RADIUS, 56);
+  assert.equal(CASSETTE_CORE_RADIUS, 112);
+  assert.equal(CASSETTE_FULL_RADIUS, 270);
   assert.deepEqual(CASSETTE_LEFT_REEL, {
     centerX: 290,
     centerY: 388,
@@ -188,6 +188,11 @@ void test("premium geometry matches the approved frame coordinates", () => {
     centerY: 388,
     role: "source",
   });
+  assert.ok(CASSETTE_LEFT_REEL.centerX - CASSETTE_FULL_RADIUS >= 0);
+  assert.ok(
+    CASSETTE_RIGHT_REEL.centerX + CASSETTE_FULL_RADIUS <=
+      CASSETTE_VIEWBOX_WIDTH,
+  );
   assert.equal(CASSETTE_CENTER_WINDOW_POINTS.length, 20);
   assert.deepEqual(CASSETTE_CENTER_WINDOW_POINTS[0], [397, 318]);
   assert.deepEqual(CASSETTE_CENTER_WINDOW_POINTS.at(-1), [401, 330]);
@@ -202,7 +207,7 @@ void test("area physics keeps source right and destination left", () => {
   assert.ok(end.destinationRadius > end.sourceRadius);
   const startSpeed = deriveAngularVelocity(245, start);
   const middleSpeed = deriveAngularVelocity(245, middle);
-  assert.ok(startSpeed.destination > startSpeed.source);
+  assert.ok(Math.abs(startSpeed.destination) > Math.abs(startSpeed.source));
   assert.equal(middleSpeed.source, middleSpeed.destination);
 });
 
@@ -246,7 +251,8 @@ void test("dynamic SVG contains only bounded reel and tape layers", async () => 
   assert.match(layer, /cassette-player__tape-mass--left/);
   assert.match(layer, /cassette-player__tape-mass--right/);
   assert.match(layer, /clipPath/);
-  assert.match(layer, /cassette-player__center-tape/);
+  assert.match(layer, /cassette-player__center-window-glass/);
+  assert.doesNotMatch(layer, /cassette-player__center-tape/);
   assert.doesNotMatch(layer, /<text|<button|tabindex/);
   assert.doesNotMatch(layer, /filter|feGaussianBlur|<image|base64/);
   assert.doesNotMatch(layer, /head|capstan|pinch|mechanism/i);
@@ -261,9 +267,9 @@ void test("dynamic SVG contains only bounded reel and tape layers", async () => 
     controller,
     /setInterval|getBoundingClientRect|offsetWidth/,
   );
-  assert.match(controller, /CENTER_TAPE_SPEED/);
-  assert.match(controller, /if \(this\.playing\)/);
-  assert.match(controller, /translateX\(-/);
+  assert.doesNotMatch(controller, /CENTER_TAPE|centerTape|translateX/);
+  assert.match(controller, /CASSETTE_TAPE_LINEAR_SPEED/);
+  assert.match(controller, /\.r\.baseVal\.value/);
   assert.match(controller, /setVisible\(visible/);
   assert.match(controller, /this\.cancel\(\)/);
   assert.match(controller, /1_000 \/ 30/);

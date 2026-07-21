@@ -30,6 +30,13 @@ export function createMainPlayerHost(
       createCassetteMainPlayer({
         initialPlayerState: options.initialPlayerState,
         animationsEnabled: options.animationsEnabled,
+        musicBrowsingVisibility: options.musicBrowsingVisibility,
+        timelineTimeMode: options.timelineTimeMode,
+        onTimelineTimeModeChange: options.onTimelineTimeModeChange,
+        onOpenQueue: options.onOpenQueue,
+        onOpenLibrary: options.onOpenLibrary,
+        onOpenFolders: options.onOpenFolders,
+        onToggleVolume: options.onToggleVolume,
         onAssetError: options.onCassetteAssetError,
         onError: options.onCassetteError,
       }),

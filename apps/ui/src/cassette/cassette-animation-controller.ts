@@ -1,24 +1,31 @@
 import type { CassetteSnapshot } from "./cassette-snapshot";
 import {
-  CASSETTE_FULL_RADIUS,
+  CASSETTE_TAPE_LINEAR_SPEED,
   deriveAngularVelocity,
   deriveReelGeometry,
   integrateAngle,
 } from "./cassette-physics";
 
 export interface CassetteAnimationElements {
-  readonly sourceTape: SVGGraphicsElement;
-  readonly destinationTape: SVGGraphicsElement;
+  readonly sourceTape: SVGCircleElement;
+  readonly destinationTape: SVGCircleElement;
   readonly sourceReel: SVGGraphicsElement;
   readonly destinationReel: SVGGraphicsElement;
-  readonly centerTape: SVGGraphicsElement;
 }
 
 const FRAME_INTERVAL_MS = 1_000 / 30;
 const PROGRESS_SETTLE_EPSILON = 0.0005;
 const MOTION_SETTLE_EPSILON = 0.005;
-const CENTER_TAPE_PATTERN_WIDTH = 12;
-const CENTER_TAPE_SPEED = 30;
+
+export function advanceCassetteProgress(
+  current: number,
+  target: number,
+  deltaSeconds: number,
+): number {
+  const boundedDelta = Math.max(0, Math.min(0.1, deltaSeconds));
+  const next = current + (target - current) * (boundedDelta / 0.4);
+  return Math.abs(target - next) < PROGRESS_SETTLE_EPSILON ? target : next;
+}
 
 export function advanceCassetteMotionScale(
   current: number,
@@ -42,7 +49,6 @@ export class CassetteAnimationController {
   private sourceVelocity = 0;
   private destinationVelocity = 0;
   private motionScale = 0;
-  private centerTapeOffset = 0;
   private playing = false;
   private visible = !document.hidden;
   private animationsEnabled: boolean;
@@ -71,7 +77,6 @@ export class CassetteAnimationController {
           : snapshot.status === "paused" || snapshot.paused
             ? "paused"
             : "stopped";
-    this.root.dataset.centerTapeMoving = String(this.playing);
     if (!this.animationsEnabled) {
       this.progress = this.targetProgress;
       this.motionScale = 0;
@@ -145,10 +150,11 @@ export class CassetteAnimationController {
       ? Math.min(0.1, (timestamp - this.lastTimestamp) / 1_000)
       : 0;
     this.lastTimestamp = timestamp;
-    const progressBlend = Math.min(1, deltaSeconds / 0.4);
-    this.progress += (this.targetProgress - this.progress) * progressBlend;
-    if (Math.abs(this.targetProgress - this.progress) < PROGRESS_SETTLE_EPSILON)
-      this.progress = this.targetProgress;
+    this.progress = advanceCassetteProgress(
+      this.progress,
+      this.targetProgress,
+      deltaSeconds,
+    );
     this.motionScale = advanceCassetteMotionScale(
       this.motionScale,
       this.playing,
@@ -156,12 +162,12 @@ export class CassetteAnimationController {
     );
     const geometry = deriveReelGeometry(this.progress);
     if (this.playing) {
-      const velocity = deriveAngularVelocity(245, geometry);
+      const velocity = deriveAngularVelocity(
+        CASSETTE_TAPE_LINEAR_SPEED,
+        geometry,
+      );
       this.sourceVelocity = velocity.source;
       this.destinationVelocity = velocity.destination;
-      this.centerTapeOffset =
-        (this.centerTapeOffset + CENTER_TAPE_SPEED * deltaSeconds) %
-        CENTER_TAPE_PATTERN_WIDTH;
     }
     if (this.motionScale > 0) {
       this.sourceAngle = integrateAngle(
@@ -187,11 +193,10 @@ export class CassetteAnimationController {
 
   private render(): void {
     const geometry = deriveReelGeometry(this.progress);
-    this.elements.sourceTape.style.transform = `scale(${String(geometry.sourceRadius / CASSETTE_FULL_RADIUS)})`;
-    this.elements.destinationTape.style.transform = `scale(${String(geometry.destinationRadius / CASSETTE_FULL_RADIUS)})`;
+    this.elements.sourceTape.r.baseVal.value = geometry.sourceRadius;
+    this.elements.destinationTape.r.baseVal.value = geometry.destinationRadius;
     this.elements.sourceReel.style.transform = `rotate(${String(this.sourceAngle)}rad)`;
     this.elements.destinationReel.style.transform = `rotate(${String(this.destinationAngle)}rad)`;
-    this.elements.centerTape.style.transform = `translateX(-${String(this.centerTapeOffset)}px)`;
   }
 
   private cancel(): void {

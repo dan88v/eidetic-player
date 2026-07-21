@@ -38,10 +38,10 @@ export function deriveCassetteProgress(
 ): CassetteProgress {
   const queueLength = input.queue.length;
   if (queueLength === 0) return { value: 0, confidence: "estimated" };
-  const currentIndex = Math.max(
-    0,
-    Math.min(queueLength - 1, Math.trunc(input.currentQueueIndex)),
-  );
+  const requestedIndex = Number.isFinite(input.currentQueueIndex)
+    ? Math.trunc(input.currentQueueIndex)
+    : 0;
+  const currentIndex = Math.max(0, Math.min(queueLength - 1, requestedIndex));
   const currentDuration = finitePositive(input.currentDurationSeconds)
     ? input.currentDurationSeconds
     : input.queue[currentIndex]?.durationSeconds;

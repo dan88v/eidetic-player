@@ -205,14 +205,25 @@ Raspberry Pi 3B performance until measured on that hardware.
 The Cassette premium renderer has one 1070×710 RGBA frame and one bounded SVG
 scene. Its animation controller is shared by the loading prototype and premium
 scene rather than duplicated during the atomic swap. It is capped at 30 fps,
-retains its SVG nodes, and writes only tape-mass scale, two reel rotations, and
-the centre-tape translation. It performs no per-frame layout reads or backing
-store resizes and creates no periodic timer, worker, observer, visualizer
-EventSource, Canvas, or FFmpeg process.
+retains its SVG nodes, and writes only two tape-mass circle radii and two reel
+rotations. The centre-window glass and one-pixel winding gradients are static.
+The controller performs no
+per-frame layout reads or backing-store resizes and creates no periodic timer,
+worker, observer, visualizer EventSource, Canvas, or FFmpeg process.
 
-The centre tape stops immediately outside Playing. Reels briefly decelerate on
-Pause/Stop, while the loop stops after motion and progress settle. Hidden,
-destroyed, Animations Off, and reduced-motion states cancel continuous work.
+Reels briefly decelerate on Pause/Stop, while the loop stops after motion and
+progress settle. Hidden, destroyed, Animations Off, and reduced-motion states
+cancel continuous work. Clipping, winding gradients, and the glass overlay add
+no centre-window state that can keep the loop alive.
 The PNG loader is module-cached and uses normal browser caching; it neither
 duplicates fetches nor retries indefinitely. Windows figures belong in the
 step report; Raspberry Pi validation remains a separate hardware task.
+
+The Cassette metadata overlay, utility row, and time row do not enter the reel
+hot path. Metadata fitting performs a bounded number of SVG measurements only
+on identity/content changes and once after the module-cached local fonts settle;
+viewBox scaling needs no resize observer. Time text is derived from the existing
+Player snapshots and seek-preview callback, with no timer, polling, rAF, MPV
+query, EventSource, or second seek pipeline. Utility controls call existing
+AppShell callbacks and create no duplicate Queue drawer, volume state, or
+listener infrastructure.

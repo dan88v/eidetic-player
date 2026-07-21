@@ -1,6 +1,8 @@
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
+import type { MusicBrowsingVisibility, TimelineTimeMode } from "../state/types";
+import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
 import {
   loadCassetteFrame,
   nextCassetteFallback,
@@ -20,10 +22,20 @@ import {
 } from "./cassette-premium-scene";
 import { createCassetteReelLayer } from "./cassette-reel-layer";
 import { createCassetteSnapshot } from "./cassette-snapshot";
+import { createCassetteMetadataLayer } from "./cassette-metadata-layer";
+import { createCassetteTimeRow } from "./cassette-time-row";
+import { createCassetteUtilityControls } from "./cassette-utility-controls";
 
 export interface CassetteMainPlayerOptions {
   readonly initialPlayerState: PlayerState;
   readonly animationsEnabled: boolean;
+  readonly musicBrowsingVisibility: MusicBrowsingVisibility;
+  readonly timelineTimeMode: TimelineTimeMode;
+  readonly onTimelineTimeModeChange: (mode: TimelineTimeMode) => void;
+  readonly onOpenQueue: (trigger: HTMLButtonElement) => void;
+  readonly onOpenLibrary: () => void;
+  readonly onOpenFolders: () => void;
+  readonly onToggleVolume: (trigger: HTMLButtonElement) => void;
   readonly onAssetError: () => void;
   readonly onError: () => void;
 }
@@ -99,11 +111,28 @@ export function createCassetteMainPlayer(
   const heading = document.createElement("h1");
   heading.className = "visually-hidden";
   heading.textContent = t("screen.nowPlaying.title");
+  const utilityControls = createCassetteUtilityControls({
+    musicBrowsingVisibility: options.musicBrowsingVisibility,
+    onOpenLibrary: options.onOpenLibrary,
+    onOpenFolders: options.onOpenFolders,
+    onToggleVolume: options.onToggleVolume,
+    onOpenQueue: options.onOpenQueue,
+  });
+  const stage = document.createElement("div");
+  stage.className = "cassette-player__stage";
   const sceneStack = document.createElement("div");
   sceneStack.className = "cassette-player__scene-stack";
   const prototypeScene = createCassettePrototypeScene();
+  const metadataLayer = createCassetteMetadataLayer();
+  const timeRow = createCassetteTimeRow({
+    initialPlayerState: playerState,
+    timeMode: options.timelineTimeMode,
+    onTimeModeChange: options.onTimelineTimeModeChange,
+  });
   sceneStack.append(prototypeScene.element);
-  section.append(heading, sceneStack);
+  sceneStack.append(metadataLayer.element);
+  stage.append(sceneStack);
+  section.append(heading, utilityControls.element, stage, timeRow.element);
   section.dataset.cassetteRenderer = renderer;
 
   const activatePrototype = (): boolean => {
@@ -145,6 +174,24 @@ export function createCassetteMainPlayer(
   const update = (state: PlayerState): void => {
     playerState = state;
     controller.update(createCassetteSnapshot(state, previewPositionSeconds));
+    utilityControls.update(state);
+    timeRow.update(state);
+    const presentation = createTrackPresentationSnapshot(state);
+    if (
+      metadataLayer.update({
+        queueItemId: presentation.queueItemId,
+        trackTransitionId: presentation.generation,
+        artist: presentation.artist,
+        album: presentation.album,
+      })
+    ) {
+      section.setAttribute(
+        "aria-label",
+        [t("cassette.description"), presentation.artist, presentation.album]
+          .filter(Boolean)
+          .join(" \u00b7 "),
+      );
+    }
   };
   const onVisibilityChange = (): void => {
     controller.setVisible(!document.hidden);
@@ -182,10 +229,12 @@ export function createCassetteMainPlayer(
     updateSeekPreview(positionSeconds) {
       previewPositionSeconds = positionSeconds;
       controller.update(createCassetteSnapshot(playerState, positionSeconds));
+      timeRow.updateSeekPreview(positionSeconds);
     },
     destroy() {
       destroyed = true;
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      metadataLayer.destroy();
       controller.destroy();
     },
   };

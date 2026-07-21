@@ -332,9 +332,34 @@ decode-before-commit behavior, finite premium → prototype → Default fallback
 shared scene geometry, layer order, CSS scoping, bounded SVG content,
 area-based tape physics, and the single 30 fps animation controller.
 
+The Step 2.6.3-R regression suite additionally fixes the physical contract:
+right source, left destination, negative/counterclockwise rotation for both
+reels, empty-reel speed greater than full-reel speed, equal speed at equal
+radii, exactly two radius-driven tape masses clipped to a static,
+semi-transparent centre window, one-pixel windings without extra circles, and
+full radii bounded by the cassette sides. Its
+60/180/360-second Queue cases verify duration-weighted progress, natural track
+boundaries, seek, partial metadata, append/remove/replace, and invalid inputs.
+
+The Step 2.6.3-P polish suite guards the two official local TTF assets and OFL
+licenses, documented SHA-256 identities, absence of remote/base64 font loading,
+Cassette-only font scoping, the lower-label safe rectangle, normalized missing
+metadata states, the single `Artist - Album` line, bounded fitting and
+final-resort ellipsis. It also verifies all
+three Music browsing visibility modes, Default callback plumbing for Library,
+Folders, Volume, and Queue, shared time formatting, total/remaining semantics,
+duration edge cases, seek preview, static metadata layer order, and absence of
+a second slider, timer, observer, or animation-loop update.
+
 For Windows release QA, run the real `npm.cmd run dev` path and inspect Default
 and Cassette at 1280×800, 1366×768, 1600×900, 1280×720, and 1024×600.
-Verify the decoded premium swap, reel centres, clipped tape, play/pause/seek,
+Verify the decoded premium swap, reel centres, counterclockwise markers,
+radius-relative speed, static semi-transparent centre window, visible tape
+packs at Queue start/middle/end, play/pause/seek,
+Nothing You Could Do artist/album fitting (including missing, late, long, and
+accented metadata), Bitcount Single elapsed and total/remaining display,
+Library/Folders visibility modes, the existing Volume popover and Queue drawer,
 unchanged mini-player controls, return to Default without playback mutation,
-absence of FFmpeg in Cassette, and clean shutdown. Test asset failure with the
-prototype still mounted; do not weaken or bypass production loading logic.
+absence of remote font requests and FFmpeg in Cassette, and clean shutdown.
+Test asset failure with the prototype still mounted; do not weaken or bypass
+production loading logic.
