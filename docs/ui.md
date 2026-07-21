@@ -170,6 +170,13 @@ its established geometry and does not display a mini-player. See
 [Cassette main player](development/cassette-player.md) for tape progress and
 animation lifecycle details.
 
+The Cassette surface preserves the approved 1070×710 cassette artwork with a
+single transparent PNG frame above one lightweight SVG layer. Only the two
+reels, their tape masses, and the clipped centre-window tape move; the surface
+adds no controls or track metadata. A same-size simplified prototype remains
+available while the frame decodes or if the frame is unavailable, so the mode
+does not flash, collapse, or expose a broken image.
+
 Settings rows share one 72 px base contract with 22 px primary copy and 30 px
 SVG chevrons. Binary values use inline segmented controls; values with three or
 more choices use a selection screen and commit at tap time before returning.

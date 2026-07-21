@@ -322,3 +322,19 @@ Use a generated temporary fixture for long cancellation/progress tests. Keep
 it outside the repository and user media directories, and delete it after the
 run. Inspect Library at 1280×800, 1366×768, 1600×900, 1280×720, and
 1024×600 with empty, scanning, cancelled, completed, and populated states.
+
+## Cassette frame checks
+
+The Step 2.6.3 regression suite parses PNG headers with Node standard APIs to
+guard the approved frame identity, 1070×710 RGBA format, runtime URL, and
+single-raster boundary. It also guards the master as a non-runtime PNG,
+decode-before-commit behavior, finite premium → prototype → Default fallback,
+shared scene geometry, layer order, CSS scoping, bounded SVG content,
+area-based tape physics, and the single 30 fps animation controller.
+
+For Windows release QA, run the real `npm.cmd run dev` path and inspect Default
+and Cassette at 1280×800, 1366×768, 1600×900, 1280×720, and 1024×600.
+Verify the decoded premium swap, reel centres, clipped tape, play/pause/seek,
+unchanged mini-player controls, return to Default without playback mutation,
+absence of FFmpeg in Cassette, and clean shutdown. Test asset failure with the
+prototype still mounted; do not weaken or bypass production loading logic.

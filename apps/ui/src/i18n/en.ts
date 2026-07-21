@@ -48,6 +48,8 @@ export const en = {
   "mainPlayer.cassette": "Cassette",
   "cassette.unavailable":
     "Cassette mode is unavailable. Default player restored.",
+  "cassette.premiumUnavailable":
+    "Premium cassette frame is unavailable. Prototype retained.",
   "nowPlaying.unavailableTitle": "MPV not available",
   "nowPlaying.unavailableDescription":
     "Check EIDETIC_MPV_PATH or your system PATH, then restart Eidetic Player",

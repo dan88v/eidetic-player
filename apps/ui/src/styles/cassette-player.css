@@ -11,178 +11,175 @@
       var(--color-bg);
   }
 
-  .cassette-player .cassette-scene {
-    display: block;
-    width: min(100%, 67rem);
-    height: 100%;
-    max-height: 100%;
+  .cassette-player .cassette-player__scene-stack {
+    position: relative;
+    width: auto;
+    height: min(100%, 44.375rem);
+    max-width: 100%;
+    aspect-ratio: 1070 / 710;
     filter: drop-shadow(0 1.25rem 1.1rem rgb(0 0 0 / 38%));
   }
 
-  .cassette-player .cassette-scene__shell {
-    fill: url("#cassette-shell-gradient");
-    stroke: #849197;
+  .cassette-player .cassette-player__premium-scene,
+  .cassette-player .cassette-player__prototype-scene {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  .cassette-player .cassette-player__dynamic-layer,
+  .cassette-player .cassette-player__frame,
+  .cassette-player .cassette-player__prototype-frame {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .cassette-player .cassette-player__dynamic-layer {
+    z-index: 0;
+    overflow: visible;
+  }
+
+  .cassette-player .cassette-player__frame,
+  .cassette-player .cassette-player__prototype-frame {
+    z-index: 1;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .cassette-player .cassette-player__tape-mass,
+  .cassette-player .cassette-player__reel,
+  .cassette-player .cassette-player__center-tape {
+    transform-box: view-box;
+    will-change: transform;
+  }
+
+  .cassette-player .cassette-player__tape-disc {
+    fill: #211714;
+  }
+
+  .cassette-player .cassette-player__tape-groove {
+    fill: none;
+    stroke: rgb(129 91 68 / 26%);
+    stroke-width: 1.5;
+  }
+
+  .cassette-player .cassette-player__reel-ring {
+    stroke: #607a87;
+    stroke-width: 5;
+  }
+
+  .cassette-player .cassette-player__reel-spokes {
+    fill: none;
+    stroke: #9da5a6;
+    stroke-linecap: round;
+    stroke-width: 9;
+  }
+
+  .cassette-player .cassette-player__reel-center {
+    fill: #171c1f;
+    stroke: #747c7e;
     stroke-width: 3;
   }
 
-  .cassette-player .cassette-scene__screw {
-    fill: #121719;
-    stroke: #9ba4a7;
+  .cassette-player .cassette-player__reel-cap {
+    fill: #292f31;
+    stroke: #92999a;
+    stroke-width: 2;
+  }
+
+  .cassette-player .cassette-player__center-tape-bed {
+    fill: #181412;
+  }
+
+  .cassette-player .cassette-player__center-tape {
+    fill: none;
+    stroke: rgb(125 91 69 / 34%);
+    stroke-width: 1;
+  }
+
+  .cassette-player .cassette-player__prototype-shell {
+    fill: url("#cassette-prototype-shell");
+    stroke: #879398;
     stroke-width: 3;
   }
 
-  .cassette-player .cassette-scene__label {
+  .cassette-player .cassette-player__prototype-label {
     fill: #eee9dc;
     stroke: #c7c0b1;
     stroke-width: 2;
   }
 
-  .cassette-player .cassette-scene__band {
+  .cassette-player .cassette-player__prototype-band {
     fill: #dc554b;
   }
 
-  .cassette-player .cassette-scene__microcopy,
-  .cassette-player .cassette-scene__side,
-  .cassette-player .cassette-scene__grade {
+  .cassette-player .cassette-player__prototype-reel-outline,
+  .cassette-player .cassette-player__prototype-window-outline {
+    fill: none;
+    stroke: #111719;
+    stroke-width: 8;
+  }
+
+  .cassette-player .cassette-player__prototype-copy {
     fill: #3d6c82;
     font-family: system-ui, sans-serif;
+    font-size: 18px;
     font-weight: 700;
     letter-spacing: 0.08em;
   }
 
-  .cassette-player .cassette-scene__microcopy {
-    font-size: 17px;
+  .cassette-player .cassette-player__prototype-side {
+    font-size: 27px;
   }
 
-  .cassette-player .cassette-scene__side {
-    font-size: 25px;
-  }
-
-  .cassette-player .cassette-scene__side tspan,
-  .cassette-player .cassette-scene__grade tspan {
+  .cassette-player .cassette-player__prototype-side tspan,
+  .cassette-player .cassette-player__prototype-grade tspan {
     fill: #dc554b;
   }
 
-  .cassette-player .cassette-scene__grade {
-    font-size: 56px;
+  .cassette-player .cassette-player__prototype-dots {
+    font-size: 25px;
+    letter-spacing: 0.35em;
+  }
+
+  .cassette-player .cassette-player__prototype-grade {
+    font-size: 58px;
     letter-spacing: 0;
   }
 
-  .cassette-player .cassette-scene__window {
-    fill: #182024;
-    stroke: #0a0e10;
-    stroke-width: 5;
-  }
-
-  .cassette-player .cassette-scene__tape-path,
-  .cassette-player .cassette-scene__window-tape,
-  .cassette-player .cassette-scene__loop {
-    fill: none;
-    stroke: #8b6346;
-    stroke-linecap: round;
-    stroke-width: 8;
-  }
-
-  .cassette-player .cassette-scene__loop {
-    stroke-width: 3;
-    opacity: 0.4;
-  }
-
-  .cassette-player .cassette-scene__tape-mass,
-  .cassette-player .cassette-scene__reel,
-  .cassette-player .cassette-scene__capstan,
-  .cassette-player .cassette-scene__mechanism {
-    transform-box: view-box;
-    will-change: transform;
-  }
-
-  .cassette-player .cassette-scene__tape {
-    fill: #3a281e;
-    stroke: #6d4c38;
-    stroke-width: 4;
-  }
-
-  .cassette-player .cassette-scene__reel-ring {
-    fill: #d4d8d6;
-    stroke: #4e91af;
-    stroke-width: 7;
-  }
-
-  .cassette-player .cassette-scene__reel path {
-    fill: none;
-    stroke: #344047;
-    stroke-width: 9;
-  }
-
-  .cassette-player .cassette-scene__hub {
-    fill: #20272b;
-    stroke: #7d8589;
-    stroke-width: 3;
-  }
-
-  .cassette-player .cassette-scene__center-window {
-    fill: #101619;
-    stroke: #8d9698;
-    stroke-width: 6;
-  }
-
-  .cassette-player .cassette-scene__head {
-    fill: #9da5a5;
-    stroke: #e4e6df;
-    stroke-width: 3;
-  }
-
-  .cassette-player .cassette-scene__capstan circle {
-    fill: #22292c;
-    stroke: #b8c0bf;
-    stroke-width: 3;
-  }
-
-  .cassette-player .cassette-scene__capstan path {
-    fill: none;
-    stroke: #d6d9d5;
-    stroke-width: 3;
-  }
-
-  .cassette-player .cassette-scene__pinch {
-    fill: #101416;
-    stroke: #697276;
-    stroke-width: 4;
-  }
-
-  .cassette-player .cassette-scene__brand,
-  .cassette-player .cassette-scene__brand-sub {
+  .cassette-player .cassette-player__prototype-brand,
+  .cassette-player .cassette-player__prototype-brand-sub {
     fill: #f3eee1;
-    font-family: system-ui, sans-serif;
-    letter-spacing: 0.12em;
-  }
-
-  .cassette-player .cassette-scene__brand {
-    font-size: 34px;
     font-weight: 300;
   }
 
-  .cassette-player .cassette-scene__brand-sub {
-    font-size: 13px;
+  .cassette-player .cassette-player__prototype-brand {
+    font-size: 36px;
   }
 
-  .cassette-player .cassette-scene__mark {
+  .cassette-player .cassette-player__prototype-brand-sub {
+    font-size: 14px;
+  }
+
+  .cassette-player .cassette-player__prototype-lines {
+    fill: none;
+    stroke: #7992a0;
+    stroke-width: 1.5;
+  }
+
+  .cassette-player .cassette-player__prototype-mark {
     fill: none;
     stroke: #f3eee1;
-    stroke-width: 9;
-  }
-
-  .cassette-player[data-transport-state="empty"] .cassette-scene__tape-path {
-    opacity: 0.55;
+    stroke-width: 10;
   }
 
   @media (max-height: 40rem) {
     .cassette-player {
       padding-block: 0.25rem;
-    }
-
-    .cassette-player .cassette-scene {
-      width: min(100%, 47rem);
     }
   }
 }

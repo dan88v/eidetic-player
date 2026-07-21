@@ -29,6 +29,7 @@ export interface ScreenContext {
   readonly setVisualizerMode: (mode: VisualizerMode) => boolean;
   readonly setMainPlayerMode: (mode: MainPlayerMode) => boolean;
   readonly handleCassetteError: () => void;
+  readonly handleCassetteAssetError: () => void;
   readonly setTimelineStyle: (style: TimelineStyle) => boolean;
   readonly setTimelineTimeMode: (
     mode: Parameters<AppStore["setTimelineTimeMode"]>[0],
@@ -99,6 +100,7 @@ export function createScreen(
         initialPlayerState: context.playerState,
         actions: context.playerActions,
         onCassetteError: context.handleCassetteError,
+        onCassetteAssetError: context.handleCassetteAssetError,
       });
     case "folders":
       return createFoldersScreen({

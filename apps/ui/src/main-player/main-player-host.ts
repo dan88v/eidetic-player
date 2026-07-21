@@ -10,6 +10,7 @@ export interface MainPlayerHostOptions extends NowPlayingOptions {
   readonly mode: MainPlayerMode;
   readonly animationsEnabled: boolean;
   readonly onCassetteError: () => void;
+  readonly onCassetteAssetError: () => void;
 }
 
 export function createMainPlayerHost(
@@ -29,6 +30,7 @@ export function createMainPlayerHost(
       createCassetteMainPlayer({
         initialPlayerState: options.initialPlayerState,
         animationsEnabled: options.animationsEnabled,
+        onAssetError: options.onCassetteAssetError,
         onError: options.onCassetteError,
       }),
     );

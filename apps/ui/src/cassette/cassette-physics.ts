@@ -8,8 +8,7 @@ export interface CassetteAngularVelocity {
   readonly destination: number;
 }
 
-export const CASSETTE_CORE_RADIUS = 28;
-export const CASSETTE_FULL_RADIUS = 72;
+export { CASSETTE_CORE_RADIUS, CASSETTE_FULL_RADIUS };
 export const CASSETTE_MAX_ANGULAR_SPEED = 5.5;
 
 const clamp01 = (value: number): number =>
@@ -54,3 +53,7 @@ export function integrateAngle(
   const turn = Math.PI * 2;
   return (((angle + speed * boundedDelta) % turn) + turn) % turn;
 }
+import {
+  CASSETTE_CORE_RADIUS,
+  CASSETTE_FULL_RADIUS,
+} from "./cassette-geometry";

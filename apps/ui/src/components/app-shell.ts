@@ -194,6 +194,7 @@ export function mountApp(
   const artworkPreloader = new ArtworkPreloader();
   let currentScreen: ComponentView | null = null;
   let cassetteFallbackNotified = false;
+  let cassetteAssetFallbackNotified = false;
   let currentLibrarySnapshot: IndexedLibrarySnapshot | null = null;
   const actions = {
     openFiles,
@@ -295,6 +296,11 @@ export function mountApp(
             showMessage(t("cassette.unavailable"), "neutral");
           }
         });
+      },
+      handleCassetteAssetError: () => {
+        if (cassetteAssetFallbackNotified) return;
+        cassetteAssetFallbackNotified = true;
+        showMessage(t("cassette.premiumUnavailable"), "neutral");
       },
       setTimelineStyle: (style) => {
         const previous = store.getState().timelineStyle;

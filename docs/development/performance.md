@@ -199,3 +199,20 @@ Desktop results are not evidence of Raspberry Pi 3B performance.
 Test Meter, Mono Spectrum, Stereo Spectrum, Technical, and None independently
 with real FLAC and MP3 files. Record limitations honestly; do not claim
 Raspberry Pi 3B performance until measured on that hardware.
+
+### Cassette premium scene
+
+The Cassette premium renderer has one 1070×710 RGBA frame and one bounded SVG
+scene. Its animation controller is shared by the loading prototype and premium
+scene rather than duplicated during the atomic swap. It is capped at 30 fps,
+retains its SVG nodes, and writes only tape-mass scale, two reel rotations, and
+the centre-tape translation. It performs no per-frame layout reads or backing
+store resizes and creates no periodic timer, worker, observer, visualizer
+EventSource, Canvas, or FFmpeg process.
+
+The centre tape stops immediately outside Playing. Reels briefly decelerate on
+Pause/Stop, while the loop stops after motion and progress settle. Hidden,
+destroyed, Animations Off, and reduced-motion states cancel continuous work.
+The PNG loader is module-cached and uses normal browser caching; it neither
+duplicates fetches nor retries indefinitely. Windows figures belong in the
+step report; Raspberry Pi validation remains a separate hardware task.

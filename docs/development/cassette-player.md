@@ -33,20 +33,47 @@ reuse stable IDs and the existing Queue array reconciliation without changing
 
 Tape mass is area-based. With full radius `R`, core radius `r`, and progress
 `p`, source radius is `sqrt(r² + (1-p)(R²-r²))` and destination radius is
-`sqrt(r² + p(R²-r²))`. Angular velocity is derived from the visual linear tape
-speed divided by each live radius and capped. Reel angles integrate bounded
-frame deltas and are never reconstructed from progress, so seeks move tape
-mass without discontinuously jumping the hubs.
+`sqrt(r² + p(R²-r²))`. The right reel is the source and the left reel is the
+destination. Both use a 28-unit core and 56-unit full radius. Angular velocity
+is derived from the visual linear tape speed divided by each live radius and
+capped. Reel angles integrate bounded frame deltas and are never reconstructed
+from progress, so seeks move tape mass without discontinuously jumping the
+hubs.
 
-The SVG keeps shell, label, band, window, tape masses, hubs, tape paths, head,
-capstan, and pinch roller as separate layers. Playback engages the upper
-mechanism; pause leaves the head engaged with the pinch assembly partially
-withdrawn; stopped and empty states settle out. Seek preview comes from the
-existing mini-player timeline callback and does not issue additional player
-commands.
+The premium scene uses the `0 0 1070 710` coordinate system shared by two
+layers. A single dynamic SVG sits below
+`/assets/main-player/cassette/cassette-frame.png`; the frame is the only raster
+asset loaded at runtime. Reel centres are `(290, 388)` for the left destination
+and `(776, 388)` for the right source. The SVG contains only the two tape
+masses, the two reel/hub groups, and the clipped centre-window tape texture.
+Tape flows right to left. There is no animated head, capstan, pinch roller,
+transport assembly, external mechanism, or dynamic text.
+
+The source master at `design/cassette/cassette-master-original.png` is a visual
+and documentation reference only. It is not imported, copied, encoded, or
+served by the application. The approved frame preserves the master typography,
+label, silhouette, screws, windows, and smoked shell.
 
 One animation controller owns at most one `requestAnimationFrame` handle and
 renders no faster than 30 fps. It runs only while visible and playing or while
-a transition is settling. Pause, stop, empty state, screen destruction, and
-document hiding cancel continuous work. Animations Off and reduced motion
-apply static state immediately without a continuous frame loop.
+a tape-mass interpolation or brief reel deceleration is settling. The centre
+tape advances only while playing. Pause, stop, empty state, screen destruction,
+and document hiding cancel continuous work. Animations Off and reduced motion
+apply static state immediately without a continuous frame loop. No layout read,
+periodic timer, observer, visualizer EventSource, Canvas, or FFmpeg analyzer is
+created by Cassette mode.
+
+## Loading and fallback
+
+The simplified SVG prototype is mounted first in the final aspect-ratio box.
+The frame loader uses one module-cached image request and waits for
+`HTMLImageElement.decode()` plus the expected 1070×710 intrinsic dimensions.
+Only then is the premium scene committed and the prototype hidden, keeping the
+swap atomic and layout-stable.
+
+If loading or decoding the frame fails, the prototype remains visible and the
+application emits at most one passive notification per application session.
+If a premium animation layer fails at runtime, the existing controller is
+retargeted to the prototype; a prototype/controller failure alone restores the
+Default player. These fallbacks do not alter playback, Queue contents,
+`queueRevision`, track, or position.

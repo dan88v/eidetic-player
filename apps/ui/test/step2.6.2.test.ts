@@ -136,11 +136,9 @@ void test("Cassette integration is scoped and excludes Default visualizer creati
     cassette,
     /createVisualizer|VisualizerStream|EventSource/,
   );
-  assert.match(cassette, /cassette-scene__mechanism/);
-  assert.match(cassette, /cassette-scene__loop--upper/);
-  assert.match(cassette, /cassette-scene__loop--lower/);
-  assert.match(cassette, /cassette-scene__tape-mass--source/);
-  assert.match(css, /\.cassette-player \.cassette-scene/);
+  assert.match(cassette, /createCassetteReelLayer/);
+  assert.doesNotMatch(cassette, /cassette-scene__mechanism|capstan|pinch/);
+  assert.match(css, /\.cassette-player \.cassette-player__scene-stack/);
   assert.doesNotMatch(css, /^\s*(svg|circle|path|rect|text)\s*\{/m);
   assert.match(shell, /state\.mainPlayerMode === "cassette"/);
   assert.match(miniPlayer, /onSeekPreview\?\./);
