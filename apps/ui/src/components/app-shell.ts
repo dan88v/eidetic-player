@@ -189,7 +189,7 @@ export function mountApp(
     toastHost.element,
   );
   const keyboardAdapter = createEideticKeyboardAdapter(root, {
-    enabled: store.getState().onScreenKeyboardMode === "auto",
+    mode: store.getState().onScreenKeyboardMode,
     animationsEnabled: store.getState().animationsEnabled,
   });
   let miniPlayer: MiniPlayer | null = null;
@@ -560,7 +560,7 @@ export function mountApp(
       keyboardAdapter.setAnimationsEnabled(state.animationsEnabled);
     }
     if (state.onScreenKeyboardMode !== previousState.onScreenKeyboardMode)
-      keyboardAdapter.setEnabled(state.onScreenKeyboardMode === "auto");
+      keyboardAdapter.setMode(state.onScreenKeyboardMode);
     if (
       state.musicBrowsingVisibility !== previousState.musicBrowsingVisibility
     ) {
@@ -572,7 +572,8 @@ export function mountApp(
         navigate("library");
       else if (
         (state.activeScreen === "library" ||
-          state.activeScreen === "favorites") &&
+          state.activeScreen === "favorites" ||
+          state.activeScreen === "recentlyPlayed") &&
         state.musicBrowsingVisibility === "folders"
       )
         navigate("folders");

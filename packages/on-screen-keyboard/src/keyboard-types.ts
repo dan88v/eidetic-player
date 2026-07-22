@@ -1,5 +1,6 @@
 export type KeyboardProfileName = "text" | "numeric" | "ipv4";
 export type KeyboardEnterAction = "search" | "done";
+export type KeyboardAutomaticMode = "auto" | "always" | "off";
 export type KeyboardInput = HTMLInputElement | HTMLTextAreaElement;
 
 export interface KeyboardProfile {
@@ -26,7 +27,7 @@ export interface OnScreenKeyboardOptions {
   readonly document?: Document;
   readonly mount?: HTMLElement;
   readonly labels: KeyboardLabels;
-  readonly enabled?: boolean;
+  readonly automaticMode?: KeyboardAutomaticMode;
   readonly preferNativeKeyboard?: boolean;
   readonly animationsEnabled?: boolean;
   readonly onVisibilityChange?: (visible: boolean) => void;
@@ -39,6 +40,6 @@ export interface OnScreenKeyboard {
   detach(input: KeyboardInput): void;
   showFor(input: KeyboardInput): void;
   hide(): void;
-  setEnabled(enabled: boolean): void;
+  setAutomaticMode(mode: KeyboardAutomaticMode): void;
   setAnimationsEnabled(enabled: boolean): void;
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate as yieldImmediate } from "node:timers/promises";
@@ -102,6 +102,61 @@ void test("first scan is automatic once, later scans are manual and removal pres
         ?.availability,
       "removed",
     );
+  } finally {
+    await service.close();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("Recently Played resolves the full deduplicated context at the selected index", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-history-context-"));
+  const root = join(temporary, "History Source");
+  await mkdir(root);
+  await writeFile(join(root, "Alpha.flac"), "fixture");
+  await writeFile(join(root, "Beta.flac"), "fixture");
+  const provider = new LocalFilesystemProvider();
+  const paths = PathService.forCurrentPlatform(provider);
+  const sourceRepository = new SourceRepository(
+    join(temporary, "config", "sources.json"),
+  );
+  const sources = new SourceService(provider, paths, sourceRepository);
+  await sources.addLocal(root);
+  const player = {
+    waitForLibraryScanSlot: () => Promise.resolve(),
+  } as unknown as PlayerService;
+  const service = await IndexedLibraryService.create(
+    provider,
+    paths,
+    sourceRepository,
+    sources,
+    player,
+    join(temporary, "data", "library.db"),
+  );
+  try {
+    await service.startAutomaticScans();
+    await waitFor(
+      service,
+      (snapshot) =>
+        snapshot.status.activeScan === null &&
+        snapshot.summary.trackCount === 2,
+    );
+    const tracks = service.tracks(null, 10).items;
+    const alpha = tracks.find((track) => track.title === "Alpha");
+    const beta = tracks.find((track) => track.title === "Beta");
+    assert.ok(alpha && beta);
+    const older = service.recordPlayHistory(alpha.id, 30, false, 1_000);
+    service.recordPlayHistory(beta.id, 30, false, 2_000);
+    assert.ok(older);
+
+    const context = await service.resolveRecentlyPlayed(older.historyId);
+    assert.deepEqual(
+      context.origins.map((origin) =>
+        origin.kind === "folders" ? origin.libraryTrackId : null,
+      ),
+      [beta.id, alpha.id],
+    );
+    assert.equal(context.selectedIndex, 1);
+    assert.match(context.paths[1] ?? "", /Alpha\.flac$/);
   } finally {
     await service.close();
     await rm(temporary, { recursive: true, force: true });

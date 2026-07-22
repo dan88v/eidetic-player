@@ -110,6 +110,10 @@ export class PlayerService {
   private openRequestChain: Promise<void> = Promise.resolve();
   private enrichmentWork = 0;
   private readonly libraryPriorityWaiters = new Set<() => void>();
+  private readonly naturalEndListeners = new Set<
+    (state: PlayerState) => void
+  >();
+  private readonly seekListeners = new Set<(state: PlayerState) => void>();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -127,6 +131,16 @@ export class PlayerService {
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  subscribeNaturalEnd(listener: (state: PlayerState) => void): () => void {
+    this.naturalEndListeners.add(listener);
+    return () => this.naturalEndListeners.delete(listener);
+  }
+
+  subscribeSeek(listener: (state: PlayerState) => void): () => void {
+    this.seekListeners.add(listener);
+    return () => this.seekListeners.delete(listener);
   }
 
   async waitForLibraryScanSlot(signal: AbortSignal): Promise<void> {
@@ -506,6 +520,7 @@ export class PlayerService {
       0,
       Math.min(this.state.durationSeconds, positionSeconds),
     );
+    for (const listener of this.seekListeners) listener(this.state);
     await this.requireController().command(["seek", target, "absolute+exact"]);
   }
 
@@ -643,6 +658,8 @@ export class PlayerService {
     this.metadataService.clear();
     await this.artworkService.close();
     this.listeners.clear();
+    this.naturalEndListeners.clear();
+    this.seekListeners.clear();
   }
 
   private async startController(): Promise<void> {
@@ -767,7 +784,12 @@ export class PlayerService {
       case "end-file":
         if ((message as { reason?: unknown }).reason === "error")
           this.updateError("PLAYBACK_FAILED", "MPV could not play this file.");
-        else this.flushPosition();
+        else {
+          this.flushPosition();
+          if ((message as { reason?: unknown }).reason === "eof")
+            for (const listener of this.naturalEndListeners)
+              listener(this.state);
+        }
         break;
       case "idle":
         this.update({

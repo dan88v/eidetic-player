@@ -43,6 +43,7 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
         "favorite_artists",
         "favorite_tracks",
         "library_sources",
+        "play_history",
         "scan_runs",
         "track_artists",
         "tracks",
@@ -93,7 +94,7 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
   }
 });
 
-void test("schema v1 migrates through v4 and backfills accent-insensitive Search keys", async () => {
+void test("schema v1 migrates through v5 and backfills accent-insensitive Search keys", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v1-"));
   const path = join(temporary, "library.db");
   try {
@@ -109,6 +110,7 @@ void test("schema v1 migrates through v4 and backfills accent-insensitive Search
 
     const legacy = new DatabaseSync(path);
     for (const statement of [
+      "DROP TABLE play_history",
       "DROP TABLE favorite_albums",
       "DROP TABLE favorite_artists",
       "DROP TABLE favorite_tracks",
@@ -126,7 +128,7 @@ void test("schema v1 migrates through v4 and backfills accent-insensitive Search
 
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 4);
+      assert.equal(migrated.diagnostics.schemaVersion, 5);
       assert.equal(
         (
           migrated.connection
@@ -145,7 +147,7 @@ void test("schema v1 migrates through v4 and backfills accent-insensitive Search
   }
 });
 
-void test("schema v2 migrates transactionally through Favorites v4", async () => {
+void test("schema v2 migrates transactionally through History v5", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v2-"));
   const path = join(temporary, "library.db");
   try {
@@ -153,12 +155,12 @@ void test("schema v2 migrates transactionally through Favorites v4", async () =>
     current.close();
     const legacy = new DatabaseSync(path);
     legacy.exec(
-      "DROP TABLE favorite_albums; DROP TABLE favorite_artists; DROP TABLE favorite_tracks; PRAGMA user_version = 2",
+      "DROP TABLE play_history; DROP TABLE favorite_albums; DROP TABLE favorite_artists; DROP TABLE favorite_tracks; PRAGMA user_version = 2",
     );
     legacy.close();
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 4);
+      assert.equal(migrated.diagnostics.schemaVersion, 5);
       const foreignKey = migrated.connection
         .prepare("PRAGMA foreign_key_list(favorite_tracks)")
         .get() as { table: string; on_delete: string };
@@ -173,7 +175,7 @@ void test("schema v2 migrates transactionally through Favorites v4", async () =>
   }
 });
 
-void test("schema v3 migrates transactionally to Favorite Albums and Artists v4", async () => {
+void test("schema v3 migrates transactionally through History v5", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v3-"));
   const path = join(temporary, "library.db");
   try {
@@ -181,12 +183,12 @@ void test("schema v3 migrates transactionally to Favorite Albums and Artists v4"
     current.close();
     const legacy = new DatabaseSync(path);
     legacy.exec(
-      "DROP TABLE favorite_albums; DROP TABLE favorite_artists; PRAGMA user_version = 3",
+      "DROP TABLE play_history; DROP TABLE favorite_albums; DROP TABLE favorite_artists; PRAGMA user_version = 3",
     );
     legacy.close();
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 4);
+      assert.equal(migrated.diagnostics.schemaVersion, 5);
       for (const [table, parent] of [
         ["favorite_albums", "albums"],
         ["favorite_artists", "artists"],
@@ -197,6 +199,38 @@ void test("schema v3 migrates transactionally to Favorite Albums and Artists v4"
         assert.equal(foreignKey.table, parent);
         assert.equal(foreignKey.on_delete, "CASCADE");
       }
+      assert.equal(migrated.integrityCheck(), true);
+    } finally {
+      migrated.close();
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("schema v4 migrates transactionally to play history v5", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v4-"));
+  const path = join(temporary, "library.db");
+  try {
+    const current = await LibraryDatabase.open(path);
+    current.close();
+    const legacy = new DatabaseSync(path);
+    legacy.exec("DROP TABLE play_history; PRAGMA user_version = 4");
+    legacy.close();
+    const migrated = await LibraryDatabase.open(path);
+    try {
+      assert.equal(migrated.diagnostics.schemaVersion, 5);
+      const foreignKey = migrated.connection
+        .prepare("PRAGMA foreign_key_list(play_history)")
+        .get() as { table: string; on_delete: string };
+      assert.equal(foreignKey.table, "tracks");
+      assert.equal(foreignKey.on_delete, "CASCADE");
+      const indexes = migrated.connection
+        .prepare("PRAGMA index_list(play_history)")
+        .all()
+        .map((row) => String((row as { name: unknown }).name));
+      assert.ok(indexes.includes("play_history_played_idx"));
+      assert.ok(indexes.includes("play_history_track_idx"));
       assert.equal(migrated.integrityCheck(), true);
     } finally {
       migrated.close();

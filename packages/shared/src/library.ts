@@ -168,6 +168,7 @@ export interface IndexedLibrarySnapshot {
   readonly summary: IndexedLibrarySummary;
   readonly sources: readonly IndexedLibrarySource[];
   readonly status: IndexedLibraryStatus;
+  readonly historyRevision: number;
 }
 
 export interface LibraryScanRequest {
@@ -224,6 +225,26 @@ export interface FavoriteTrackMutationResponse {
 export interface FavoriteTracksPlayRequest {
   readonly selectedTrackId?: string;
   readonly catalogFingerprint?: string;
+}
+
+export interface RecentlyPlayedItem extends LibraryTrack {
+  readonly historyId: string;
+  readonly playedAt: number;
+  readonly playedSeconds: number;
+  readonly completed: boolean;
+}
+
+export interface RecentlyPlayedPage extends LibraryPage<RecentlyPlayedItem> {
+  readonly total: number;
+  readonly availableCount: number;
+}
+
+export interface RecentlyPlayedPlayRequest {
+  readonly selectedHistoryId?: string;
+}
+
+export interface RecentlyPlayedMutationResponse {
+  readonly removedCount: number;
 }
 
 export interface LibraryAlbum {

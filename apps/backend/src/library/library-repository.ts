@@ -18,6 +18,7 @@ import type {
   FavoriteArtistPage,
   FavoriteAlbumMutationResponse,
   FavoriteArtistMutationResponse,
+  RecentlyPlayedPage,
 } from "../../../../packages/shared/src/library.js";
 import type { StoredSource } from "../filesystem/filesystem-types.js";
 import { LibraryDatabase } from "./library-database.js";
@@ -148,6 +149,13 @@ function trackFromRow(row: SqlRow): LibraryTrack {
     availability: effectiveAvailability(row),
   };
 }
+
+function historyId(id: number): string {
+  return `history-${String(id)}`;
+}
+
+const HISTORY_RETENTION_MILLISECONDS = 90 * 24 * 60 * 60 * 1_000;
+const MAX_HISTORY_EVENTS = 500;
 
 function albumFromRow(row: SqlRow): LibraryAlbum {
   const trackCount = numberValue(row.track_count);
@@ -859,6 +867,198 @@ export class LibraryRepository {
     const decoded = decodeCursor(cursor, 6);
     const rows = this.trackRows("", decoded, [limit + 1]);
     return this.trackPage(rows, limit);
+  }
+
+  recordPlayHistory(
+    trackId: string,
+    playedSeconds: number,
+    completed: boolean,
+    playedAt = Date.now(),
+  ): { readonly historyId: string; readonly created: boolean } | null {
+    return this.database.transaction(() => {
+      const track = this.connection
+        .prepare("SELECT track_id FROM tracks WHERE track_id = ?")
+        .get(trackId) as SqlRow | undefined;
+      if (!track) return null;
+      const latest = this.connection
+        .prepare(
+          `SELECT id, track_id FROM play_history
+           ORDER BY played_at DESC, id DESC LIMIT 1`,
+        )
+        .get() as SqlRow | undefined;
+      let id: number;
+      let created = false;
+      if (latest && String(latest.track_id) === trackId) {
+        id = numberValue(latest.id);
+        this.connection
+          .prepare(
+            `UPDATE play_history
+             SET played_at = ?, played_seconds = ?,
+                 completed = ?
+             WHERE id = ?`,
+          )
+          .run(playedAt, playedSeconds, completed ? 1 : 0, id);
+      } else {
+        const result = this.connection
+          .prepare(
+            `INSERT INTO play_history (
+               track_id, played_at, played_seconds, completed
+             ) VALUES (?, ?, ?, ?)`,
+          )
+          .run(trackId, playedAt, playedSeconds, completed ? 1 : 0);
+        id = Number(result.lastInsertRowid);
+        created = true;
+      }
+      this.prunePlayHistory(playedAt);
+      return { historyId: historyId(id), created };
+    });
+  }
+
+  updatePlayHistory(
+    id: number,
+    playedSeconds: number,
+    completed: boolean,
+    playedAt = Date.now(),
+  ): boolean {
+    return this.database.transaction(() => {
+      const result = this.connection
+        .prepare(
+          `UPDATE play_history
+           SET played_at = ?, played_seconds = ?,
+               completed = MAX(completed, ?)
+           WHERE id = ?`,
+        )
+        .run(playedAt, playedSeconds, completed ? 1 : 0, id);
+      this.prunePlayHistory(playedAt);
+      return Number(result.changes) > 0;
+    });
+  }
+
+  recentlyPlayed(cursor: string | null, limit: number): RecentlyPlayedPage {
+    const decoded = decodeCursor(cursor, 2);
+    if (
+      decoded &&
+      (typeof decoded[0] !== "number" || typeof decoded[1] !== "number")
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_CURSOR",
+        "The Library page cursor is invalid.",
+      );
+    const cursorPlayedAt = decoded ? numberValue(decoded[0]) : null;
+    const cursorId = decoded ? numberValue(decoded[1]) : null;
+    const rows = this.connection
+      .prepare(
+        `SELECT h.id, h.played_at, h.played_seconds, h.completed,
+                t.track_id,
+                COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available
+         FROM play_history h
+         JOIN tracks t ON t.track_id = h.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         ${decoded ? "WHERE h.played_at < ? OR (h.played_at = ? AND h.id < ?)" : ""}
+         ORDER BY h.played_at DESC, h.id DESC
+         LIMIT ?`,
+      )
+      .all(
+        ...(decoded ? [cursorPlayedAt, cursorPlayedAt, cursorId] : []),
+        limit + 1,
+      ) as SqlRow[];
+    const counts = this.connection
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                COUNT(CASE WHEN t.available = 1 AND s.available = 1
+                                 AND s.removed = 0 THEN 1 END) AS available
+         FROM play_history h
+         JOIN tracks t ON t.track_id = h.track_id
+         JOIN library_sources s ON s.source_id = t.source_id`,
+      )
+      .get() as SqlRow;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((row) => ({
+        ...trackFromRow(row),
+        historyId: historyId(numberValue(row.id)),
+        playedAt: numberValue(row.played_at),
+        playedSeconds: numberValue(row.played_seconds),
+        completed: numberValue(row.completed) === 1,
+      })),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([numberValue(last.played_at), numberValue(last.id)])
+          : null,
+      total: numberValue(counts.total),
+      availableCount: numberValue(counts.available),
+    };
+  }
+
+  removePlayHistory(id: number): number {
+    return Number(
+      this.connection.prepare("DELETE FROM play_history WHERE id = ?").run(id)
+        .changes,
+    );
+  }
+
+  clearPlayHistory(): number {
+    return Number(
+      this.connection.prepare("DELETE FROM play_history").run().changes,
+    );
+  }
+
+  playHistoryTrackId(id: number): string | null {
+    const row = this.connection
+      .prepare("SELECT track_id FROM play_history WHERE id = ?")
+      .get(id) as SqlRow | undefined;
+    return row ? String(row.track_id) : null;
+  }
+
+  playHistoryContextTracks(): readonly LibraryContextTrack[] {
+    return (
+      this.connection
+        .prepare(
+          `WITH ranked AS (
+             SELECT h.track_id, h.played_at, h.id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY h.track_id
+                      ORDER BY h.played_at DESC, h.id DESC
+                    ) AS occurrence
+             FROM play_history h
+           )
+           SELECT t.track_id, t.source_id, t.relative_path
+           FROM ranked r
+           JOIN tracks t ON t.track_id = r.track_id
+           JOIN library_sources s ON s.source_id = t.source_id
+           WHERE r.occurrence = 1 AND t.available = 1
+             AND s.available = 1 AND s.removed = 0
+           ORDER BY r.played_at DESC, r.id DESC`,
+        )
+        .all() as SqlRow[]
+    ).map((row) => ({
+      id: String(row.track_id),
+      sourceId: String(row.source_id),
+      relativePath: String(row.relative_path),
+    }));
+  }
+
+  private prunePlayHistory(now: number): void {
+    this.connection
+      .prepare("DELETE FROM play_history WHERE played_at < ?")
+      .run(Math.max(0, now - HISTORY_RETENTION_MILLISECONDS));
+    this.connection
+      .prepare(
+        `DELETE FROM play_history
+         WHERE id NOT IN (
+           SELECT id FROM play_history
+           ORDER BY played_at DESC, id DESC LIMIT ?
+         )`,
+      )
+      .run(MAX_HISTORY_EVENTS);
   }
 
   addFavoriteTrack(

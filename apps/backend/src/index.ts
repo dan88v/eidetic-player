@@ -4,6 +4,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createReadStream } from "node:fs";
+import { performance } from "node:perf_hooks";
 import type { ApiResponse } from "../../../packages/shared/src/player.js";
 import type { HealthResponse } from "../../../packages/shared/src/health.js";
 import type { WaveformResponse } from "../../../packages/shared/src/visualizer.js";
@@ -35,6 +36,7 @@ import { PlayerSessionService } from "./player-session/player-session-service.js
 import { IndexedLibraryService } from "./library/library-service.js";
 import { LibraryError } from "./library/library-errors.js";
 import { LibrarySseHub } from "./api/library-sse-hub.js";
+import { PlayHistoryTracker } from "./library/play-history-tracker.js";
 import type {
   LibraryCancelScanRequest,
   LibraryContextRequest,
@@ -45,6 +47,7 @@ import type {
   FavoriteTracksPlayRequest,
   FavoriteAlbumStatusRequest,
   FavoriteArtistStatusRequest,
+  RecentlyPlayedPlayRequest,
 } from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
@@ -74,6 +77,25 @@ const libraryEventsPromise = indexedLibraryPromise.then(
 );
 void indexedLibraryPromise.catch((error: unknown) => {
   console.error("[library] initialization failed", error);
+});
+let playHistoryTracker: PlayHistoryTracker | null = null;
+let unsubscribeHistoryState = (): void => undefined;
+let unsubscribeNaturalEnd = (): void => undefined;
+let unsubscribeHistorySeek = (): void => undefined;
+void indexedLibraryPromise.then((indexedLibrary) => {
+  if (shuttingDown) return;
+  const tracker = new PlayHistoryTracker(indexedLibrary);
+  playHistoryTracker = tracker;
+  tracker.observe(player.getState(), performance.now());
+  unsubscribeHistoryState = player.subscribe((state) => {
+    tracker.observe(state, performance.now());
+  });
+  unsubscribeNaturalEnd = player.subscribeNaturalEnd((state) => {
+    tracker.observe(state, performance.now(), true);
+  });
+  unsubscribeHistorySeek = player.subscribeSeek((state) => {
+    tracker.noteSeek(state, performance.now());
+  });
 });
 const playerSession = new PlayerSessionService(
   new PlayerSessionRepository(),
@@ -446,6 +468,22 @@ function favoriteArtistStatusBody(value: unknown): FavoriteArtistStatusRequest {
   };
 }
 
+function recentlyPlayedPlayBody(value: unknown): RecentlyPlayedPlayRequest {
+  const body = objectBody(value);
+  if (
+    body.selectedHistoryId !== undefined &&
+    (typeof body.selectedHistoryId !== "string" ||
+      !/^history-[1-9][0-9]*$/.test(body.selectedHistoryId))
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_HISTORY",
+      "Select a valid listening-history event.",
+    );
+  return typeof body.selectedHistoryId === "string"
+    ? { selectedHistoryId: body.selectedHistoryId }
+    : {};
+}
+
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
   const body = objectBody(value);
   for (const field of ["scanId", "sourceId"] as const)
@@ -678,6 +716,67 @@ async function handleRequest(
         data: (await indexedLibraryPromise).tracks(
           libraryCursor(url),
           libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/recently-played"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).recentlyPlayed(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/api/library/recently-played"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).clearPlayHistory(),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/recently-played/play"
+    ) {
+      const body = recentlyPlayedPlayBody(await readBody(request));
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveRecentlyPlayed(body.selectedHistoryId);
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
+      });
+      return;
+    }
+    const recentlyPlayedMatch =
+      /^\/api\/library\/recently-played\/(history-[1-9][0-9]*)$/.exec(
+        url.pathname,
+      );
+    if (recentlyPlayedMatch && request.method === "DELETE") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).removePlayHistory(
+          recentlyPlayedMatch[1] ?? "",
         ),
       });
       return;
@@ -1381,6 +1480,10 @@ function shutdown(signal: NodeJS.Signals): void {
   shuttingDown = true;
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
+  unsubscribeHistoryState();
+  unsubscribeNaturalEnd();
+  unsubscribeHistorySeek();
+  playHistoryTracker?.stop();
   unsubscribeAnalyzerState();
   server.close();
   playerSession.stop();

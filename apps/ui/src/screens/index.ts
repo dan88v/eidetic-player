@@ -20,6 +20,7 @@ import type {
 import { createFoldersScreen } from "./folders";
 import { createLibraryScreen } from "./library";
 import { createFavoritesScreen } from "./favorites";
+import { createRecentlyPlayedScreen } from "./recently-played";
 import type {
   FavoriteAlbumStore,
   FavoriteArtistStore,
@@ -150,6 +151,14 @@ export function createScreen(
         favoriteAlbums: context.favoriteAlbums,
         favoriteArtists: context.favoriteArtists,
         openLibraryEntity: context.openLibraryEntity,
+        noteTrackCommand: context.noteTrackCommand,
+        showToast: context.showToast,
+      });
+    case "recentlyPlayed":
+      return createRecentlyPlayedScreen({
+        api: context.libraryApi,
+        favorites: context.favorites,
+        initialSnapshot: context.librarySnapshot,
         noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
       });

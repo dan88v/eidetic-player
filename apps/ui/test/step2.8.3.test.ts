@@ -17,13 +17,20 @@ const miniPlayer = read("apps/ui/src/components/mini-player.ts");
 const defaultPlayer = read("apps/ui/src/screens/now-playing.ts");
 const cassette = read("apps/ui/src/cassette/cassette-main-player.ts");
 
-void test("Settings persists immediate Auto or Off with Auto as default", () => {
+void test("Settings persists immediate Auto, Always or Off with Auto as default", () => {
   assert.match(settings, /settings\.onScreenKeyboard/);
-  assert.match(settings, /value: "auto"/);
-  assert.match(settings, /value: "off"/);
-  assert.match(storage, /=== "off" \? "off" : "auto"/);
+  assert.match(settings, /page === "keyboard"/);
+  assert.match(settings, /\["auto", t\("common\.auto"\)\]/);
+  assert.match(settings, /\["always", t\("common\.always"\)\]/);
+  assert.match(settings, /\["off", t\("common\.off"\)\]/);
+  assert.match(
+    settings,
+    /keyboardRow\.className = "settings-row-base setting-navigation"/,
+  );
+  assert.doesNotMatch(settings, /keyboardControl|keyboardRow\.append/);
+  assert.match(storage, /value === "always" \|\| value === "off"/);
   assert.match(shell, /saveOnScreenKeyboardMode/);
-  assert.match(shell, /keyboardAdapter\.setEnabled/);
+  assert.match(shell, /keyboardAdapter\.setMode/);
 });
 
 void test("Eidetic mounts one themed adapter and tears every listener down", () => {
@@ -59,10 +66,11 @@ void test("Library Search and safe rename are explicit opt-in fields", () => {
   );
 });
 
-void test("touch opens, mouse and physical focus do not, and Escape closes", () => {
+void test("Auto is touch-only, Always includes mouse, and Escape closes", () => {
   assert.match(controller, /const openAutomatically = shouldOpenAutomatically/);
   assert.match(controller, /event\.pointerType/);
   assert.match(adapter, /event\.pointerType === "touch"/);
+  assert.match(adapter, /mode === "always"/);
   assert.match(adapter, /keyboard\.showFor\(input\)/);
   assert.match(controller, /event\.key !== "Escape"/);
   assert.match(controller, /api\.hide\(\)/);

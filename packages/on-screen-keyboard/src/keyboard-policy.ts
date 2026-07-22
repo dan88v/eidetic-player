@@ -1,4 +1,4 @@
-import type { KeyboardInput } from "./keyboard-types";
+import type { KeyboardAutomaticMode, KeyboardInput } from "./keyboard-types";
 
 export function isEligibleKeyboardInput(input: KeyboardInput): boolean {
   if (input.disabled || input.readOnly || input.type === "hidden") return false;
@@ -7,12 +7,12 @@ export function isEligibleKeyboardInput(input: KeyboardInput): boolean {
 
 export function shouldOpenAutomatically(
   pointerType: string,
-  enabled: boolean,
+  mode: KeyboardAutomaticMode,
   preferNativeKeyboard: boolean,
 ): boolean {
   return (
-    enabled &&
     !preferNativeKeyboard &&
-    (pointerType === "touch" || pointerType === "pen")
+    (mode === "always" ||
+      (mode === "auto" && (pointerType === "touch" || pointerType === "pen")))
   );
 }

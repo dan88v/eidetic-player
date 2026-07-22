@@ -46,6 +46,7 @@ function snapshot(
   queuedSourceIds: readonly string[] = [],
 ): IndexedLibrarySnapshot {
   return {
+    historyRevision: 0,
     summary: {
       trackCount: 0,
       availableTrackCount: 0,

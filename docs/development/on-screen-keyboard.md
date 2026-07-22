@@ -36,8 +36,12 @@ following:
 - the setting to be `Auto`;
 - a host that does not prefer its native software keyboard.
 
-Mouse focus and physical-keyboard focus never open it automatically. `Off`
-hides the current keyboard immediately and prevents later automatic opening.
+Mouse focus and physical-keyboard focus never open it automatically in Auto.
+`Always` opens every eligible opted-in field on focus, including mouse focus on
+Windows, while physical-keyboard input remains usable. A host preference for
+the native software keyboard still takes priority over both Auto and Always.
+`Off` hides the current keyboard immediately and prevents later automatic
+opening.
 Hide, Done, Escape, focus leaving the active field, field removal, route
 rendering, and shell teardown all close it. The single controller owns its
 document listeners and removes them on teardown. It adds no timer, observer,

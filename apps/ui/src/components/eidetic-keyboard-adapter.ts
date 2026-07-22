@@ -2,6 +2,7 @@ import {
   createOnScreenKeyboard,
   type KeyboardInput,
   type KeyboardProfile,
+  type KeyboardAutomaticMode,
   type OnScreenKeyboard,
 } from "../../../../packages/on-screen-keyboard/src/on-screen-keyboard";
 import { t } from "../i18n";
@@ -9,7 +10,7 @@ import { t } from "../i18n";
 export interface EideticKeyboardAdapter {
   readonly keyboard: OnScreenKeyboard;
   hide(): void;
-  setEnabled(enabled: boolean): void;
+  setMode(mode: KeyboardAutomaticMode): void;
   setAnimationsEnabled(enabled: boolean): void;
   destroy(): void;
 }
@@ -32,12 +33,15 @@ function profileFor(input: KeyboardInput): KeyboardProfile | null {
 
 export function createEideticKeyboardAdapter(
   mount: HTMLElement,
-  options: { readonly enabled: boolean; readonly animationsEnabled: boolean },
+  options: {
+    readonly mode: KeyboardAutomaticMode;
+    readonly animationsEnabled: boolean;
+  },
 ): EideticKeyboardAdapter {
-  let enabled = options.enabled;
+  let mode = options.mode;
   const keyboard = createOnScreenKeyboard({
     mount,
-    enabled: options.enabled,
+    automaticMode: options.mode,
     animationsEnabled: options.animationsEnabled,
     preferNativeKeyboard: false,
     labels: {
@@ -93,9 +97,10 @@ export function createEideticKeyboardAdapter(
     if (!profile) return;
     keyboard.attach(input, profile);
     if (
-      enabled &&
-      event instanceof PointerEvent &&
-      (event.pointerType === "touch" || event.pointerType === "pen")
+      mode === "always" ||
+      (mode === "auto" &&
+        event instanceof PointerEvent &&
+        (event.pointerType === "touch" || event.pointerType === "pen"))
     )
       keyboard.showFor(input);
   };
@@ -107,9 +112,9 @@ export function createEideticKeyboardAdapter(
     hide: () => {
       keyboard.hide();
     },
-    setEnabled(nextEnabled) {
-      enabled = nextEnabled;
-      keyboard.setEnabled(nextEnabled);
+    setMode(nextMode) {
+      mode = nextMode;
+      keyboard.setAutomaticMode(nextMode);
     },
     setAnimationsEnabled: (enabled) => {
       keyboard.setAnimationsEnabled(enabled);

@@ -174,7 +174,9 @@ current item (no fallback), corrupt JSON recovery, and logical Folders origins.
 For interface preferences, verify immediate Folders/Library visibility,
 redirect when the active section becomes hidden, Sources remaining visible,
 and inactivity reset/suspension for overlays, fields, selection sub-screens,
-and native dialogs.
+and native dialogs. Treat an inline Settings pill group with three or more
+options as a regression: only booleans/two-choice settings may stay inline;
+larger sets must use the standard summary row and selection sub-screen.
 
 ## Step 2.4.3 corrective checks
 
@@ -482,3 +484,28 @@ then exercise the real Neutralino/WebView2 path:
    visibility, mini-player layering, and no horizontal overflow;
 6. inspect Default, Cassette, and mini-player surfaces to confirm that none has
    become an opt-in field and their geometry is unchanged.
+
+## Step 2.9 Recently Played checks
+
+1. migrate every earlier Library schema to v5; verify the two history indexes,
+   Track cascade, offline retention, keyset boundaries, 90-day cleanup, and
+   newest-500 cap;
+2. verify 30-second/50-percent/unknown-duration thresholds using real playback
+   deltas, with pause, buffering, seek, sleep-sized gaps, unindexed Tracks, and
+   duplicate transition events excluded;
+3. verify 90-percent and natural completion update the same event, consecutive
+   duplicate Tracks replace the newest event, and a Track after an intervening
+   event creates a new row;
+4. exercise Today/Yesterday/full-date groups, one sentinel, the 192-row bound,
+   unavailable rows, Favorite, single-Track Add, event Remove, confirmed footer
+   Clear, exact empty state, and absence of Search;
+5. play a non-first event beyond the mounted page and confirm the full available
+   history is deduplicated newest-first, the selected index is direct, and no
+   transient first Track starts;
+6. verify Auto, Always, and Off live on the standard selection sub-screen,
+   persist immediately, and return to Interface after selection; mouse and
+   keyboard focus open in Always, touch/pen alone opens in Auto, ineligible
+   fields stay closed, and host native-keyboard preference wins;
+7. inspect drawer visibility, Default, Cassette, mini-player, Queue, and the
+   keyboard at 1280 x 800, 1280 x 720, and 1024 x 600, then confirm clean
+   Neutralino/backend/Vite/MPV/FFmpeg shutdown and no temporary fixture remains.

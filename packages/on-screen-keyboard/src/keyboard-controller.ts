@@ -13,6 +13,7 @@ import {
 } from "./keyboard-policy";
 import type {
   KeyboardInput,
+  KeyboardAutomaticMode,
   KeyboardProfile,
   OnScreenKeyboard,
   OnScreenKeyboardOptions,
@@ -38,7 +39,7 @@ export function createOnScreenKeyboard(
   const keys = root.querySelector<HTMLElement>(".on-screen-keyboard__keys");
   if (!keys) throw new Error("The on-screen keyboard could not be created");
 
-  let enabled = options.enabled ?? true;
+  let automaticMode: KeyboardAutomaticMode = options.automaticMode ?? "auto";
   const preferNativeKeyboard = options.preferNativeKeyboard ?? false;
   let activeInput: KeyboardInput | null = null;
   let pointerType = "";
@@ -263,7 +264,7 @@ export function createOnScreenKeyboard(
     activeInput = target;
     const openAutomatically = shouldOpenAutomatically(
       pointerType,
-      enabled,
+      automaticMode,
       preferNativeKeyboard,
     );
     pointerType = "";
@@ -300,7 +301,8 @@ export function createOnScreenKeyboard(
     showFor(input) {
       if (
         destroyed ||
-        !enabled ||
+        automaticMode === "off" ||
+        preferNativeKeyboard ||
         !profiles.has(input) ||
         !isEligibleKeyboardInput(input)
       )
@@ -325,9 +327,9 @@ export function createOnScreenKeyboard(
       pointerType = "";
       options.onVisibilityChange?.(false);
     },
-    setEnabled(nextEnabled) {
-      enabled = nextEnabled;
-      if (!enabled) api.hide();
+    setAutomaticMode(nextMode) {
+      automaticMode = nextMode;
+      if (automaticMode === "off" || preferNativeKeyboard) api.hide();
     },
     setAnimationsEnabled(nextEnabled) {
       root.dataset.animations = String(nextEnabled);

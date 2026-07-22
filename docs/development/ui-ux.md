@@ -62,6 +62,13 @@ must not render text, icons, borders, shadows, or loading chrome.
   sticky through the reusable `library-sticky-back-header` contract. New
   Library subpages with Back must adopt the same contract.
 
+Recently Played follows the established Track-row geometry, groups rows by
+local Today/Yesterday/full-date headings, and keeps its red confirmed Clear
+action at the end of the scroll rather than in the header. Unavailable rows
+remain visible and removable/favoritable, but their Play and Add actions stay
+disabled. History refreshes preserve the current content and scroll while the
+bounded replacement page is prepared.
+
 Measure important geometry with `getBoundingClientRect()` in development tests,
 but keep production layout CSS-driven rather than continuously JS-measured.
 
@@ -195,8 +202,10 @@ mutation shows a success toast.
 ## Settings and inactivity
 
 Settings uses root, Interface, and selection sub-screens. Every boolean uses an
-inline segmented control. Controls with three or more choices use a shared row,
-current-value summary, 30 px SVG chevron, and dedicated selection screen. A
+inline segmented control. Without exceptions, any control with three or more
+choices uses a shared row, current-value summary, 30 px SVG chevron, and a
+dedicated selection screen; three-or-more-choice pill groups are not permitted
+inline. A
 choice updates the store, persists, renders its checkmark, and returns
 immediately; failed persistence rolls back, shows the existing toast, and does
 not navigate. Music browsing can expose Folders, Library, or both without

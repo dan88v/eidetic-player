@@ -121,9 +121,13 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
       const favorites = element.querySelector<HTMLElement>(
         '[data-screen="favorites"]',
       );
+      const recentlyPlayed = element.querySelector<HTMLElement>(
+        '[data-screen="recentlyPlayed"]',
+      );
       if (folders) folders.hidden = value === "library";
       if (library) library.hidden = value === "folders";
       if (favorites) favorites.hidden = value === "folders";
+      if (recentlyPlayed) recentlyPlayed.hidden = value === "folders";
     },
   };
 }

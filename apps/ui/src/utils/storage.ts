@@ -37,7 +37,8 @@ const storageKeys = {
 } as const;
 
 export function loadOnScreenKeyboardMode(): OnScreenKeyboardMode {
-  return read(storageKeys.onScreenKeyboard) === "off" ? "off" : "auto";
+  const value = read(storageKeys.onScreenKeyboard);
+  return value === "always" || value === "off" ? value : "auto";
 }
 
 export function saveOnScreenKeyboardMode(value: OnScreenKeyboardMode): boolean {

@@ -3,6 +3,7 @@ export const screenIds = [
   "folders",
   "library",
   "favorites",
+  "recentlyPlayed",
   "sources",
   "queue",
   "settings",
@@ -22,7 +23,7 @@ export type FolderSortMode =
   "name-asc" | "name-desc" | "files-desc" | "files-asc";
 export type MusicBrowsingVisibility = "both" | "folders" | "library";
 export type ReturnToNowPlayingSeconds = 0 | 10 | 30 | 60 | 120;
-export type OnScreenKeyboardMode = "auto" | "off";
+export type OnScreenKeyboardMode = "auto" | "always" | "off";
 
 export interface AppState {
   readonly activeScreen: ScreenId;

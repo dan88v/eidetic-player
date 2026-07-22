@@ -38,6 +38,13 @@ newest-first keyset pagination. Source offline/removed state retains the
 catalog entity and Favorite; only definitive orphan cleanup cascades it. The
 v3-to-v4 migration and the complete v1/v2 upgrade path run transactionally.
 
+Schema v5 adds `play_history`, which stores only the Track foreign key,
+listening timestamp, real accumulated playback seconds, and completion flag.
+The Track foreign key cascades only on definitive Track deletion; offline or
+removed Sources therefore retain their history. Newest-first and Track lookup
+indexes support bounded keyset pages and contextual playback. All earlier
+schema versions upgrade to v5 in the existing migration transaction.
+
 ## Identity and incremental scans
 
 A Track is identified by the pair `(sourceId, logicalRelativePath)`. Its opaque
@@ -109,6 +116,8 @@ Discrete commands use REST:
   `/tracks`;
 - `GET` or `HEAD /api/library/tracks/:trackId/artwork`;
 - `POST /api/library/play`, `/queue`, and `/tracks/queue`;
+- `GET`/`DELETE /api/library/recently-played`, event `DELETE` by opaque history
+  ID, and atomic contextual `POST /api/library/recently-played/play`;
 - `GET /api/library/favorites/tracks`, idempotent `PUT`/`DELETE`
   `/api/library/favorites/tracks/:trackId`, batch `POST /status`, and atomic
   `POST /play`;
@@ -154,6 +163,26 @@ after 2.5 seconds; failure, interruption, and Source-unavailable states remain
 visible until superseded or shutdown. The toast has no controls; management
 stays on the Library screen. No polling,
 second EventSource, second toast host, or scan-specific endpoint is used.
+
+Recently Played is a separate main screen immediately after Favorites. It uses
+48-row keyset pages, retains at most 192 mounted rows, groups events by local
+day, preserves unavailable rows, and adds neither Search nor another
+EventSource. Its contextual Play builder reads the complete database history,
+keeps only the newest occurrence of each Track, excludes unavailable Tracks,
+and maps the requested event directly before one atomic Queue replacement.
+Add to Queue remains a single-Track command. Event removal and confirmed footer
+Clear affect neither Queue nor Favorites.
+
+One backend tracker consumes the existing Player state subscription. For each
+stable Library Track transition it accumulates only bounded forward playback
+deltas and explicitly ignores pause, buffering, seek, sleep-sized gaps, and
+unindexed Queue entries. An event is recorded at `min(30 seconds, 50% of known
+duration)`, or 30 real seconds when duration is unknown. The same event becomes
+completed at 90% or natural end. Consecutive duplicate Tracks update the newest
+event; intervening Tracks create a new event. Each write transaction removes
+events older than 90 days and then retains only the newest 500. A revision on
+the existing Library snapshot invalidates the mounted screen only after a
+meaningful history mutation, never on ordinary Player ticks.
 
 Favorites is a separate main screen, visible whenever Library browsing is
 enabled, with persistent Tracks, Albums, and Artists segments. Bounded 48-item

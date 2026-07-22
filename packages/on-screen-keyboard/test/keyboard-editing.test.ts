@@ -148,13 +148,15 @@ void test("text, symbols, numeric and IPv4 layouts expose the complete keys", ()
   assert.equal(labels(numericRows).includes("."), false);
 });
 
-void test("automatic policy is touch-only and respects native keyboard preference", () => {
-  assert.equal(shouldOpenAutomatically("touch", true, false), true);
-  assert.equal(shouldOpenAutomatically("pen", true, false), true);
-  assert.equal(shouldOpenAutomatically("mouse", true, false), false);
-  assert.equal(shouldOpenAutomatically("", true, false), false);
-  assert.equal(shouldOpenAutomatically("touch", false, false), false);
-  assert.equal(shouldOpenAutomatically("touch", true, true), false);
+void test("Auto and Always respect pointer and native keyboard policy", () => {
+  assert.equal(shouldOpenAutomatically("touch", "auto", false), true);
+  assert.equal(shouldOpenAutomatically("pen", "auto", false), true);
+  assert.equal(shouldOpenAutomatically("mouse", "auto", false), false);
+  assert.equal(shouldOpenAutomatically("", "auto", false), false);
+  assert.equal(shouldOpenAutomatically("mouse", "always", false), true);
+  assert.equal(shouldOpenAutomatically("", "always", false), true);
+  assert.equal(shouldOpenAutomatically("touch", "off", false), false);
+  assert.equal(shouldOpenAutomatically("touch", "always", true), false);
 });
 
 void test("only editable non-password fields are eligible", () => {

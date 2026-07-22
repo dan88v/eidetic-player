@@ -33,7 +33,7 @@ export interface SettingsScreenOptions {
 }
 
 type SettingsPage =
-  "root" | "interface" | "browsing" | "visualizer" | "inactivity";
+  "root" | "interface" | "keyboard" | "browsing" | "visualizer" | "inactivity";
 
 export function createSettingsScreen(
   options: SettingsScreenOptions,
@@ -84,21 +84,25 @@ export function createSettingsScreen(
         ? t("screen.settings.title")
         : page === "interface"
           ? t("settings.interface")
-          : page === "browsing"
-            ? t("settings.musicBrowsing")
-            : page === "visualizer"
-              ? t("settings.visualizer")
-              : t("settings.returnToNowPlaying");
+          : page === "keyboard"
+            ? t("settings.onScreenKeyboard")
+            : page === "browsing"
+              ? t("settings.musicBrowsing")
+              : page === "visualizer"
+                ? t("settings.visualizer")
+                : t("settings.returnToNowPlaying");
     const description =
       page === "root"
         ? t("screen.settings.description")
         : page === "interface"
           ? t("settings.interfaceDescription")
-          : page === "browsing"
-            ? t("settings.musicBrowsingDescription")
-            : page === "visualizer"
-              ? t("settings.visualizerDescription")
-              : t("settings.returnToNowPlayingDescription");
+          : page === "keyboard"
+            ? t("settings.onScreenKeyboardDescription")
+            : page === "browsing"
+              ? t("settings.musicBrowsingDescription")
+              : page === "visualizer"
+                ? t("settings.visualizerDescription")
+                : t("settings.returnToNowPlayingDescription");
     header.setAttribute("aria-label", title);
     header.innerHTML = `<p class="screen-header__description">${description}</p>`;
     if (page !== "root") {
@@ -140,6 +144,23 @@ export function createSettingsScreen(
           selectionRow(label, visualizer === value, () => {
             if (!options.onVisualizerModeChange(value)) return false;
             visualizer = value;
+            return true;
+          }),
+        );
+      return;
+    }
+
+    if (page === "keyboard") {
+      const values: readonly [OnScreenKeyboardMode, string][] = [
+        ["auto", t("common.auto")],
+        ["always", t("common.always")],
+        ["off", t("common.off")],
+      ];
+      for (const [value, label] of values)
+        panel.append(
+          selectionRow(label, onScreenKeyboard === value, () => {
+            if (!options.onScreenKeyboardModeChange(value)) return false;
+            onScreenKeyboard = value;
             return true;
           }),
         );
@@ -204,25 +225,14 @@ export function createSettingsScreen(
     });
     animationsRow.append(animationControl.element);
 
-    const keyboardRow = document.createElement("div");
-    keyboardRow.className = "settings-row-base setting-row";
-    keyboardRow.innerHTML = `<div class="setting-row__copy"><span class="setting-row__label">${t("settings.onScreenKeyboard")}</span><span class="setting-row__description">${t("settings.onScreenKeyboardDescription")}</span></div>`;
-    const keyboardControl = createSegmentedControl<OnScreenKeyboardMode>({
-      label: t("settings.onScreenKeyboard"),
-      value: onScreenKeyboard,
-      items: [
-        { value: "auto", label: t("common.auto") },
-        { value: "off", label: t("common.off") },
-      ],
-      onChange(value) {
-        if (!options.onScreenKeyboardModeChange(value)) {
-          keyboardControl.setValue(onScreenKeyboard);
-          return;
-        }
-        onScreenKeyboard = value;
-      },
+    const keyboardRow = document.createElement("button");
+    keyboardRow.className = "settings-row-base setting-navigation";
+    keyboardRow.type = "button";
+    keyboardRow.innerHTML = `<span><strong>${t("settings.onScreenKeyboard")}</strong><small>${t(`common.${onScreenKeyboard}`)}</small></span>${chevron()}`;
+    keyboardRow.addEventListener("click", () => {
+      page = "keyboard";
+      render();
     });
-    keyboardRow.append(keyboardControl.element);
 
     const mainPlayerRow = document.createElement("div");
     mainPlayerRow.className = "settings-row-base setting-row";

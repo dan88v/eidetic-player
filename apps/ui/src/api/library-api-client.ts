@@ -24,6 +24,9 @@ import type {
   FavoriteArtistMutationResponse,
   FavoriteAlbumStatusResponse,
   FavoriteArtistStatusResponse,
+  RecentlyPlayedPage,
+  RecentlyPlayedPlayRequest,
+  RecentlyPlayedMutationResponse,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -79,6 +82,37 @@ export class LibraryApiClient {
     limit = 48,
   ): Promise<LibraryPage<LibraryTrack>> {
     return this.request(this.pagePath("/api/library/tracks", cursor, limit));
+  }
+
+  recentlyPlayed(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<RecentlyPlayedPage> {
+    return this.request(
+      this.pagePath("/api/library/recently-played", cursor, limit),
+    );
+  }
+
+  playRecentlyPlayed(
+    request: RecentlyPlayedPlayRequest = {},
+  ): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/recently-played/play", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  removeRecentlyPlayed(
+    historyId: string,
+  ): Promise<RecentlyPlayedMutationResponse> {
+    return this.request(
+      `/api/library/recently-played/${encodeURIComponent(historyId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  clearRecentlyPlayed(): Promise<RecentlyPlayedMutationResponse> {
+    return this.request("/api/library/recently-played", { method: "DELETE" });
   }
 
   favoriteTracks(

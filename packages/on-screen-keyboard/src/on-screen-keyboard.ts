@@ -5,6 +5,7 @@ export {
   shouldOpenAutomatically,
 } from "./keyboard-policy";
 export type {
+  KeyboardAutomaticMode,
   KeyboardEnterAction,
   KeyboardInput,
   KeyboardLabels,
