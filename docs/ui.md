@@ -73,8 +73,9 @@ view changes CSS state only: it performs no request, artwork reload, screen
 rebuild, or scroll reset.
 
 Library root is dedicated to Albums, Artists, and Tracks browsing. Its header
-contains Rescan/Cancel and the secondary Manage Library action; the segmented
-control follows immediately, with the Albums Grid/List mode where applicable.
+contains an on-demand Search action. A single compact toolbar places the
+segmented control beside the Albums Grid/List mode where applicable and the
+visible Manage action; Rescan/Cancel exist only inside Manage Library.
 The selected segment and Album presentation persist independently. Album cards
 reserve cover geometry before lazy artwork decode; album and artist details
 replace the top-bar title, open at the top, and restore the prior list position
@@ -82,6 +83,16 @@ on Back. Rows use sibling semantic controls for their primary action and
 three-dot menu. Track taps play the complete ordered context directly from that
 row; Play and Add actions are disabled for unavailable entities. Lists use
 keyset pagination and retain at most 192 rendered items.
+
+Search replaces the Library header and browsing region without adding a
+persistent row. It requires two characters, debounces for 250 ms, groups
+Artists, Albums, then Tracks, and offers bounded keyset-paginated View all
+subviews. Exact, prefix, word-prefix, and contains matches use stable
+accent-insensitive catalog keys. Search query, loaded pages, category/detail
+route, and scroll survive Library remounts in the current app session only.
+Album/Artist results reuse their details; Track play rebuilds the complete
+current-catalog match context on the backend. Unavailable results remain
+visible but cannot play or be added.
 
 Manage Library is an internal Library subpage, distinct from Settings and from
 the Sources configuration screen. It reuses the four Tracks, Albums, Artists,

@@ -13,7 +13,7 @@ import {
 import { LibraryFutureVersionError } from "../src/library/library-errors.js";
 import { LibraryRepository } from "../src/library/library-repository.js";
 
-void test("new Library database uses schema v1, WAL and safe pragmas", async () => {
+void test("new Library database uses the current schema, WAL and safe pragmas", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-db-"));
   const path = join(temporary, "Data Unicode", "library.db");
   try {
@@ -83,8 +83,57 @@ void test("new Library database uses schema v1, WAL and safe pragmas", async () 
       database.close();
     }
     const reopened = await LibraryDatabase.open(path);
-    assert.equal(reopened.diagnostics.schemaVersion, 1);
+    assert.equal(reopened.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
     reopened.close();
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("schema v1 migrates to v2 and backfills accent-insensitive Search keys", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v1-"));
+  const path = join(temporary, "library.db");
+  try {
+    const current = await LibraryDatabase.open(path);
+    current.connection
+      .prepare(
+        `INSERT INTO artists (
+           artist_id, normalized_key, display_name, updated_at
+         ) VALUES (?, ?, ?, ?)`,
+      )
+      .run("artist-v1", "bjork", "Björk", "2026-07-21T00:00:00.000Z");
+    current.close();
+
+    const legacy = new DatabaseSync(path);
+    for (const statement of [
+      "ALTER TABLE artists DROP COLUMN search_name",
+      "ALTER TABLE albums DROP COLUMN search_title",
+      "ALTER TABLE albums DROP COLUMN search_artist",
+      "ALTER TABLE tracks DROP COLUMN search_title",
+      "ALTER TABLE tracks DROP COLUMN search_artist",
+      "ALTER TABLE tracks DROP COLUMN search_album",
+      "ALTER TABLE tracks DROP COLUMN search_album_artist",
+    ])
+      legacy.exec(statement);
+    legacy.exec("PRAGMA user_version = 1");
+    legacy.close();
+
+    const migrated = await LibraryDatabase.open(path);
+    try {
+      assert.equal(migrated.diagnostics.schemaVersion, 2);
+      assert.equal(
+        (
+          migrated.connection
+            .prepare(
+              "SELECT search_name FROM artists WHERE artist_id = 'artist-v1'",
+            )
+            .get() as { search_name: string }
+        ).search_name,
+        "bjork",
+      );
+    } finally {
+      migrated.close();
+    }
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

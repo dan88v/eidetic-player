@@ -8,6 +8,9 @@ import type {
   LibraryArtist,
   LibraryScanRequest,
   LibraryTrack,
+  LibraryCategorySearchResults,
+  LibraryGroupedSearchResults,
+  LibrarySearchCategory,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
@@ -20,6 +23,7 @@ import { LibraryError } from "./library-errors.js";
 import { LibraryRepository } from "./library-repository.js";
 import { LibraryScanner } from "./library-scanner.js";
 import { LibraryScheduler } from "./library-scheduler.js";
+import { normalizeLibrarySearchKey } from "./library-normalization.js";
 import type {
   LibrarySnapshotListener,
   LibraryDatabaseDiagnostics,
@@ -48,6 +52,11 @@ export interface ResolvedLibraryContext {
 const MIN_PAGE_LIMIT = 1;
 export const DEFAULT_LIBRARY_PAGE_LIMIT = 48;
 export const MAX_LIBRARY_PAGE_LIMIT = 100;
+export const DEFAULT_LIBRARY_SEARCH_GROUP_LIMITS = {
+  artists: 5,
+  albums: 6,
+  tracks: 8,
+} as const;
 
 export class IndexedLibraryService {
   private readonly listeners = new Set<LibrarySnapshotListener>();
@@ -223,6 +232,77 @@ export class IndexedLibraryService {
     return this.repository.tracks(cursor, this.pageLimit(limit));
   }
 
+  search(query: string, limitPerGroup?: number): LibraryGroupedSearchResults {
+    this.ensureOpen();
+    const normalizedQuery = this.searchQuery(query);
+    const limits = limitPerGroup
+      ? {
+          artists: this.pageLimit(limitPerGroup),
+          albums: this.pageLimit(limitPerGroup),
+          tracks: this.pageLimit(limitPerGroup),
+        }
+      : DEFAULT_LIBRARY_SEARCH_GROUP_LIMITS;
+    return {
+      normalizedQuery,
+      catalogFingerprint: this.repository.catalogFingerprint(),
+      artists: this.repository.searchArtists(
+        normalizedQuery,
+        null,
+        limits.artists,
+      ),
+      albums: this.repository.searchAlbums(
+        normalizedQuery,
+        null,
+        limits.albums,
+      ),
+      tracks: this.repository.searchTracks(
+        normalizedQuery,
+        null,
+        limits.tracks,
+      ),
+    };
+  }
+
+  searchCategory(
+    category: LibrarySearchCategory,
+    query: string,
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): LibraryCategorySearchResults {
+    this.ensureOpen();
+    const normalizedQuery = this.searchQuery(query);
+    const boundedLimit = this.pageLimit(limit);
+    const catalogFingerprint = this.repository.catalogFingerprint();
+    if (category === "artists")
+      return {
+        category,
+        normalizedQuery,
+        catalogFingerprint,
+        page: this.repository.searchArtists(
+          normalizedQuery,
+          cursor,
+          boundedLimit,
+        ),
+      };
+    if (category === "albums")
+      return {
+        category,
+        normalizedQuery,
+        catalogFingerprint,
+        page: this.repository.searchAlbums(
+          normalizedQuery,
+          cursor,
+          boundedLimit,
+        ),
+      };
+    return {
+      category,
+      normalizedQuery,
+      catalogFingerprint,
+      page: this.repository.searchTracks(normalizedQuery, cursor, boundedLimit),
+    };
+  }
+
   trackLocation(trackId: string) {
     this.ensureOpen();
     return this.repository.trackLocation(trackId);
@@ -311,6 +391,55 @@ export class IndexedLibraryService {
     };
   }
 
+  async resolveSearchContext(
+    query: string,
+    selectedTrackId: string,
+    catalogFingerprint: string,
+  ): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    const normalizedQuery = this.searchQuery(query);
+    const before = this.repository.catalogFingerprint();
+    // Compare the result fingerprint even though a stale client is allowed to
+    // continue with a freshly rebuilt context when its selected Track survives.
+    const resultCatalogIsCurrent = catalogFingerprint === before;
+    const records = this.repository.searchContextTracks(normalizedQuery);
+    if (!records.some((record) => record.id === selectedTrackId))
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    // A stale client fingerprint deliberately keeps the rebuilt current-catalog
+    // context when the selected Track is still valid.
+    void resultCatalogIsCurrent;
+    const selectedIndex = resolved.findIndex(
+      (record) => record.id === selectedTrackId,
+    );
+    if (selectedIndex < 0)
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    return {
+      paths: resolved.map((record) => record.path),
+      origins: resolved.map((record) => ({
+        kind: "folders",
+        sourceId: record.sourceId,
+        relativePath: record.relativePath,
+      })),
+      selectedIndex,
+      trackIds: resolved.map((record) => record.id),
+    };
+  }
+
   subscribe(listener: LibrarySnapshotListener): () => void {
     this.ensureOpen();
     this.listeners.add(listener);
@@ -380,6 +509,21 @@ export class IndexedLibraryService {
         `Library page size must be between ${String(MIN_PAGE_LIMIT)} and ${String(MAX_LIBRARY_PAGE_LIMIT)}.`,
       );
     return limit;
+  }
+
+  private searchQuery(query: string): string {
+    if (typeof query !== "string" || query.length > 256)
+      throw new LibraryError(
+        "INVALID_LIBRARY_SEARCH",
+        "Enter a valid Library search.",
+      );
+    const normalized = normalizeLibrarySearchKey(query);
+    if (Array.from(normalized).length < 2)
+      throw new LibraryError(
+        "LIBRARY_SEARCH_TOO_SHORT",
+        "Type at least 2 characters.",
+      );
+    return normalized;
   }
 
   private async resolveRecords(

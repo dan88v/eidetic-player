@@ -8,6 +8,9 @@ import type {
   LibraryPage,
   LibraryScanProgress,
   LibraryTrack,
+  LibraryGroupedSearchResults,
+  LibrarySearchAlbum,
+  LibrarySearchCategory,
 } from "../../../../packages/shared/src/library";
 import type { LibraryApiClient } from "../api/library-api-client";
 import { icon } from "../components/icons";
@@ -52,8 +55,52 @@ interface PageState<T> {
   error: string | null;
 }
 
+interface SearchCategoryState<T> extends PageState<T> {
+  total: number;
+}
+
+interface PreviousLibraryState {
+  readonly segment: LibrarySegment;
+  readonly albumView: LibraryAlbumViewMode;
+  readonly scrollTop: number;
+}
+
+interface LibrarySearchState {
+  active: boolean;
+  query: string;
+  normalizedQuery: string;
+  loading: boolean;
+  error: string | null;
+  groupedResults: LibraryGroupedSearchResults | null;
+  activeCategoryView: LibrarySearchCategory | null;
+  categoryPages: {
+    artists: SearchCategoryState<LibraryArtist>;
+    albums: SearchCategoryState<LibrarySearchAlbum>;
+    tracks: SearchCategoryState<LibraryTrack>;
+  };
+  requestSequence: number;
+  scrollPositions: {
+    grouped: number;
+    artists: number;
+    albums: number;
+    tracks: number;
+  };
+  previousLibraryState: PreviousLibraryState | null;
+}
+
+interface LibrarySearchSessionSnapshot {
+  readonly query: string;
+  readonly normalizedQuery: string;
+  readonly groupedResults: LibraryGroupedSearchResults | null;
+  readonly activeCategoryView: LibrarySearchCategory | null;
+  readonly categoryPages: LibrarySearchState["categoryPages"];
+  readonly scrollPositions: LibrarySearchState["scrollPositions"];
+}
+
 const PAGE_SIZE = 48;
 const MAX_RENDERED_ITEMS = 192;
+const SEARCH_DEBOUNCE_MILLISECONDS = 250;
+let librarySearchSession: LibrarySearchSessionSnapshot | null = null;
 
 function emptyPage<T>(): PageState<T> {
   return {
@@ -63,6 +110,14 @@ function emptyPage<T>(): PageState<T> {
     loading: false,
     error: null,
   };
+}
+
+function emptySearchPage<T>(): SearchCategoryState<T> {
+  return { ...emptyPage<T>(), total: 0 };
+}
+
+function normalizedInputLength(value: string): number {
+  return Array.from(value.trim().replace(/\s+/gu, " ")).length;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -150,17 +205,23 @@ export function createLibraryScreen(
   section.innerHTML = `
     <div class="library-root">
       <header class="screen-header library-header">
-        <span aria-hidden="true"></span>
-        <div class="library-header__actions">
-          <button class="primary-action library-scan-action library-header__action" type="button">${t("library.rescan")}</button>
-          <button class="library-manage-action library-header__action" type="button">${t("library.manage")}</button>
+        <button class="folders-back library-search-close" type="button" aria-label="${t("library.searchClose")}" hidden>${icon("back")}<span>${t("common.back")}</span></button>
+        <div class="library-search-field" hidden>
+          <label class="visually-hidden" for="library-search-input">${t("library.searchLabel")}</label>
+          <input id="library-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="${t("library.searchPlaceholder")}" />
+          <button class="library-search-clear" type="button" aria-label="${t("library.searchClear")}" hidden>${icon("close")}</button>
         </div>
+        <button class="library-search-action library-header__action" type="button">${icon("search")}<span>${t("library.search")}</span></button>
       </header>
       <div class="library-browser-toolbar">
         <div class="library-segments"></div>
-        <div class="library-view-controls"></div>
+        <div class="library-toolbar-actions">
+          <div class="library-view-controls"></div>
+          <button class="library-manage-action" type="button" aria-label="${t("library.manage")}">${t("library.manage")}</button>
+        </div>
       </div>
       <div class="library-browser-content"></div>
+      <div class="library-search-status visually-hidden" role="status" aria-live="polite"></div>
     </div>
     <div class="library-manage" hidden>
       <header class="library-detail-header library-manage__header">
@@ -213,12 +274,31 @@ export function createLibraryScreen(
     ".library-view-controls",
   );
   const segmentsHost = section.querySelector<HTMLElement>(".library-segments");
-  const menu = section.querySelector<HTMLElement>(".library-action-menu");
-  const scanAction = section.querySelector<HTMLButtonElement>(
-    ".library-scan-action",
+  const browserToolbar = section.querySelector<HTMLElement>(
+    ".library-browser-toolbar",
   );
+  const libraryHeader = section.querySelector<HTMLElement>(".library-header");
+  const menu = section.querySelector<HTMLElement>(".library-action-menu");
   const manageAction = section.querySelector<HTMLButtonElement>(
     ".library-manage-action",
+  );
+  const searchAction = section.querySelector<HTMLButtonElement>(
+    ".library-search-action",
+  );
+  const searchClose = section.querySelector<HTMLButtonElement>(
+    ".library-search-close",
+  );
+  const searchField = section.querySelector<HTMLElement>(
+    ".library-search-field",
+  );
+  const searchInput = section.querySelector<HTMLInputElement>(
+    ".library-search-field input",
+  );
+  const searchClear = section.querySelector<HTMLButtonElement>(
+    ".library-search-clear",
+  );
+  const searchStatus = section.querySelector<HTMLElement>(
+    ".library-search-status",
   );
   const manageScanAction = section.querySelector<HTMLButtonElement>(
     ".library-manage-scan-action",
@@ -248,9 +328,16 @@ export function createLibraryScreen(
     !browser ||
     !viewControls ||
     !segmentsHost ||
+    !browserToolbar ||
+    !libraryHeader ||
     !menu ||
-    !scanAction ||
     !manageAction ||
+    !searchAction ||
+    !searchClose ||
+    !searchField ||
+    !searchInput ||
+    !searchClear ||
+    !searchStatus ||
     !manageScanAction ||
     !manageBack ||
     !sourcesOverview ||
@@ -282,6 +369,46 @@ export function createLibraryScreen(
   };
   let segment: LibrarySegment = loadLibrarySegment();
   let albumView: LibraryAlbumViewMode = loadLibraryAlbumViewMode();
+  const restoredSearch = librarySearchSession;
+  const search: LibrarySearchState = {
+    active: restoredSearch !== null,
+    query: restoredSearch?.query ?? "",
+    normalizedQuery: restoredSearch?.normalizedQuery ?? "",
+    loading: false,
+    error: null,
+    groupedResults: restoredSearch?.groupedResults ?? null,
+    activeCategoryView: restoredSearch?.activeCategoryView ?? null,
+    categoryPages: restoredSearch
+      ? {
+          artists: {
+            ...restoredSearch.categoryPages.artists,
+            items: [...restoredSearch.categoryPages.artists.items],
+            loading: false,
+          },
+          albums: {
+            ...restoredSearch.categoryPages.albums,
+            items: [...restoredSearch.categoryPages.albums.items],
+            loading: false,
+          },
+          tracks: {
+            ...restoredSearch.categoryPages.tracks,
+            items: [...restoredSearch.categoryPages.tracks.items],
+            loading: false,
+          },
+        }
+      : {
+          artists: emptySearchPage(),
+          albums: emptySearchPage(),
+          tracks: emptySearchPage(),
+        },
+    requestSequence: 0,
+    scrollPositions: restoredSearch
+      ? { ...restoredSearch.scrollPositions }
+      : { grouped: 0, artists: 0, albums: 0, tracks: 0 },
+    previousLibraryState: restoredSearch
+      ? { segment, albumView, scrollTop: 0 }
+      : null,
+  };
   let route: LibraryRoute = { kind: "root" };
   let destroyed = false;
   let requestGeneration = 0;
@@ -297,6 +424,9 @@ export function createLibraryScreen(
   let manageScrollTop = 0;
   let manageReturnRoute: LibraryRoute = { kind: "root" };
   let manageReturnScrollTop = 0;
+  let searchDebounce: ReturnType<typeof setTimeout> | null = null;
+  let groupedSearchController: AbortController | null = null;
+  let categorySearchController: AbortController | null = null;
 
   const closeMenu = (focus = false): void => {
     const triggerId = menu.dataset.triggerId;
@@ -384,6 +514,25 @@ export function createLibraryScreen(
     }
   };
 
+  const playSearchTrack = async (trackId: string): Promise<void> => {
+    const results = search.groupedResults;
+    if (!results) return;
+    options.noteTrackCommand();
+    try {
+      await options.api.playSearch({
+        query: results.normalizedQuery,
+        selectedTrackId: trackId,
+        catalogFingerprint: results.catalogFingerprint,
+      });
+    } catch (error) {
+      options.showToast(
+        error instanceof Error ? error.message : t("library.actionFailed"),
+        "error",
+      );
+      if (!destroyed && search.active) void executeGroupedSearch();
+    }
+  };
+
   const moreButton = (
     hasMore: boolean,
     loading: boolean,
@@ -401,7 +550,7 @@ export function createLibraryScreen(
 
   const trackRow = (
     track: LibraryTrack,
-    context: LibraryContextRequest,
+    playTrack: () => void,
   ): HTMLElement => {
     const row = document.createElement("article");
     const unavailable = track.availability === "unavailable";
@@ -443,7 +592,7 @@ export function createLibraryScreen(
       main.append(badge);
     }
     main.addEventListener("click", () => {
-      void play({ ...context, selectedTrackId: track.id });
+      playTrack();
     });
     const more = document.createElement("button");
     more.className = "library-item-more";
@@ -655,6 +804,556 @@ export function createLibraryScreen(
     renderSourcesOverview();
   };
 
+  const persistSearchSession = (): void => {
+    if (!search.active) {
+      librarySearchSession = null;
+      return;
+    }
+    librarySearchSession = {
+      query: search.query,
+      normalizedQuery: search.normalizedQuery,
+      groupedResults: search.groupedResults,
+      activeCategoryView: search.activeCategoryView,
+      categoryPages: {
+        artists: {
+          ...search.categoryPages.artists,
+          items: [...search.categoryPages.artists.items],
+          loading: false,
+        },
+        albums: {
+          ...search.categoryPages.albums,
+          items: [...search.categoryPages.albums.items],
+          loading: false,
+        },
+        tracks: {
+          ...search.categoryPages.tracks,
+          items: [...search.categoryPages.tracks.items],
+          loading: false,
+        },
+      },
+      scrollPositions: { ...search.scrollPositions },
+    };
+  };
+
+  const cancelSearchRequests = (): void => {
+    if (searchDebounce !== null) {
+      clearTimeout(searchDebounce);
+      searchDebounce = null;
+    }
+    groupedSearchController?.abort();
+    categorySearchController?.abort();
+    groupedSearchController = null;
+    categorySearchController = null;
+    search.requestSequence += 1;
+  };
+
+  const setSearchHeader = (): void => {
+    libraryHeader.hidden = search.active && search.activeCategoryView !== null;
+    searchAction.hidden = search.active;
+    searchClose.hidden = !search.active;
+    searchField.hidden = !search.active;
+    browserToolbar.hidden = search.active;
+    if (search.active && searchInput.value !== search.query)
+      searchInput.value = search.query;
+    searchClear.hidden = !search.active || search.query.length === 0;
+  };
+
+  const searchSectionHeader = (
+    category: LibrarySearchCategory,
+    total: number,
+    visibleCount: number,
+  ): HTMLElement => {
+    const header = document.createElement("header");
+    header.className = "library-search-section__header";
+    const copy = document.createElement("div");
+    const title = document.createElement("h2");
+    title.textContent = t(`library.${category}`);
+    const count = document.createElement("span");
+    count.textContent = message("library.searchCount", {
+      count: String(total),
+    });
+    copy.append(title, count);
+    header.append(copy);
+    if (total > visibleCount) {
+      const viewAll = document.createElement("button");
+      viewAll.type = "button";
+      viewAll.textContent = t("library.searchViewAll");
+      viewAll.addEventListener("click", () => {
+        search.scrollPositions.grouped = section.parentElement?.scrollTop ?? 0;
+        search.activeCategoryView = category;
+        persistSearchSession();
+        if (section.parentElement) section.parentElement.scrollTop = 0;
+        void loadSearchCategory(category, false);
+      });
+      header.append(viewAll);
+    }
+    return header;
+  };
+
+  const searchArtistRow = (artist: LibraryArtist): HTMLElement => {
+    const row = document.createElement("article");
+    const unavailable = artist.availableTrackCount === 0;
+    row.className = `library-search-result${unavailable ? " library-item--unavailable" : ""}`;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "library-search-result__main";
+    open.setAttribute(
+      "aria-label",
+      unavailable ? `${artist.name}, ${t("library.unavailable")}` : artist.name,
+    );
+    const copy = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = artist.name;
+    const counts = document.createElement("small");
+    counts.textContent = `${String(artist.albumCount)} ${t("library.albums").toLocaleLowerCase()} · ${availabilityText(artist.trackCount, artist.availableTrackCount)}`;
+    copy.append(name, counts);
+    if (unavailable) {
+      const label = document.createElement("span");
+      label.className = "library-unavailable-label";
+      label.textContent = t("library.unavailable");
+      copy.append(label);
+    }
+    open.append(copy);
+    open.insertAdjacentHTML("beforeend", icon("chevronRight"));
+    open.addEventListener("click", () => {
+      const category = search.activeCategoryView;
+      search.scrollPositions[category ?? "grouped"] =
+        section.parentElement?.scrollTop ?? 0;
+      restoreFocus = open;
+      route = { kind: "artist", id: artist.id };
+      void renderRoute();
+    });
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "library-item-more";
+    more.disabled = unavailable;
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute(
+      "aria-label",
+      message("library.moreActions", { name: artist.name }),
+    );
+    more.innerHTML = icon("more");
+    more.addEventListener("click", () => {
+      showMenu(more, [
+        {
+          label: t("library.addArtist"),
+          disabled: unavailable,
+          run: () =>
+            void queueContext(
+              { context: "artist", id: artist.id },
+              t("library.artistAdded"),
+            ),
+        },
+      ]);
+    });
+    row.append(open, more);
+    return row;
+  };
+
+  const searchAlbumRow = (album: LibrarySearchAlbum): HTMLElement => {
+    const row = document.createElement("article");
+    const unavailable = album.availableTrackCount === 0;
+    row.className = `library-search-result${unavailable ? " library-item--unavailable" : ""}`;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className =
+      "library-search-result__main library-search-result__main--album";
+    open.setAttribute(
+      "aria-label",
+      message("library.openAlbum", { title: album.title }),
+    );
+    open.append(
+      artwork(options.api, album.artworkTrackId, "library-search-art"),
+    );
+    const copy = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = album.title;
+    const metadata = document.createElement("small");
+    metadata.textContent = [album.albumArtist, album.year]
+      .filter((value) => value !== null && value !== "")
+      .join(" · ");
+    const count = document.createElement("small");
+    count.textContent = availabilityText(
+      album.trackCount,
+      album.availableTrackCount,
+    );
+    copy.append(title, metadata, count);
+    if (unavailable) {
+      const label = document.createElement("span");
+      label.className = "library-unavailable-label";
+      label.textContent = t("library.unavailable");
+      copy.append(label);
+    }
+    open.append(copy);
+    open.insertAdjacentHTML("beforeend", icon("chevronRight"));
+    open.addEventListener("click", () => {
+      const category = search.activeCategoryView;
+      search.scrollPositions[category ?? "grouped"] =
+        section.parentElement?.scrollTop ?? 0;
+      restoreFocus = open;
+      route = { kind: "album", id: album.id };
+      void renderRoute();
+    });
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "library-item-more";
+    more.disabled = unavailable;
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute(
+      "aria-label",
+      message("library.albumActions", { title: album.title }),
+    );
+    more.innerHTML = icon("more");
+    more.addEventListener("click", () => {
+      showMenu(more, [
+        {
+          label: t("library.addAlbum"),
+          disabled: unavailable,
+          run: () =>
+            void queueContext(
+              { context: "album", id: album.id },
+              t("library.albumAdded"),
+            ),
+        },
+      ]);
+    });
+    row.append(open, more);
+    return row;
+  };
+
+  const renderSearchMessage = (text: string, retry?: () => void): void => {
+    const state = document.createElement("div");
+    state.className = "library-browser-state library-search-state";
+    const copy = document.createElement("p");
+    copy.textContent = text;
+    state.append(copy);
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = t("library.searchRetry");
+      button.addEventListener("click", retry);
+      state.append(button);
+    }
+    browser.replaceChildren(state);
+  };
+
+  const renderSearch = (): void => {
+    setSearchHeader();
+    section.dataset.searchActive = "true";
+    if (normalizedInputLength(search.query) === 0) {
+      renderSearchMessage(t("library.searchInitial"));
+      return;
+    }
+    if (normalizedInputLength(search.query) < 2) {
+      renderSearchMessage(t("library.searchMinimum"));
+      return;
+    }
+    if (search.error) {
+      renderSearchMessage(search.error, () => {
+        if (search.activeCategoryView)
+          void loadSearchCategory(search.activeCategoryView, false);
+        else void executeGroupedSearch();
+      });
+      return;
+    }
+    if (search.activeCategoryView) {
+      const category = search.activeCategoryView;
+      const page = search.categoryPages[category];
+      if (!page.loaded && page.loading) {
+        renderSearchMessage(t("library.loading"));
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      const header = document.createElement("header");
+      header.className = "library-search-category-header";
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "folders-back";
+      back.innerHTML = `${icon("back")}<span>${t("common.back")}</span>`;
+      back.addEventListener("click", () => {
+        search.scrollPositions[category] =
+          section.parentElement?.scrollTop ?? 0;
+        search.activeCategoryView = null;
+        persistSearchSession();
+        renderSearch();
+        if (section.parentElement)
+          section.parentElement.scrollTop = search.scrollPositions.grouped;
+      });
+      const title = document.createElement("h2");
+      title.textContent = t(
+        category === "artists"
+          ? "library.searchAllArtists"
+          : category === "albums"
+            ? "library.searchAllAlbums"
+            : "library.searchAllTracks",
+      );
+      const count = document.createElement("span");
+      count.textContent = message("library.searchCount", {
+        count: String(page.total),
+      });
+      header.append(back, title, count);
+      fragment.append(header);
+      const list = document.createElement("div");
+      list.className = "library-search-list";
+      if (category === "artists")
+        for (const artist of search.categoryPages.artists.items)
+          list.append(searchArtistRow(artist));
+      else if (category === "albums")
+        for (const album of search.categoryPages.albums.items)
+          list.append(searchAlbumRow(album));
+      else
+        for (const track of search.categoryPages.tracks.items)
+          list.append(trackRow(track, () => void playSearchTrack(track.id)));
+      fragment.append(list);
+      fragment.append(
+        moreButton(Boolean(page.cursor), page.loading, () => {
+          void loadSearchCategory(category, true);
+        }),
+      );
+      browser.replaceChildren(fragment);
+      return;
+    }
+    const results = search.groupedResults;
+    if (!results) {
+      renderSearchMessage(t("library.loading"));
+      return;
+    }
+    const total =
+      results.artists.total + results.albums.total + results.tracks.total;
+    if (total === 0) {
+      renderSearchMessage(
+        message("library.searchNoResults", { query: search.query.trim() }),
+      );
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    const appendGroup = (
+      category: LibrarySearchCategory,
+      total: number,
+      nodes: readonly HTMLElement[],
+    ): void => {
+      if (total === 0) return;
+      const group = document.createElement("section");
+      group.className = "library-search-section";
+      group.append(
+        searchSectionHeader(category, total, nodes.length),
+        ...nodes,
+      );
+      fragment.append(group);
+    };
+    appendGroup(
+      "artists",
+      results.artists.total,
+      results.artists.items.map(searchArtistRow),
+    );
+    appendGroup(
+      "albums",
+      results.albums.total,
+      results.albums.items.map(searchAlbumRow),
+    );
+    appendGroup(
+      "tracks",
+      results.tracks.total,
+      results.tracks.items.map((track) =>
+        trackRow(track, () => void playSearchTrack(track.id)),
+      ),
+    );
+    browser.replaceChildren(fragment);
+  };
+
+  const executeGroupedSearch = async (): Promise<void> => {
+    const query = search.query.trim().replace(/\s+/gu, " ");
+    if (normalizedInputLength(query) < 2) return;
+    groupedSearchController?.abort();
+    const controller = new AbortController();
+    groupedSearchController = controller;
+    const sequence = ++search.requestSequence;
+    search.loading = true;
+    search.error = null;
+    renderSearch();
+    try {
+      const results = await options.api.search(query, controller.signal);
+      if (destroyed || sequence !== search.requestSequence) return;
+      search.groupedResults = results;
+      search.normalizedQuery = results.normalizedQuery;
+      search.activeCategoryView = null;
+      search.categoryPages = {
+        artists: emptySearchPage(),
+        albums: emptySearchPage(),
+        tracks: emptySearchPage(),
+      };
+      searchStatus.textContent =
+        results.artists.total + results.albums.total + results.tracks.total > 0
+          ? t("library.searchResults")
+          : message("library.searchNoResults", { query: search.query.trim() });
+      persistSearchSession();
+    } catch (error) {
+      if (
+        destroyed ||
+        sequence !== search.requestSequence ||
+        (error instanceof Error && error.name === "AbortError")
+      )
+        return;
+      search.error =
+        error instanceof Error ? error.message : t("library.unavailableState");
+      searchStatus.textContent = search.error;
+    } finally {
+      if (sequence === search.requestSequence) {
+        search.loading = false;
+        groupedSearchController = null;
+        if (!destroyed && search.active) renderSearch();
+      }
+    }
+  };
+
+  const loadSearchCategory = async (
+    category: LibrarySearchCategory,
+    append: boolean,
+  ): Promise<void> => {
+    const page = search.categoryPages[category];
+    if (page.loading || !search.normalizedQuery) return;
+    categorySearchController?.abort();
+    const controller = new AbortController();
+    categorySearchController = controller;
+    const sequence = ++search.requestSequence;
+    page.loading = true;
+    page.error = null;
+    search.error = null;
+    if (!append) {
+      page.items = [];
+      page.cursor = null;
+      page.loaded = false;
+    }
+    renderSearch();
+    try {
+      const result = await options.api.searchCategory(
+        category,
+        search.normalizedQuery,
+        append ? page.cursor : null,
+        PAGE_SIZE,
+        controller.signal,
+      );
+      if (destroyed || sequence !== search.requestSequence) return;
+      const nextItems = append
+        ? [...page.items, ...result.page.items]
+        : [...result.page.items];
+      const boundedItems = nextItems.slice(-MAX_RENDERED_ITEMS);
+      if (category === "artists")
+        search.categoryPages.artists.items = boundedItems as LibraryArtist[];
+      else if (category === "albums")
+        search.categoryPages.albums.items =
+          boundedItems as LibrarySearchAlbum[];
+      else search.categoryPages.tracks.items = boundedItems as LibraryTrack[];
+      page.cursor = result.page.nextCursor;
+      page.total = result.page.total;
+      page.loaded = true;
+      if (search.groupedResults)
+        search.groupedResults = {
+          ...search.groupedResults,
+          normalizedQuery: result.normalizedQuery,
+          catalogFingerprint: result.catalogFingerprint,
+        };
+      persistSearchSession();
+    } catch (error) {
+      if (
+        destroyed ||
+        sequence !== search.requestSequence ||
+        (error instanceof Error && error.name === "AbortError")
+      )
+        return;
+      search.error =
+        error instanceof Error ? error.message : t("library.unavailableState");
+      searchStatus.textContent = search.error;
+    } finally {
+      if (sequence === search.requestSequence) {
+        page.loading = false;
+        categorySearchController = null;
+        if (!destroyed && search.active) renderSearch();
+      }
+    }
+  };
+
+  const openSearch = (): void => {
+    if (search.active) return;
+    search.previousLibraryState = {
+      segment,
+      albumView,
+      scrollTop: section.parentElement?.scrollTop ?? 0,
+    };
+    search.active = true;
+    search.query = "";
+    search.normalizedQuery = "";
+    search.error = null;
+    search.groupedResults = null;
+    search.activeCategoryView = null;
+    persistSearchSession();
+    renderRoot();
+    queueMicrotask(() => {
+      searchInput.focus();
+    });
+  };
+
+  const closeSearch = (): void => {
+    const previous = search.previousLibraryState;
+    cancelSearchRequests();
+    search.active = false;
+    search.query = "";
+    search.normalizedQuery = "";
+    search.groupedResults = null;
+    search.activeCategoryView = null;
+    search.error = null;
+    librarySearchSession = null;
+    if (previous) {
+      segment = previous.segment;
+      albumView = previous.albumView;
+    }
+    renderRoot();
+    if (previous && section.parentElement)
+      section.parentElement.scrollTop = previous.scrollTop;
+    searchAction.focus();
+  };
+
+  const clearSearch = (): void => {
+    cancelSearchRequests();
+    search.query = "";
+    search.normalizedQuery = "";
+    search.loading = false;
+    search.error = null;
+    search.groupedResults = null;
+    search.activeCategoryView = null;
+    search.categoryPages = {
+      artists: emptySearchPage(),
+      albums: emptySearchPage(),
+      tracks: emptySearchPage(),
+    };
+    searchInput.value = "";
+    searchStatus.textContent = "";
+    persistSearchSession();
+    renderSearch();
+    searchInput.focus();
+  };
+
+  const scheduleSearch = (): void => {
+    if (searchDebounce !== null) clearTimeout(searchDebounce);
+    groupedSearchController?.abort();
+    search.requestSequence += 1;
+    search.query = searchInput.value;
+    search.error = null;
+    search.activeCategoryView = null;
+    searchClear.hidden = search.query.length === 0;
+    if (normalizedInputLength(search.query) < 2) {
+      search.groupedResults = null;
+      search.loading = false;
+      persistSearchSession();
+      renderSearch();
+      return;
+    }
+    searchDebounce = setTimeout(() => {
+      searchDebounce = null;
+      void executeGroupedSearch();
+    }, SEARCH_DEBOUNCE_MILLISECONDS);
+  };
+
   const renderRoot = (): void => {
     root.hidden = false;
     manage.hidden = true;
@@ -662,6 +1361,12 @@ export function createLibraryScreen(
     options.setTitle(t("screen.library.title"));
     section.dataset.librarySegment = segment;
     section.dataset.albumView = albumView;
+    setSearchHeader();
+    if (search.active) {
+      renderSearch();
+      return;
+    }
+    delete section.dataset.searchActive;
     viewControls.replaceChildren();
     const noSources = snapshot?.summary.sourceCount === 0;
     const noAudio =
@@ -759,7 +1464,12 @@ export function createLibraryScreen(
       const list = document.createElement("div");
       list.className = "library-track-list";
       for (const item of pages.tracks.items)
-        list.append(trackRow(item, { context: "tracks" }));
+        list.append(
+          trackRow(
+            item,
+            () => void play({ context: "tracks", selectedTrackId: item.id }),
+          ),
+        );
       fragment.append(list);
     }
     fragment.append(
@@ -827,10 +1537,14 @@ export function createLibraryScreen(
       if (fromArtist) route = { kind: "artist", id: fromArtist };
       else route = { kind: "root" };
       void renderRoute().then(() => {
-        if (section.parentElement)
+        if (section.parentElement) {
+          const searchScroll = search.active
+            ? search.scrollPositions[search.activeCategoryView ?? "grouped"]
+            : rootScrollTop;
           section.parentElement.scrollTop = fromArtist
             ? artistScrollTop
-            : rootScrollTop;
+            : searchScroll;
+        }
         restoreFocus?.focus();
       });
     });
@@ -922,7 +1636,17 @@ export function createLibraryScreen(
         list.append(heading);
         lastDisc = track.discNumber;
       }
-      list.append(trackRow(track, { context: "album", id: album.id }));
+      list.append(
+        trackRow(
+          track,
+          () =>
+            void play({
+              context: "album",
+              id: album.id,
+              selectedTrackId: track.id,
+            }),
+        ),
+      );
     }
     content.append(list);
     detail.replaceChildren(content);
@@ -973,7 +1697,17 @@ export function createLibraryScreen(
     const tracks = document.createElement("div");
     tracks.className = "library-track-list";
     for (const track of artist.tracks.items)
-      tracks.append(trackRow(track, { context: "artist", id: artist.id }));
+      tracks.append(
+        trackRow(
+          track,
+          () =>
+            void play({
+              context: "artist",
+              id: artist.id,
+              selectedTrackId: track.id,
+            }),
+        ),
+      );
     content.append(tracksHeading, tracks);
     content.append(
       moreButton(Boolean(artist.tracks.nextCursor), false, () => {
@@ -1067,7 +1801,7 @@ export function createLibraryScreen(
     const scan = activeScan ?? next.status.latestScan;
     const busy =
       queued || scan?.status === "scanning" || scan?.status === "cancelling";
-    for (const button of [scanAction, manageScanAction]) {
+    for (const button of [manageScanAction]) {
       button.textContent = t(busy ? "library.cancel" : "library.rescan");
       button.dataset.action = busy ? "cancel" : "rescan";
       button.disabled = scanPending || next.summary.sourceCount === 0 || queued;
@@ -1120,7 +1854,14 @@ export function createLibraryScreen(
       pages.albums = emptyPage();
       pages.artists = emptyPage();
       pages.tracks = emptyPage();
-      void renderRoute();
+      if (search.active && normalizedInputLength(search.query) >= 2) {
+        const category = search.activeCategoryView;
+        void executeGroupedSearch().then(() => {
+          if (destroyed || !search.active || !category) return;
+          search.activeCategoryView = category;
+          void loadSearchCategory(category, false);
+        });
+      } else void renderRoute();
     }
     snapshotInitialized = true;
   };
@@ -1145,7 +1886,6 @@ export function createLibraryScreen(
   const runScanAction = (action: HTMLButtonElement): void => {
     if (scanPending) return;
     scanPending = true;
-    scanAction.disabled = true;
     manageScanAction.disabled = true;
     void (
       action.dataset.action === "cancel"
@@ -1164,9 +1904,6 @@ export function createLibraryScreen(
         if (snapshot) renderSnapshot(snapshot);
       });
   };
-  scanAction.addEventListener("click", () => {
-    runScanAction(scanAction);
-  });
   manageScanAction.addEventListener("click", () => {
     runScanAction(manageScanAction);
   });
@@ -1189,6 +1926,23 @@ export function createLibraryScreen(
     });
   });
   openSources.addEventListener("click", options.openSources);
+  searchAction.addEventListener("click", openSearch);
+  searchClose.addEventListener("click", closeSearch);
+  searchClear.addEventListener("click", clearSearch);
+  searchInput.addEventListener("input", scheduleSearch);
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (searchDebounce !== null) {
+        clearTimeout(searchDebounce);
+        searchDebounce = null;
+      }
+      if (normalizedInputLength(search.query) >= 2) void executeGroupedSearch();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeSearch();
+    }
+  });
   const handleOutsideMenu = (event: PointerEvent): void => {
     if (!menu.hidden && !menu.contains(event.target as Node)) closeMenu();
   };
@@ -1197,6 +1951,13 @@ export function createLibraryScreen(
     if (event.key === "Escape" && !menu.hidden) {
       event.preventDefault();
       closeMenu(true);
+    } else if (
+      event.key === "Escape" &&
+      search.active &&
+      event.target !== searchInput
+    ) {
+      event.preventDefault();
+      closeSearch();
     }
   });
 
@@ -1209,6 +1970,8 @@ export function createLibraryScreen(
     destroy() {
       destroyed = true;
       requestGeneration += 1;
+      persistSearchSession();
+      cancelSearchRequests();
       document.removeEventListener("pointerdown", handleOutsideMenu);
       closeMenu();
       options.setTitle(t("screen.library.title"));

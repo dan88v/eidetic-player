@@ -245,3 +245,54 @@ export interface LibraryQueueActionResponse {
   readonly selectedIndex: number | null;
   readonly appendedCount: number;
 }
+
+export type LibrarySearchCategory = "artists" | "albums" | "tracks";
+
+export interface LibrarySearchAlbum {
+  readonly id: string;
+  readonly title: string;
+  readonly albumArtist: string | null;
+  readonly year: number | null;
+  readonly artworkTrackId: string | null;
+  readonly trackCount: number;
+  readonly availableTrackCount: number;
+  readonly availability: LibraryEntityAvailability;
+}
+
+export interface LibrarySearchPage<T> extends LibraryPage<T> {
+  readonly total: number;
+}
+
+export interface LibraryGroupedSearchResults {
+  readonly normalizedQuery: string;
+  readonly catalogFingerprint: string;
+  readonly artists: LibrarySearchPage<LibraryArtist>;
+  readonly albums: LibrarySearchPage<LibrarySearchAlbum>;
+  readonly tracks: LibrarySearchPage<LibraryTrack>;
+}
+
+export type LibraryCategorySearchResults =
+  | {
+      readonly category: "artists";
+      readonly normalizedQuery: string;
+      readonly catalogFingerprint: string;
+      readonly page: LibrarySearchPage<LibraryArtist>;
+    }
+  | {
+      readonly category: "albums";
+      readonly normalizedQuery: string;
+      readonly catalogFingerprint: string;
+      readonly page: LibrarySearchPage<LibrarySearchAlbum>;
+    }
+  | {
+      readonly category: "tracks";
+      readonly normalizedQuery: string;
+      readonly catalogFingerprint: string;
+      readonly page: LibrarySearchPage<LibraryTrack>;
+    };
+
+export interface LibrarySearchPlayRequest {
+  readonly query: string;
+  readonly selectedTrackId: string;
+  readonly catalogFingerprint: string;
+}

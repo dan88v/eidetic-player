@@ -76,6 +76,10 @@ Do not introduce a second owner for any of these concerns.
   paths and native roots remain backend-only. Native paths are reconstructed
   only inside validated Play/Add commands after Source and file availability
   checks.
+- Library Search uses bounded grouped/category REST reads and the existing
+  Library SSE invalidation signal. Its contextual Track Play request contains
+  only normalized query, selected opaque Track ID, and catalog fingerprint;
+  path resolution and queue mutation remain backend-only.
 
 Components use central API clients. Shared request, response, state, and event
 types live in `packages/shared`.
@@ -106,6 +110,11 @@ pages. Detail routing swaps the Library root/detail regions without rebuilding
 the application shell. Manage Library uses the same internal route owner and
 preserves the root/detail route, segment, Album view, loaded pages, and scroll;
 it updates the existing top-bar title.
+
+Search is screen-local typed state with abort controllers and monotonically
+sequenced requests. It retains grouped/category pages and scroll in module
+memory for the app session, never in persistence. A completed scan invalidates
+and refetches the active Search once; progress snapshots do not issue queries.
 
 ## Async correctness
 

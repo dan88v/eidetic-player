@@ -275,10 +275,34 @@ In addition to the scanner cases:
 Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
 1280x720, and 1024x600.
 
+## Step 2.7 Library Search and compact-toolbar checks
+
+1. verify on-demand header Search, focus, two-character minimum, 250 ms
+   debounce, immediate Enter, Clear, Escape, retry, and stale-request abort;
+2. verify grouped Artists/Albums/Tracks ordering, totals, unavailable state,
+   Album/Artist detail Back, all three paged View all routes, one sentinel,
+   192-row bound, and grouped/category/detail scroll restoration;
+3. verify case/space/accent matching and exact, prefix, word-prefix, contains,
+   alphabetical, and stable-ID ordering across opaque cursor boundaries;
+4. play a non-first grouped and View all Track and confirm the full available
+   match context, direct selected index, one queue transition, current-catalog
+   rebuild, and unchanged Queue on a stale/unavailable selection;
+5. verify Track/Album/Artist Add remains secondary and does not interrupt the
+   current item, while unavailable actions are disabled;
+6. confirm Library root has no Rescan/Cancel, Manage is beside Grid/List in the
+   single toolbar row, Grid/List exists only for Albums, Search hides that
+   toolbar, and Manage alone retains Rescan/Cancel;
+7. complete/cancel a scan and confirm one controlled Search refetch only after
+   completion, the unchanged passive toast, one Library SSE, and no polling;
+8. run `npm.cmd run benchmark:library-search`, retain EXPLAIN evidence, and
+   inspect Search, compact toolbar, mini-player, and Queue at 1280x800,
+   1366x768, 1600x900, 1280x720, and 1024x600.
+
 ## Step 2.6.1 Manage Library and scan-notification checks
 
-1. confirm Library root contains no summary or scan panel and exposes the
-   segmented browser immediately below Rescan/Cancel and Manage Library;
+1. confirm Library root contains no summary or scan panel, exposes Search and
+   the single compact segmented/Grid/List/Manage toolbar, and keeps
+   Rescan/Cancel exclusively in Manage Library;
 2. open Manage Library and verify Back restores the exact segment, Album
    Grid/List mode, loaded pages, prior detail route where applicable, and
    scroll position;

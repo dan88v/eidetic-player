@@ -23,6 +23,32 @@ export function normalizeLibraryIdentity(value: string): string {
     .toLocaleLowerCase("en");
 }
 
+export function normalizeLibrarySearchKey(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .toLocaleLowerCase("en");
+}
+
+export function librarySearchMatchRank(
+  searchKey: string,
+  normalizedQuery: string,
+): number {
+  if (!searchKey || !normalizedQuery) return 4;
+  if (searchKey === normalizedQuery) return 0;
+  if (searchKey.startsWith(normalizedQuery)) return 1;
+  if (
+    searchKey
+      .split(/[^\p{L}\p{N}]+/u)
+      .some((word) => word.startsWith(normalizedQuery))
+  )
+    return 2;
+  return searchKey.includes(normalizedQuery) ? 3 : 4;
+}
+
 function stableId(prefix: string, ...parts: readonly string[]): string {
   return `${prefix}-${createHash("sha256")
     .update(parts.join("\0"))

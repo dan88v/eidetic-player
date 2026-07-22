@@ -26,6 +26,7 @@
     "build:linux": "npm run build && neu build --release",
     "smoke:linux": "tsx scripts/linux-smoke.ts",
     "verify:arm": "tsx scripts/verify-arm.ts",
+    "benchmark:library-search": "tsx scripts/library-search-benchmark.ts",
     "shell:config:dev": "tsx scripts/generate-neutralino-config.ts development",
     "shell:config:prod": "tsx scripts/generate-neutralino-config.ts production",
     "neutralino:update": "neu update --latest"

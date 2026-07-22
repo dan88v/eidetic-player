@@ -5,6 +5,8 @@ import type {
   LibraryArtist,
   LibraryArtistDetail,
   LibraryPage,
+  LibrarySearchAlbum,
+  LibrarySearchPage,
   LibraryTrack,
   IndexedLibrarySource,
   IndexedLibrarySummary,
@@ -18,8 +20,25 @@ import {
   albumIdentity,
   artistIdentity,
   normalizeLibraryIdentity,
+  normalizeLibrarySearchKey,
   trackArtists,
 } from "./library-normalization.js";
+
+function searchRankSql(field: string): string {
+  return `CASE
+    WHEN ${field} = ? THEN 0
+    WHEN ${field} GLOB ? || '*' THEN 1
+    WHEN instr(' ' || ${field}, ' ' || ?) > 0 THEN 2
+    WHEN instr(${field}, ?) > 0 THEN 3
+    ELSE 4 END`;
+}
+
+function searchRankParameters(
+  normalizedQuery: string,
+  fields: number,
+): readonly string[] {
+  return Array.from({ length: fields * 4 }, () => normalizedQuery);
+}
 import type {
   IndexedTrackIdentity,
   IndexedTrackInput,
@@ -75,6 +94,24 @@ function decodeCursor(
   }
 }
 
+function decodeSearchCursor(
+  cursor: string | null,
+  normalizedQuery: string,
+  types: readonly ("number" | "string")[],
+): readonly CursorValue[] | null {
+  const decoded = decodeCursor(cursor, types.length + 1);
+  if (!decoded) return null;
+  if (
+    decoded[0] !== normalizedQuery ||
+    types.some((type, index) => typeof decoded[index + 1] !== type)
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_CURSOR",
+      "The Library page cursor is invalid.",
+    );
+  return decoded.slice(1);
+}
+
 function effectiveAvailability(row: SqlRow): "available" | "unavailable" {
   return numberValue(row.effective_available) === 1
     ? "available"
@@ -118,6 +155,21 @@ function albumFromRow(row: SqlRow): LibraryAlbum {
     trackCount,
     availableTrackCount,
     totalDurationSeconds: numberValue(row.total_duration_seconds),
+    availability: aggregateAvailability(trackCount, availableTrackCount),
+  };
+}
+
+function searchAlbumFromRow(row: SqlRow): LibrarySearchAlbum {
+  const trackCount = numberValue(row.track_count);
+  const availableTrackCount = numberValue(row.available_track_count);
+  return {
+    id: String(row.album_id),
+    title: String(row.display_title),
+    albumArtist: nullableString(row.album_artist_display),
+    year: nullableNumber(row.year),
+    artworkTrackId: nullableString(row.representative_track_id),
+    trackCount,
+    availableTrackCount,
     availability: aggregateAvailability(trackCount, availableTrackCount),
   };
 }
@@ -803,6 +855,166 @@ export class LibraryRepository {
     return this.trackPage(rows, limit);
   }
 
+  searchArtists(
+    normalizedQuery: string,
+    cursor: string | null,
+    limit: number,
+  ): LibrarySearchPage<LibraryArtist> {
+    const decoded = decodeSearchCursor(cursor, normalizedQuery, [
+      "number",
+      "string",
+      "string",
+    ]);
+    const rows = this.connection
+      .prepare(
+        `WITH keyed AS MATERIALIZED (
+           SELECT artist_id, display_name, album_count, track_count,
+                  available_track_count,
+                  search_name AS display_key
+           FROM artists
+         ), ranked AS MATERIALIZED (
+           SELECT *, ${searchRankSql("display_key")} AS match_rank
+           FROM keyed
+         ), eligible AS MATERIALIZED (
+           SELECT *, COUNT(*) OVER () AS total_count
+           FROM ranked WHERE match_rank < 4
+         )
+         SELECT * FROM eligible
+         ${decoded ? "WHERE (match_rank, display_key, artist_id) > (?, ?, ?)" : ""}
+         ORDER BY match_rank, display_key, artist_id
+         LIMIT ?`,
+      )
+      .all(
+        ...searchRankParameters(normalizedQuery, 1),
+        ...(decoded ?? []),
+        limit + 1,
+      );
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(artistFromRow),
+      total: numberValue(rows[0]?.total_count),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([
+              normalizedQuery,
+              numberValue(last.match_rank),
+              String(last.display_key),
+              String(last.artist_id),
+            ])
+          : null,
+    };
+  }
+
+  searchAlbums(
+    normalizedQuery: string,
+    cursor: string | null,
+    limit: number,
+  ): LibrarySearchPage<LibrarySearchAlbum> {
+    const decoded = decodeSearchCursor(cursor, normalizedQuery, [
+      "number",
+      "number",
+      "string",
+      "string",
+      "string",
+    ]);
+    const rows = this.connection
+      .prepare(
+        `WITH keyed AS MATERIALIZED (
+           SELECT album_id, display_title, album_artist_display, year,
+                  representative_track_id, track_count, available_track_count,
+                  search_title AS title_key, search_artist AS artist_key
+           FROM albums
+         ), ranked AS MATERIALIZED (
+           SELECT *, ${searchRankSql("title_key")} AS title_rank,
+                  ${searchRankSql("artist_key")} AS artist_rank
+           FROM keyed
+         ), matched AS MATERIALIZED (
+           SELECT *, min(title_rank, artist_rank) AS match_rank,
+                  CASE WHEN title_rank <= artist_rank THEN 0 ELSE 1 END AS field_priority
+           FROM ranked
+         ), eligible AS MATERIALIZED (
+           SELECT *, COUNT(*) OVER () AS total_count
+           FROM matched WHERE match_rank < 4
+         )
+         SELECT * FROM eligible
+         ${decoded ? "WHERE (match_rank, field_priority, title_key, artist_key, album_id) > (?, ?, ?, ?, ?)" : ""}
+         ORDER BY match_rank, field_priority, title_key, artist_key, album_id
+         LIMIT ?`,
+      )
+      .all(
+        ...searchRankParameters(normalizedQuery, 2),
+        ...(decoded ?? []),
+        limit + 1,
+      ) as SqlRow[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(searchAlbumFromRow),
+      total: numberValue(rows[0]?.total_count),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([
+              normalizedQuery,
+              numberValue(last.match_rank),
+              numberValue(last.field_priority),
+              String(last.title_key),
+              String(last.artist_key),
+              String(last.album_id),
+            ])
+          : null,
+    };
+  }
+
+  searchTracks(
+    normalizedQuery: string,
+    cursor: string | null,
+    limit: number,
+  ): LibrarySearchPage<LibraryTrack> {
+    const decoded = decodeSearchCursor(cursor, normalizedQuery, [
+      "number",
+      "number",
+      "string",
+      "string",
+      "string",
+      "string",
+    ]);
+    const rows = this.searchTrackRows(
+      normalizedQuery,
+      decoded,
+      limit + 1,
+      false,
+    );
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(trackFromRow),
+      total: numberValue(rows[0]?.total_count),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([
+              normalizedQuery,
+              numberValue(last.match_rank),
+              numberValue(last.field_priority),
+              String(last.title_key),
+              String(last.artist_key),
+              String(last.album_key),
+              String(last.track_id),
+            ])
+          : null,
+    };
+  }
+
+  searchContextTracks(normalizedQuery: string): readonly LibraryContextTrack[] {
+    return this.searchTrackRows(normalizedQuery, null, null, true).map(
+      (row) => ({
+        id: String(row.track_id),
+        sourceId: String(row.source_id),
+        relativePath: String(row.relative_path),
+      }),
+    );
+  }
+
   contextTracks(
     context: "album" | "artist" | "tracks",
     id?: string,
@@ -973,6 +1185,79 @@ export class LibraryRepository {
     return this.trackPage(rows, limit, true);
   }
 
+  private searchTrackRows(
+    normalizedQuery: string,
+    cursor: readonly CursorValue[] | null,
+    limit: number | null,
+    availableOnly: boolean,
+  ): SqlRow[] {
+    const pageProjection = availableOnly
+      ? "SELECT * FROM page"
+      : `SELECT page.*, COALESCE(t.title, substr(t.filename, 1,
+           length(t.filename) - length(t.extension) - 1)) AS display_title,
+           t.artist_display, a.display_title AS album_display,
+           t.album_artist_display, t.duration_seconds, t.disc_number,
+           t.track_number, t.artwork_available, a.representative_track_id,
+           CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                THEN 1 ELSE 0 END AS effective_available
+         FROM page
+         JOIN tracks t ON t.track_id = page.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id`;
+    const eligibleProjection = availableOnly
+      ? `SELECT *, 0 AS total_count FROM matched
+         WHERE match_rank < 4 AND track_available = 1
+           AND EXISTS (
+             SELECT 1 FROM library_sources s
+             WHERE s.source_id = matched.source_id
+               AND s.available = 1 AND s.removed = 0
+           )`
+      : `SELECT *, COUNT(*) OVER () AS total_count
+         FROM matched WHERE match_rank < 4`;
+    const identityProjection = availableOnly
+      ? `t.track_id, t.source_id, t.relative_path,
+         t.available AS track_available,`
+      : "t.track_id,";
+    return this.connection
+      .prepare(
+        `WITH ranked AS MATERIALIZED (
+           SELECT ${identityProjection}
+                  t.search_title AS title_key,
+                  t.search_artist AS artist_key,
+                  t.search_album AS album_key,
+                  ${searchRankSql("t.search_title")} AS title_rank,
+                  ${searchRankSql("t.search_artist")} AS artist_rank,
+                  ${searchRankSql("t.search_album")} AS album_rank,
+                  ${searchRankSql("t.search_album_artist")} AS album_artist_rank
+           FROM tracks t
+         ), matched AS MATERIALIZED (
+           SELECT *, min(title_rank, artist_rank, album_rank, album_artist_rank) AS match_rank,
+                  CASE
+                    WHEN title_rank = min(title_rank, artist_rank, album_rank, album_artist_rank) THEN 0
+                    WHEN artist_rank = min(title_rank, artist_rank, album_rank, album_artist_rank) THEN 1
+                    WHEN album_rank = min(title_rank, artist_rank, album_rank, album_artist_rank) THEN 2
+                    ELSE 3
+                  END AS field_priority
+           FROM ranked
+         ), eligible AS MATERIALIZED (
+           ${eligibleProjection}
+         ), page AS MATERIALIZED (
+           SELECT * FROM eligible
+           ${cursor ? "WHERE (match_rank, field_priority, title_key, artist_key, album_key, track_id) > (?, ?, ?, ?, ?, ?)" : ""}
+           ORDER BY match_rank, field_priority, title_key, artist_key, album_key, track_id
+           ${limit === null ? "" : "LIMIT ?"}
+         )
+         ${pageProjection}
+         ORDER BY match_rank, field_priority, title_key, artist_key, album_key, track_id
+         `,
+      )
+      .all(
+        ...searchRankParameters(normalizedQuery, 4),
+        ...(cursor ?? []),
+        ...(limit === null ? [] : [limit]),
+      );
+  }
+
   private trackRows(
     joinPrefix: string,
     cursor: readonly CursorValue[] | null,
@@ -1052,19 +1337,27 @@ export class LibraryRepository {
       : null;
     const upsertArtist = this.connection.prepare(`
       INSERT INTO artists (
-        artist_id, normalized_key, display_name, updated_at
-      ) VALUES (?, ?, ?, ?)
+        artist_id, normalized_key, display_name, search_name, updated_at
+      ) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(artist_id) DO UPDATE SET
         display_name = excluded.display_name,
+        search_name = excluded.search_name,
         updated_at = excluded.updated_at
     `);
     for (const artist of artists)
-      upsertArtist.run(artist.id, artist.key, artist.displayName, track.seenAt);
+      upsertArtist.run(
+        artist.id,
+        artist.key,
+        artist.displayName,
+        normalizeLibrarySearchKey(artist.displayName),
+        track.seenAt,
+      );
     if (albumArtist)
       upsertArtist.run(
         albumArtist.id,
         albumArtist.key,
         albumArtist.displayName,
+        normalizeLibrarySearchKey(albumArtist.displayName),
         track.seenAt,
       );
     if (album)
@@ -1073,13 +1366,16 @@ export class LibraryRepository {
           `INSERT INTO albums (
              album_id, normalized_key, display_title, album_artist_id,
              album_artist_display, year, representative_track_id,
-             representative_artwork_revision, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             representative_artwork_revision, search_title, search_artist,
+             updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(album_id) DO UPDATE SET
              display_title = excluded.display_title,
              album_artist_id = excluded.album_artist_id,
              album_artist_display = excluded.album_artist_display,
              year = COALESCE(excluded.year, albums.year),
+             search_title = excluded.search_title,
+             search_artist = excluded.search_artist,
              updated_at = excluded.updated_at`,
         )
         .run(
@@ -1091,6 +1387,8 @@ export class LibraryRepository {
           track.metadata.year,
           track.artworkAvailable ? track.id : null,
           null,
+          normalizeLibrarySearchKey(album.displayTitle),
+          normalizeLibrarySearchKey(album.albumArtistDisplay ?? ""),
           track.seenAt,
         );
     const genres = [...track.metadata.genre];
@@ -1102,16 +1400,14 @@ export class LibraryRepository {
         `INSERT INTO tracks (
            track_id, source_id, relative_path, filename, extension, size,
            mtime_ms, available, first_seen_at, last_seen_at,
-           last_seen_generation, title, album_id, artist_display,
-           album_artist_display, track_number, track_total, disc_number,
+           last_seen_generation, title, search_title, album_id, artist_display,
+           search_artist, album_artist_display, search_album_artist,
+           search_album, track_number, track_total, disc_number,
            disc_total, duration_seconds, codec, container, bitrate, sample_rate,
            bit_depth, channels, lossless, year, genre_raw, genre_normalized,
            artwork_available, artwork_source_type, artwork_revision,
            metadata_state, metadata_error_code
-         ) VALUES (
-           ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-         )
+         ) VALUES (${Array.from({ length: 39 }, (_, index) => (index === 7 ? "1" : "?")).join(", ")})
          ON CONFLICT(source_id, relative_path) DO UPDATE SET
            filename = excluded.filename,
            extension = excluded.extension,
@@ -1121,9 +1417,13 @@ export class LibraryRepository {
            last_seen_at = excluded.last_seen_at,
            last_seen_generation = excluded.last_seen_generation,
            title = excluded.title,
+           search_title = excluded.search_title,
            album_id = excluded.album_id,
            artist_display = excluded.artist_display,
+           search_artist = excluded.search_artist,
            album_artist_display = excluded.album_artist_display,
+           search_album_artist = excluded.search_album_artist,
+           search_album = excluded.search_album,
            track_number = excluded.track_number,
            track_total = excluded.track_total,
            disc_number = excluded.disc_number,
@@ -1157,9 +1457,16 @@ export class LibraryRepository {
         track.seenAt,
         track.generation,
         track.metadata.title,
+        normalizeLibrarySearchKey(
+          track.metadata.title ??
+            track.filename.slice(0, -(track.extension.length + 1)),
+        ),
         album?.id ?? null,
         track.metadata.artist,
+        normalizeLibrarySearchKey(track.metadata.artist ?? ""),
         track.metadata.albumArtist,
+        normalizeLibrarySearchKey(track.metadata.albumArtist ?? ""),
+        normalizeLibrarySearchKey(album?.displayTitle ?? ""),
         track.metadata.trackNumber,
         track.metadata.trackTotal,
         track.metadata.discNumber,

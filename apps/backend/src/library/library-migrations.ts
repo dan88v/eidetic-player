@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { LibraryFutureVersionError } from "./library-errors.js";
 
-export const LIBRARY_SCHEMA_VERSION = 1;
+export const LIBRARY_SCHEMA_VERSION = 2;
 
 const migrationV1 = `
 CREATE TABLE library_sources (
@@ -121,6 +121,29 @@ CREATE INDEX track_artists_artist_idx ON track_artists(artist_id);
 CREATE INDEX scan_runs_status_idx ON scan_runs(status, updated_at);
 `;
 
+const migrationV2 = `
+ALTER TABLE artists ADD COLUMN search_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE albums ADD COLUMN search_title TEXT NOT NULL DEFAULT '';
+ALTER TABLE albums ADD COLUMN search_artist TEXT NOT NULL DEFAULT '';
+ALTER TABLE tracks ADD COLUMN search_title TEXT NOT NULL DEFAULT '';
+ALTER TABLE tracks ADD COLUMN search_artist TEXT NOT NULL DEFAULT '';
+ALTER TABLE tracks ADD COLUMN search_album TEXT NOT NULL DEFAULT '';
+ALTER TABLE tracks ADD COLUMN search_album_artist TEXT NOT NULL DEFAULT '';
+
+UPDATE artists SET search_name = library_search_key(display_name);
+UPDATE albums SET
+  search_title = library_search_key(display_title),
+  search_artist = library_search_key(COALESCE(album_artist_display, ''));
+UPDATE tracks SET
+  search_title = library_search_key(COALESCE(title,
+    substr(filename, 1, length(filename) - length(extension) - 1))),
+  search_artist = library_search_key(COALESCE(artist_display, '')),
+  search_album = library_search_key(COALESCE((
+    SELECT display_title FROM albums WHERE albums.album_id = tracks.album_id
+  ), '')),
+  search_album_artist = library_search_key(COALESCE(album_artist_display, ''));
+`;
+
 function userVersion(database: DatabaseSync): number {
   const row = database.prepare("PRAGMA user_version").get() as
     { user_version?: unknown } | undefined;
@@ -137,6 +160,7 @@ export function migrateLibraryDatabase(database: DatabaseSync): number {
   database.exec("BEGIN IMMEDIATE");
   try {
     if (current < 1) database.exec(migrationV1);
+    if (current < 2) database.exec(migrationV2);
     database.exec(`PRAGMA user_version = ${String(LIBRARY_SCHEMA_VERSION)}`);
     database.exec("COMMIT");
   } catch (error) {

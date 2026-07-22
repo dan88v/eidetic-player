@@ -116,9 +116,10 @@ Unavailable files are excluded. The queue is mutated only after the full
 context succeeds, and a selected Track ID maps directly to the resolved queue
 index.
 
-The Library root contains only Rescan/Cancel, Manage Library, persistent
-Albums/Artists/Tracks segments, the independent Album Grid/List setting, and
-the selected catalog content. Summary, detailed scan state, and the compact
+The Library root contains Search, persistent Albums/Artists/Tracks segments,
+the independent Album Grid/List setting, Manage, and the selected catalog
+content in one compact toolbar row. Rescan/Cancel, summary, detailed scan
+state, and the compact
 operational Source overview live on the internal Manage Library subpage.
 Manage is not Settings and does not duplicate Sources configuration, Rename,
 Remove, Add Folder, or native dialogs. Only the newest 192 paged entities stay
@@ -134,6 +135,25 @@ after 2.5 seconds; failure, interruption, and Source-unavailable states remain
 visible until superseded or shutdown. The toast has no controls; management
 stays on the Library screen. No polling,
 second EventSource, second toast host, or scan-specific endpoint is used.
+
+## Search
+
+Schema v2 adds materialized accent-insensitive keys for Artist name, Album
+title/artist, and Track title/artist/album/album artist. Missing Track titles
+alone fall back to filename. Scan upserts maintain the keys and migration from
+v1 backfills them transactionally. Search queries are parameterized and rank
+exact, prefix, word-prefix, then contains, followed by normalized display keys
+and persistent IDs. Grouped defaults are 5 Artists, 6 Albums, and 8 Tracks;
+category pages default to 48 and are capped at 100 with query-bound opaque
+keyset cursors. Responses expose no catalog paths.
+
+Track Search play rebuilds the complete ranked context from the current
+catalog, excludes effectively unavailable Tracks, revalidates every resolved
+file, and maps the requested Track directly before one atomic queue replace.
+Album and Artist Search results reuse existing details and Play/Add semantics.
+The UI retains at most 192 category rows and one sentinel. No FTS5, virtual
+table, trigger, history, autocomplete, polling, or second Library EventSource
+is used.
 
 ## Verification
 

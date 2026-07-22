@@ -83,14 +83,18 @@ function snapshot(
   };
 }
 
-void test("Library root is browsing-only with scan and Manage actions", () => {
+void test("Library root is browsing-only with Search and compact Manage actions", () => {
   const rootMarkup = library.slice(
     library.indexOf('<div class="library-root">'),
     library.indexOf('<div class="library-manage"'),
   );
   assert.doesNotMatch(rootMarkup, /library-summary|library-scan-panel/);
   assert.doesNotMatch(rootMarkup, /screen-header__description/);
-  assert.match(rootMarkup, /library-scan-action/);
+  assert.doesNotMatch(
+    rootMarkup,
+    /library-scan-action|library-manage-scan-action/,
+  );
+  assert.match(rootMarkup, /library-search-action/);
   assert.match(rootMarkup, /library-manage-action/);
   assert.match(rootMarkup, /library-browser-toolbar/);
   assert.ok(
@@ -98,6 +102,11 @@ void test("Library root is browsing-only with scan and Manage actions", () => {
       rootMarkup.indexOf("library-browser-content"),
   );
   assert.match(library, /busy \? "library\.cancel" : "library\.rescan"/);
+  const manageMarkup = library.slice(
+    library.indexOf('<div class="library-manage"'),
+    library.indexOf('<div class="library-detail"'),
+  );
+  assert.match(manageMarkup, /library-manage-scan-action/);
 });
 
 void test("Manage Library reuses summary and detailed scan primitives", () => {

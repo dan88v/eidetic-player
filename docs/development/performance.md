@@ -143,6 +143,18 @@ the existing artwork service. Play/Add context path checks use eight bounded
 workers; they create no scanner, observer, timer, SSE connection, or artwork
 pipeline.
 
+Library Search has the same 48/100/192 bounds, one category sentinel, a 250 ms
+input debounce, one abortable request per Search mode, and sequence guards for
+late responses. A reproducible Windows fixture of 10,000 Tracks, 1,000 Albums,
+and 500 Artists is available through `npm.cmd run benchmark:library-search`.
+Materialized Unicode search keys avoid per-row JavaScript normalization and
+reduced representative exact/prefix/word-prefix/contains grouped and first-page
+p95 measurements below 100 ms in the final benchmark run. The deliberately
+very common 8,928-Track query remained above that target and contextual
+construction is recorded separately; FTS5 remains deferred rather than being
+introduced without approval. `EXPLAIN QUERY PLAN` therefore still documents
+catalog scans and temporary ordering, with no virtual tables or triggers.
+
 Incremental identity is `(sourceId, logicalRelativePath, size, mtime)`.
 Unchanged files must cause zero metadata parses. A cancelled, failed, partial,
 or unavailable traversal must not run the missing-file availability update.
@@ -194,6 +206,9 @@ parse count, transaction count/maximum/average duration, database size,
 backend working set/CPU where practical, cancellation latency, populated
 startup time, integrity, maximum concurrent scans, browse-page latency,
 album/artist detail latency, and Album/Artist/all-Tracks context-build latency.
+For Search also record grouped, every category first/next page, exact/prefix/
+word-prefix/contains/absent/very-common queries, result totals, full Track
+context time, database size, and `EXPLAIN QUERY PLAN` output.
 Desktop results are not evidence of Raspberry Pi 3B performance.
 
 Test Meter, Mono Spectrum, Stereo Spectrum, Technical, and None independently

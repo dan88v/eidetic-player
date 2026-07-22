@@ -11,6 +11,10 @@ import type {
   LibraryCancelScanRequest,
   LibraryScanRequest,
   LibraryTrack,
+  LibraryCategorySearchResults,
+  LibraryGroupedSearchResults,
+  LibrarySearchCategory,
+  LibrarySearchPlayRequest,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -66,6 +70,40 @@ export class LibraryApiClient {
     limit = 48,
   ): Promise<LibraryPage<LibraryTrack>> {
     return this.request(this.pagePath("/api/library/tracks", cursor, limit));
+  }
+
+  search(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<LibraryGroupedSearchResults> {
+    const search = new URLSearchParams({ q: query });
+    return this.request(`/api/library/search?${search.toString()}`, {
+      ...(signal ? { signal } : {}),
+    });
+  }
+
+  searchCategory(
+    category: LibrarySearchCategory,
+    query: string,
+    cursor: string | null = null,
+    limit = 48,
+    signal?: AbortSignal,
+  ): Promise<LibraryCategorySearchResults> {
+    const search = new URLSearchParams({ q: query, limit: String(limit) });
+    if (cursor) search.set("cursor", cursor);
+    return this.request(
+      `/api/library/search/${category}?${search.toString()}`,
+      { ...(signal ? { signal } : {}) },
+    );
+  }
+
+  playSearch(
+    request: LibrarySearchPlayRequest,
+  ): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/search/play", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
   }
 
   play(request: LibraryContextRequest): Promise<LibraryQueueActionResponse> {

@@ -10,6 +10,7 @@ import {
   migrateLibraryDatabase,
 } from "./library-migrations.js";
 import type { LibraryDatabaseDiagnostics } from "./library-types.js";
+import { normalizeLibrarySearchKey } from "./library-normalization.js";
 
 const BUSY_TIMEOUT_MILLISECONDS = 2_500;
 
@@ -121,6 +122,12 @@ export class LibraryDatabase {
     connection.exec("PRAGMA journal_mode = WAL");
     connection.exec("PRAGMA synchronous = NORMAL");
     connection.exec("PRAGMA wal_autocheckpoint = 1000");
+    connection.function(
+      "library_search_key",
+      { deterministic: true, directOnly: true },
+      (value: unknown) =>
+        normalizeLibrarySearchKey(typeof value === "string" ? value : ""),
+    );
     const migrationStarted = performance.now();
     let schemaVersion: number;
     try {

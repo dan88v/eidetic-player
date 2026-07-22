@@ -39,6 +39,8 @@ import type {
   LibraryCancelScanRequest,
   LibraryContextRequest,
   LibraryScanRequest,
+  LibrarySearchCategory,
+  LibrarySearchPlayRequest,
   LibraryTrackQueueRequest,
 } from "../../../packages/shared/src/library.js";
 
@@ -312,6 +314,49 @@ function libraryCursor(url: URL, name = "cursor"): string | null {
   return cursor;
 }
 
+function librarySearchQuery(url: URL): string {
+  const query = url.searchParams.get("q");
+  if (query === null || query.length > 256)
+    throw new LibraryError(
+      "INVALID_LIBRARY_SEARCH",
+      "Enter a valid Library search.",
+    );
+  return query;
+}
+
+function librarySearchGroupLimit(url: URL): number | undefined {
+  const raw = url.searchParams.get("limitPerGroup");
+  if (raw === null) return undefined;
+  const limit = Number(raw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 12)
+    throw new LibraryError(
+      "INVALID_LIBRARY_PAGE",
+      "Library grouped search size must be between 1 and 12.",
+    );
+  return limit;
+}
+
+function librarySearchPlayBody(value: unknown): LibrarySearchPlayRequest {
+  const body = objectBody(value);
+  if (
+    typeof body.query !== "string" ||
+    body.query.length === 0 ||
+    body.query.length > 256 ||
+    typeof body.catalogFingerprint !== "string" ||
+    body.catalogFingerprint.length === 0 ||
+    body.catalogFingerprint.length > 128
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_SEARCH",
+      "Select a valid Library search result.",
+    );
+  return {
+    query: body.query,
+    selectedTrackId: libraryEntityId(body.selectedTrackId, "track"),
+    catalogFingerprint: body.catalogFingerprint,
+  };
+}
+
 function libraryEntityId(
   value: unknown,
   kind: "album" | "artist" | "track",
@@ -512,6 +557,59 @@ async function handleRequest(
       sendJson(response, 200, {
         ok: true,
         data: (await indexedLibraryPromise).snapshot().status,
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/search") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).search(
+          librarySearchQuery(url),
+          librarySearchGroupLimit(url),
+        ),
+      });
+      return;
+    }
+    const librarySearchCategoryMatch =
+      /^\/api\/library\/search\/(artists|albums|tracks)$/.exec(url.pathname);
+    if (librarySearchCategoryMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).searchCategory(
+          librarySearchCategoryMatch[1] as LibrarySearchCategory,
+          librarySearchQuery(url),
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/search/play"
+    ) {
+      const body = librarySearchPlayBody(await readBody(request));
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveSearchContext(
+        body.query,
+        body.selectedTrackId,
+        body.catalogFingerprint,
+      );
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
       });
       return;
     }
