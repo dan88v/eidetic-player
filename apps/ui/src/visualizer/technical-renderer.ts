@@ -8,6 +8,54 @@ export interface TechnicalValues {
   readonly peakHoldDb: ArrayLike<number>;
 }
 
+export const CREST_ATTACK_MS = 125;
+export const CREST_RELEASE_MS = 1_800;
+const CREST_MAX_STEP_MS = 250;
+
+export class CrestDisplaySmoother {
+  private displayed: number | null = null;
+  private updatedAt: number | null = null;
+
+  update(
+    sample: number | null,
+    timestamp: number,
+    suspended = false,
+  ): number | null {
+    if (!Number.isFinite(timestamp)) return this.displayed;
+    if (suspended) {
+      this.updatedAt = timestamp;
+      return this.displayed;
+    }
+    if (sample === null || !Number.isFinite(sample)) {
+      this.updatedAt = timestamp;
+      return this.displayed;
+    }
+    const target = Math.max(0, Math.min(60, sample));
+    if (this.displayed === null || this.updatedAt === null) {
+      this.displayed = target;
+      this.updatedAt = timestamp;
+      return this.displayed;
+    }
+    const elapsed = timestamp - this.updatedAt;
+    this.updatedAt = timestamp;
+    if (!Number.isFinite(elapsed) || elapsed <= 0) return this.displayed;
+    const deltaTime = Math.min(elapsed, CREST_MAX_STEP_MS);
+    const duration =
+      target > this.displayed ? CREST_ATTACK_MS : CREST_RELEASE_MS;
+    const blend = 1 - Math.exp(-deltaTime / duration);
+    this.displayed += (target - this.displayed) * blend;
+    return this.displayed;
+  }
+
+  reset(value: number | null = null, timestamp: number | null = null): void {
+    this.displayed =
+      value !== null && Number.isFinite(value)
+        ? Math.max(0, Math.min(60, value))
+        : null;
+    this.updatedAt = Number.isFinite(timestamp) ? timestamp : null;
+  }
+}
+
 export function crestFactorDb(
   leftPeak: number,
   leftRms: number,
@@ -34,8 +82,10 @@ export function renderTechnical(
   const horizontalPadding = Math.max(20, Math.min(28, size.width * 0.035));
   const right = size.width - horizontalPadding;
   const compact = size.height < 120 || size.width < 520;
-  const valueSize = compact ? 38 : 44;
-  const unitOffset = compact ? 116 : 134;
+  const valueSize = Math.round(
+    Math.max(compact ? 48 : 56, Math.min(compact ? 50 : 58, size.width * 0.09)),
+  );
+  const unitOffset = compact ? 145 : 150;
   context.textBaseline = "top";
   context.font = "650 17px system-ui";
   context.fillStyle = "#9ca6b7";

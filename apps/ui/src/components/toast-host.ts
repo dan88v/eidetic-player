@@ -32,6 +32,16 @@ function terminal(status: LibraryScanProgress["status"]): boolean {
   ].includes(status);
 }
 
+function createDismissButton(onDismiss: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "app-toast__dismiss";
+  button.setAttribute("aria-label", t("toast.dismiss"));
+  button.textContent = "\u00d7";
+  button.addEventListener("click", onDismiss);
+  return button;
+}
+
 export type LibraryToastResolution =
   | { readonly kind: "idle" }
   | { readonly kind: "queued"; readonly sourceName: string | null }
@@ -68,6 +78,45 @@ export function resolveLibraryToast(
   return { kind: "idle" };
 }
 
+export class LibraryToastDismissal {
+  private identity = "";
+  private queuedSourceId = "";
+
+  dismiss(
+    snapshot: IndexedLibrarySnapshot | null,
+    activeIdentity: string,
+  ): void {
+    const activeScan = snapshot?.status.activeScan ?? null;
+    if (activeScan) this.identity = scanIdentity(activeScan);
+    else if (activeIdentity !== "" && activeIdentity !== "queued")
+      this.identity = activeIdentity;
+    else this.queuedSourceId = snapshot?.status.queuedSourceIds[0] ?? "";
+  }
+
+  suppresses(snapshot: IndexedLibrarySnapshot): boolean {
+    const activeScan = snapshot.status.activeScan;
+    if (activeScan) {
+      const identity = scanIdentity(activeScan);
+      if (this.queuedSourceId === activeScan.sourceId) {
+        this.queuedSourceId = "";
+        this.identity = identity;
+      } else if (this.queuedSourceId !== "") {
+        this.queuedSourceId = "";
+      }
+      return this.identity === identity;
+    }
+    const queuedSourceId = snapshot.status.queuedSourceIds[0] ?? "";
+    if (queuedSourceId !== "" && this.queuedSourceId === queuedSourceId)
+      return true;
+    const latest = snapshot.status.latestScan;
+    return Boolean(
+      latest &&
+      terminal(latest.status) &&
+      this.identity === scanIdentity(latest),
+    );
+  }
+}
+
 function formatScanCounts(scan: LibraryScanProgress): string {
   const parts = [
     `${String(scan.filesProcessed)} / ${String(scan.filesDiscovered)}`,
@@ -95,6 +144,8 @@ export function createToastHost(): ToastHost {
   transientToast.className = "app-toast app-toast--transient";
   transientToast.setAttribute("role", "status");
   transientToast.setAttribute("aria-live", "polite");
+  const transientMessage = document.createElement("span");
+  transientMessage.className = "app-toast__transient-message";
   const progressToast = document.createElement("section");
   progressToast.className = "app-toast app-toast--progress";
   progressToast.dataset.key = LIBRARY_SCAN_TOAST_KEY;
@@ -125,25 +176,52 @@ export function createToastHost(): ToastHost {
   let lastLibraryRenderAt = 0;
   let pendingSnapshot: IndexedLibrarySnapshot | null = null;
   let activeIdentity = "";
+  const libraryDismissal = new LibraryToastDismissal();
+  let lastLibrarySnapshot: IndexedLibrarySnapshot | null = null;
   let visible = false;
   let lastProgressMax: number | null = null;
   let lastProgressValue: number | null = null;
   let renderCount = 0;
 
-  const hideProgress = (): void => {
+  const hideTransient = (): void => {
+    window.clearTimeout(transientTimer);
+    transientTimer = 0;
+    transientToast.classList.remove("app-toast--visible");
+    lastTransientMessage = "";
+  };
+
+  const hideProgress = (resetIdentity = true): void => {
     window.clearTimeout(terminalTimer);
     terminalTimer = 0;
     progressToast.classList.remove("app-toast--visible");
     progressToast.removeAttribute("data-tone");
     visible = false;
-    activeIdentity = "";
+    if (resetIdentity) activeIdentity = "";
   };
 
+  const dismissProgress = (): void => {
+    libraryDismissal.dismiss(lastLibrarySnapshot, activeIdentity);
+    window.clearTimeout(coalesceTimer);
+    coalesceTimer = 0;
+    pendingSnapshot = null;
+    hideProgress(false);
+  };
+
+  transientToast.append(transientMessage, createDismissButton(hideTransient));
+  progressToast.append(createDismissButton(dismissProgress));
+
   const renderLibrary = (snapshot: IndexedLibrarySnapshot): void => {
+    lastLibrarySnapshot = snapshot;
     pendingSnapshot = null;
     lastLibraryRenderAt = performance.now();
     renderCount += 1;
     progressToast.dataset.renderCount = String(renderCount);
+    if (libraryDismissal.suppresses(snapshot)) {
+      if (snapshot.status.activeScan)
+        activeIdentity = scanIdentity(snapshot.status.activeScan);
+      hideProgress(false);
+      return;
+    }
     const resolved = resolveLibraryToast(snapshot, activeIdentity, visible);
     if (resolved.kind === "idle") return;
     window.clearTimeout(terminalTimer);
@@ -220,7 +298,9 @@ export function createToastHost(): ToastHost {
         const failure = !["completed", "cancelled"].includes(scan.status);
         progressToast.dataset.tone = failure ? "error" : "success";
         if (!failure)
-          terminalTimer = window.setTimeout(hideProgress, TERMINAL_DURATION_MS);
+          terminalTimer = window.setTimeout(() => {
+            hideProgress();
+          }, TERMINAL_DURATION_MS);
       }
     }
     visible = true;
@@ -259,13 +339,11 @@ export function createToastHost(): ToastHost {
         return;
       lastTransientMessage = messageText;
       lastTransientAt = now;
-      transientToast.textContent = messageText;
+      transientMessage.textContent = messageText;
       transientToast.dataset.tone = tone;
       transientToast.classList.add("app-toast--visible");
       window.clearTimeout(transientTimer);
-      transientTimer = window.setTimeout(() => {
-        transientToast.classList.remove("app-toast--visible");
-      }, TRANSIENT_DURATION_MS);
+      transientTimer = window.setTimeout(hideTransient, TRANSIENT_DURATION_MS);
     },
     updateLibrary: scheduleLibrary,
     destroy() {

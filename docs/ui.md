@@ -40,8 +40,10 @@ Its right controls are Previous (56 px), Play/Pause (64 px), Next (56 px), and
 Home (56 px), with Home always last and no time counter added.
 
 The Queue drawer highlights the current item and provides individual 56 × 56 px
-Remove controls and Clear Queue with focus trapping, Escape, and focus
-restoration. File opening remains available from its established non-drawer
+Remove controls. Its centered red Clear Queue button follows the final Queue
+row inside the scrolling list instead of occupying a top action bar; focus
+trapping, confirmation, Escape, and focus restoration remain unchanged. File
+opening remains available from its established non-drawer
 surface and native drop handling. Its main row target starts the selected item immediately,
 including when an idle staged Queue must first be materialized; Remove remains
 a separate sibling control. Drag reordering remains out of scope.
@@ -165,6 +167,13 @@ and rejects frames for an older track. Queue current state changes
 incrementally through class and `aria-current`; rows, scroll, and focus are not
 rebuilt for a normal transition.
 
+Technical keeps LUFS-S at the analyzer value and smooths only the displayed
+Crest number. New Crest peaks use a 125 ms attack; decreases use a 1.8 s
+release. The delta-time filter ignores invalid/missing samples, bounds long
+foreground gaps, and resets on track/session/seek identity changes. Crest and
+LUFS-S use responsive 48–58 px tabular monospace values without changing the
+Technical layout or the visualizer cycle.
+
 The right timeline counter is a 25 px semantic button with stable width. It
 toggles total duration and negative remaining time, persists only the typed
 `total`/`remaining` preference, and is disabled when duration is unavailable.
@@ -215,8 +224,10 @@ Library scans extend the single application toast host with one persistent
 cancelled, and failure states update that keyed surface in place. Visual
 updates are coalesced to at most four per second; terminal states are immediate.
 Complete/cancelled dismiss after 2.5 seconds, while failed, interrupted, and
-unavailable states remain visible until superseded or shutdown. The progress
-toast is passive and contains no buttons; management remains on the Library
-screen. Normal transient
-messages retain their existing duration and may stack in the same host without
-creating another overlay.
+unavailable states remain visible until superseded or shutdown. Every toast
+has one accessible dismiss button with a visually small × and a 40×40 px touch
+area. Dismissing progress hides the stable `scanId/sourceId/generation` run,
+including its later terminal update; a future run is visible again. No Manage,
+Cancel, or Retry action is placed in the toast. Normal transient messages keep
+their existing duration, cancel auto-dismiss when manually closed, and share
+the same host.

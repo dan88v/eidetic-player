@@ -109,6 +109,12 @@ run in the dB domain with a 10 ms attack, 350 ms release, 900 ms peak hold, and
 12 dB/s hold decay. Pause freezes values; seek, track change, and incompatible
 identity reset them.
 
+Technical applies independent display-only Crest ballistics: 125 ms attack
+and 1.8 s release using elapsed time, with a bounded step after hidden-tab or
+long-pause gaps. Invalid samples are ignored and track/session/seek resets
+clear the carried value. LUFS-S and analyzer output are untouched. The two
+numeric values use the renderer's scoped responsive 48–58 px monospace size.
+
 The visualizer cycle and Settings use the same order: Mono Spectrum, Stereo
 Spectrum, Meter, Technical, and None. Technical shows channel-aware Crest
 Factor, standards-based 3-second LUFS-S, and the same compact enhanced stereo
@@ -195,11 +201,13 @@ otherwise visible outcome, such as Add to Queue.
 
 Long Library scans are the controlled persistent exception. They use one keyed
 `library-scan-progress` surface inside the same toast host and update it in
-place at a coalesced maximum of four visual updates per second. The surface is
-passive and contains no buttons; scan controls remain on Library surfaces.
-Completed and cancelled states dismiss after 2.5 seconds; failure states remain
-visible until superseded or shutdown. Normal toasts keep their existing
-transient behavior.
+place at a coalesced maximum of four visual updates per second. Every toast has
+one semantic dismiss button with a 40×40 px hit area; no scan management action
+is added. A dismissed Library run is suppressed in memory by its stable
+`scanId/sourceId/generation` identity through terminal state, while a new run
+is shown normally. Completed and cancelled states otherwise dismiss after 2.5
+seconds; failure states remain visible until superseded or shutdown. Manual
+dismiss cancels the affected transient/terminal/coalescing callback.
 
 Section content headers do not duplicate the page identity already displayed
 by the top bar. Keep only `screen-header__description` at the left, retain

@@ -100,8 +100,9 @@ void test("mini-player keeps summary and controls in separate visible columns", 
   );
 });
 
-void test("toast styling stays scoped and scan progress remains passive", () => {
-  assert.doesNotMatch(toastHost, /<button|data-toast-action/);
+void test("toast styling stays scoped and scan progress has only dismiss", () => {
+  assert.match(toastHost, /createDismissButton\(dismissProgress\)/);
+  assert.doesNotMatch(toastHost, /data-toast-action/);
   assert.doesNotMatch(componentsCss, /(?:^|})\s*(?:svg|path)\s*\{/m);
   const toastDiff = componentsCss.slice(
     componentsCss.indexOf(".app-toast-host"),

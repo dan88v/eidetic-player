@@ -51,7 +51,7 @@ void test("Technical compact layout exposes Crest Factor and LUFS-S", async () =
   assert.match(technical, /fillText\("dB"/);
   assert.match(technical, /"LUFS"/);
   assert.match(technical, /ui-monospace/);
-  assert.match(technical, /compact \? 38 : 44/);
+  assert.match(technical, /compact \? 48 : 56/);
   assert.match(technical, /renderCompactStereoMeter/);
   assert.match(meter, /barHeight = 14/);
   assert.match(meter, /meterPositionForDb\(-18\)/);

@@ -203,8 +203,12 @@ void test("queued, scanning, cancelling and terminal states share the toast", ()
   assert.match(toast, /progress\.removeAttribute\("value"\)/);
   assert.match(toast, /lastProgressValue/);
   assert.match(toast, /TERMINAL_DURATION_MS = 2_500/);
-  assert.match(toast, /if \(!failure\)[\s\S]*setTimeout\(hideProgress/);
-  assert.doesNotMatch(toast, /<button|data-toast-action/);
+  assert.match(
+    toast,
+    /if \(!failure\)[\s\S]*setTimeout\([\s\S]*\(\) => \{[\s\S]*hideProgress\(\)/,
+  );
+  assert.match(toast, /createDismissButton\(dismissProgress\)/);
+  assert.doesNotMatch(toast, /data-toast-action/);
 });
 
 void test("scan toast state resolution ignores idle and old terminal bootstrap state", () => {
@@ -248,8 +252,9 @@ void test("toast updates are bounded and teardown cancels every callback", () =>
   assert.doesNotMatch(libraryReceiver, /scheduleInactivity\(\)/);
 });
 
-void test("scan toast is passive and Library owns management navigation", () => {
-  assert.doesNotMatch(toast, /<button|data-toast-action|onManageLibrary/);
+void test("scan toast only adds dismiss while Library owns management", () => {
+  assert.match(toast, /className = "app-toast__dismiss"/);
+  assert.doesNotMatch(toast, /data-toast-action|onManageLibrary/);
   assert.doesNotMatch(componentsCss, /app-toast__actions/);
   assert.doesNotMatch(shell, /openManageOnLibraryMount|openLibraryManage/);
   assert.match(library, /library-manage-action/);

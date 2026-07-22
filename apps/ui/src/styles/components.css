@@ -507,7 +507,7 @@
     inset: 0 0 0 auto;
     display: grid;
     width: min(29rem, 92vw);
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     border-left: 1px solid var(--color-border-strong);
     background: var(--color-bg-elevated);
     box-shadow: var(--shadow-panel);
@@ -578,22 +578,27 @@
     list-style: none;
   }
 
-  .queue-actions {
+  .queue-list__clear {
     display: flex;
-    justify-content: flex-end;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--color-border);
+    justify-content: center;
+    padding: var(--space-4) 0 var(--space-2);
   }
 
-  .queue-actions button {
-    min-height: var(--touch-small);
+  .queue-list__clear[hidden] {
+    display: none;
+  }
+
+  .queue-list__clear-button {
+    min-width: 10rem;
+    min-height: var(--touch-min);
+    padding-inline: var(--space-5);
     border-radius: var(--radius-md);
-    background: var(--color-surface);
+    color: #fff;
+    background: var(--color-danger, #c43d3d);
     font-weight: 650;
   }
 
-  .queue-actions button:disabled {
+  .queue-list__clear-button:disabled {
     color: var(--color-text-muted);
     opacity: 0.55;
   }
@@ -845,8 +850,10 @@
     transform: translateX(-50%);
   }
   .app-toast {
+    position: relative;
     width: 100%;
-    padding: var(--space-3) var(--space-5);
+    padding: var(--space-3) calc(var(--space-5) + 2.5rem) var(--space-3)
+      var(--space-5);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
     background: var(--color-bg-elevated);
@@ -887,5 +894,23 @@
   }
   .app-toast__progress {
     grid-column: 1 / -1;
+  }
+  .app-toast__dismiss {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    place-items: center;
+    border-radius: var(--radius-pill);
+    color: var(--color-text-secondary);
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+  .app-toast__dismiss:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: -3px;
   }
 }

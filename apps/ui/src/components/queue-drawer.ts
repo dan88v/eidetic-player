@@ -65,9 +65,6 @@ export function createQueueDrawer(options: {
       <div><h2>${t("queueDrawer.title")}</h2><p>${t("queueDrawer.description")}</p></div>
       <button class="icon-button queue-drawer__close" type="button" aria-label="${t("queueDrawer.close")}">${icon("close")}</button>
     </header>
-    <div class="queue-actions">
-      <button class="queue-actions__clear" type="button">${t("queueDrawer.clear")}</button>
-    </div>
     <div class="queue-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="queue-confirmation-title" aria-hidden="true">
       <div class="queue-confirmation__panel">
         <h3 id="queue-confirmation-title">${t("queueDrawer.clearTitle")}</h3>
@@ -75,14 +72,19 @@ export function createQueueDrawer(options: {
         <div><button class="queue-confirmation__cancel" type="button">${t("common.cancel")}</button><button class="queue-confirmation__clear" type="button">${t("queueDrawer.clear")}</button></div>
       </div>
     </div>
-    <ol class="queue-list"></ol>`;
+    <ol class="queue-list">
+      <li class="queue-list__clear" hidden>
+        <button class="queue-list__clear-button" type="button">${t("queueDrawer.clear")}</button>
+      </li>
+    </ol>`;
   const closeButton = element.querySelector<HTMLButtonElement>(
     ".queue-drawer__close",
   );
   const list = element.querySelector<HTMLOListElement>(".queue-list");
   const clearButton = element.querySelector<HTMLButtonElement>(
-    ".queue-actions__clear",
+    ".queue-list__clear-button",
   );
+  const clearRow = element.querySelector<HTMLLIElement>(".queue-list__clear");
   const confirmation = element.querySelector<HTMLElement>(
     ".queue-confirmation",
   );
@@ -96,6 +98,7 @@ export function createQueueDrawer(options: {
     !closeButton ||
     !list ||
     !clearButton ||
+    !clearRow ||
     !confirmation ||
     !cancelClear ||
     !confirmClear
@@ -215,6 +218,7 @@ export function createQueueDrawer(options: {
     },
     update(state) {
       clearButton.disabled = state.queue.length === 0;
+      clearRow.hidden = state.queue.length === 0;
       if (
         state.queueRevision === queueRevision &&
         state.queue === queueSnapshot
@@ -348,7 +352,7 @@ export function createQueueDrawer(options: {
         }
         if (item.artwork) delete view.row.dataset.queueArtworkId;
         else view.row.dataset.queueArtworkId = item.id;
-        if (structureChanged) list.append(view.row);
+        if (structureChanged) list.insertBefore(view.row, clearRow);
       }
       observeLazyRows();
     },

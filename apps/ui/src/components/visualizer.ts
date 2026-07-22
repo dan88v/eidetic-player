@@ -11,6 +11,7 @@ import {
 } from "../visualizer/spectrum-renderer";
 import { VisualizerStreamClient } from "../visualizer/visualizer-stream-client";
 import {
+  CrestDisplaySmoother,
   crestFactorDb,
   renderTechnical,
 } from "../visualizer/technical-renderer";
@@ -82,6 +83,7 @@ export function createVisualizer(options: {
   let playbackPositionUpdatedAt = performance.now();
   let playbackPaused = true;
   const meter = new MeterBallistics();
+  const crestSmoother = new CrestDisplaySmoother();
   let technicalCrestDb: number | null = null;
   let shortTermLufs: number | null = null;
   const monoTarget = new Float32Array(32);
@@ -206,11 +208,15 @@ export function createVisualizer(options: {
       return;
     meter.setPeaks(frame.meter.leftPeak, frame.meter.rightPeak);
     if (mode === "technical") {
-      technicalCrestDb = crestFactorDb(
-        frame.meter.leftPeak,
-        frame.meter.leftRms,
-        frame.meter.rightPeak,
-        frame.meter.rightRms,
+      technicalCrestDb = crestSmoother.update(
+        crestFactorDb(
+          frame.meter.leftPeak,
+          frame.meter.leftRms,
+          frame.meter.rightPeak,
+          frame.meter.rightRms,
+        ),
+        timestamp,
+        document.hidden,
       );
       if (frame.shortTermLufs !== null) shortTermLufs = frame.shortTermLufs;
     }
@@ -260,6 +266,7 @@ export function createVisualizer(options: {
   const toggleMode = (): void => {
     mode = nextVisualizerMode(mode);
     meter.reset();
+    crestSmoother.reset();
     technicalCrestDb = null;
     shortTermLufs = null;
     hasFrame = false;
@@ -315,6 +322,7 @@ export function createVisualizer(options: {
         copy(snapshot.right, rightDisplayed);
         copy(snapshot.right, rightTarget);
         technicalCrestDb = snapshot.technicalCrestDb;
+        crestSmoother.reset(snapshot.technicalCrestDb, performance.now());
         shortTermLufs = snapshot.shortTermLufs;
         hasFrame = true;
         needsRender = true;
@@ -322,6 +330,7 @@ export function createVisualizer(options: {
         return;
       }
       meter.reset();
+      crestSmoother.reset();
       technicalCrestDb = null;
       shortTermLufs = null;
       monoTarget.fill(0);
@@ -354,6 +363,7 @@ export function createVisualizer(options: {
         stream.clearFrames();
         meter.reset();
         meter.setPaused(paused, now);
+        crestSmoother.reset();
         technicalCrestDb = null;
         shortTermLufs = null;
         monoTarget.fill(0);

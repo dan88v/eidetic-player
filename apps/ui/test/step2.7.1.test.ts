@@ -128,10 +128,10 @@ void test("Search Album and Artist menus keep open-row semantics and add Play ac
 void test("Queue drawer removes only Add Files and preserves other file entry paths", () => {
   assert.doesNotMatch(queue, /queue-actions__add|queueDrawer\.addFiles|onAdd/);
   assert.doesNotMatch(shell, /onAdd:/);
-  assert.match(queue, /queue-actions__clear/);
+  assert.match(queue, /queue-list__clear-button/);
   assert.match(queue, /onPlay|onClear|onRemove/);
   assert.match(shell, /const openFiles = \(\): void =>/);
   assert.match(shell, /runSingleAudioFileSelection/);
   assert.match(shell, /handlePaths/);
-  assert.match(components, /\.queue-actions[\s\S]*justify-content: flex-end/);
+  assert.match(components, /\.queue-list__clear[\s\S]*justify-content: center/);
 });

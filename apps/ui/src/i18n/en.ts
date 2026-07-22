@@ -285,6 +285,7 @@ export const en = {
   "common.back": "Back",
   "common.never": "Never",
   "toast.notifications": "Notifications",
+  "toast.dismiss": "Dismiss notification",
   "placeholder.empty": "Nothing to display yet",
   "drop.title": "Open audio files",
   "drop.description": "Drop supported local files to start playing",

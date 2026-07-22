@@ -343,6 +343,22 @@ Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
 8. inspect Library, Manage, progress/normal toast stacking, mini-player, and
    scrolling at 1280x800, 1366x768, 1600x900, 1280x720, and 1024x600.
 
+## Step 2.7.2 Technical and toast checks
+
+1. verify Crest attack at 125 ms, release at 1.8 s, frame-rate independence,
+   invalid/missing sample handling, bounded long gaps, and identity reset;
+2. verify LUFS-S remains unsmoothed and the Technical labels, tabular digits,
+   compact meter, and visualizer cycle are unchanged;
+3. inspect responsive 48–58 px Crest/LUFS-S values without clipping at
+   1280×800, 1280×720, and 1024×600;
+4. verify one accessible 40×40 px dismiss button on transient and progress
+   toasts, independent closure, visible focus, and cancellation of pending
+   callbacks;
+5. dismiss an active Library run and confirm later updates and terminal state
+   for the same `scanId/sourceId/generation` remain hidden, while the next run
+   appears; retain one toast host, one Library SSE, and no toast management
+   actions.
+
 ## Step 2.5 indexed Library checks
 
 Verify the indexed Library separately from on-demand Folders:

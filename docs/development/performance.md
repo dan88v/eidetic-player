@@ -135,6 +135,11 @@ state can feed the global keyed notification; it is not a visualizer or
 position channel. Toast rendering coalesces snapshots to at most four visual
 updates per second and applies terminal states immediately.
 
+Technical Crest smoothing runs only when the existing visualizer loop consumes
+a Technical frame. It uses frame timestamps and adds no timer, interval,
+animation loop, stream, or allocation-heavy history. Toast dismiss reuses the
+single host, single Library SSE, and existing bounded timeout set.
+
 Entity browsing uses deterministic keyset pagination, never SQL offsets.
 Default pages contain 48 items, requests are capped at 100, and the UI retains
 at most 192 rows/cards. There is one load-more sentinel at a time. Artwork is
