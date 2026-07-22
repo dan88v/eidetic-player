@@ -157,6 +157,18 @@ void test("Recently Played resolves the full deduplicated context at the selecte
     );
     assert.equal(context.selectedIndex, 1);
     assert.match(context.paths[1] ?? "", /Alpha\.flac$/);
+
+    service.recordQualifiedPlay(alpha.id, 30, false, 3_000);
+    service.recordQualifiedPlay(beta.id, 30, true, 4_000);
+    service.recordQualifiedPlay(beta.id, 15, false, 5_000);
+    const mostPlayed = await service.resolveMostPlayed(alpha.id);
+    assert.deepEqual(mostPlayed.trackIds, [beta.id, alpha.id]);
+    assert.equal(mostPlayed.selectedIndex, 1);
+    assert.match(mostPlayed.paths[1] ?? "", /Alpha\.flac$/);
+    assert.equal(service.listeningStats().qualifiedPlays, 3);
+    assert.equal(service.resetListeningStats().removedCount, 2);
+    assert.equal(service.listeningStats().qualifiedPlays, 0);
+    assert.equal(service.recentlyPlayed(null, 10).total, 2);
   } finally {
     await service.close();
     await rm(temporary, { recursive: true, force: true });

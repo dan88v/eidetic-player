@@ -62,12 +62,26 @@ must not render text, icons, borders, shadows, or loading chrome.
   sticky through the reusable `library-sticky-back-header` contract. New
   Library subpages with Back must adopt the same contract.
 
-Recently Played follows the established Track-row geometry, groups rows by
+History defaults to Recent and preserves its active segment and per-segment
+scroll for the app session. Recent follows the established Track-row geometry, groups rows by
 local Today/Yesterday/full-date headings, and keeps its red confirmed Clear
 action at the end of the scroll rather than in the header. Unavailable rows
 remain visible and removable/favoritable, but their Play and Add actions stay
 disabled. History refreshes preserve the current content and scroll while the
 bounded replacement page is prepared.
+
+Most Played keeps the same touch rows with artwork, Favorite and contextual
+actions, adds count and last-played metadata, and has no per-row removal. Stats
+uses six simple summary cards and a centered confirmed red reset, with no
+Search, sorting, or graphs. The Queue drawer intentionally omits Favorite and
+overflow actions to reduce clutter; its row Play and Remove targets remain.
+
+The single fixed toast host is anchored to the app viewport. Its normal bottom
+gap is used when no mini-player exists; an explicit root state adds the fixed
+mini-player height when it is mounted. Hidden toast surfaces use `display:
+none`, so they cannot enlarge the host or push visible messages toward the
+center. The bottom-anchored stack grows upward and remains below the keyboard
+overlay.
 
 Measure important geometry with `getBoundingClientRect()` in development tests,
 but keep production layout CSS-driven rather than continuously JS-measured.

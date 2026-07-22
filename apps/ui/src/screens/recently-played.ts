@@ -1,22 +1,42 @@
 import type {
   IndexedLibrarySnapshot,
+  ListeningStats,
+  MostPlayedItem,
   RecentlyPlayedItem,
 } from "../../../../packages/shared/src/library";
 import type { LibraryApiClient } from "../api/library-api-client";
 import { createFavoriteTrackButton } from "../components/favorite-track-button";
 import { icon } from "../components/icons";
+import { createSegmentedControl } from "../components/segmented-control";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
 import type { FavoriteTrackStore } from "../state/favorite-track-store";
 
 const PAGE_SIZE = 48;
 const MAX_RENDERED_ITEMS = 192;
-let savedScrollTop = 0;
+type HistorySegment = "recent" | "most" | "stats";
+let savedSegment: HistorySegment = "recent";
+const savedScrollTop: Record<HistorySegment, number> = {
+  recent: 0,
+  most: 0,
+  stats: 0,
+};
 
 function formatDuration(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return "—";
   const whole = Math.max(0, Math.floor(seconds));
   return `${String(Math.floor(whole / 60))}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+function formatListeningTime(seconds: number): string {
+  const minutes = Math.floor(Math.max(0, seconds) / 60);
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours > 0
+    ? t("history.stats.hoursMinutes")
+        .replace("{hours}", String(hours))
+        .replace("{minutes}", String(remainder))
+    : t("history.stats.minutes").replace("{minutes}", String(minutes));
 }
 
 function localDay(date: Date): number {
@@ -34,16 +54,16 @@ export function historyGroupLabel(playedAt: number, now = Date.now()): string {
   );
   if (difference === 0) return t("recentlyPlayed.today");
   if (difference === 1) return t("recentlyPlayed.yesterday");
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "full",
-  }).format(date);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(date);
 }
 
-function playedAtLabel(playedAt: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(playedAt));
+function dateLabel(value: number | null): string {
+  return value === null
+    ? "—"
+    : new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(value));
 }
 
 export function createRecentlyPlayedScreen(options: {
@@ -63,39 +83,63 @@ export function createRecentlyPlayedScreen(options: {
     <header class="recently-played-header">
       <span class="screen-header__description">${t("screen.recentlyPlayed.description")}</span>
     </header>
+    <div class="recently-played-segments"></div>
     <div class="recently-played-content" aria-live="polite"></div>
     <div class="folders-action-menu library-action-menu recently-played-menu" role="menu" hidden></div>
-    <div class="queue-confirmation recently-played-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="recently-played-clear-title" aria-hidden="true">
+    <div class="queue-confirmation recently-played-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="history-confirmation-title" aria-hidden="true">
       <div class="queue-confirmation__panel">
-        <h3 id="recently-played-clear-title">${t("recentlyPlayed.clearTitle")}</h3>
-        <p>${t("recentlyPlayed.clearDescription")}</p>
-        <div><button class="recently-played-clear-cancel" type="button">${t("common.cancel")}</button><button class="queue-confirmation__clear recently-played-clear-confirm" type="button">${t("recentlyPlayed.clear")}</button></div>
+        <h3 id="history-confirmation-title"></h3><p></p>
+        <div><button class="recently-played-clear-cancel" type="button">${t("common.cancel")}</button><button class="queue-confirmation__clear recently-played-clear-confirm" type="button"></button></div>
       </div>
     </div>`;
   const content = section.querySelector<HTMLElement>(
     ".recently-played-content",
   );
+  const segmentHost = section.querySelector<HTMLElement>(
+    ".recently-played-segments",
+  );
   const menu = section.querySelector<HTMLElement>(".recently-played-menu");
   const confirmation = section.querySelector<HTMLElement>(
     ".recently-played-confirmation",
   );
-  const cancelClear = section.querySelector<HTMLButtonElement>(
+  const confirmationTitle = confirmation?.querySelector<HTMLElement>("h3");
+  const confirmationCopy = confirmation?.querySelector<HTMLElement>("p");
+  const cancel = section.querySelector<HTMLButtonElement>(
     ".recently-played-clear-cancel",
   );
-  const confirmClear = section.querySelector<HTMLButtonElement>(
+  const confirm = section.querySelector<HTMLButtonElement>(
     ".recently-played-clear-confirm",
   );
-  if (!content || !menu || !confirmation || !cancelClear || !confirmClear)
-    throw new Error("Recently Played screen is incomplete");
+  if (
+    !content ||
+    !segmentHost ||
+    !menu ||
+    !confirmation ||
+    !confirmationTitle ||
+    !confirmationCopy ||
+    !cancel ||
+    !confirm
+  )
+    throw new Error("History screen is incomplete");
 
-  let items: RecentlyPlayedItem[] = [];
-  let cursor: string | null = null;
-  let loaded = false;
+  let active = savedSegment;
+  let recent: RecentlyPlayedItem[] = [];
+  let most: MostPlayedItem[] = [];
+  let stats: ListeningStats | null = null;
+  let recentCursor: string | null = null;
+  let mostCursor: string | null = null;
+  const loaded: Record<HistorySegment, boolean> = {
+    recent: false,
+    most: false,
+    stats: false,
+  };
   let loading = false;
   let refreshPending = false;
   let destroyed = false;
   let generation = 0;
   let historyRevision = options.initialSnapshot?.historyRevision ?? 0;
+  let statsRevision = options.initialSnapshot?.statsRevision ?? 0;
+  let confirmationAction: (() => Promise<void>) | null = null;
   const hearts = new Set<{ destroy(): void }>();
 
   const errorToast = (error: unknown): void => {
@@ -104,6 +148,7 @@ export function createRecentlyPlayedScreen(options: {
       "error",
     );
   };
+  const parent = (): HTMLElement | null => section.parentElement;
   const closeMenu = (): void => {
     menu.hidden = true;
     menu.replaceChildren();
@@ -112,13 +157,43 @@ export function createRecentlyPlayedScreen(options: {
     confirmation.classList.remove("queue-confirmation--open");
     confirmation.setAttribute("aria-hidden", "true");
   };
+  const ask = (
+    title: string,
+    copy: string,
+    label: string,
+    action: () => Promise<void>,
+  ): void => {
+    confirmationTitle.textContent = title;
+    confirmationCopy.textContent = copy;
+    confirm.textContent = label;
+    confirmationAction = action;
+    confirmation.classList.add("queue-confirmation--open");
+    confirmation.setAttribute("aria-hidden", "false");
+    cancel.focus();
+  };
+  const artwork = (trackId: string | null): HTMLElement => {
+    const surface = document.createElement("span");
+    surface.className = "library-track-art library-artwork";
+    if (trackId) {
+      const image = document.createElement("img");
+      image.alt = "";
+      image.loading = "lazy";
+      image.draggable = false;
+      image.src = options.api.artworkUrl(trackId);
+      image.addEventListener(
+        "load",
+        () => {
+          image.classList.add("library-artwork--ready");
+        },
+        { once: true },
+      );
+      surface.append(image);
+    }
+    return surface;
+  };
   const showMenu = (
     trigger: HTMLButtonElement,
-    actions: readonly {
-      readonly label: string;
-      readonly disabled?: boolean;
-      readonly run: () => void;
-    }[],
+    actions: readonly { label: string; disabled?: boolean; run: () => void }[],
   ): void => {
     closeMenu();
     for (const action of actions) {
@@ -139,47 +214,7 @@ export function createRecentlyPlayedScreen(options: {
     menu.hidden = false;
     menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   };
-  const artwork = (trackId: string | null): HTMLElement => {
-    const surface = document.createElement("span");
-    surface.className = "library-track-art library-artwork";
-    if (!trackId) return surface;
-    const image = document.createElement("img");
-    image.alt = "";
-    image.loading = "lazy";
-    image.draggable = false;
-    image.src = options.api.artworkUrl(trackId);
-    image.addEventListener(
-      "load",
-      () => {
-        image.classList.add("library-artwork--ready");
-      },
-      { once: true },
-    );
-    surface.append(image);
-    return surface;
-  };
-  const play = async (historyId: string): Promise<void> => {
-    options.noteTrackCommand();
-    try {
-      await options.api.playRecentlyPlayed({ selectedHistoryId: historyId });
-    } catch (error) {
-      errorToast(error);
-      void load(false);
-    }
-  };
-  const remove = async (historyId: string): Promise<void> => {
-    try {
-      const result = await options.api.removeRecentlyPlayed(historyId);
-      if (result.removedCount > 0) {
-        items = items.filter((item) => item.historyId !== historyId);
-        render();
-        options.showToast(t("recentlyPlayed.removed"), "success");
-      }
-    } catch (error) {
-      errorToast(error);
-    }
-  };
-  const favoriteFromMenu = async (trackId: string): Promise<void> => {
+  const favorite = async (trackId: string): Promise<void> => {
     const next = !(options.favorites.get(trackId) ?? false);
     try {
       await options.favorites.set(trackId, next);
@@ -191,12 +226,44 @@ export function createRecentlyPlayedScreen(options: {
       errorToast(error);
     }
   };
-
-  const row = (item: RecentlyPlayedItem): HTMLElement => {
+  const queue = (trackId: string): void => {
+    void options.api
+      .queueTrack(trackId)
+      .then((result) => {
+        options.showToast(
+          t(
+            result.appendedCount > 0
+              ? "library.trackAdded"
+              : "library.alreadyQueued",
+          ),
+          "neutral",
+        );
+      })
+      .catch(errorToast);
+  };
+  const playRecent = (item: RecentlyPlayedItem): void => {
+    options.noteTrackCommand();
+    void options.api
+      .playRecentlyPlayed({ selectedHistoryId: item.historyId })
+      .catch((error: unknown) => {
+        errorToast(error);
+        void load(false);
+      });
+  };
+  const playMost = (item: MostPlayedItem): void => {
+    options.noteTrackCommand();
+    void options.api
+      .playMostPlayed({ selectedTrackId: item.id })
+      .catch((error: unknown) => {
+        errorToast(error);
+        void load(false);
+      });
+  };
+  const trackRow = (item: RecentlyPlayedItem | MostPlayedItem): HTMLElement => {
+    const isRecent = "historyId" in item;
     const unavailable = item.availability === "unavailable";
     const element = document.createElement("article");
     element.className = `library-track-row recently-played-row${unavailable ? " library-item--unavailable" : ""}`;
-    element.dataset.historyId = item.historyId;
     const main = document.createElement("button");
     main.type = "button";
     main.className = "library-track-row__main";
@@ -211,20 +278,19 @@ export function createRecentlyPlayedScreen(options: {
       .filter(Boolean)
       .join(" · ");
     copy.append(title, metadata);
-    const listened = document.createElement("time");
-    listened.className = "recently-played-row__time";
-    listened.dateTime = new Date(item.playedAt).toISOString();
-    listened.textContent = playedAtLabel(item.playedAt);
+    const detail = document.createElement("span");
+    detail.className = "recently-played-row__time";
+    detail.textContent = isRecent
+      ? dateLabel(item.playedAt)
+      : `${t("history.most.playCount").replace("{count}", String(item.playCount))} · ${dateLabel(item.lastPlayedAt)}`;
     const duration = document.createElement("time");
     duration.textContent = formatDuration(item.durationSeconds);
-    main.append(artwork(item.artworkTrackId), copy, listened, duration);
-    if (unavailable) {
-      const label = document.createElement("span");
-      label.className = "library-unavailable-label";
-      label.textContent = t("library.unavailable");
-      main.append(label);
-    }
-    main.addEventListener("click", () => void play(item.historyId));
+    main.append(artwork(item.artworkTrackId), copy, detail, duration);
+    const runPlay = (): void => {
+      if (isRecent) playRecent(item);
+      else playMost(item);
+    };
+    main.addEventListener("click", runPlay);
     const heart = createFavoriteTrackButton({
       trackId: item.id,
       store: options.favorites,
@@ -242,26 +308,13 @@ export function createRecentlyPlayedScreen(options: {
     more.innerHTML = icon("more");
     more.addEventListener("click", () => {
       showMenu(more, [
-        {
-          label: t("library.play"),
-          disabled: unavailable,
-          run: () => void play(item.historyId),
-        },
+        { label: t("library.play"), disabled: unavailable, run: runPlay },
         {
           label: t("folders.addToQueue"),
           disabled: unavailable,
-          run: () =>
-            void options.api
-              .queueTrack(item.id)
-              .then((result) => {
-                options.showToast(
-                  result.appendedCount > 0
-                    ? t("library.trackAdded")
-                    : t("library.alreadyQueued"),
-                  "neutral",
-                );
-              })
-              .catch(errorToast),
+          run: () => {
+            queue(item.id);
+          },
         },
         {
           label: t(
@@ -269,149 +322,291 @@ export function createRecentlyPlayedScreen(options: {
               ? "favorites.remove"
               : "favorites.add",
           ),
-          run: () => void favoriteFromMenu(item.id),
+          run: () => void favorite(item.id),
         },
-        {
-          label: t("recentlyPlayed.remove"),
-          run: () => void remove(item.historyId),
-        },
+        ...(isRecent
+          ? [
+              {
+                label: t("recentlyPlayed.remove"),
+                run: () => void removeRecent(item.historyId),
+              },
+            ]
+          : []),
       ]);
     });
     element.append(main, heart.element, more);
     return element;
   };
-
+  const removeRecent = async (historyId: string): Promise<void> => {
+    try {
+      const result = await options.api.removeRecentlyPlayed(historyId);
+      if (result.removedCount > 0) {
+        recent = recent.filter((item) => item.historyId !== historyId);
+        render();
+        options.showToast(t("recentlyPlayed.removed"), "success");
+      }
+    } catch (error) {
+      errorToast(error);
+    }
+  };
+  const empty = (titleKey: string, textKey: string): HTMLElement => {
+    const element = document.createElement("div");
+    element.className = "recently-played-empty";
+    const title = document.createElement("strong");
+    title.textContent = t(titleKey);
+    const text = document.createElement("p");
+    text.textContent = t(textKey);
+    element.append(title, text);
+    return element;
+  };
+  const renderStats = (): void => {
+    if (!stats) return;
+    const values = [
+      [
+        "history.stats.listeningTime",
+        formatListeningTime(stats.listeningSeconds),
+      ],
+      ["history.stats.qualifiedPlays", String(stats.qualifiedPlays)],
+      ["history.stats.completedPlays", String(stats.completedPlays)],
+      ["history.stats.uniqueTracks", String(stats.uniqueTracks)],
+      ["history.stats.trackingSince", dateLabel(stats.trackingSince)],
+      ["history.stats.lastListened", dateLabel(stats.lastListened)],
+    ] as const;
+    const grid = document.createElement("div");
+    grid.className = "history-stats-grid";
+    for (const [labelKey, value] of values) {
+      const card = document.createElement("article");
+      card.className = "history-stats-card";
+      const label = document.createElement("span");
+      label.textContent = t(labelKey);
+      const strong = document.createElement("strong");
+      strong.textContent = value;
+      card.append(label, strong);
+      grid.append(card);
+    }
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "recently-played-clear";
+    reset.textContent = t("history.stats.reset");
+    reset.hidden = stats.qualifiedPlays === 0;
+    reset.addEventListener("click", () => {
+      ask(
+        t("history.stats.resetTitle"),
+        t("history.stats.resetDescription"),
+        t("history.stats.reset"),
+        async () => {
+          await options.api.resetListeningStats();
+          stats = await options.api.listeningStats();
+          loaded.stats = true;
+        },
+      );
+    });
+    content.replaceChildren(grid, reset);
+  };
   const render = (): void => {
     for (const heart of hearts) heart.destroy();
     hearts.clear();
-    if (!loaded) {
+    if (!loaded[active]) {
       content.className = "recently-played-content library-browser-state";
       content.textContent = t("recentlyPlayed.loading");
       return;
     }
     content.className = "recently-played-content";
+    if (active === "stats") {
+      renderStats();
+      return;
+    }
+    const items = active === "recent" ? recent : most;
     if (items.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "recently-played-empty";
-      const title = document.createElement("strong");
-      title.textContent = t("recentlyPlayed.emptyTitle");
-      const copy = document.createElement("p");
-      copy.textContent = t("recentlyPlayed.emptyText");
-      empty.append(title, copy);
-      content.replaceChildren(empty);
+      content.replaceChildren(
+        empty(
+          active === "recent"
+            ? "recentlyPlayed.emptyTitle"
+            : "history.most.emptyTitle",
+          active === "recent"
+            ? "recentlyPlayed.emptyText"
+            : "history.most.emptyText",
+        ),
+      );
       return;
     }
     const fragment = document.createDocumentFragment();
     let group = "";
     for (const item of items) {
-      const label = historyGroupLabel(item.playedAt);
-      if (label !== group) {
-        group = label;
-        const heading = document.createElement("h2");
-        heading.className = "recently-played-group-title";
-        heading.textContent = label;
-        fragment.append(heading);
+      if (active === "recent") {
+        const label = historyGroupLabel((item as RecentlyPlayedItem).playedAt);
+        if (label !== group) {
+          group = label;
+          const heading = document.createElement("h2");
+          heading.className = "recently-played-group-title";
+          heading.textContent = label;
+          fragment.append(heading);
+        }
       }
-      fragment.append(row(item));
+      fragment.append(trackRow(item));
     }
     const sentinel = document.createElement("button");
     sentinel.type = "button";
     sentinel.className = "library-page-sentinel";
-    sentinel.hidden = cursor === null;
+    sentinel.hidden =
+      (active === "recent" ? recentCursor : mostCursor) === null;
     sentinel.textContent = t("library.loadMore");
     sentinel.addEventListener("click", () => void load(true));
-    const clear = document.createElement("button");
-    clear.type = "button";
-    clear.className = "recently-played-clear";
-    clear.textContent = t("recentlyPlayed.clear");
-    clear.addEventListener("click", () => {
-      confirmation.classList.add("queue-confirmation--open");
-      confirmation.setAttribute("aria-hidden", "false");
-      cancelClear.focus();
-    });
-    fragment.append(sentinel, clear);
+    fragment.append(sentinel);
+    if (active === "recent") {
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "recently-played-clear";
+      clear.textContent = t("recentlyPlayed.clear");
+      clear.addEventListener("click", () => {
+        ask(
+          t("recentlyPlayed.clearTitle"),
+          t("recentlyPlayed.clearDescription"),
+          t("recentlyPlayed.clear"),
+          async () => {
+            await options.api.clearRecentlyPlayed();
+            recent = [];
+            recentCursor = null;
+            loaded.recent = true;
+          },
+        );
+      });
+      fragment.append(clear);
+    }
     content.replaceChildren(fragment);
   };
-
   async function load(append: boolean): Promise<void> {
     if (loading) {
       if (!append) refreshPending = true;
       return;
     }
     loading = true;
-    if (!append && !loaded) render();
+    const segment = active;
     const currentGeneration = ++generation;
+    if (!append && !loaded[segment]) render();
     try {
-      const result = await options.api.recentlyPlayed(
-        append ? cursor : null,
-        PAGE_SIZE,
-      );
-      if (destroyed || currentGeneration !== generation) return;
-      items = (append ? [...items, ...result.items] : [...result.items]).slice(
-        0,
-        MAX_RENDERED_ITEMS,
-      );
-      options.favorites.ensure(items.map((item) => item.id));
-      cursor = items.length >= MAX_RENDERED_ITEMS ? null : result.nextCursor;
-      loaded = true;
+      if (segment === "recent") {
+        const result = await options.api.recentlyPlayed(
+          append ? recentCursor : null,
+          PAGE_SIZE,
+        );
+        recent = (
+          append ? [...recent, ...result.items] : [...result.items]
+        ).slice(0, MAX_RENDERED_ITEMS);
+        recentCursor =
+          recent.length >= MAX_RENDERED_ITEMS ? null : result.nextCursor;
+        options.favorites.ensure(recent.map((item) => item.id));
+      } else if (segment === "most") {
+        const result = await options.api.mostPlayed(
+          append ? mostCursor : null,
+          PAGE_SIZE,
+        );
+        most = (append ? [...most, ...result.items] : [...result.items]).slice(
+          0,
+          MAX_RENDERED_ITEMS,
+        );
+        mostCursor =
+          most.length >= MAX_RENDERED_ITEMS ? null : result.nextCursor;
+        options.favorites.ensure(most.map((item) => item.id));
+      } else stats = await options.api.listeningStats();
+      if (!destroyed && currentGeneration === generation)
+        loaded[segment] = true;
     } catch (error) {
       if (!destroyed && currentGeneration === generation) errorToast(error);
     } finally {
       loading = false;
-      if (!destroyed && currentGeneration === generation) render();
+      if (!destroyed && currentGeneration === generation && active === segment)
+        render();
       if (!destroyed && refreshPending) {
         refreshPending = false;
         void load(false);
       }
     }
   }
-
-  cancelClear.addEventListener("click", closeConfirmation);
-  confirmClear.addEventListener("click", () => {
-    confirmClear.disabled = true;
-    void options.api
-      .clearRecentlyPlayed()
+  const segmented = createSegmentedControl<HistorySegment>({
+    label: t("history.segments.label"),
+    value: active,
+    items: [
+      { value: "recent", label: t("history.segments.recent") },
+      { value: "most", label: t("history.segments.most") },
+      { value: "stats", label: t("history.segments.stats") },
+    ],
+    onChange(value) {
+      savedScrollTop[active] = parent()?.scrollTop ?? 0;
+      active = value;
+      savedSegment = value;
+      closeMenu();
+      render();
+      if (!loaded[value])
+        void load(false).then(() => {
+          const scrollParent = parent();
+          if (scrollParent) scrollParent.scrollTop = savedScrollTop[value];
+        });
+      else {
+        const scrollParent = parent();
+        if (scrollParent) scrollParent.scrollTop = savedScrollTop[value];
+      }
+    },
+  });
+  segmentHost.append(segmented.element);
+  cancel.addEventListener("click", closeConfirmation);
+  confirm.addEventListener("click", () => {
+    if (!confirmationAction) return;
+    confirm.disabled = true;
+    void confirmationAction()
       .then(() => {
-        items = [];
-        cursor = null;
-        loaded = true;
         closeConfirmation();
         render();
       })
       .catch(errorToast)
       .finally(() => {
-        confirmClear.disabled = false;
+        confirm.disabled = false;
       });
   });
   const outsideMenu = (event: PointerEvent): void => {
     if (!menu.hidden && !menu.contains(event.target as Node)) closeMenu();
   };
-  const handleEscape = (event: KeyboardEvent): void => {
+  const escape = (event: KeyboardEvent): void => {
     if (event.key !== "Escape") return;
     if (confirmation.getAttribute("aria-hidden") === "false")
       closeConfirmation();
     else closeMenu();
   };
   document.addEventListener("pointerdown", outsideMenu);
-  document.addEventListener("keydown", handleEscape);
+  document.addEventListener("keydown", escape);
   render();
   void load(false).then(() => {
-    if (section.parentElement) section.parentElement.scrollTop = savedScrollTop;
+    const scrollParent = parent();
+    if (scrollParent) scrollParent.scrollTop = savedScrollTop[active];
   });
-
   return {
     element: section,
     updateLibrarySnapshot(snapshot) {
-      if (snapshot.historyRevision === historyRevision) return;
-      historyRevision = snapshot.historyRevision;
-      void load(false);
+      if (snapshot.historyRevision !== historyRevision) {
+        historyRevision = snapshot.historyRevision;
+        if (active === "recent") void load(false);
+        else loaded.recent = false;
+      }
+      if (snapshot.statsRevision !== statsRevision) {
+        statsRevision = snapshot.statsRevision;
+        if (active === "most") {
+          loaded.stats = false;
+          void load(false);
+        } else if (active === "stats") {
+          loaded.most = false;
+          void load(false);
+        } else {
+          loaded.most = false;
+          loaded.stats = false;
+        }
+      }
     },
     destroy() {
       destroyed = true;
       generation += 1;
-      savedScrollTop = section.parentElement?.scrollTop ?? 0;
+      savedScrollTop[active] = parent()?.scrollTop ?? 0;
       document.removeEventListener("pointerdown", outsideMenu);
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("keydown", escape);
       for (const heart of hearts) heart.destroy();
       hearts.clear();
     },

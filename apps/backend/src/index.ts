@@ -48,6 +48,7 @@ import type {
   FavoriteAlbumStatusRequest,
   FavoriteArtistStatusRequest,
   RecentlyPlayedPlayRequest,
+  MostPlayedPlayRequest,
 } from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
@@ -484,6 +485,12 @@ function recentlyPlayedPlayBody(value: unknown): RecentlyPlayedPlayRequest {
     : {};
 }
 
+function mostPlayedPlayBody(value: unknown): MostPlayedPlayRequest {
+  const body = objectBody(value);
+  if (body.selectedTrackId === undefined) return {};
+  return { selectedTrackId: libraryEntityId(body.selectedTrackId, "track") };
+}
+
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
   const body = objectBody(value);
   for (const field of ["scanId", "sourceId"] as const)
@@ -730,6 +737,64 @@ async function handleRequest(
           libraryCursor(url),
           libraryLimit(url),
         ),
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/history/most-played"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).mostPlayed(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/history/stats"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).listeningStats(),
+      });
+      return;
+    }
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/api/library/history/stats"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).resetListeningStats(),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/history/most-played/play"
+    ) {
+      const body = mostPlayedPlayBody(await readBody(request));
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveMostPlayed(body.selectedTrackId);
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
       });
       return;
     }

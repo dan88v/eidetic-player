@@ -19,6 +19,8 @@ import type {
   FavoriteAlbumMutationResponse,
   FavoriteArtistMutationResponse,
   RecentlyPlayedPage,
+  MostPlayedPage,
+  ListeningStats,
 } from "../../../../packages/shared/src/library.js";
 import type { StoredSource } from "../filesystem/filesystem-types.js";
 import { LibraryDatabase } from "./library-database.js";
@@ -1037,6 +1039,177 @@ export class LibraryRepository {
            WHERE r.occurrence = 1 AND t.available = 1
              AND s.available = 1 AND s.removed = 0
            ORDER BY r.played_at DESC, r.id DESC`,
+        )
+        .all() as SqlRow[]
+    ).map((row) => ({
+      id: String(row.track_id),
+      sourceId: String(row.source_id),
+      relativePath: String(row.relative_path),
+    }));
+  }
+
+  recordQualifiedPlay(
+    trackId: string,
+    playedSeconds: number,
+    completed: boolean,
+    playedAt = Date.now(),
+  ): boolean {
+    const result = this.connection
+      .prepare(
+        `INSERT INTO track_play_stats (
+           track_id, play_count, completed_count, total_played_seconds,
+           first_played_at, last_played_at
+         ) VALUES (?, 1, ?, ?, ?, ?)
+         ON CONFLICT(track_id) DO UPDATE SET
+           play_count = play_count + 1,
+           completed_count = completed_count + excluded.completed_count,
+           total_played_seconds = total_played_seconds + excluded.total_played_seconds,
+           last_played_at = excluded.last_played_at`,
+      )
+      .run(trackId, completed ? 1 : 0, playedSeconds, playedAt, playedAt);
+    return Number(result.changes) > 0;
+  }
+
+  updateQualifiedPlay(
+    trackId: string,
+    playedSecondsDelta: number,
+    completedIncrement: boolean,
+    playedAt = Date.now(),
+  ): boolean {
+    const result = this.connection
+      .prepare(
+        `UPDATE track_play_stats SET
+           total_played_seconds = total_played_seconds + ?,
+           completed_count = completed_count + ?,
+           last_played_at = ?
+         WHERE track_id = ?`,
+      )
+      .run(playedSecondsDelta, completedIncrement ? 1 : 0, playedAt, trackId);
+    return Number(result.changes) > 0;
+  }
+
+  mostPlayed(cursor: string | null, limit: number): MostPlayedPage {
+    const decoded = decodeCursor(cursor, 3);
+    if (
+      decoded &&
+      (typeof decoded[0] !== "number" ||
+        typeof decoded[1] !== "number" ||
+        typeof decoded[2] !== "string")
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_CURSOR",
+        "The Library page cursor is invalid.",
+      );
+    const rows = this.connection
+      .prepare(
+        `SELECT p.play_count, p.completed_count, p.total_played_seconds,
+                p.first_played_at, p.last_played_at, t.track_id,
+                COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available
+         FROM track_play_stats p
+         JOIN tracks t ON t.track_id = p.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         ${
+           decoded
+             ? `WHERE p.play_count < ? OR
+           (p.play_count = ? AND p.last_played_at < ?) OR
+           (p.play_count = ? AND p.last_played_at = ? AND p.track_id > ?)`
+             : ""
+         }
+         ORDER BY p.play_count DESC, p.last_played_at DESC, p.track_id ASC
+         LIMIT ?`,
+      )
+      .all(
+        ...(decoded
+          ? [
+              Number(decoded[0]),
+              Number(decoded[0]),
+              Number(decoded[1]),
+              Number(decoded[0]),
+              Number(decoded[1]),
+              String(decoded[2]),
+            ]
+          : []),
+        limit + 1,
+      ) as SqlRow[];
+    const counts = this.connection
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                COUNT(CASE WHEN t.available = 1 AND s.available = 1
+                                 AND s.removed = 0 THEN 1 END) AS available
+         FROM track_play_stats p
+         JOIN tracks t ON t.track_id = p.track_id
+         JOIN library_sources s ON s.source_id = t.source_id`,
+      )
+      .get() as SqlRow;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((row) => ({
+        ...trackFromRow(row),
+        playCount: numberValue(row.play_count),
+        completedCount: numberValue(row.completed_count),
+        totalPlayedSeconds: numberValue(row.total_played_seconds),
+        firstPlayedAt: numberValue(row.first_played_at),
+        lastPlayedAt: numberValue(row.last_played_at),
+      })),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([
+              numberValue(last.play_count),
+              numberValue(last.last_played_at),
+              String(last.track_id),
+            ])
+          : null,
+      total: numberValue(counts.total),
+      availableCount: numberValue(counts.available),
+    };
+  }
+
+  listeningStats(): ListeningStats {
+    const row = this.connection
+      .prepare(
+        `SELECT COALESCE(SUM(total_played_seconds), 0) AS listening_seconds,
+                COALESCE(SUM(play_count), 0) AS qualified_plays,
+                COALESCE(SUM(completed_count), 0) AS completed_plays,
+                COUNT(*) AS unique_tracks,
+                MIN(first_played_at) AS tracking_since,
+                MAX(last_played_at) AS last_listened
+         FROM track_play_stats`,
+      )
+      .get() as SqlRow;
+    return {
+      listeningSeconds: numberValue(row.listening_seconds),
+      qualifiedPlays: numberValue(row.qualified_plays),
+      completedPlays: numberValue(row.completed_plays),
+      uniqueTracks: numberValue(row.unique_tracks),
+      trackingSince: nullableNumber(row.tracking_since),
+      lastListened: nullableNumber(row.last_listened),
+    };
+  }
+
+  resetPlayStats(): number {
+    return Number(
+      this.connection.prepare("DELETE FROM track_play_stats").run().changes,
+    );
+  }
+
+  mostPlayedContextTracks(): readonly LibraryContextTrack[] {
+    return (
+      this.connection
+        .prepare(
+          `SELECT t.track_id, t.source_id, t.relative_path
+           FROM track_play_stats p
+           JOIN tracks t ON t.track_id = p.track_id
+           JOIN library_sources s ON s.source_id = t.source_id
+           WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+           ORDER BY p.play_count DESC, p.last_played_at DESC, p.track_id ASC`,
         )
         .all() as SqlRow[]
     ).map((row) => ({

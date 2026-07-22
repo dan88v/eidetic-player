@@ -41,7 +41,8 @@ void test("history UI is bounded, touch-row based, and has no Search", () => {
   assert.match(screen, /library-track-row recently-played-row/);
   assert.match(screen, /library-page-sentinel/);
   assert.match(screen, /createFavoriteTrackButton/);
-  assert.doesNotMatch(screen, /type="search"|searchPlaceholder|segmented/i);
+  assert.doesNotMatch(screen, /type="search"|searchPlaceholder/i);
+  assert.match(screen, /createSegmentedControl<HistorySegment>/);
   assert.match(screen, /recentlyPlayed\.emptyTitle/);
   assert.match(screen, /recentlyPlayed\.emptyText/);
 });
@@ -49,9 +50,9 @@ void test("history UI is bounded, touch-row based, and has no Search", () => {
 void test("Play uses the complete history context while Add queues one Track", () => {
   assert.match(
     screen,
-    /playRecentlyPlayed\(\{ selectedHistoryId: historyId \}\)/,
+    /playRecentlyPlayed\(\{ selectedHistoryId: item\.historyId \}\)/,
   );
-  assert.match(screen, /queueTrack\(item\.id\)/);
+  assert.match(screen, /queue\(item\.id\)/);
   assert.match(api, /\/api\/library\/recently-played\/play/);
   assert.match(backend, /resolveRecentlyPlayed\(body\.selectedHistoryId\)/);
   assert.match(service, /playHistoryContextTracks\(\)/);

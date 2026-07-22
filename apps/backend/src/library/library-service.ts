@@ -19,6 +19,9 @@ import type {
   FavoriteArtistMutationResponse,
   RecentlyPlayedPage,
   RecentlyPlayedMutationResponse,
+  MostPlayedPage,
+  ListeningStats,
+  ListeningStatsResetResponse,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
@@ -71,6 +74,7 @@ export class IndexedLibraryService {
   private recoveryNotice: "database-rebuilt" | null;
   private closed = false;
   private historyRevision = 0;
+  private statsRevision = 0;
 
   private constructor(
     private readonly provider: FilesystemProvider,
@@ -184,6 +188,7 @@ export class IndexedLibraryService {
       sources: this.repository.listSources(),
       status: this.scheduler.status(this.recoveryNotice),
       historyRevision: this.historyRevision,
+      statsRevision: this.statsRevision,
     };
   }
 
@@ -300,6 +305,117 @@ export class IndexedLibraryService {
     );
     if (changed) this.publishHistoryChange();
     return changed;
+  }
+
+  recordQualifiedPlay(
+    trackId: string,
+    playedSeconds: number,
+    completed: boolean,
+    playedAt = Date.now(),
+  ): boolean {
+    this.ensureOpen();
+    if (
+      !/^track-[0-9a-f]{32}$/.test(trackId) ||
+      !Number.isFinite(playedSeconds) ||
+      playedSeconds < 0 ||
+      !Number.isFinite(playedAt) ||
+      playedAt < 0
+    )
+      return false;
+    const changed = this.repository.recordQualifiedPlay(
+      trackId,
+      playedSeconds,
+      completed,
+      Math.floor(playedAt),
+    );
+    if (changed) this.publishStatsChange();
+    return changed;
+  }
+
+  updateQualifiedPlay(
+    trackId: string,
+    playedSecondsDelta: number,
+    completedIncrement: boolean,
+    playedAt = Date.now(),
+  ): boolean {
+    this.ensureOpen();
+    if (
+      !/^track-[0-9a-f]{32}$/.test(trackId) ||
+      !Number.isFinite(playedSecondsDelta) ||
+      playedSecondsDelta < 0 ||
+      !Number.isFinite(playedAt) ||
+      playedAt < 0
+    )
+      return false;
+    const changed = this.repository.updateQualifiedPlay(
+      trackId,
+      playedSecondsDelta,
+      completedIncrement,
+      Math.floor(playedAt),
+    );
+    if (changed) this.publishStatsChange();
+    return changed;
+  }
+
+  mostPlayed(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): MostPlayedPage {
+    this.ensureOpen();
+    return this.repository.mostPlayed(cursor, this.pageLimit(limit));
+  }
+
+  listeningStats(): ListeningStats {
+    this.ensureOpen();
+    return this.repository.listeningStats();
+  }
+
+  resetListeningStats(): ListeningStatsResetResponse {
+    this.ensureOpen();
+    const removedCount = this.repository.resetPlayStats();
+    if (removedCount > 0) this.publishStatsChange();
+    return { removedCount };
+  }
+
+  async resolveMostPlayed(
+    selectedTrackId?: string,
+  ): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    if (selectedTrackId && !/^track-[0-9a-f]{32}$/.test(selectedTrackId))
+      throw new LibraryError(
+        "INVALID_LIBRARY_TRACK",
+        "Select a valid Library track.",
+      );
+    const before = this.repository.catalogFingerprint();
+    const records = this.repository.mostPlayedContextTracks();
+    if (
+      selectedTrackId &&
+      !records.some((record) => record.id === selectedTrackId)
+    )
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    const selectedIndex = selectedTrackId
+      ? resolved.findIndex((record) => record.id === selectedTrackId)
+      : 0;
+    if (resolved.length === 0 || selectedIndex < 0)
+      throw new LibraryError(
+        selectedTrackId ? "LIBRARY_TRACK_UNAVAILABLE" : "LIBRARY_CONTEXT_EMPTY",
+        selectedTrackId
+          ? "This track is no longer available."
+          : "No available most-played tracks were found.",
+        409,
+      );
+    return this.resolvedContext(resolved, selectedIndex);
   }
 
   removePlayHistory(historyId: string): RecentlyPlayedMutationResponse {
@@ -729,6 +845,11 @@ export class IndexedLibraryService {
 
   private publishHistoryChange(): void {
     this.historyRevision += 1;
+    this.publish();
+  }
+
+  private publishStatsChange(): void {
+    this.statsRevision += 1;
     this.publish();
   }
 

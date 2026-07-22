@@ -13,6 +13,18 @@ export interface PlayHistorySink {
     completed: boolean,
     playedAt?: number,
   ): boolean;
+  recordQualifiedPlay(
+    trackId: string,
+    playedSeconds: number,
+    completed: boolean,
+    playedAt?: number,
+  ): boolean;
+  updateQualifiedPlay(
+    trackId: string,
+    playedSecondsDelta: number,
+    completedIncrement: boolean,
+    playedAt?: number,
+  ): boolean;
 }
 
 interface Candidate {
@@ -28,6 +40,9 @@ interface Candidate {
   lastPersistedPlayedSeconds: number;
   lastPersistedCompleted: boolean;
   ignoreNextAdvance: boolean;
+  statsQualified: boolean;
+  statsLastPersistedPlayedSeconds: number;
+  statsCompletionPersisted: boolean;
 }
 
 const MAX_NATURAL_DELTA_SECONDS = 2.5;
@@ -71,6 +86,9 @@ export class PlayHistoryTracker {
         lastPersistedPlayedSeconds: 0,
         lastPersistedCompleted: false,
         ignoreNextAdvance: false,
+        statsQualified: false,
+        statsLastPersistedPlayedSeconds: 0,
+        statsCompletionPersisted: false,
       };
       return;
     }
@@ -119,6 +137,16 @@ export class PlayHistoryTracker {
         candidate.historyId = event.historyId;
         candidate.lastPersistedPlayedSeconds = candidate.playedSeconds;
         candidate.lastPersistedCompleted = candidate.completed;
+        candidate.statsQualified = this.sink.recordQualifiedPlay(
+          candidate.trackId,
+          candidate.playedSeconds,
+          candidate.completed,
+          this.wallClock(),
+        );
+        if (candidate.statsQualified) {
+          candidate.statsLastPersistedPlayedSeconds = candidate.playedSeconds;
+          candidate.statsCompletionPersisted = candidate.completed;
+        }
       }
       return;
     }
@@ -167,6 +195,26 @@ export class PlayHistoryTracker {
     if (updated) {
       candidate.lastPersistedPlayedSeconds = candidate.playedSeconds;
       candidate.lastPersistedCompleted = candidate.completed;
+    }
+    if (candidate.statsQualified) {
+      const playedSecondsDelta = Math.max(
+        0,
+        candidate.playedSeconds - candidate.statsLastPersistedPlayedSeconds,
+      );
+      const completedIncrement =
+        candidate.completed && !candidate.statsCompletionPersisted;
+      if (
+        (playedSecondsDelta > 0 || completedIncrement) &&
+        this.sink.updateQualifiedPlay(
+          candidate.trackId,
+          playedSecondsDelta,
+          completedIncrement,
+          this.wallClock(),
+        )
+      ) {
+        candidate.statsLastPersistedPlayedSeconds = candidate.playedSeconds;
+        candidate.statsCompletionPersisted ||= completedIncrement;
+      }
     }
   }
 

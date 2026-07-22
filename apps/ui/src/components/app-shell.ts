@@ -141,8 +141,6 @@ export function mountApp(
   });
   sideMenu.setMusicBrowsingVisibility(store.getState().musicBrowsingVisibility);
   const queueDrawer = createQueueDrawer({
-    favorites,
-    showToast: showMessage,
     onClose: () => {
       store.setQueueOpen(false);
     },
@@ -405,6 +403,7 @@ export function mountApp(
       "content-shell--with-mini-player",
       showMiniPlayer,
     );
+    root.classList.toggle("app-root--with-mini-player", showMiniPlayer);
     if (showMiniPlayer && !miniPlayer) {
       miniPlayer = createMiniPlayer(
         () => {

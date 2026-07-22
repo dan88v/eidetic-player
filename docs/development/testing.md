@@ -509,3 +509,22 @@ then exercise the real Neutralino/WebView2 path:
 7. inspect drawer visibility, Default, Cassette, mini-player, Queue, and the
    keyboard at 1280 x 800, 1280 x 720, and 1024 x 600, then confirm clean
    Neutralino/backend/Vite/MPV/FFmpeg shutdown and no temporary fixture remains.
+
+## Step 2.9.1 History and statistics checks
+
+1. migrate v1 through v5 to schema v6; verify strict stats storage, ranking
+   index, zero history backfill, offline retention, Track cascade, and reset;
+2. verify each qualified transition increments once, consecutive plays count
+   separately, completion increments once, and bounded real seconds exclude
+   pause, seek, buffering and anomalous gaps;
+3. verify Most Played count/last/ID keyset ordering, unavailable rows, full
+   backend playback context, direct selected index, single-Track Add, Favorite,
+   one sentinel and 192-row bound;
+4. verify the six empty and populated Stats values, separate confirmed resets,
+   and that Recent clear and Stats reset never affect each other;
+5. inspect the simplified Queue drawer and the single toast host on Default,
+   Cassette, Library, Favorites and History. Confirm bottom anchoring with and
+   without mini-player, upward stacking, progress/dismiss behavior, and keyboard
+   overlay priority;
+6. inspect 1280 x 800, 1280 x 720 and 1024 x 600, then confirm clean shutdown
+   and no project listeners or temporary QA artifacts remain.

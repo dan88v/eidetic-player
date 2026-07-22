@@ -27,6 +27,10 @@ import type {
   RecentlyPlayedPage,
   RecentlyPlayedPlayRequest,
   RecentlyPlayedMutationResponse,
+  MostPlayedPage,
+  MostPlayedPlayRequest,
+  ListeningStats,
+  ListeningStatsResetResponse,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -113,6 +117,32 @@ export class LibraryApiClient {
 
   clearRecentlyPlayed(): Promise<RecentlyPlayedMutationResponse> {
     return this.request("/api/library/recently-played", { method: "DELETE" });
+  }
+
+  mostPlayed(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<MostPlayedPage> {
+    return this.request(
+      this.pagePath("/api/library/history/most-played", cursor, limit),
+    );
+  }
+
+  playMostPlayed(
+    request: MostPlayedPlayRequest = {},
+  ): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/history/most-played/play", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  listeningStats(): Promise<ListeningStats> {
+    return this.request("/api/library/history/stats");
+  }
+
+  resetListeningStats(): Promise<ListeningStatsResetResponse> {
+    return this.request("/api/library/history/stats", { method: "DELETE" });
   }
 
   favoriteTracks(

@@ -646,10 +646,6 @@
     background: var(--color-surface);
   }
 
-  .queue-item--favorite-capable {
-    grid-template-columns: minmax(0, 1fr) 2.75rem 2.75rem var(--touch-small);
-  }
-
   .queue-item__button {
     display: grid;
     width: 100%;
@@ -667,21 +663,6 @@
     place-items: center;
     border-radius: var(--radius-pill);
     color: var(--color-text-secondary);
-  }
-
-  .queue-item__more {
-    display: grid;
-    width: 2.75rem;
-    height: 2.75rem;
-    place-items: center;
-    border-radius: var(--radius-pill);
-    color: var(--color-text-secondary);
-  }
-
-  .queue-item > .favorite-track-button {
-    width: 2.75rem;
-    min-width: 2.75rem;
-    height: 2.75rem;
   }
 
   .queue-confirmation {
@@ -758,14 +739,14 @@
   }
   .queue-item__copy strong {
     overflow: hidden;
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .queue-item__copy span,
   .queue-item time {
     color: var(--color-text-secondary);
-    font-size: var(--font-size-xs);
+    font-size: 0.9375rem;
   }
 
   .queue-list__empty {
@@ -893,12 +874,15 @@
     position: fixed;
     z-index: var(--z-notification);
     left: 50%;
-    bottom: calc(var(--mini-player-height) + var(--space-3));
+    bottom: var(--space-3);
     display: grid;
     width: min(42rem, calc(100vw - 2rem));
     gap: var(--space-2);
     pointer-events: none;
     transform: translateX(-50%);
+  }
+  .app-root--with-mini-player .app-toast-host {
+    bottom: calc(var(--mini-player-height) + var(--space-3));
   }
   .app-toast {
     position: relative;
@@ -912,6 +896,9 @@
     opacity: 0;
     transform: translateY(1rem);
     visibility: hidden;
+  }
+  .app-toast:not(.app-toast--visible) {
+    display: none;
   }
   .app-toast[data-tone="success"] {
     border-color: var(--color-accent);

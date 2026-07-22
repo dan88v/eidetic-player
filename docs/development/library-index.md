@@ -45,6 +45,13 @@ removed Sources therefore retain their history. Newest-first and Track lookup
 indexes support bounded keyset pages and contextual playback. All earlier
 schema versions upgrade to v5 in the existing migration transaction.
 
+Schema v6 adds strict `track_play_stats` rows keyed by Track. It keeps all-time
+play count, completion count, real qualified listening seconds, and first/last
+timestamps. A composite count/last/Track index provides deterministic keyset
+ranking; Track deletion cascades, while offline or removed Sources retain the
+row. Earlier versions migrate transactionally without backfilling Recent
+history, so listening statistics initially start at zero.
+
 ## Identity and incremental scans
 
 A Track is identified by the pair `(sourceId, logicalRelativePath)`. Its opaque
@@ -164,7 +171,8 @@ visible until superseded or shutdown. The toast has no controls; management
 stays on the Library screen. No polling,
 second EventSource, second toast host, or scan-specific endpoint is used.
 
-Recently Played is a separate main screen immediately after Favorites. It uses
+History is a separate main screen immediately after Favorites, with session-
+preserved Recent, Most Played, and Stats segments. Recent uses
 48-row keyset pages, retains at most 192 mounted rows, groups events by local
 day, preserves unavailable rows, and adds neither Search nor another
 EventSource. Its contextual Play builder reads the complete database history,
@@ -183,6 +191,16 @@ event; intervening Tracks create a new event. Each write transaction removes
 events older than 90 days and then retains only the newest 500. A revision on
 the existing Library snapshot invalidates the mounted screen only after a
 meaningful history mutation, never on ordinary Player ticks.
+
+The same tracker records one all-time play for every qualified Track
+transition, even when consecutive Recent events aggregate. At qualification it
+includes already-heard real time; completion and finalization add only bounded
+remaining deltas. Most Played ranks complete backend context by play count,
+last play, and Track ID. Stats uses one aggregate query for listening time,
+qualified/completed plays, unique Tracks, and first/last dates. Its confirmed
+reset deletes only `track_play_stats`; Recent has a separate clear. A distinct
+`statsRevision` travels on the existing Library SSE, with no polling or second
+stream.
 
 Favorites is a separate main screen, visible whenever Library browsing is
 enabled, with persistent Tracks, Albums, and Artists segments. Bounded 48-item

@@ -163,6 +163,52 @@ void test("play history prunes 90 days and 500 events, preserves unavailable, an
   }
 });
 
+void test("play statistics rank deterministically, aggregate, page, reset, and cascade", async () => {
+  const { temporary, database, repository, tracks } = await repositoryFixture();
+  try {
+    const [one, two, three] = tracks;
+    assert.ok(one && two && three);
+    repository.recordQualifiedPlay(one.id, 30, false, 1_000);
+    repository.recordQualifiedPlay(two.id, 35, true, 2_000);
+    repository.recordQualifiedPlay(one.id, 20, true, 3_000);
+    repository.recordQualifiedPlay(three.id, 40, false, 3_000);
+    repository.updateQualifiedPlay(one.id, 10, false, 4_000);
+    const first = repository.mostPlayed(null, 1);
+    const firstItem = first.items[0];
+    assert.ok(firstItem);
+    assert.equal(firstItem.id, one.id);
+    assert.equal(firstItem.playCount, 2);
+    assert.ok(first.nextCursor);
+    const remaining = repository.mostPlayed(first.nextCursor, 10);
+    assert.deepEqual(
+      remaining.items.map((item) => item.id),
+      [three.id, two.id],
+    );
+    assert.deepEqual(repository.listeningStats(), {
+      listeningSeconds: 135,
+      qualifiedPlays: 4,
+      completedPlays: 2,
+      uniqueTracks: 3,
+      trackingSince: 1_000,
+      lastListened: 4_000,
+    });
+    assert.deepEqual(
+      repository.mostPlayedContextTracks().map((item) => item.id),
+      [one.id, three.id, two.id],
+    );
+    database.connection
+      .prepare("DELETE FROM tracks WHERE track_id = ?")
+      .run(two.id);
+    assert.equal(repository.listeningStats().uniqueTracks, 2);
+    assert.equal(repository.resetPlayStats(), 2);
+    assert.equal(repository.resetPlayStats(), 0);
+    assert.equal(repository.listeningStats().qualifiedPlays, 0);
+  } finally {
+    database.close();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
 interface RecordedEvent {
   historyId: string;
   trackId: string;
@@ -172,6 +218,10 @@ interface RecordedEvent {
 
 class Sink implements PlayHistorySink {
   readonly events: RecordedEvent[] = [];
+  readonly stats = new Map<
+    string,
+    { plays: number; seconds: number; completed: number }
+  >();
 
   recordPlayHistory(
     trackId: string,
@@ -197,6 +247,35 @@ class Sink implements PlayHistorySink {
     if (!event) return false;
     event.playedSeconds = playedSeconds;
     event.completed ||= completed;
+    return true;
+  }
+
+  recordQualifiedPlay(
+    trackId: string,
+    playedSeconds: number,
+    completed: boolean,
+  ): boolean {
+    const current = this.stats.get(trackId) ?? {
+      plays: 0,
+      seconds: 0,
+      completed: 0,
+    };
+    current.plays += 1;
+    current.seconds += playedSeconds;
+    current.completed += completed ? 1 : 0;
+    this.stats.set(trackId, current);
+    return true;
+  }
+
+  updateQualifiedPlay(
+    trackId: string,
+    playedSecondsDelta: number,
+    completedIncrement: boolean,
+  ): boolean {
+    const current = this.stats.get(trackId);
+    if (!current) return false;
+    current.seconds += playedSecondsDelta;
+    current.completed += completedIncrement ? 1 : 0;
     return true;
   }
 }
@@ -309,4 +388,9 @@ void test("tracker creates one event per transition and updates completion", () 
   );
   assert.equal(sink.events.length, 2);
   assert.equal(sink.events[1]?.completed, true);
+  const aggregate = sink.stats.get(`track-${"1".repeat(32)}`);
+  assert.ok(aggregate);
+  assert.equal(aggregate.plays, 2);
+  assert.equal(aggregate.completed, 2);
+  assert.equal(aggregate.seconds, 60);
 });

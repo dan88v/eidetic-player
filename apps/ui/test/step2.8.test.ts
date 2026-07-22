@@ -54,7 +54,7 @@ void test("Favorites navigation and visibility follow Library", async () => {
   assert.match(menu, /favorites\.hidden = value === "folders"/);
 });
 
-void test("approved Track surfaces share semantic heart and menu actions", async () => {
+void test("approved browsing surfaces share hearts while Queue stays uncluttered", async () => {
   const [library, favorites, queue, button, css] = await Promise.all([
     read("screens/library.ts"),
     read("screens/favorites.ts"),
@@ -67,7 +67,7 @@ void test("approved Track surfaces share semantic heart and menu actions", async
   assert.match(favorites, /favorites\.emptyTitle/);
   assert.match(favorites, /createSegmentedControl/);
   assert.doesNotMatch(favorites, /type="search"/);
-  assert.match(queue, /item\.libraryTrackId\s*\?/);
+  assert.doesNotMatch(queue, /createFavoriteTrackButton|queue-item__more/);
   assert.match(button, /element\.type = "button"/);
   assert.match(button, /aria-pressed/);
   assert.match(button, /event\.stopPropagation\(\)/);

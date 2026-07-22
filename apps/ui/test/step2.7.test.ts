@@ -169,7 +169,7 @@ void test("Library toolbar is one compact row and scan actions remain in Manage"
 });
 
 void test("current schema retains v2 materialized keys, stable ranking and no FTS", () => {
-  assert.match(migrations, /LIBRARY_SCHEMA_VERSION = 5/);
+  assert.match(migrations, /LIBRARY_SCHEMA_VERSION = 6/);
   assert.match(migrations, /const migrationV2/);
   for (const key of [
     "search_name",

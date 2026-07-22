@@ -47,6 +47,7 @@ function snapshot(
 ): IndexedLibrarySnapshot {
   return {
     historyRevision: 0,
+    statsRevision: 0,
     summary: {
       trackCount: 0,
       availableTrackCount: 0,
