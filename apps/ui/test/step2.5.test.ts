@@ -27,7 +27,7 @@ void test("Library keeps the indexed summary and scan controls in Manage Library
   );
   assert.doesNotMatch(rootMarkup, /library-summary|library-scan-panel/);
   assert.match(library, /class="library-manage"/);
-  assert.match(library, /library-header__action/);
+  assert.match(library, /library-search-action/);
   assert.match(library, /library\.rescan/);
   assert.match(library, /library\.cancel/);
   assert.match(library, /<progress class="library-progress"/);

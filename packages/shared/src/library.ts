@@ -228,7 +228,7 @@ export interface LibraryArtistDetail extends LibraryArtist {
   readonly tracks: LibraryPage<LibraryTrack>;
 }
 
-export type LibraryContextKind = "album" | "artist" | "tracks";
+export type LibraryContextKind = "album" | "artist" | "track" | "tracks";
 
 export interface LibraryContextRequest {
   readonly context: LibraryContextKind;
@@ -290,9 +290,3 @@ export type LibraryCategorySearchResults =
       readonly catalogFingerprint: string;
       readonly page: LibrarySearchPage<LibraryTrack>;
     };
-
-export interface LibrarySearchPlayRequest {
-  readonly query: string;
-  readonly selectedTrackId: string;
-  readonly catalogFingerprint: string;
-}

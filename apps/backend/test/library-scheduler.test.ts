@@ -103,6 +103,8 @@ void test("scheduler runs one scan, rejects concurrent manual work and cancels c
     scheduler.enqueueAutomatic([sourceA, sourceB]);
     await waitFor(() => started.length === 1);
     assert.equal(started[0], sourceA);
+    scheduler.enqueueAutomatic([sourceB, sourceB]);
+    assert.equal(scheduler.getDiagnostics().queued, 1);
     assert.throws(
       () => {
         scheduler.enqueueManual([sourceB]);
@@ -119,6 +121,17 @@ void test("scheduler runs one scan, rejects concurrent manual work and cancels c
     assert.equal(repository.listSources()[1]?.scanStatus, "cancelled");
     assert.equal(scheduler.getDiagnostics().maximumConcurrentScans, 1);
     assert.ok((scheduler.getDiagnostics().lastCancelMilliseconds ?? -1) >= 0);
+
+    scheduler.enqueueAutomatic([sourceA, sourceB, sourceB]);
+    await waitFor(() => started.length === 3);
+    assert.equal(started[2], sourceA);
+    assert.equal(scheduler.getDiagnostics().queued, 1);
+    scheduler.removeQueuedSource(sourceB);
+    assert.equal(scheduler.getDiagnostics().queued, 0);
+    releases.get(sourceA)?.();
+    await waitFor(() => completed.length === 3);
+    await yieldImmediate();
+    assert.equal(started.length, 3);
     await scheduler.close();
     assert.equal(scheduler.getDiagnostics().active, false);
   } finally {

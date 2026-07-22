@@ -29,16 +29,14 @@ void test("Library Search uses typed bounded endpoints and no catalog paths", ()
   assert.ok(
     backend.includes("^\\/api\\/library\\/search\\/(artists|albums|tracks)$"),
   );
-  assert.match(backend, /url\.pathname === "\/api\/library\/search\/play"/);
   assert.match(contracts, /interface LibraryGroupedSearchResults/);
   assert.match(contracts, /type LibraryCategorySearchResults/);
-  assert.match(contracts, /interface LibrarySearchPlayRequest/);
   assert.doesNotMatch(
     contracts.slice(contracts.indexOf("export type LibrarySearchCategory")),
     /nativePath|relativePath|sourceId|codec|bitrate/,
   );
   assert.match(client, /searchCategory\(/);
-  assert.match(client, /playSearch\(/);
+  assert.doesNotMatch(client, /playSearch\(/);
 });
 
 void test("Search header is on demand, focused and keyboard accessible", () => {
@@ -102,7 +100,7 @@ void test("grouped results stay ordered Artists, Albums, Tracks with View all", 
   assert.match(library, /activeCategoryView = category/);
   assert.match(
     library,
-    /libraryHeader\.hidden\s*=\s*search\.active && search\.activeCategoryView !== null/,
+    /libraryHeader\.hidden\s*=\s*!search\.active \|\| search\.activeCategoryView !== null/,
   );
   assert.match(library, /loadSearchCategory\(category, false\)/);
   assert.match(library, /moreButton\(Boolean\(page\.cursor\)/);
@@ -122,17 +120,13 @@ void test("Search preserves grouped, category and detail scroll for the app sess
   assert.doesNotMatch(library, /save.*Search|localStorage|sessionStorage/i);
 });
 
-void test("Search Track play sends query, fingerprint and direct selected ID", () => {
-  assert.match(
-    library,
-    /playSearch\(\{[\s\S]*query: results\.normalizedQuery[\s\S]*selectedTrackId: trackId[\s\S]*catalogFingerprint/,
-  );
-  assert.match(backend, /resolveSearchContext\(/);
+void test("Search Track play delegates to current-catalog Track context", () => {
+  assert.match(library, /api\.play\(\{ context: "track", id: trackId \}\)/);
+  assert.doesNotMatch(backend, /\/api\/library\/search\/play/);
+  assert.match(backend, /resolveContext\(body\.context, body\.id/);
   assert.match(backend, /context\.selectedIndex/);
-  assert.match(repository, /searchContextTracks/);
-  assert.match(repository, /track_available = 1/);
+  assert.match(repository, /playbackContextForTrack/);
   assert.match(repository, /s\.available = 1 AND s\.removed = 0/);
-  assert.match(repository, /ORDER BY match_rank, field_priority/);
 });
 
 void test("unavailable Search rows remain visible and primary/secondary actions are disabled", () => {
@@ -157,7 +151,10 @@ void test("Library toolbar is one compact row and scan actions remain in Manage"
     /library-scan-action|library-manage-scan-action/,
   );
   assert.match(rootMarkup, /library-toolbar-actions/);
-  assert.match(rootMarkup, /library-view-controls[\s\S]*library-manage-action/);
+  assert.match(
+    rootMarkup,
+    /library-search-action[\s\S]*library-manage-action[\s\S]*library-view-controls/,
+  );
   assert.match(manageMarkup, /library-manage-scan-action/);
   assert.match(library, /browserToolbar\.hidden = search\.active/);
   assert.match(css, /\.library-browser-toolbar \{[\s\S]*display: flex/);

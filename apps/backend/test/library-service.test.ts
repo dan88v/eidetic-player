@@ -75,10 +75,33 @@ void test("first scan is automatic once, later scans are manual and removal pres
     service.sourceRenamed(added.source.id, renamed.displayName);
     assert.equal(service.snapshot().sources[0]?.displayName, "Renamed");
 
-    await sources.remove(added.source.id);
-    service.sourceRemoved(added.source.id);
-    assert.equal(service.snapshot().sources[0]?.availability, "removed");
-    assert.equal(service.snapshot().summary.sourceCount, 0);
+    const addedLaterRoot = join(temporary, "Added Later");
+    await mkdir(addedLaterRoot);
+    const addedLater = await sources.addLocal(addedLaterRoot);
+    await service.sourceAdded(addedLater.source.id);
+    const addedLaterScan = await waitFor(
+      service,
+      (snapshot) =>
+        snapshot.status.activeScan === null &&
+        snapshot.sources.some(
+          (item) =>
+            item.sourceId === addedLater.source.id && item.firstScanCompleted,
+        ),
+    );
+    assert.equal(
+      addedLaterScan.status.latestScan?.sourceId,
+      addedLater.source.id,
+    );
+
+    await sources.remove(addedLater.source.id);
+    service.sourceRemoved(addedLater.source.id);
+    assert.equal(
+      service
+        .snapshot()
+        .sources.find((item) => item.sourceId === addedLater.source.id)
+        ?.availability,
+      "removed",
+    );
   } finally {
     await service.close();
     await rm(temporary, { recursive: true, force: true });

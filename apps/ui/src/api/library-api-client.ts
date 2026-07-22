@@ -14,7 +14,6 @@ import type {
   LibraryCategorySearchResults,
   LibraryGroupedSearchResults,
   LibrarySearchCategory,
-  LibrarySearchPlayRequest,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -95,15 +94,6 @@ export class LibraryApiClient {
       `/api/library/search/${category}?${search.toString()}`,
       { ...(signal ? { signal } : {}) },
     );
-  }
-
-  playSearch(
-    request: LibrarySearchPlayRequest,
-  ): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/search/play", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
   }
 
   play(request: LibraryContextRequest): Promise<LibraryQueueActionResponse> {

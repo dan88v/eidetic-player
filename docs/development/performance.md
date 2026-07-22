@@ -150,8 +150,9 @@ and 500 Artists is available through `npm.cmd run benchmark:library-search`.
 Materialized Unicode search keys avoid per-row JavaScript normalization and
 reduced representative exact/prefix/word-prefix/contains grouped and first-page
 p95 measurements below 100 ms in the final benchmark run. The deliberately
-very common 8,928-Track query remained above that target and contextual
-construction is recorded separately; FTS5 remains deferred rather than being
+very common 8,928-Track query remained above that target. Track playback now
+constructs only the selected Track's Album, or one album-less item, and that
+context is recorded separately; FTS5 remains deferred rather than being
 introduced without approval. `EXPLAIN QUERY PLAN` therefore still documents
 catalog scans and temporary ordering, with no virtual tables or triggers.
 

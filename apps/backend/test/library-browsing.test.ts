@@ -191,6 +191,32 @@ void test("Album and Artist detail preserve disc order, deduplication and no-alb
     assert.equal(compilation.trackCount, 12);
     assert.equal(compilation.albums.length, 1);
     assert.equal(repository.contextTracks("artist", variousId).length, 12);
+
+    const albumTrack = records[8];
+    assert.ok(albumTrack);
+    const albumContext = repository.playbackContextForTrack(albumTrack.id);
+    assert.ok(albumContext?.albumId);
+    const albumTracks = repository.contextTracks("album", albumContext.albumId);
+    assert.equal(albumTracks.length, 12);
+    assert.equal(new Set(albumTracks.map((track) => track.id)).size, 12);
+    assert.ok(albumTracks.findIndex((track) => track.id === albumTrack.id) > 0);
+
+    const compilationTrack = records[50];
+    assert.ok(compilationTrack);
+    const compilationContext = repository.playbackContextForTrack(
+      compilationTrack.id,
+    );
+    assert.ok(compilationContext?.albumId);
+    assert.equal(
+      repository.contextTracks("album", compilationContext.albumId).length,
+      12,
+    );
+
+    const albumlessTrack = records[60];
+    assert.ok(albumlessTrack);
+    assert.deepEqual(repository.playbackContextForTrack(albumlessTrack.id), {
+      albumId: null,
+    });
   } finally {
     database.close();
     await rm(temporary, { recursive: true, force: true });

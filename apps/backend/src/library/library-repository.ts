@@ -1005,16 +1005,6 @@ export class LibraryRepository {
     };
   }
 
-  searchContextTracks(normalizedQuery: string): readonly LibraryContextTrack[] {
-    return this.searchTrackRows(normalizedQuery, null, null, true).map(
-      (row) => ({
-        id: String(row.track_id),
-        sourceId: String(row.source_id),
-        relativePath: String(row.relative_path),
-      }),
-    );
-  }
-
   contextTracks(
     context: "album" | "artist" | "tracks",
     id?: string,
@@ -1095,6 +1085,24 @@ export class LibraryRepository {
           id: String(row.track_id),
           sourceId: String(row.source_id),
           relativePath: String(row.relative_path),
+        }
+      : null;
+  }
+
+  playbackContextForTrack(
+    trackId: string,
+  ): { readonly albumId: string | null } | null {
+    const row = this.connection
+      .prepare(
+        `SELECT t.album_id
+         FROM tracks t JOIN library_sources s ON s.source_id = t.source_id
+         WHERE t.track_id = ? AND t.available = 1
+           AND s.available = 1 AND s.removed = 0`,
+      )
+      .get(trackId) as SqlRow | undefined;
+    return row
+      ? {
+          albumId: typeof row.album_id === "string" ? row.album_id : null,
         }
       : null;
   }

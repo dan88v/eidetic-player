@@ -31,7 +31,10 @@ export function createSourcesScreen(
   section.innerHTML = `
     <header class="screen-header sources-header">
       <p class="screen-header__description">${t("screen.sources.description")}</p>
-      <button class="primary-action sources-header__add" type="button">${icon("plus")}<span>${t("sources.addFolder")}</span></button>
+      <div class="sources-header__actions">
+        <button class="sources-header__scan" type="button">${t("sources.rescanLibrary")}</button>
+        <button class="primary-action sources-header__add" type="button">${icon("plus")}<span>${t("sources.addFolder")}</span></button>
+      </div>
     </header>
     <section class="sources-section" aria-labelledby="local-folders-heading">
       <h2 id="local-folders-heading">${t("sources.localFolders")}</h2>
@@ -62,6 +65,9 @@ export function createSourcesScreen(
   const addButton = section.querySelector<HTMLButtonElement>(
     ".sources-header__add",
   );
+  const scanButton = section.querySelector<HTMLButtonElement>(
+    ".sources-header__scan",
+  );
   const dialog = section.querySelector<HTMLElement>(".source-dialog");
   const backdrop = section.querySelector<HTMLElement>(
     ".source-dialog-backdrop",
@@ -91,6 +97,7 @@ export function createSourcesScreen(
   if (
     !localList ||
     !addButton ||
+    !scanButton ||
     !dialog ||
     !backdrop ||
     !dialogTitle ||
@@ -112,11 +119,24 @@ export function createSourcesScreen(
   let menuSource: LibrarySource | null = null;
   let menuTrigger: HTMLButtonElement | null = null;
   let libraryScanBusy = false;
+  let activeScanId: string | null = null;
+  let scanPending = false;
+  let librarySnapshot = options.initialLibrarySnapshot;
 
   const updateLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
+    librarySnapshot = snapshot;
+    activeScanId = snapshot.status.activeScan?.scanId ?? null;
     libraryScanBusy =
       snapshot.status.activeScan !== null ||
       snapshot.status.queuedSourceIds.length > 0;
+    scanButton.textContent = t(
+      libraryScanBusy ? "library.cancel" : "sources.rescanLibrary",
+    );
+    scanButton.dataset.action = libraryScanBusy ? "cancel" : "rescan";
+    scanButton.disabled =
+      scanPending ||
+      snapshot.summary.sourceCount === 0 ||
+      (libraryScanBusy && activeScanId === null);
     const rescan = actionMenu.querySelector<HTMLButtonElement>(
       '[data-action="rescan"]',
     );
@@ -294,6 +314,29 @@ export function createSourcesScreen(
       })
       .finally(() => {
         addButton.disabled = false;
+      });
+  });
+  scanButton.addEventListener("click", () => {
+    if (scanPending || scanButton.disabled) return;
+    scanPending = true;
+    scanButton.disabled = true;
+    void (
+      scanButton.dataset.action === "cancel"
+        ? options.libraryApi.cancel(
+            activeScanId ? { scanId: activeScanId } : {},
+          )
+        : options.libraryApi.scan()
+    )
+      .then(updateLibrarySnapshot)
+      .catch((error: unknown) => {
+        options.showToast(
+          error instanceof Error ? error.message : t("library.actionFailed"),
+          "error",
+        );
+      })
+      .finally(() => {
+        scanPending = false;
+        if (librarySnapshot) updateLibrarySnapshot(librarySnapshot);
       });
   });
   cancelButton.addEventListener("click", closeDialog);

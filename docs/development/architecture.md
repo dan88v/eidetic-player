@@ -76,10 +76,10 @@ Do not introduce a second owner for any of these concerns.
   paths and native roots remain backend-only. Native paths are reconstructed
   only inside validated Play/Add commands after Source and file availability
   checks.
-- Library Search uses bounded grouped/category REST reads and the existing
-  Library SSE invalidation signal. Its contextual Track Play request contains
-  only normalized query, selected opaque Track ID, and catalog fingerprint;
-  path resolution and queue mutation remain backend-only.
+- Library Search uses bounded grouped/category REST reads, the existing
+  Library SSE invalidation signal, and the standard Library Play/Add commands.
+  Track Play contains only the selected opaque Track ID; current Album lookup,
+  path resolution, selected-index mapping, and queue mutation remain backend-only.
 
 Components use central API clients. Shared request, response, state, and event
 types live in `packages/shared`.

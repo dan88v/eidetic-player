@@ -39,9 +39,10 @@ tap, Pointer Capture drag, Home/End, and arrow-key seek.
 Its right controls are Previous (56 px), Play/Pause (64 px), Next (56 px), and
 Home (56 px), with Home always last and no time counter added.
 
-The Queue drawer highlights the current item and provides Add Files, individual
-56 × 56 px Remove controls, and Clear Queue with focus trapping, Escape, and
-focus restoration. Its main row target starts the selected item immediately,
+The Queue drawer highlights the current item and provides individual 56 × 56 px
+Remove controls and Clear Queue with focus trapping, Escape, and focus
+restoration. File opening remains available from its established non-drawer
+surface and native drop handling. Its main row target starts the selected item immediately,
 including when an idle staged Queue must first be materialized; Remove remains
 a separate sibling control. Drag reordering remains out of scope.
 
@@ -61,9 +62,13 @@ visualizer container is controlled by `--now-playing-visualizer-height`.
 ## Sources, Folders, and Library
 
 Sources uses real Local Folder cards with Open, Rename, Remove, and conditional
-Retry actions. Rename is an accessible modal with Escape, focus trap, and focus
-restoration; Remove states that files are not deleted. USB Storage and Network
-Shares remain subdued static placeholders.
+Retry actions. Its toolbar places Rescan Library before Add Folder and changes
+that action to Cancel Scan while the single Library scheduler is queued or
+active. Adding a Source schedules only that persistent Source ID; an active scan
+retains one deduplicated pending request in the same scheduler. Rename is an
+accessible modal with Escape, focus trap, and focus restoration; Remove states
+that files are not deleted. USB Storage and Network Shares remain subdued static
+placeholders.
 
 Folders starts with a minimal configured-source collection and no duplicate
 hero or Add Folder action. Source/folder cards share persistent sorting and
@@ -72,10 +77,11 @@ targets, direct-audio counts, and a sibling accessible action menu. Switching
 view changes CSS state only: it performs no request, artwork reload, screen
 rebuild, or scroll reset.
 
-Library root is dedicated to Albums, Artists, and Tracks browsing. Its header
-contains an on-demand Search action. A single compact toolbar places the
-segmented control beside the Albums Grid/List mode where applicable and the
-visible Manage action; Rescan/Cancel exist only inside Manage Library.
+Library root is dedicated to Albums, Artists, and Tracks browsing. A single
+compact toolbar places the segmented control on the left and Search, Manage,
+then the Albums-only Grid/List mode on the right; Rescan/Cancel exist only
+inside Manage Library. Search replaces that toolbar with its focused compact
+field.
 The selected segment and Album presentation persist independently. Album cards
 reserve cover geometry before lazy artwork decode; album and artist details
 replace the top-bar title, open at the top, and restore the prior list position
@@ -90,8 +96,11 @@ Artists, Albums, then Tracks, and offers bounded keyset-paginated View all
 subviews. Exact, prefix, word-prefix, and contains matches use stable
 accent-insensitive catalog keys. Search query, loaded pages, category/detail
 route, and scroll survive Library remounts in the current app session only.
-Album/Artist results reuse their details; Track play rebuilds the complete
-current-catalog match context on the backend. Unavailable results remain
+Album/Artist row taps reuse their details, while their menus add Play album/Play
+all beside the existing Queue actions. Track tap and menu Play resolve the
+current-catalog Album by opaque Track ID and start that Track directly inside
+the complete ordered Album; an album-less Track uses a single-item context.
+Track Add to Queue still appends only that Track. Unavailable results remain
 visible but cannot play or be added.
 
 Manage Library is an internal Library subpage, distinct from Settings and from
@@ -104,9 +113,9 @@ and scroll. Rescan becomes Cancel for active work and stays disabled while work
 is queued. Scan completion invalidates only current Library pages; progress
 events never rebuild browse lists or artwork.
 
-Sources reuses its existing sibling popup for Rescan Library, Rename, Remove,
-and conditional Retry. Rescan is disabled while any Library scan is active or
-queued because the backend admits one scan only.
+Each Source also reuses its existing sibling popup for a targeted Rescan,
+Rename, Remove, and conditional Retry. Targeted Rescan is disabled while any
+Library scan is active or queued because the backend admits one scan only.
 
 Inside a folder, Back, the compact current title, sorting, List/Grid, and Play share the
 primary row; a compact second row contains only ancestor breadcrumbs. Audio

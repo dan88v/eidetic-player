@@ -80,6 +80,12 @@ export class LibraryScheduler {
     this.onChange();
   }
 
+  removeQueuedSource(sourceId: string): void {
+    const index = this.queue.indexOf(sourceId);
+    if (index < 0) return;
+    this.queue.splice(index, 1);
+  }
+
   cancel(scanId?: string, sourceId?: string): void {
     const active = this.active;
     if (

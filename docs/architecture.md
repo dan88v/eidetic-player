@@ -78,13 +78,13 @@ metadata/artwork services and opaque image endpoint; no cover bytes or native
 paths enter list responses.
 
 Library Search follows the same boundary through grouped and category REST
-reads plus one contextual Play command. Schema v2 materializes
+reads plus the existing Library Play/Add commands. Schema v2 materializes
 accent-insensitive Search keys during migration and scan upserts; parameterized
 SQLite ranks exact, prefix, word-prefix, then contains matches with persistent
-IDs as final tie-breakers. Search playback rechecks the catalog fingerprint,
-rebuilds every available matching Track, resolves the selected index, and then
-uses the existing atomic `PlayerService` queue path. No FTS table, trigger,
-poller, or additional SSE channel exists.
+IDs as final tie-breakers. Track playback resolves the selected opaque Track
+against the current catalog, then builds its Album context or a single-item
+album-less context and uses the existing atomic `PlayerService` queue path. No
+FTS table, trigger, poller, or additional SSE channel exists.
 
 ## Backend and MPV
 

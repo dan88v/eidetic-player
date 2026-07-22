@@ -284,9 +284,10 @@ Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
    192-row bound, and grouped/category/detail scroll restoration;
 3. verify case/space/accent matching and exact, prefix, word-prefix, contains,
    alphabetical, and stable-ID ordering across opaque cursor boundaries;
-4. play a non-first grouped and View all Track and confirm the full available
-   match context, direct selected index, one queue transition, current-catalog
-   rebuild, and unchanged Queue on a stale/unavailable selection;
+4. play a non-first grouped and View all Track and confirm its full available
+   Album context (or one album-less Track), direct selected index, one queue
+   transition, current-catalog rebuild, and unchanged Queue on an unavailable
+   or changed selection;
 5. verify Track/Album/Artist Add remains secondary and does not interrupt the
    current item, while unavailable actions are disabled;
 6. confirm Library root has no Rescan/Cancel, Manage is beside Grid/List in the
@@ -297,6 +298,24 @@ Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
 8. run `npm.cmd run benchmark:library-search`, retain EXPLAIN evidence, and
    inspect Search, compact toolbar, mini-player, and Queue at 1280x800,
    1366x768, 1600x900, 1280x720, and 1024x600.
+
+## Step 2.7.1 Sources, Search playback, and Queue refinements
+
+1. verify Sources orders Rescan Library before Add Folder and swaps only the
+   first action to Cancel Scan for queued/scanning/cancelling state;
+2. add a temporary Source while idle and while another scan is active; confirm
+   only its persistent ID is queued once in the existing scheduler, removal
+   drops pending work, and failure preserves the Source;
+3. verify Albums keeps Albums/Artists/Tracks left and Search, Manage, Grid/List
+   right on one row; Artists/Tracks omit Grid/List; Search hides the toolbar;
+4. compare the scoped Search input and toolbar controls at 56 px, including
+   centered Clear, unclipped focus, and the suppressed native cancel control;
+5. exercise grouped and View all Track tap/menu Play, Album Play album, Artist
+   Play all, all Add variants, current-catalog changes, unavailable state, and
+   direct selected index without a transient first Track;
+6. confirm the Queue drawer has no Add Files label/listener/focus target while
+   row play, remove, clear, keyed reconciliation, scrolling, native Open Files,
+   folder opening, and drop handling remain unchanged.
 
 ## Step 2.6.1 Manage Library and scan-notification checks
 

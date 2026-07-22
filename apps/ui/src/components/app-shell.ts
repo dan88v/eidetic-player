@@ -134,24 +134,6 @@ export function mountApp(
       trackTransitions.noteTrackCommand();
       run(api.playQueue(index));
     },
-    onAdd: () => {
-      nativeDialogOpen = true;
-      void platform
-        .openAudioFiles({ multiple: true })
-        .then((paths) => {
-          const supported = paths.filter(isSupportedAudioPath);
-          if (supported.length > 0) run(api.appendQueue(supported));
-        })
-        .catch((error: unknown) => {
-          showMessage(
-            error instanceof Error ? error.message : t("error.nativeDialog"),
-          );
-        })
-        .finally(() => {
-          nativeDialogOpen = false;
-          scheduleInactivity();
-        });
-    },
     onClear: () => {
       run(api.clearQueue());
     },

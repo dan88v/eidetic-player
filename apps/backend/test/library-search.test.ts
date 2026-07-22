@@ -176,7 +176,7 @@ void test("search pages are bounded, keyset-paginated and reject stale cursors",
   }
 });
 
-void test("unavailable matches stay visible but never enter the Search playback context", async () => {
+void test("unavailable Search matches stay visible but cannot resolve for playback", async () => {
   const { temporary, database, repository, records } = await fixture();
   try {
     const unavailable = records[0];
@@ -188,14 +188,12 @@ void test("unavailable matches stay visible but never enter the Search playback 
       .searchTracks("hero", null, 20)
       .items.find((track) => track.id === unavailable.id);
     assert.equal(visible?.availability, "unavailable");
-    assert.equal(
-      repository
-        .searchContextTracks("hero")
-        .some((track) => track.id === unavailable.id),
-      false,
-    );
+    assert.equal(repository.playbackContextForTrack(unavailable.id), null);
     repository.markSourceRemoved(sourceId);
-    assert.equal(repository.searchContextTracks("hero").length, 0);
+    assert.equal(
+      repository.playbackContextForTrack(records[1]?.id ?? ""),
+      null,
+    );
   } finally {
     database.close();
     await rm(temporary, { recursive: true, force: true });

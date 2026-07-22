@@ -136,6 +136,7 @@ export class IndexedLibraryService {
 
   sourceRemoved(sourceId: string): void {
     this.ensureOpen();
+    this.scheduler.removeQueuedSource(sourceId);
     this.repository.markSourceRemoved(sourceId);
     this.publish();
   }
@@ -309,7 +310,7 @@ export class IndexedLibraryService {
   }
 
   async resolveContext(
-    context: "album" | "artist" | "tracks",
+    context: "album" | "artist" | "track" | "tracks",
     id?: string,
     selectedTrackId?: string,
   ): Promise<ResolvedLibraryContext> {
@@ -319,6 +320,19 @@ export class IndexedLibraryService {
         "INVALID_LIBRARY_CONTEXT",
         "Select a valid Library context.",
       );
+    if (context === "track") {
+      const trackId = id ?? "";
+      const target = this.repository.playbackContextForTrack(trackId);
+      if (!target)
+        throw new LibraryError(
+          "LIBRARY_TRACK_UNAVAILABLE",
+          "This track is no longer available.",
+          409,
+        );
+      return target.albumId
+        ? this.resolveContext("album", target.albumId, trackId)
+        : this.resolveTrack(trackId);
+    }
     const before = this.repository.catalogFingerprint();
     const records = this.repository.contextTracks(context, id);
     if (
@@ -388,55 +402,6 @@ export class IndexedLibraryService {
       ],
       selectedIndex: 0,
       trackIds: [item.id],
-    };
-  }
-
-  async resolveSearchContext(
-    query: string,
-    selectedTrackId: string,
-    catalogFingerprint: string,
-  ): Promise<ResolvedLibraryContext> {
-    this.ensureOpen();
-    const normalizedQuery = this.searchQuery(query);
-    const before = this.repository.catalogFingerprint();
-    // Compare the result fingerprint even though a stale client is allowed to
-    // continue with a freshly rebuilt context when its selected Track survives.
-    const resultCatalogIsCurrent = catalogFingerprint === before;
-    const records = this.repository.searchContextTracks(normalizedQuery);
-    if (!records.some((record) => record.id === selectedTrackId))
-      throw new LibraryError(
-        "LIBRARY_TRACK_UNAVAILABLE",
-        "This track is no longer available.",
-        409,
-      );
-    const resolved = await this.resolveRecords(records);
-    if (before !== this.repository.catalogFingerprint())
-      throw new LibraryError(
-        "LIBRARY_CONTEXT_CHANGED",
-        "The Library changed while preparing playback. Try again.",
-        409,
-      );
-    // A stale client fingerprint deliberately keeps the rebuilt current-catalog
-    // context when the selected Track is still valid.
-    void resultCatalogIsCurrent;
-    const selectedIndex = resolved.findIndex(
-      (record) => record.id === selectedTrackId,
-    );
-    if (selectedIndex < 0)
-      throw new LibraryError(
-        "LIBRARY_TRACK_UNAVAILABLE",
-        "This track is no longer available.",
-        409,
-      );
-    return {
-      paths: resolved.map((record) => record.path),
-      origins: resolved.map((record) => ({
-        kind: "folders",
-        sourceId: record.sourceId,
-        relativePath: record.relativePath,
-      })),
-      selectedIndex,
-      trackIds: resolved.map((record) => record.id),
     };
   }
 

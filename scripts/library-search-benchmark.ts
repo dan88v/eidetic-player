@@ -190,27 +190,36 @@ try {
       search_album_artist = library_search_key(COALESCE(album_artist_display, ''));
   `);
   const searchTiming = Object.fromEntries(
-    Object.entries(queries).map(([name, query]) => [
-      name,
-      {
-        grouped: measure(() => {
-          repository.searchArtists(query, null, 5);
-          repository.searchAlbums(query, null, 6);
-          repository.searchTracks(query, null, 8);
-        }),
-        tracks: measure(() => repository.searchTracks(query, null, 48)),
-        context: measure(
-          () => repository.searchContextTracks(query),
-          name === "common" ? 5 : 10,
-        ),
-        totals: {
-          artists: repository.searchArtists(query, null, 5).total,
-          albums: repository.searchAlbums(query, null, 6).total,
-          tracks: repository.searchTracks(query, null, 8).total,
-          context: repository.searchContextTracks(query).length,
+    Object.entries(queries).map(([name, query]) => {
+      const selectedTrackId = repository.searchTracks(query, null, 1).items[0]
+        ?.id;
+      const playbackContext = (): readonly unknown[] => {
+        if (!selectedTrackId) return [];
+        const target = repository.playbackContextForTrack(selectedTrackId);
+        if (!target) return [];
+        return target.albumId
+          ? repository.contextTracks("album", target.albumId)
+          : [repository.contextTrack(selectedTrackId)].filter(Boolean);
+      };
+      return [
+        name,
+        {
+          grouped: measure(() => {
+            repository.searchArtists(query, null, 5);
+            repository.searchAlbums(query, null, 6);
+            repository.searchTracks(query, null, 8);
+          }),
+          tracks: measure(() => repository.searchTracks(query, null, 48)),
+          context: measure(playbackContext, name === "common" ? 5 : 10),
+          totals: {
+            artists: repository.searchArtists(query, null, 5).total,
+            albums: repository.searchAlbums(query, null, 6).total,
+            tracks: repository.searchTracks(query, null, 8).total,
+            context: playbackContext().length,
+          },
         },
-      },
-    ]),
+      ];
+    }),
   );
   connection.exec(`
     UPDATE artists SET search_name = library_search_key(display_name);

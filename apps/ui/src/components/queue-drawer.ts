@@ -33,7 +33,6 @@ interface QueueRowView {
 export function createQueueDrawer(options: {
   readonly onClose: () => void;
   readonly onPlay: (index: number) => void;
-  readonly onAdd: () => void;
   readonly onClear: () => void;
   readonly onRemove: (queueItemId: string) => void;
 }): QueueDrawer {
@@ -67,7 +66,6 @@ export function createQueueDrawer(options: {
       <button class="icon-button queue-drawer__close" type="button" aria-label="${t("queueDrawer.close")}">${icon("close")}</button>
     </header>
     <div class="queue-actions">
-      <button class="queue-actions__add" type="button">${t("queueDrawer.addFiles")}</button>
       <button class="queue-actions__clear" type="button">${t("queueDrawer.clear")}</button>
     </div>
     <div class="queue-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="queue-confirmation-title" aria-hidden="true">
@@ -82,9 +80,6 @@ export function createQueueDrawer(options: {
     ".queue-drawer__close",
   );
   const list = element.querySelector<HTMLOListElement>(".queue-list");
-  const addButton = element.querySelector<HTMLButtonElement>(
-    ".queue-actions__add",
-  );
   const clearButton = element.querySelector<HTMLButtonElement>(
     ".queue-actions__clear",
   );
@@ -100,7 +95,6 @@ export function createQueueDrawer(options: {
   if (
     !closeButton ||
     !list ||
-    !addButton ||
     !clearButton ||
     !confirmation ||
     !cancelClear ||
@@ -158,7 +152,6 @@ export function createQueueDrawer(options: {
       observer.observe(row);
   };
   closeButton.addEventListener("click", options.onClose);
-  addButton.addEventListener("click", options.onAdd);
   clearButton.addEventListener("click", () => {
     setConfirmationOpen(true);
   });

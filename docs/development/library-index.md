@@ -55,10 +55,13 @@ a link outside a Source. Desktop batches contain at most 32 Tracks; the
 explicit Raspberry profile uses 16.
 
 `LibraryScheduler` permits exactly one active scan. First scans are queued
-automatically after player bootstrap; later scans are manual from Library or a
-Source action menu. A concurrent manual request is rejected instead of starting
-a second traversal. Cancellation uses `AbortSignal`, normally completing at
-the next filesystem or metadata boundary.
+automatically after player bootstrap, and a newly added Source immediately
+queues only its persistent Source ID. If another scan is active, that ID stays
+once in the scheduler's existing queue; removal before execution drops it.
+Later rescans are manual from Sources, Manage Library, or a Source action menu.
+A concurrent manual request is rejected instead of starting a second traversal.
+Cancellation uses `AbortSignal`, normally completing at the next filesystem or
+metadata boundary.
 
 Playback retains priority. The scanner waits while current/adjacent
 metadata-artwork transition work is active and yields after each batch and
@@ -116,10 +119,9 @@ Unavailable files are excluded. The queue is mutated only after the full
 context succeeds, and a selected Track ID maps directly to the resolved queue
 index.
 
-The Library root contains Search, persistent Albums/Artists/Tracks segments,
-the independent Album Grid/List setting, Manage, and the selected catalog
-content in one compact toolbar row. Rescan/Cancel, summary, detailed scan
-state, and the compact
+The Library root places persistent Albums/Artists/Tracks on the left and Search,
+Manage, plus the independent Albums-only Grid/List setting on the right in one
+compact toolbar row. Rescan/Cancel, summary, detailed scan state, and the compact
 operational Source overview live on the internal Manage Library subpage.
 Manage is not Settings and does not duplicate Sources configuration, Rename,
 Remove, Add Folder, or native dialogs. Only the newest 192 paged entities stay
@@ -147,10 +149,13 @@ and persistent IDs. Grouped defaults are 5 Artists, 6 Albums, and 8 Tracks;
 category pages default to 48 and are capped at 100 with query-bound opaque
 keyset cursors. Responses expose no catalog paths.
 
-Track Search play rebuilds the complete ranked context from the current
-catalog, excludes effectively unavailable Tracks, revalidates every resolved
-file, and maps the requested Track directly before one atomic queue replace.
-Album and Artist Search results reuse existing details and Play/Add semantics.
+Track Search Play resolves the selected Track ID from the current catalog. A
+Track with an Album rebuilds that complete disc/track/title/ID ordered Album,
+excludes effectively unavailable Tracks, revalidates every resolved file, and
+maps the selected Track directly before one atomic queue replace. An album-less
+Track builds a single-item context. Track Add appends only that Track. Album and
+Artist row taps retain detail navigation; their menus expose the existing
+Play/Add context operations.
 The UI retains at most 192 category rows and one sentinel. No FTS5, virtual
 table, trigger, history, autocomplete, polling, or second Library EventSource
 is used.

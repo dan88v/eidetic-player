@@ -40,7 +40,6 @@ import type {
   LibraryContextRequest,
   LibraryScanRequest,
   LibrarySearchCategory,
-  LibrarySearchPlayRequest,
   LibraryTrackQueueRequest,
 } from "../../../packages/shared/src/library.js";
 
@@ -336,27 +335,6 @@ function librarySearchGroupLimit(url: URL): number | undefined {
   return limit;
 }
 
-function librarySearchPlayBody(value: unknown): LibrarySearchPlayRequest {
-  const body = objectBody(value);
-  if (
-    typeof body.query !== "string" ||
-    body.query.length === 0 ||
-    body.query.length > 256 ||
-    typeof body.catalogFingerprint !== "string" ||
-    body.catalogFingerprint.length === 0 ||
-    body.catalogFingerprint.length > 128
-  )
-    throw new LibraryError(
-      "INVALID_LIBRARY_SEARCH",
-      "Select a valid Library search result.",
-    );
-  return {
-    query: body.query,
-    selectedTrackId: libraryEntityId(body.selectedTrackId, "track"),
-    catalogFingerprint: body.catalogFingerprint,
-  };
-}
-
 function libraryEntityId(
   value: unknown,
   kind: "album" | "artist" | "track",
@@ -377,6 +355,7 @@ function libraryContextBody(value: unknown): LibraryContextRequest {
   if (
     body.context !== "album" &&
     body.context !== "artist" &&
+    body.context !== "track" &&
     body.context !== "tracks"
   )
     throw new LibraryError(
@@ -385,7 +364,9 @@ function libraryContextBody(value: unknown): LibraryContextRequest {
     );
   const context = body.context;
   const id =
-    context === "tracks" ? undefined : libraryEntityId(body.id, context);
+    context === "tracks"
+      ? undefined
+      : libraryEntityId(body.id, context === "track" ? "track" : context);
   const selectedTrackId =
     body.selectedTrackId === undefined
       ? undefined
@@ -584,35 +565,6 @@ async function handleRequest(
       });
       return;
     }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/api/library/search/play"
-    ) {
-      const body = librarySearchPlayBody(await readBody(request));
-      const generation = player.reserveOpenRequest();
-      const context = await (
-        await indexedLibraryPromise
-      ).resolveSearchContext(
-        body.query,
-        body.selectedTrackId,
-        body.catalogFingerprint,
-      );
-      await player.openResolvedQueue(
-        context.paths,
-        context.selectedIndex,
-        context.origins,
-        generation,
-      );
-      sendJson(response, 200, {
-        ok: true,
-        data: {
-          queueLength: context.paths.length,
-          selectedIndex: context.selectedIndex,
-          appendedCount: 0,
-        },
-      });
-      return;
-    }
     if (request.method === "GET" && url.pathname === "/api/library/albums") {
       sendJson(response, 200, {
         ok: true,
@@ -722,6 +674,11 @@ async function handleRequest(
     }
     if (request.method === "POST" && url.pathname === "/api/library/queue") {
       const body = libraryContextBody(await readBody(request));
+      if (body.context === "track")
+        throw new LibraryError(
+          "INVALID_LIBRARY_CONTEXT",
+          "Add a single Track through the Track Queue action.",
+        );
       const context = await (
         await indexedLibraryPromise
       ).resolveContext(body.context, body.id);

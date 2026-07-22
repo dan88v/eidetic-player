@@ -211,13 +211,13 @@ export function createLibraryScreen(
           <input id="library-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="${t("library.searchPlaceholder")}" />
           <button class="library-search-clear" type="button" aria-label="${t("library.searchClear")}" hidden>${icon("close")}</button>
         </div>
-        <button class="library-search-action library-header__action" type="button">${icon("search")}<span>${t("library.search")}</span></button>
       </header>
       <div class="library-browser-toolbar">
         <div class="library-segments"></div>
         <div class="library-toolbar-actions">
-          <div class="library-view-controls"></div>
+          <button class="library-search-action" type="button">${icon("search")}<span>${t("library.search")}</span></button>
           <button class="library-manage-action" type="button" aria-label="${t("library.manage")}">${t("library.manage")}</button>
+          <div class="library-view-controls"></div>
         </div>
       </div>
       <div class="library-browser-content"></div>
@@ -515,21 +515,19 @@ export function createLibraryScreen(
   };
 
   const playSearchTrack = async (trackId: string): Promise<void> => {
-    const results = search.groupedResults;
-    if (!results) return;
     options.noteTrackCommand();
     try {
-      await options.api.playSearch({
-        query: results.normalizedQuery,
-        selectedTrackId: trackId,
-        catalogFingerprint: results.catalogFingerprint,
-      });
+      await options.api.play({ context: "track", id: trackId });
     } catch (error) {
       options.showToast(
         error instanceof Error ? error.message : t("library.actionFailed"),
         "error",
       );
-      if (!destroyed && search.active) void executeGroupedSearch();
+      if (!destroyed && search.active) {
+        const category = search.activeCategoryView;
+        if (category) void loadSearchCategory(category, false);
+        else void executeGroupedSearch();
+      }
     }
   };
 
@@ -551,6 +549,7 @@ export function createLibraryScreen(
   const trackRow = (
     track: LibraryTrack,
     playTrack: () => void,
+    includePlayAction = false,
   ): HTMLElement => {
     const row = document.createElement("article");
     const unavailable = track.availability === "unavailable";
@@ -606,6 +605,15 @@ export function createLibraryScreen(
     more.innerHTML = icon("more");
     more.addEventListener("click", () => {
       showMenu(more, [
+        ...(includePlayAction
+          ? [
+              {
+                label: t("library.play"),
+                disabled: unavailable,
+                run: playTrack,
+              },
+            ]
+          : []),
         {
           label: t("folders.addToQueue"),
           disabled: unavailable,
@@ -848,8 +856,7 @@ export function createLibraryScreen(
   };
 
   const setSearchHeader = (): void => {
-    libraryHeader.hidden = search.active && search.activeCategoryView !== null;
-    searchAction.hidden = search.active;
+    libraryHeader.hidden = !search.active || search.activeCategoryView !== null;
     searchClose.hidden = !search.active;
     searchField.hidden = !search.active;
     browserToolbar.hidden = search.active;
@@ -936,6 +943,11 @@ export function createLibraryScreen(
     more.addEventListener("click", () => {
       showMenu(more, [
         {
+          label: t("library.playArtist"),
+          disabled: unavailable,
+          run: () => void play({ context: "artist", id: artist.id }),
+        },
+        {
           label: t("library.addArtist"),
           disabled: unavailable,
           run: () =>
@@ -1006,6 +1018,11 @@ export function createLibraryScreen(
     more.innerHTML = icon("more");
     more.addEventListener("click", () => {
       showMenu(more, [
+        {
+          label: t("library.playAlbum"),
+          disabled: unavailable,
+          run: () => void play({ context: "album", id: album.id }),
+        },
         {
           label: t("library.addAlbum"),
           disabled: unavailable,
@@ -1103,7 +1120,9 @@ export function createLibraryScreen(
           list.append(searchAlbumRow(album));
       else
         for (const track of search.categoryPages.tracks.items)
-          list.append(trackRow(track, () => void playSearchTrack(track.id)));
+          list.append(
+            trackRow(track, () => void playSearchTrack(track.id), true),
+          );
       fragment.append(list);
       fragment.append(
         moreButton(Boolean(page.cursor), page.loading, () => {
@@ -1155,7 +1174,7 @@ export function createLibraryScreen(
       "tracks",
       results.tracks.total,
       results.tracks.items.map((track) =>
-        trackRow(track, () => void playSearchTrack(track.id)),
+        trackRow(track, () => void playSearchTrack(track.id), true),
       ),
     );
     browser.replaceChildren(fragment);
