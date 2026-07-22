@@ -12,6 +12,8 @@ import type {
   IndexedLibrarySummary,
   LibraryScanProgress,
   LibraryScanStatus,
+  FavoriteTrackPage,
+  FavoriteTrackMutationResponse,
 } from "../../../../packages/shared/src/library.js";
 import type { StoredSource } from "../filesystem/filesystem-types.js";
 import { LibraryDatabase } from "./library-database.js";
@@ -853,6 +855,131 @@ export class LibraryRepository {
     const decoded = decodeCursor(cursor, 6);
     const rows = this.trackRows("", decoded, [limit + 1]);
     return this.trackPage(rows, limit);
+  }
+
+  addFavoriteTrack(
+    trackId: string,
+    createdAt = Date.now(),
+  ): FavoriteTrackMutationResponse | null {
+    const track = this.connection
+      .prepare("SELECT track_id FROM tracks WHERE track_id = ?")
+      .get(trackId) as SqlRow | undefined;
+    if (!track) return null;
+    this.connection
+      .prepare(
+        `INSERT INTO favorite_tracks (track_id, created_at) VALUES (?, ?)
+         ON CONFLICT(track_id) DO NOTHING`,
+      )
+      .run(trackId, createdAt);
+    const row = this.connection
+      .prepare("SELECT created_at FROM favorite_tracks WHERE track_id = ?")
+      .get(trackId) as SqlRow;
+    return {
+      trackId,
+      isFavorite: true,
+      favoritedAt: numberValue(row.created_at),
+    };
+  }
+
+  removeFavoriteTrack(trackId: string): FavoriteTrackMutationResponse {
+    this.connection
+      .prepare("DELETE FROM favorite_tracks WHERE track_id = ?")
+      .run(trackId);
+    return { trackId, isFavorite: false, favoritedAt: null };
+  }
+
+  favoriteTrackIds(trackIds: readonly string[]): readonly string[] {
+    const unique = [...new Set(trackIds)];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => "?").join(", ");
+    return (
+      this.connection
+        .prepare(
+          `SELECT track_id FROM favorite_tracks
+           WHERE track_id IN (${placeholders}) ORDER BY track_id`,
+        )
+        .all(...unique) as SqlRow[]
+    ).map((row) => String(row.track_id));
+  }
+
+  favoriteTracks(cursor: string | null, limit: number): FavoriteTrackPage {
+    const decoded = decodeCursor(cursor, 2);
+    if (
+      decoded &&
+      (typeof decoded[0] !== "number" || typeof decoded[1] !== "string")
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_CURSOR",
+        "The Library page cursor is invalid.",
+      );
+    const cursorCreatedAt = decoded ? numberValue(decoded[0]) : null;
+    const cursorTrackId = decoded ? String(decoded[1]) : null;
+    const rows = this.connection
+      .prepare(
+        `SELECT t.track_id,
+                COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available,
+                f.created_at
+         FROM favorite_tracks f
+         JOIN tracks t ON t.track_id = f.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         ${decoded ? "WHERE f.created_at < ? OR (f.created_at = ? AND f.track_id > ?)" : ""}
+         ORDER BY f.created_at DESC, f.track_id ASC
+         LIMIT ?`,
+      )
+      .all(
+        ...(decoded ? [cursorCreatedAt, cursorCreatedAt, cursorTrackId] : []),
+        limit + 1,
+      ) as SqlRow[];
+    const counts = this.connection
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                COUNT(CASE WHEN t.available = 1 AND s.available = 1
+                                 AND s.removed = 0 THEN 1 END) AS available
+         FROM favorite_tracks f
+         JOIN tracks t ON t.track_id = f.track_id
+         JOIN library_sources s ON s.source_id = t.source_id`,
+      )
+      .get() as SqlRow;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((row) => ({
+        ...trackFromRow(row),
+        favoritedAt: numberValue(row.created_at),
+      })),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([numberValue(last.created_at), String(last.track_id)])
+          : null,
+      total: numberValue(counts.total),
+      availableCount: numberValue(counts.available),
+    };
+  }
+
+  favoriteContextTracks(): readonly LibraryContextTrack[] {
+    return (
+      this.connection
+        .prepare(
+          `SELECT t.track_id, t.source_id, t.relative_path
+           FROM favorite_tracks f
+           JOIN tracks t ON t.track_id = f.track_id
+           JOIN library_sources s ON s.source_id = t.source_id
+           WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+           ORDER BY f.created_at DESC, f.track_id ASC`,
+        )
+        .all() as SqlRow[]
+    ).map((row) => ({
+      id: String(row.track_id),
+      sourceId: String(row.source_id),
+      relativePath: String(row.relative_path),
+    }));
   }
 
   searchArtists(

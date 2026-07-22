@@ -198,6 +198,34 @@ export interface LibraryTrack {
   readonly availability: "available" | "unavailable";
 }
 
+export interface FavoriteTrack extends LibraryTrack {
+  readonly favoritedAt: number;
+}
+
+export interface FavoriteTrackPage extends LibraryPage<FavoriteTrack> {
+  readonly total: number;
+  readonly availableCount: number;
+}
+
+export interface FavoriteTrackStatusRequest {
+  readonly trackIds: readonly string[];
+}
+
+export interface FavoriteTrackStatusResponse {
+  readonly favoriteTrackIds: readonly string[];
+}
+
+export interface FavoriteTrackMutationResponse {
+  readonly trackId: string;
+  readonly isFavorite: boolean;
+  readonly favoritedAt: number | null;
+}
+
+export interface FavoriteTracksPlayRequest {
+  readonly selectedTrackId?: string;
+  readonly catalogFingerprint?: string;
+}
+
 export interface LibraryAlbum {
   readonly id: string;
   readonly title: string;

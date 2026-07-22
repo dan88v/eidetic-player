@@ -23,7 +23,10 @@ function isOrigin(value: unknown): value is PersistedQueueOrigin {
     : origin.kind === "folders" &&
         typeof origin.sourceId === "string" &&
         /^[0-9a-f-]{36}$/i.test(origin.sourceId) &&
-        typeof origin.relativePath === "string";
+        typeof origin.relativePath === "string" &&
+        (origin.libraryTrackId === undefined ||
+          (typeof origin.libraryTrackId === "string" &&
+            /^track-[0-9a-f]{32}$/.test(origin.libraryTrackId)));
 }
 
 function isItem(value: unknown): value is PersistedQueueItem {

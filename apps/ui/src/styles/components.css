@@ -394,6 +394,38 @@
     gap: var(--space-1);
   }
 
+  .mini-player__title-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: inherit;
+  }
+
+  .mini-player__title-row strong {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  .favorite-track-indicator {
+    display: inline-grid;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: 0 0 auto;
+    place-items: center;
+    color: var(--color-accent);
+  }
+
+  .favorite-track-indicator[hidden] {
+    display: none;
+  }
+
+  .favorite-track-indicator .icon {
+    width: 1.15rem;
+    height: 1.15rem;
+    fill: currentColor;
+  }
+
   .mini-player__copy strong,
   .mini-player__copy span {
     overflow: hidden;
@@ -614,6 +646,10 @@
     background: var(--color-surface);
   }
 
+  .queue-item--favorite-capable {
+    grid-template-columns: minmax(0, 1fr) 2.75rem 2.75rem var(--touch-small);
+  }
+
   .queue-item__button {
     display: grid;
     width: 100%;
@@ -631,6 +667,21 @@
     place-items: center;
     border-radius: var(--radius-pill);
     color: var(--color-text-secondary);
+  }
+
+  .queue-item__more {
+    display: grid;
+    width: 2.75rem;
+    height: 2.75rem;
+    place-items: center;
+    border-radius: var(--radius-pill);
+    color: var(--color-text-secondary);
+  }
+
+  .queue-item > .favorite-track-button {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
   }
 
   .queue-confirmation {

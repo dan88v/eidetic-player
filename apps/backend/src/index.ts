@@ -41,6 +41,8 @@ import type {
   LibraryScanRequest,
   LibrarySearchCategory,
   LibraryTrackQueueRequest,
+  FavoriteTrackStatusRequest,
+  FavoriteTracksPlayRequest,
 } from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
@@ -383,6 +385,41 @@ function libraryTrackQueueBody(value: unknown): LibraryTrackQueueRequest {
   return { trackId: libraryEntityId(body.trackId, "track") };
 }
 
+function favoriteTrackStatusBody(value: unknown): FavoriteTrackStatusRequest {
+  const body = objectBody(value);
+  if (!Array.isArray(body.trackIds))
+    throw new LibraryError(
+      "INVALID_LIBRARY_FAVORITE_STATUS",
+      "Select valid Library tracks.",
+    );
+  return {
+    trackIds: body.trackIds.map((trackId) => libraryEntityId(trackId, "track")),
+  };
+}
+
+function favoriteTracksPlayBody(value: unknown): FavoriteTracksPlayRequest {
+  const body = objectBody(value);
+  const selectedTrackId =
+    body.selectedTrackId === undefined
+      ? undefined
+      : libraryEntityId(body.selectedTrackId, "track");
+  if (
+    body.catalogFingerprint !== undefined &&
+    (typeof body.catalogFingerprint !== "string" ||
+      body.catalogFingerprint.length > 256)
+  )
+    throw new LibraryError(
+      "INVALID_LIBRARY_CONTEXT",
+      "Select a valid Favorites context.",
+    );
+  return {
+    ...(selectedTrackId ? { selectedTrackId } : {}),
+    ...(typeof body.catalogFingerprint === "string"
+      ? { catalogFingerprint: body.catalogFingerprint }
+      : {}),
+  };
+}
+
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
   const body = objectBody(value);
   for (const field of ["scanId", "sourceId"] as const)
@@ -616,6 +653,81 @@ async function handleRequest(
           libraryCursor(url),
           libraryLimit(url),
         ),
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/favorites/tracks"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).favoriteTracks(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/favorites/tracks/status"
+    ) {
+      const body = favoriteTrackStatusBody(await readBody(request));
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          favoriteTrackIds: (await indexedLibraryPromise).favoriteTrackIds(
+            body.trackIds,
+          ),
+        },
+      });
+      return;
+    }
+    const favoriteTrackMatch =
+      /^\/api\/library\/favorites\/tracks\/(track-[0-9a-f]{32})$/.exec(
+        url.pathname,
+      );
+    if (favoriteTrackMatch && request.method === "PUT") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).addFavoriteTrack(
+          favoriteTrackMatch[1] ?? "",
+        ),
+      });
+      return;
+    }
+    if (favoriteTrackMatch && request.method === "DELETE") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).removeFavoriteTrack(
+          favoriteTrackMatch[1] ?? "",
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/favorites/tracks/play"
+    ) {
+      const body = favoriteTracksPlayBody(await readBody(request));
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveFavorites(body.selectedTrackId, body.catalogFingerprint);
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
       });
       return;
     }

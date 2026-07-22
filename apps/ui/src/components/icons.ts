@@ -9,6 +9,7 @@ export type IconName =
   | "library"
   | "menu"
   | "grid"
+  | "heart"
   | "list"
   | "more"
   | "next"
@@ -41,6 +42,8 @@ const paths: Record<IconName, string> = {
   library: '<path d="M5 4v16M10 4v16M15 5v15M19 4v16"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   grid: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
+  heart:
+    '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="5" cy="6" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="18" r="1"/>',
   more: '<circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/>',
   next: '<path d="m8 5 8 7-8 7V5Z"/><path d="M18 5v14"/>',

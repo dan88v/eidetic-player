@@ -58,6 +58,9 @@ must not render text, icons, borders, shadows, or loading chrome.
   never clip a glyph by making an `overflow: hidden` box exactly one line tall.
 - Async text and images must not alter established panel dimensions.
 - Preserve scroll and focus when reconciling lists.
+- Every Library subpage that exposes a Back control keeps its complete header
+  sticky through the reusable `library-sticky-back-header` contract. New
+  Library subpages with Back must adopt the same contract.
 
 Measure important geometry with `getBoundingClientRect()` in development tests,
 but keep production layout CSS-driven rather than continuously JS-measured.
@@ -162,6 +165,22 @@ Back/title/Play controls and omits sorting and view controls. Sorting uses an
 app-styled popup menu rather than a native select. Its outer container owns the
 single border; the transparent inner trigger uses an inset accent focus ring.
 The breadcrumb element is hidden entirely when there are no useful ancestors.
+
+## Favorite Tracks
+
+Favorites is a primary browsing route immediately after Library and follows
+the same Folders-only/Library-only/Both visibility rule as Library. Step 2.8
+shows Track rows only: no Search, one-option segmented control, Grid/List,
+hero, or statistics. The header keeps a single non-wrapping Play all action,
+and the empty
+state contains only the approved title and guidance text.
+
+The Track heart is a semantic button with a 44 px hit area, dynamic accessible
+name, visible focus, and filled/empty state. It is a sibling of the row Play
+button, so activating it cannot start playback. Queue shows it only when the
+backend supplies an explicit stable Library Track ID; filenames, titles and
+paths are never used to infer Favorite identity. Unavailable Favorites remain
+visible and removable, but their Play and Add to Queue actions are disabled.
 
 ## Settings and inactivity
 

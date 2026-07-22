@@ -359,6 +359,23 @@ Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
    appears; retain one toast host, one Library SSE, and no toast management
    actions.
 
+## Step 2.8 Favorite Tracks checks
+
+1. migrate v1 and v2 databases to v3; verify idempotent add/remove, FK cascade,
+   timestamp order, stable tie-breaker, opaque keyset cursor, and the indexed
+   query plan;
+2. verify one bounded batch-status request for visible Track IDs and synchronized
+   optimistic state across Library Tracks, Album/Artist detail, grouped/View all
+   Search, Favorites, and indexed Queue rows, including rollback on failure;
+3. confirm the heart never plays or creates a success toast, while the menu uses
+   the shared success toast and updates every mounted copy;
+4. tap a non-first Favorite and Play all beyond the mounted page; assert direct
+   selected index, one atomic Queue replacement, unavailable filtering, and no
+   Queue/current mutation on failure or Favorite removal;
+5. inspect empty/populated/unavailable states, one sentinel, preserved scroll,
+   44 px heart hit areas, menu focus, and Folders-only/Library-only/Both at
+   1280x800, 1280x720, and 1024x600 in the real Neutralino/WebView2 app.
+
 ## Step 2.5 indexed Library checks
 
 Verify the indexed Library separately from on-demand Folders:

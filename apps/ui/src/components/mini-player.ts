@@ -3,6 +3,8 @@ import { icon } from "./icons";
 import { t } from "../i18n";
 import { createArtwork } from "./artwork";
 import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
+import type { FavoriteTrackStore } from "../state/favorite-track-store";
+import { createFavoriteTrackIndicator } from "./favorite-track-indicator";
 
 export interface MiniPlayer {
   readonly element: HTMLElement;
@@ -18,6 +20,7 @@ export function createMiniPlayer(
   onNext: () => void,
   onSeek: (positionSeconds: number) => void,
   onSeekPreview?: (positionSeconds: number | null) => void,
+  favorites?: FavoriteTrackStore,
 ): MiniPlayer {
   const player = document.createElement("aside");
   player.className = "mini-player";
@@ -25,7 +28,7 @@ export function createMiniPlayer(
   player.innerHTML = `
     <button class="mini-player__summary" type="button" aria-label="${t("miniPlayer.openNowPlaying")}">
       <span class="mini-player__artwork"></span>
-      <span class="mini-player__copy"><strong></strong><span></span></span>
+      <span class="mini-player__copy"><b class="mini-player__title-row"><strong></strong></b><span></span></span>
     </button>
     <div class="mini-player__actions">
       <span class="mini-player__transport">
@@ -145,6 +148,13 @@ export function createMiniPlayer(
     decorative: true,
   });
   player.querySelector(".mini-player__artwork")?.replaceWith(artwork.element);
+  const favoriteIndicator = favorites
+    ? createFavoriteTrackIndicator(favorites)
+    : null;
+  if (favoriteIndicator)
+    player
+      .querySelector(".mini-player__title-row")
+      ?.append(favoriteIndicator.element);
   summary.addEventListener("click", onOpenNowPlaying);
   const bindAction = (button: HTMLButtonElement, action: () => void): void => {
     button.addEventListener("click", (event) => {
@@ -178,6 +188,9 @@ export function createMiniPlayer(
       setText(title, presentation.title ?? "");
       setText(artist, presentation.artist ?? "");
       artwork.update(presentation.artwork, "", presentation.generation);
+      favoriteIndicator?.setTrack(
+        state.queue[state.currentQueueIndex]?.libraryTrackId ?? null,
+      );
       playbackDisabled = !state.currentTrack || state.status === "loading";
       const disabled = playbackDisabled || surfaceDisabled;
       previousButton.disabled = disabled;
@@ -204,6 +217,7 @@ export function createMiniPlayer(
       timeline.setAttribute("aria-disabled", String(duration <= 0 || disabled));
     },
     destroy() {
+      favoriteIndicator?.destroy();
       artwork.destroy();
     },
   };

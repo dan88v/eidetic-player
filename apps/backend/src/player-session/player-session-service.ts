@@ -162,7 +162,7 @@ export class PlayerSessionService {
   private originKey(origin: PersistedQueueOrigin): string {
     return origin.kind === "direct"
       ? `direct:${origin.nativePath}`
-      : `folders:${origin.sourceId}:${origin.relativePath}`;
+      : `folders:${origin.sourceId}:${origin.relativePath}:${origin.libraryTrackId ?? ""}`;
   }
 
   private async resolveItem(

@@ -14,6 +14,10 @@ import type {
   LibraryCategorySearchResults,
   LibraryGroupedSearchResults,
   LibrarySearchCategory,
+  FavoriteTrackPage,
+  FavoriteTrackMutationResponse,
+  FavoriteTrackStatusResponse,
+  FavoriteTracksPlayRequest,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -69,6 +73,47 @@ export class LibraryApiClient {
     limit = 48,
   ): Promise<LibraryPage<LibraryTrack>> {
     return this.request(this.pagePath("/api/library/tracks", cursor, limit));
+  }
+
+  favoriteTracks(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<FavoriteTrackPage> {
+    return this.request(
+      this.pagePath("/api/library/favorites/tracks", cursor, limit),
+    );
+  }
+
+  favoriteTrackStatus(
+    trackIds: readonly string[],
+  ): Promise<FavoriteTrackStatusResponse> {
+    return this.request("/api/library/favorites/tracks/status", {
+      method: "POST",
+      body: JSON.stringify({ trackIds }),
+    });
+  }
+
+  addFavoriteTrack(trackId: string): Promise<FavoriteTrackMutationResponse> {
+    return this.request(
+      `/api/library/favorites/tracks/${encodeURIComponent(trackId)}`,
+      { method: "PUT" },
+    );
+  }
+
+  removeFavoriteTrack(trackId: string): Promise<FavoriteTrackMutationResponse> {
+    return this.request(
+      `/api/library/favorites/tracks/${encodeURIComponent(trackId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  playFavorites(
+    request: FavoriteTracksPlayRequest = {},
+  ): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/favorites/tracks/play", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
   }
 
   search(

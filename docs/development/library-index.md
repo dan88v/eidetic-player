@@ -24,6 +24,13 @@ small; filesystem and metadata work yields between bounded batches. Node
 24.15 or newer is required so the project can use the built-in `node:sqlite`
 implementation without a native addon or an extra runtime dependency.
 
+Schema v3 adds `favorite_tracks`, keyed by the opaque Track ID with an integer
+creation timestamp. The foreign key uses `ON DELETE CASCADE`: Source offline or
+removed states retain the Track and its Favorite, while a Track that is truly
+deleted cannot leave an orphan. The `(created_at DESC, track_id ASC)` index
+serves newest-first keyset pages. Migration from v1 runs v2 and v3 in the same
+bounded transaction; Track metadata is never duplicated in the Favorite row.
+
 ## Identity and incremental scans
 
 A Track is identified by the pair `(sourceId, logicalRelativePath)`. Its opaque
@@ -95,6 +102,9 @@ Discrete commands use REST:
   `/tracks`;
 - `GET` or `HEAD /api/library/tracks/:trackId/artwork`;
 - `POST /api/library/play`, `/queue`, and `/tracks/queue`;
+- `GET /api/library/favorites/tracks`, idempotent `PUT`/`DELETE`
+  `/api/library/favorites/tracks/:trackId`, batch `POST /status`, and atomic
+  `POST /play`;
 - `POST /api/library/scan` with an optional `sourceId`;
 - `POST /api/library/scan/cancel`;
 - `POST /api/library/recovery/acknowledge`;
@@ -137,6 +147,18 @@ after 2.5 seconds; failure, interruption, and Source-unavailable states remain
 visible until superseded or shutdown. The toast has no controls; management
 stays on the Library screen. No polling,
 second EventSource, second toast host, or scan-specific endpoint is used.
+
+Favorite Tracks is a separate main screen, visible whenever Library browsing
+is enabled. Its bounded 48-item keyset pages retain at most 192 mounted rows
+and preserve unavailable entries while excluding them from playback. A shared
+512-entry frontend LRU requests visible Favorite state in batches of at most
+192 IDs; optimistic heart changes synchronize mounted Library, Search, detail,
+Favorites, and indexed Queue rows without polling or another EventSource.
+Heart actions have an immediate visible result and only toast on error; menu
+actions use the same API and show the shared success toast. Favorites playback
+rebuilds the complete current database context, maps the selected Track
+directly, validates files before one atomic Queue replacement, and never
+depends on the currently mounted page.
 
 ## Search
 

@@ -161,8 +161,9 @@ void test("Library toolbar is one compact row and scan actions remain in Manage"
   assert.match(css, /\.library-toolbar-actions/);
 });
 
-void test("schema v2 uses materialized keys, stable ranking and no FTS", () => {
-  assert.match(migrations, /LIBRARY_SCHEMA_VERSION = 2/);
+void test("schema v3 retains v2 materialized keys, stable ranking and no FTS", () => {
+  assert.match(migrations, /LIBRARY_SCHEMA_VERSION = 3/);
+  assert.match(migrations, /const migrationV2/);
   for (const key of [
     "search_name",
     "search_title",

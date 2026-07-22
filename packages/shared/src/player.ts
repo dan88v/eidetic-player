@@ -51,6 +51,7 @@ export interface QueueItem {
   readonly durationSeconds?: number | undefined;
   readonly artwork: ArtworkRef | null;
   readonly isCurrent: boolean;
+  readonly libraryTrackId?: string;
 }
 
 export interface PlayerErrorState {

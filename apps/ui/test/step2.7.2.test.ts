@@ -120,8 +120,10 @@ void test("Technical grows only Crest and LUFS-S values", async () => {
   assert.match(renderer, /compact \? 48 : 56/);
   assert.match(renderer, /compact \? 50 : 58/);
   assert.match(renderer, /ui-monospace/);
-  assert.match(renderer, /fillText\("CREST"/);
-  assert.match(renderer, /fillText\("LUFS-S"/);
+  assert.match(renderer, /fillText\("CREST \(dB\)"/);
+  assert.match(renderer, /fillText\("LUFS-S \(dB\)"/);
+  assert.doesNotMatch(renderer, /fillText\("dB"/);
+  assert.doesNotMatch(renderer, /fillText\("LUFS"/);
   assert.match(renderer, /Math\.max\([\s\S]*Math\.min/);
   assert.match(visualizer, /shortTermLufs = frame\.shortTermLufs/);
   assert.doesNotMatch(visualizer, /crestSmoother\.update\([^)]*shortTermLufs/);

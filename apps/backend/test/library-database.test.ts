@@ -39,6 +39,7 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
       assert.deepEqual(tables, [
         "albums",
         "artists",
+        "favorite_tracks",
         "library_sources",
         "scan_runs",
         "track_artists",
@@ -90,7 +91,7 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
   }
 });
 
-void test("schema v1 migrates to v2 and backfills accent-insensitive Search keys", async () => {
+void test("schema v1 migrates through v3 and backfills accent-insensitive Search keys", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v1-"));
   const path = join(temporary, "library.db");
   try {
@@ -106,6 +107,7 @@ void test("schema v1 migrates to v2 and backfills accent-insensitive Search keys
 
     const legacy = new DatabaseSync(path);
     for (const statement of [
+      "DROP TABLE favorite_tracks",
       "ALTER TABLE artists DROP COLUMN search_name",
       "ALTER TABLE albums DROP COLUMN search_title",
       "ALTER TABLE albums DROP COLUMN search_artist",
@@ -120,7 +122,7 @@ void test("schema v1 migrates to v2 and backfills accent-insensitive Search keys
 
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 2);
+      assert.equal(migrated.diagnostics.schemaVersion, 3);
       assert.equal(
         (
           migrated.connection
@@ -131,6 +133,32 @@ void test("schema v1 migrates to v2 and backfills accent-insensitive Search keys
         ).search_name,
         "bjork",
       );
+    } finally {
+      migrated.close();
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("schema v2 migrates transactionally to Favorite Tracks v3", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v2-"));
+  const path = join(temporary, "library.db");
+  try {
+    const current = await LibraryDatabase.open(path);
+    current.close();
+    const legacy = new DatabaseSync(path);
+    legacy.exec("DROP TABLE favorite_tracks; PRAGMA user_version = 2");
+    legacy.close();
+    const migrated = await LibraryDatabase.open(path);
+    try {
+      assert.equal(migrated.diagnostics.schemaVersion, 3);
+      const foreignKey = migrated.connection
+        .prepare("PRAGMA foreign_key_list(favorite_tracks)")
+        .get() as { table: string; on_delete: string };
+      assert.equal(foreignKey.table, "tracks");
+      assert.equal(foreignKey.on_delete, "CASCADE");
+      assert.equal(migrated.integrityCheck(), true);
     } finally {
       migrated.close();
     }

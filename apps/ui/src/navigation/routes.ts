@@ -19,17 +19,24 @@ export const navigationItems: readonly NavigationItem[] = [
     screenGroup: "main",
   },
   {
-    id: "folders",
-    titleKey: "screen.folders.title",
-    descriptionKey: "screen.folders.description",
-    icon: "folder",
-    screenGroup: "main",
-  },
-  {
     id: "library",
     titleKey: "screen.library.title",
     descriptionKey: "screen.library.description",
     icon: "library",
+    screenGroup: "main",
+  },
+  {
+    id: "favorites",
+    titleKey: "screen.favorites.title",
+    descriptionKey: "screen.favorites.description",
+    icon: "heart",
+    screenGroup: "main",
+  },
+  {
+    id: "folders",
+    titleKey: "screen.folders.title",
+    descriptionKey: "screen.folders.description",
+    icon: "folder",
     screenGroup: "main",
   },
   {

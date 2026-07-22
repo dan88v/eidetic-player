@@ -14,6 +14,7 @@ import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
 import { foldersSession } from "../state/folders-session";
+import { FavoriteTrackStore } from "../state/favorite-track-store";
 import {
   loadPlaybackPreferences,
   saveAnimationsEnabled,
@@ -47,6 +48,7 @@ export function mountApp(
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
   const libraryApi = new LibraryApiClient();
+  const favorites = new FavoriteTrackStore(libraryApi);
   const playerStore = new PlayerStore(initialPlayerState);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
@@ -127,6 +129,8 @@ export function mountApp(
   });
   sideMenu.setMusicBrowsingVisibility(store.getState().musicBrowsingVisibility);
   const queueDrawer = createQueueDrawer({
+    favorites,
+    showToast: showMessage,
     onClose: () => {
       store.setQueueOpen(false);
     },
@@ -211,6 +215,7 @@ export function mountApp(
       playerActions: actions,
       foldersApi,
       libraryApi,
+      favorites,
       librarySnapshot: currentLibrarySnapshot,
       addLocalFolder,
       openFolderSource: (sourceId) => {
@@ -377,6 +382,7 @@ export function mountApp(
         (positionSeconds) => {
           currentScreen?.updateSeekPreview?.(positionSeconds);
         },
+        favorites,
       );
       miniPlayer.update(playerStore.getState());
       miniPlayer.setSurfaceDisabled(
@@ -439,10 +445,22 @@ export function mountApp(
   scheduleInactivity();
 
   let recoveryNoticeHandled = false;
+  let favoriteCatalogGeneration = "";
   let appDestroyed = false;
   const receiveLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
     if (appDestroyed) return;
     currentLibrarySnapshot = snapshot;
+    const completed = snapshot.status.latestScan;
+    const nextFavoriteCatalogGeneration =
+      completed?.status === "completed"
+        ? `${completed.sourceId}:${String(completed.generation)}`
+        : favoriteCatalogGeneration;
+    if (
+      favoriteCatalogGeneration !== "" &&
+      nextFavoriteCatalogGeneration !== favoriteCatalogGeneration
+    )
+      favorites.invalidate();
+    favoriteCatalogGeneration = nextFavoriteCatalogGeneration;
     toastHost.updateLibrary(snapshot);
     currentScreen?.updateLibrarySnapshot?.(snapshot);
     if (
@@ -511,7 +529,8 @@ export function mountApp(
       )
         navigate("library");
       else if (
-        state.activeScreen === "library" &&
+        (state.activeScreen === "library" ||
+          state.activeScreen === "favorites") &&
         state.musicBrowsingVisibility === "folders"
       )
         navigate("folders");

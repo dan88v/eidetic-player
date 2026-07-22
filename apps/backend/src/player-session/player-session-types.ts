@@ -3,6 +3,7 @@ export type PersistedQueueOrigin =
       readonly kind: "folders";
       readonly sourceId: string;
       readonly relativePath: string;
+      readonly libraryTrackId?: string;
     }
   | {
       readonly kind: "direct";

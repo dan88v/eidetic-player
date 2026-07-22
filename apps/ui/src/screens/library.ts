@@ -18,6 +18,8 @@ import { createSegmentedControl } from "../components/segmented-control";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
 import type { LibraryAlbumViewMode, LibrarySegment } from "../state/types";
+import type { FavoriteTrackStore } from "../state/favorite-track-store";
+import { createFavoriteTrackButton } from "../components/favorite-track-button";
 import {
   loadLibraryAlbumViewMode,
   loadLibrarySegment,
@@ -35,6 +37,7 @@ export interface LibraryScreenOptions {
     message: string,
     tone?: "error" | "success" | "neutral",
   ) => void;
+  readonly favorites: FavoriteTrackStore;
 }
 
 type LibraryRoute =
@@ -204,7 +207,7 @@ export function createLibraryScreen(
   section.setAttribute("aria-label", t("screen.library.title"));
   section.innerHTML = `
     <div class="library-root">
-      <header class="screen-header library-header">
+      <header class="screen-header library-header library-sticky-back-header">
         <button class="folders-back library-search-close" type="button" aria-label="${t("library.searchClose")}" hidden>${icon("back")}<span>${t("common.back")}</span></button>
         <div class="library-search-field" hidden>
           <label class="visually-hidden" for="library-search-input">${t("library.searchLabel")}</label>
@@ -224,7 +227,7 @@ export function createLibraryScreen(
       <div class="library-search-status visually-hidden" role="status" aria-live="polite"></div>
     </div>
     <div class="library-manage" hidden>
-      <header class="library-detail-header library-manage__header">
+      <header class="library-detail-header library-manage__header library-sticky-back-header">
         <button class="folders-back library-manage-back" type="button">${icon("back")}<span>${t("common.back")}</span></button>
         <span class="library-detail-header__spacer" aria-hidden="true"></span>
       </header>
@@ -427,6 +430,32 @@ export function createLibraryScreen(
   let searchDebounce: ReturnType<typeof setTimeout> | null = null;
   let groupedSearchController: AbortController | null = null;
   let categorySearchController: AbortController | null = null;
+  const favoriteViews = new Set<{ destroy(): void }>();
+
+  const clearFavoriteViews = (): void => {
+    for (const view of favoriteViews) view.destroy();
+    favoriteViews.clear();
+  };
+
+  const favoriteError = (error: unknown): void => {
+    options.showToast(
+      error instanceof Error ? error.message : t("library.actionFailed"),
+      "error",
+    );
+  };
+
+  const favoriteMenuAction = async (trackId: string): Promise<void> => {
+    const next = !(options.favorites.get(trackId) ?? false);
+    try {
+      await options.favorites.set(trackId, next);
+      options.showToast(
+        t(next ? "favorites.added" : "favorites.removed"),
+        "success",
+      );
+    } catch (error) {
+      favoriteError(error);
+    }
+  };
 
   const closeMenu = (focus = false): void => {
     const triggerId = menu.dataset.triggerId;
@@ -596,7 +625,6 @@ export function createLibraryScreen(
     const more = document.createElement("button");
     more.className = "library-item-more";
     more.type = "button";
-    more.disabled = unavailable;
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute(
       "aria-label",
@@ -619,9 +647,23 @@ export function createLibraryScreen(
           disabled: unavailable,
           run: () => void queueTrack(track.id),
         },
+        {
+          label: t(
+            options.favorites.get(track.id)
+              ? "favorites.remove"
+              : "favorites.add",
+          ),
+          run: () => void favoriteMenuAction(track.id),
+        },
       ]);
     });
-    row.append(main, more);
+    const favorite = createFavoriteTrackButton({
+      trackId: track.id,
+      store: options.favorites,
+      onError: favoriteError,
+    });
+    favoriteViews.add(favorite);
+    row.append(main, favorite.element, more);
     return row;
   };
 
@@ -1055,6 +1097,7 @@ export function createLibraryScreen(
   };
 
   const renderSearch = (): void => {
+    clearFavoriteViews();
     setSearchHeader();
     section.dataset.searchActive = "true";
     if (normalizedInputLength(search.query) === 0) {
@@ -1082,7 +1125,8 @@ export function createLibraryScreen(
       }
       const fragment = document.createDocumentFragment();
       const header = document.createElement("header");
-      header.className = "library-search-category-header";
+      header.className =
+        "library-search-category-header library-sticky-back-header";
       const back = document.createElement("button");
       back.type = "button";
       back.className = "folders-back";
@@ -1374,6 +1418,7 @@ export function createLibraryScreen(
   };
 
   const renderRoot = (): void => {
+    clearFavoriteViews();
     root.hidden = false;
     manage.hidden = true;
     detail.hidden = true;
@@ -1545,7 +1590,7 @@ export function createLibraryScreen(
     playable: boolean,
   ): HTMLElement => {
     const header = document.createElement("header");
-    header.className = "library-detail-header";
+    header.className = "library-detail-header library-sticky-back-header";
     header.setAttribute("aria-label", title);
     const back = document.createElement("button");
     back.className = "folders-back";
@@ -1594,6 +1639,7 @@ export function createLibraryScreen(
   };
 
   const renderAlbumDetail = (album: LibraryAlbumDetail): void => {
+    clearFavoriteViews();
     options.setTitle(album.title);
     const content = document.createDocumentFragment();
     content.append(
@@ -1672,6 +1718,7 @@ export function createLibraryScreen(
   };
 
   const renderArtistDetail = (artist: LibraryArtistDetail): void => {
+    clearFavoriteViews();
     activeArtistDetail = artist;
     options.setTitle(artist.name);
     const content = document.createDocumentFragment();
@@ -1993,6 +2040,7 @@ export function createLibraryScreen(
       cancelSearchRequests();
       document.removeEventListener("pointerdown", handleOutsideMenu);
       closeMenu();
+      clearFavoriteViews();
       options.setTitle(t("screen.library.title"));
     },
   };

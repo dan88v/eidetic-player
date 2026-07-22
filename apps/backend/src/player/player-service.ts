@@ -363,6 +363,7 @@ export class PlayerService {
           }
           const previous = this.state.queue.find((item) => item.id === id);
           const filename = basename(path);
+          const origin = this.queueOrigins.get(key);
           return {
             id,
             index,
@@ -372,6 +373,9 @@ export class PlayerService {
               previous?.displayTitle ?? filename.replace(/\.[^.]+$/, ""),
             artwork: previous?.artwork ?? null,
             isCurrent: false,
+            ...(origin?.kind === "folders" && origin.libraryTrackId
+              ? { libraryTrackId: origin.libraryTrackId }
+              : {}),
           };
         });
         this.update({
@@ -929,6 +933,7 @@ export class PlayerService {
       const previous = this.state.queue.find(
         (item) => this.pathKey(item.path) === key,
       );
+      const origin = this.queueOrigins.get(key);
       let id = this.itemIds.get(key);
       if (!id) {
         id = `queue-${randomUUID()}`;
@@ -952,6 +957,9 @@ export class PlayerService {
             index === currentIndex ||
             playlistEntry.current === true ||
             playlistEntry.playing === true,
+          ...(origin?.kind === "folders" && origin.libraryTrackId
+            ? { libraryTrackId: origin.libraryTrackId }
+            : {}),
         },
       ];
     });
@@ -967,6 +975,7 @@ export class PlayerService {
           previous.displayTitle === item.displayTitle &&
           previous.durationSeconds === item.durationSeconds &&
           previous.artwork?.id === item.artwork?.id &&
+          previous.libraryTrackId === item.libraryTrackId &&
           previous.isCurrent === item.isCurrent
         );
       })

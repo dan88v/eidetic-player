@@ -11,6 +11,8 @@ import type {
   LibraryCategorySearchResults,
   LibraryGroupedSearchResults,
   LibrarySearchCategory,
+  FavoriteTrackPage,
+  FavoriteTrackMutationResponse,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
@@ -233,6 +235,87 @@ export class IndexedLibraryService {
     return this.repository.tracks(cursor, this.pageLimit(limit));
   }
 
+  favoriteTracks(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): FavoriteTrackPage {
+    this.ensureOpen();
+    return this.repository.favoriteTracks(cursor, this.pageLimit(limit));
+  }
+
+  favoriteTrackIds(trackIds: readonly string[]): readonly string[] {
+    this.ensureOpen();
+    if (
+      trackIds.length > 192 ||
+      trackIds.some((id) => !/^track-[0-9a-f]{32}$/.test(id))
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_FAVORITE_STATUS",
+        "Select up to 192 valid Library tracks.",
+      );
+    return this.repository.favoriteTrackIds(trackIds);
+  }
+
+  addFavoriteTrack(trackId: string): FavoriteTrackMutationResponse {
+    this.ensureOpen();
+    const result = this.repository.addFavoriteTrack(trackId);
+    if (!result)
+      throw new LibraryError(
+        "LIBRARY_TRACK_NOT_FOUND",
+        "This track is no longer in the Library.",
+        404,
+      );
+    return result;
+  }
+
+  removeFavoriteTrack(trackId: string): FavoriteTrackMutationResponse {
+    this.ensureOpen();
+    return this.repository.removeFavoriteTrack(trackId);
+  }
+
+  async resolveFavorites(
+    selectedTrackId?: string,
+    expectedFingerprint?: string,
+  ): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    const before = this.repository.catalogFingerprint();
+    if (expectedFingerprint && expectedFingerprint !== before)
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    const records = this.repository.favoriteContextTracks();
+    if (
+      selectedTrackId &&
+      !records.some((record) => record.id === selectedTrackId)
+    )
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This track is no longer available.",
+        409,
+      );
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    const selectedIndex = selectedTrackId
+      ? resolved.findIndex((record) => record.id === selectedTrackId)
+      : 0;
+    if (resolved.length === 0 || selectedIndex < 0)
+      throw new LibraryError(
+        selectedTrackId ? "LIBRARY_TRACK_UNAVAILABLE" : "LIBRARY_CONTEXT_EMPTY",
+        selectedTrackId
+          ? "This track is no longer available."
+          : "No available favorite tracks were found.",
+        409,
+      );
+    return this.resolvedContext(resolved, selectedIndex);
+  }
+
   search(query: string, limitPerGroup?: number): LibraryGroupedSearchResults {
     this.ensureOpen();
     const normalizedQuery = this.searchQuery(query);
@@ -362,16 +445,7 @@ export class IndexedLibraryService {
           : "No available tracks were found.",
         409,
       );
-    return {
-      paths: resolved.map((record) => record.path),
-      origins: resolved.map((record) => ({
-        kind: "folders",
-        sourceId: record.sourceId,
-        relativePath: record.relativePath,
-      })),
-      selectedIndex,
-      trackIds: resolved.map((record) => record.id),
-    };
+    return this.resolvedContext(resolved, selectedIndex);
   }
 
   async resolveTrack(trackId: string): Promise<ResolvedLibraryContext> {
@@ -391,18 +465,7 @@ export class IndexedLibraryService {
         "This track is no longer available.",
         409,
       );
-    return {
-      paths: [item.path],
-      origins: [
-        {
-          kind: "folders",
-          sourceId: item.sourceId,
-          relativePath: item.relativePath,
-        },
-      ],
-      selectedIndex: 0,
-      trackIds: [item.id],
-    };
+    return this.resolvedContext([item], 0);
   }
 
   subscribe(listener: LibrarySnapshotListener): () => void {
@@ -556,5 +619,27 @@ export class IndexedLibraryService {
     return output.filter(
       (item): item is NonNullable<typeof item> => item !== null,
     );
+  }
+
+  private resolvedContext(
+    records: readonly {
+      readonly id: string;
+      readonly sourceId: string;
+      readonly relativePath: string;
+      readonly path: string;
+    }[],
+    selectedIndex: number,
+  ): ResolvedLibraryContext {
+    return {
+      paths: records.map((record) => record.path),
+      origins: records.map((record) => ({
+        kind: "folders" as const,
+        sourceId: record.sourceId,
+        relativePath: record.relativePath,
+        libraryTrackId: record.id,
+      })),
+      selectedIndex,
+      trackIds: records.map((record) => record.id),
+    };
   }
 }

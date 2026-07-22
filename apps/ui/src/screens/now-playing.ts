@@ -16,6 +16,8 @@ import type {
 } from "../state/types";
 import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
 import { WaveformLoader } from "../timeline/waveform-loader";
+import type { FavoriteTrackStore } from "../state/favorite-track-store";
+import { createFavoriteTrackIndicator } from "../components/favorite-track-indicator";
 
 export interface PlayerActions {
   readonly openFiles: () => void;
@@ -40,6 +42,7 @@ export interface NowPlayingOptions {
   readonly onOpenLibrary: () => void;
   readonly onOpenFolders: () => void;
   readonly onToggleVolume: (trigger: HTMLButtonElement) => void;
+  readonly favorites: FavoriteTrackStore;
 }
 
 function nextRepeat(mode: RepeatMode): RepeatMode {
@@ -60,7 +63,7 @@ export function createNowPlayingScreen(
     <div class="now-playing__upper">
       <div class="now-playing__artwork"></div>
       <div class="now-playing__details">
-        <p class="now-playing__track"></p>
+        <div class="now-playing__title-row"><p class="now-playing__track"></p></div>
         <p class="now-playing__artist"></p>
         <p class="now-playing__album"></p>
         <div class="now-playing__technical"><span></span><span></span></div>
@@ -120,6 +123,10 @@ export function createNowPlayingScreen(
     .querySelector(".now-playing__timeline-slot")
     ?.append(timeline.element);
   const title = section.querySelector<HTMLElement>(".now-playing__track");
+  const favoriteIndicator = createFavoriteTrackIndicator(options.favorites);
+  section
+    .querySelector(".now-playing__title-row")
+    ?.append(favoriteIndicator.element);
   const artist = section.querySelector<HTMLElement>(".now-playing__artist");
   const album = section.querySelector<HTMLElement>(".now-playing__album");
   const technical = section.querySelectorAll<HTMLElement>(
@@ -225,6 +232,9 @@ export function createNowPlayingScreen(
             .replace("{artist}", track.artist)
         : t("artwork.album");
     artwork.update(presentation.artwork, artworkAlt, presentation.generation);
+    favoriteIndicator.setTrack(
+      state.queue[state.currentQueueIndex]?.libraryTrackId ?? null,
+    );
     visualizer.setTrack(
       state.playerSessionId,
       presentation.trackId,
@@ -310,6 +320,7 @@ export function createNowPlayingScreen(
       timeline.destroy();
       artwork.destroy();
       waveformLoader.cancel();
+      favoriteIndicator.destroy();
     },
   };
 }

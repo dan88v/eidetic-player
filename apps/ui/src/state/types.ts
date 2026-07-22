@@ -2,6 +2,7 @@ export const screenIds = [
   "nowPlaying",
   "folders",
   "library",
+  "favorites",
   "sources",
   "queue",
   "settings",

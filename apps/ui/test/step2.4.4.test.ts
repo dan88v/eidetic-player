@@ -46,10 +46,10 @@ void test("Technical compact layout exposes Crest Factor and LUFS-S", async () =
     read("visualizer/meter-renderer.ts"),
     read("components/visualizer.ts"),
   ]);
-  assert.match(technical, /"CREST"/);
-  assert.match(technical, /"LUFS-S"/);
-  assert.match(technical, /fillText\("dB"/);
-  assert.match(technical, /"LUFS"/);
+  assert.match(technical, /fillText\("CREST \(dB\)"/);
+  assert.match(technical, /fillText\("LUFS-S \(dB\)"/);
+  assert.doesNotMatch(technical, /fillText\("dB"/);
+  assert.doesNotMatch(technical, /fillText\("LUFS"/);
   assert.match(technical, /ui-monospace/);
   assert.match(technical, /compact \? 48 : 56/);
   assert.match(technical, /renderCompactStereoMeter/);

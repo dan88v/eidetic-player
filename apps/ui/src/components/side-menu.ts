@@ -118,8 +118,12 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
       const library = element.querySelector<HTMLElement>(
         '[data-screen="library"]',
       );
+      const favorites = element.querySelector<HTMLElement>(
+        '[data-screen="favorites"]',
+      );
       if (folders) folders.hidden = value === "library";
       if (library) library.hidden = value === "folders";
+      if (favorites) favorites.hidden = value === "folders";
     },
   };
 }

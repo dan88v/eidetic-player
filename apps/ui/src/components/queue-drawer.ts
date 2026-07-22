@@ -3,6 +3,11 @@ import { icon } from "./icons";
 import { t } from "../i18n";
 import { queueArtworkUrl } from "../api/player-api-client";
 import { createArtwork, type ArtworkView } from "./artwork";
+import {
+  createFavoriteTrackButton,
+  type FavoriteTrackButton,
+} from "./favorite-track-button";
+import type { FavoriteTrackStore } from "../state/favorite-track-store";
 
 const focusableSelector =
   'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
@@ -26,6 +31,8 @@ interface QueueRowView {
   readonly filename: HTMLElement;
   readonly remove: HTMLButtonElement;
   readonly artwork: ArtworkView;
+  readonly favorite: FavoriteTrackButton | null;
+  readonly more: HTMLButtonElement | null;
   artworkRevision: string | null;
   isCurrent: boolean;
 }
@@ -35,6 +42,11 @@ export function createQueueDrawer(options: {
   readonly onPlay: (index: number) => void;
   readonly onClear: () => void;
   readonly onRemove: (queueItemId: string) => void;
+  readonly favorites: FavoriteTrackStore;
+  readonly showToast: (
+    message: string,
+    tone?: "error" | "success" | "neutral",
+  ) => void;
 }): QueueDrawer {
   let returnFocus: HTMLElement | null = null;
   let isOpen = false;
@@ -76,7 +88,8 @@ export function createQueueDrawer(options: {
       <li class="queue-list__clear" hidden>
         <button class="queue-list__clear-button" type="button">${t("queueDrawer.clear")}</button>
       </li>
-    </ol>`;
+    </ol>
+    <div class="queue-favorite-menu folders-action-menu library-action-menu" role="menu" hidden></div>`;
   const closeButton = element.querySelector<HTMLButtonElement>(
     ".queue-drawer__close",
   );
@@ -94,6 +107,9 @@ export function createQueueDrawer(options: {
   const confirmClear = element.querySelector<HTMLButtonElement>(
     ".queue-confirmation__clear",
   );
+  const favoriteMenu = element.querySelector<HTMLElement>(
+    ".queue-favorite-menu",
+  );
   if (
     !closeButton ||
     !list ||
@@ -101,7 +117,8 @@ export function createQueueDrawer(options: {
     !clearRow ||
     !confirmation ||
     !cancelClear ||
-    !confirmClear
+    !confirmClear ||
+    !favoriteMenu
   )
     throw new Error("Queue drawer is incomplete");
   const setConfirmationOpen = (open: boolean): void => {
@@ -110,6 +127,45 @@ export function createQueueDrawer(options: {
     confirmation.setAttribute("aria-hidden", String(!open));
     if (open) cancelClear.focus();
     else clearButton.focus();
+  };
+  const favoriteError = (error: unknown): void => {
+    options.showToast(
+      error instanceof Error ? error.message : t("library.actionFailed"),
+      "error",
+    );
+  };
+  const closeFavoriteMenu = (): void => {
+    favoriteMenu.hidden = true;
+    favoriteMenu.replaceChildren();
+  };
+  const showFavoriteMenu = (
+    trigger: HTMLButtonElement,
+    trackId: string,
+  ): void => {
+    closeFavoriteMenu();
+    const favorite = options.favorites.get(trackId) ?? false;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.role = "menuitem";
+    button.textContent = t(favorite ? "favorites.remove" : "favorites.add");
+    button.addEventListener("click", () => {
+      closeFavoriteMenu();
+      void options.favorites
+        .set(trackId, !favorite)
+        .then(() => {
+          options.showToast(
+            t(favorite ? "favorites.removed" : "favorites.added"),
+            "success",
+          );
+        })
+        .catch(favoriteError);
+    });
+    favoriteMenu.append(button);
+    const bounds = trigger.getBoundingClientRect();
+    favoriteMenu.style.left = `${String(Math.max(12, bounds.right - 250))}px`;
+    favoriteMenu.style.top = `${String(Math.min(window.innerHeight - 90, bounds.bottom + 4))}px`;
+    favoriteMenu.hidden = false;
+    button.focus();
   };
   const runLoads = (): void => {
     while (isOpen && activeLoads < 2) {
@@ -188,6 +244,7 @@ export function createQueueDrawer(options: {
         observer.disconnect();
         pendingLoads.length = 0;
         queuedIds.clear();
+        closeFavoriteMenu();
         returnFocus?.setAttribute("aria-expanded", "false");
         returnFocus?.focus();
       }
@@ -249,6 +306,7 @@ export function createQueueDrawer(options: {
         for (const [id, view] of rowViews) {
           if (retained.has(id)) continue;
           view.artwork.destroy();
+          view.favorite?.destroy();
           view.row.remove();
           rowViews.delete(id);
         }
@@ -270,6 +328,10 @@ export function createQueueDrawer(options: {
         if (!view) {
           const row = document.createElement("li");
           row.className = "queue-item";
+          row.classList.toggle(
+            "queue-item--favorite-capable",
+            Boolean(item.libraryTrackId),
+          );
           const button = document.createElement("button");
           button.type = "button";
           button.className = "queue-item__button";
@@ -297,7 +359,32 @@ export function createQueueDrawer(options: {
             event.stopPropagation();
             options.onRemove(item.id);
           });
-          row.append(button, remove);
+          const favorite = item.libraryTrackId
+            ? createFavoriteTrackButton({
+                trackId: item.libraryTrackId,
+                store: options.favorites,
+                onError: favoriteError,
+              })
+            : null;
+          const more = item.libraryTrackId
+            ? document.createElement("button")
+            : null;
+          if (more && item.libraryTrackId) {
+            more.type = "button";
+            more.className = "queue-item__more";
+            more.setAttribute("aria-haspopup", "menu");
+            more.setAttribute("aria-label", t("library.moreActions"));
+            more.innerHTML = icon("more");
+            more.addEventListener("click", () => {
+              showFavoriteMenu(more, item.libraryTrackId ?? "");
+            });
+          }
+          row.append(
+            button,
+            ...(favorite ? [favorite.element] : []),
+            ...(more ? [more] : []),
+            remove,
+          );
           view = {
             row,
             button,
@@ -306,6 +393,8 @@ export function createQueueDrawer(options: {
             filename,
             remove,
             artwork,
+            favorite,
+            more,
             artworkRevision: null,
             isCurrent: false,
           };
@@ -362,7 +451,10 @@ export function createQueueDrawer(options: {
       observer.disconnect();
       pendingLoads.length = 0;
       queuedIds.clear();
-      for (const view of rowViews.values()) view.artwork.destroy();
+      for (const view of rowViews.values()) {
+        view.artwork.destroy();
+        view.favorite?.destroy();
+      }
       rowViews.clear();
     },
   };

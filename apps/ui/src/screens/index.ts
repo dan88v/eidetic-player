@@ -18,6 +18,8 @@ import type {
 } from "../state/types";
 import { createFoldersScreen } from "./folders";
 import { createLibraryScreen } from "./library";
+import { createFavoritesScreen } from "./favorites";
+import type { FavoriteTrackStore } from "../state/favorite-track-store";
 import { createMainPlayerHost } from "../main-player/main-player-host";
 import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
@@ -52,6 +54,7 @@ export interface ScreenContext {
   readonly playerActions: PlayerActions;
   readonly foldersApi: FoldersApiClient;
   readonly libraryApi: LibraryApiClient;
+  readonly favorites: FavoriteTrackStore;
   readonly librarySnapshot: IndexedLibrarySnapshot | null;
   readonly addLocalFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openFolderSource: (sourceId: string) => void;
@@ -99,6 +102,7 @@ export function createScreen(
         onToggleVolume: context.toggleVolume,
         initialPlayerState: context.playerState,
         actions: context.playerActions,
+        favorites: context.favorites,
         onCassetteError: context.handleCassetteError,
         onCassetteAssetError: context.handleCassetteAssetError,
       });
@@ -118,6 +122,14 @@ export function createScreen(
         openSources: context.openSources,
         noteTrackCommand: context.noteTrackCommand,
         setTitle: context.setScreenTitle,
+        showToast: context.showToast,
+        favorites: context.favorites,
+      });
+    case "favorites":
+      return createFavoritesScreen({
+        api: context.libraryApi,
+        favorites: context.favorites,
+        noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
       });
     case "sources":
