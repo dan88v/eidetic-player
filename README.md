@@ -1,227 +1,232 @@
 # Eidetic Player
 
-Eidetic Player is a lightweight, touch-first local audio player targeting a
-horizontal 1280 × 800 display and a future Raspberry Pi 3B deployment. The
-current Step 2.5 build uses a vanilla TypeScript UI, a Node.js control
-service, Neutralinojs for native file paths, and one persistent MPV process for
-decoding and system audio output.
+Eidetic Player is a lightweight, touch-first network/local music player for
+embedded Linux devices and desktop development. It is designed around an
+8-inch, 1280 × 800 landscape display, with Raspberry Pi 3B and later models as
+the primary hardware direction. The implemented player currently focuses on
+local media; network providers remain roadmap work.
 
-## Screenshots
+## Current status
 
-### Now Playing — Technical Meter
+Eidetic Player is in active development. The current baseline provides real
+MPV playback, an indexed local Library, global Search, Favorite Tracks, two
+main-player presentations, and realtime audio visualizations. Windows is the
+primary development and native-shell QA environment. Debian/WSLg compatibility
+is audited, while complete Raspberry Pi hardware, touch, performance, and
+audio-output validation is still planned.
 
-![Now Playing with Crest Factor, LUFS-S, and the technical stereo meter](docs/images/now-playing-technical.png)
+There is no packaged release or installer yet. Run the project from source.
 
-### Folders
+## Gallery
 
-![Folders grid with sorting, artwork previews, and file counts](docs/images/folders.png)
+|                                                 Default Player — Stereo Spectrum                                                 |                                                           Library — Albums                                                           |
+| :------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------: |
+| ![Default player showing demo metadata, playback controls, waveform, and Stereo Spectrum](docs/screenshots/default-spectrum.png) |          ![Library Albums grid with Search, Manage Library, and three synthetic demo albums](docs/screenshots/library.png)           |
+|                                                            Favorites                                                             |                                                           Cassette Player                                                            |
+|            ![Favorites screen with four synthetic tracks and filled favorite hearts](docs/screenshots/favorites.png)             | ![Cassette player during synthetic demo playback with balanced tape reels and the mini-player](docs/screenshots/cassette-player.png) |
+
+The screenshots come from the real Neutralino application at a 1280 × 800
+client viewport. They use an isolated temporary profile and synthetic audio,
+metadata, and artwork.
+
+## Overview
+
+The application keeps playback and the interface deliberately small and
+separate. Neutralino supplies the native window and file/folder dialogs, a
+Node.js backend controls one persistent MPV process through JSON IPC, and the
+vanilla TypeScript UI receives authoritative player state through SSE. SQLite
+owns the durable Library index. FFmpeg is an optional analysis sidecar and
+never becomes the playback engine.
+
+The interface is built for physical touch rather than desktop mouse density.
+The 1280 × 800 layout is the ideal target, with responsive emergency layouts
+for other supported resolutions without shrinking essential controls below
+their touch-safe sizes.
+
+## Features
+
+- Persistent MPV process for playback, seek, volume, mute, shuffle, repeat,
+  Previous/Next, and system audio output.
+- Stable Queue with direct selection, append, remove, Clear Queue, artwork,
+  and paused-at-zero session restore.
+- Native Open Files and Add Folder flows. Opening one file natural-sorts its
+  non-recursive parent folder and starts exactly at the selected track;
+  multi-select preserves only the explicit order.
+- Local Sources with automatic first scan, explicit incremental rescans,
+  availability state, non-destructive rename/remove, and one-level Folders
+  browsing.
+- Persistent SQLite Library with Albums, Artists, Tracks, album/artist detail,
+  Grid/List album presentation, bounded keyset pagination, and visible
+  unavailable catalog entries.
+- Global Library Search across Artists, Albums, and Tracks with stable ranking
+  and bounded View all pages.
+- Persistent Favorite Tracks with Play all, direct contextual playback, Queue
+  integration, and shared status in Library, Queue, Default Player, and
+  mini-player surfaces.
+- Asynchronous metadata and validated embedded/folder artwork with opaque UI
+  references and stale-result protection.
+- Default Main Player and animated Cassette Main Player, plus the global
+  mini-player on browsing screens.
+- Mono Spectrum, Stereo Spectrum, enhanced Meter, and Technical visualization
+  with Crest Factor and three-second LUFS-S.
+- Waveform extraction, responsive touch UI, reduced-motion support, keyboard
+  access, and clean process/resource shutdown.
+- Ongoing Windows and Linux compatibility work with a Linux GitHub Actions
+  gate.
+
+## Hardware target
+
+The primary product target is a Raspberry Pi 3B or later connected to an
+8-inch, 1280 × 800 landscape touchscreen and an automatically selected system
+audio output or USB DAC. The design budget treats Raspberry Pi 3B constraints
+as the default even during Windows development.
+
+Raspberry Pi OS 64-bit and Linux arm64 are prepared and statically audited, but
+the project does not yet claim full Pi certification. Real-device validation
+still needs to cover installation, sustained CPU/RAM, physical touch, display
+startup, ALSA/PipeWire/USB DAC output, kiosk recovery, and clean shutdown.
 
 ## Requirements
 
-- Node.js 24.15 or newer and npm
-- MPV available either as `mpv` in `PATH` or through `EIDETIC_MPV_PATH`
-- FFmpeg is optional for real visualizers and waveform generation; configure
-  `EIDETIC_FFMPEG_PATH` or make `ffmpeg` available in `PATH`
-- Windows for the primary development shell and Debian 13 amd64/WSLg for the
-  audited Neutralino Linux development path
+- Node.js 24.15 or newer; [`.nvmrc`](.nvmrc) currently pins 24.18.0.
+- npm and the committed `package-lock.json`.
+- MPV, available through `PATH` or `EIDETIC_MPV_PATH`.
+- Neutralino runtime assets installed by the repository command below.
+- FFmpeg through `PATH` or `EIDETIC_FFMPEG_PATH` for realtime analysis and
+  waveforms. Playback remains available without it.
+- Windows for the primary development shell, or a Linux graphical environment
+  with GTK 3 and WebKitGTK 4.1. Debian 13 under WSL2/WSLg is the audited Linux
+  development environment.
 
-MPV is deliberately not bundled, downloaded, or installed by this repository.
-After installing it, verify the setup with:
+MPV and FFmpeg are not downloaded or bundled by this repository.
 
-```sh
-npm run mpv:doctor
-npm run ffmpeg:doctor
+## Install and first launch
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/dan88v/eidetic-player.git
+Set-Location eidetic-player
+npm.cmd ci
+npm.cmd run neutralino:update
+npm.cmd run mpv:doctor
+npm.cmd run ffmpeg:doctor
+npm.cmd run dev
 ```
 
-Copy `.env.example` to `.env` to configure an absolute executable path when MPV
-is not in `PATH`:
+If MPV or FFmpeg is not in `PATH`, copy the provided environment template and
+set absolute executable paths before launching:
+
+```powershell
+Copy-Item .env.example .env
+```
 
 ```dotenv
 EIDETIC_MPV_PATH=C:\Tools\mpv\mpv.exe
-EIDETIC_FFMPEG_PATH=C:\Tools\ffmpeg\bin\ffmpeg.exe
+EIDETIC_FFMPEG_PATH=C:\Tools\ffmpeg\ffmpeg.exe
 ```
 
-If MPV cannot be verified with `--version`, the backend still starts, health and
-player APIs remain available, and the UI shows a clear unavailable state.
+`npm.cmd run dev` starts the backend and Vite, waits for both health barriers,
+opens the real Neutralino window, and shuts down its development process tree
+when the window closes.
 
-## Install and run
+### Linux development
 
-```sh
-npm install
+Use a native case-sensitive filesystem rather than `/mnt/c` under WSL. After
+installing the GUI, MPV, and FFmpeg prerequisites described in the
+[Linux, Debian, and Raspberry Pi guide](docs/development/linux-debian.md):
+
+```bash
+npm ci
 npm run neutralino:update
+npm run doctor:linux
 npm run dev
 ```
 
-`npm run dev` starts the backend and Vite, waits for their health checks, and
-opens the Neutralino window. Closing the shell or interrupting the command
-terminates its development process tree. Vite proxies `/api` to the backend in
-development.
+The Linux guide also documents the additional compatibility checks. Files in
+[`deploy/linux/`](deploy/linux/) are an uninstalled backend-only systemd
+prototype, not a production deployment procedure or installer.
 
-## Commands
+## Local development
 
-| Command                     | Purpose                                              |
-| --------------------------- | ---------------------------------------------------- |
-| `npm run dev`               | Run backend, UI, and Neutralino shell                |
-| `npm run build`             | Build production UI and backend into `dist/`         |
-| `npm test`                  | Run lightweight Node unit tests through `tsx`        |
-| `npm run test:mpv`          | Run the silent optional MPV integration test         |
-| `npm run test:ffmpeg`       | Run the optional real FFmpeg analysis integration    |
-| `npm run mpv:doctor`        | Verify MPV discovery, headless startup, and JSON IPC |
-| `npm run ffmpeg:doctor`     | Verify FFmpeg discovery and version execution        |
-| `npm run typecheck`         | Strictly type-check all TypeScript projects          |
-| `npm run lint`              | Run ESLint                                           |
-| `npm run format:check`      | Verify Prettier formatting                           |
-| `npm run neutralino:update` | Update the platform Neutralino runtime               |
+| Windows command                        | Purpose                                          |
+| -------------------------------------- | ------------------------------------------------ |
+| `npm.cmd run dev`                      | Start backend, Vite, and the Neutralino shell    |
+| `npm.cmd run build`                    | Build the production UI and backend into `dist/` |
+| `npm.cmd run format:check`             | Check Prettier formatting                        |
+| `npm.cmd run typecheck`                | Type-check UI, backend, and scripts              |
+| `npm.cmd run lint`                     | Run ESLint                                       |
+| `npm.cmd test`                         | Run the standard Node test suite                 |
+| `npm.cmd run mpv:doctor`               | Verify MPV discovery, startup, and JSON IPC      |
+| `npm.cmd run test:mpv`                 | Run real silent MPV integration tests            |
+| `npm.cmd run ffmpeg:doctor`            | Verify FFmpeg discovery and execution            |
+| `npm.cmd run test:ffmpeg`              | Run real FFmpeg analysis integration tests       |
+| `npm.cmd run benchmark:library-search` | Benchmark bounded Library/Search operations      |
 
-## Continuous integration
+On POSIX shells, use the same scripts through `npm` instead of `npm.cmd`.
+Architecture, UI, testing, performance, security, and workflow rules live in
+[`docs/development/`](docs/development/README.md).
 
-The `Eidetic Player CI` GitHub Actions workflow runs on `ubuntu-latest` for
-pushes to `main`, pull requests targeting `main`, and manual dispatches. It
-reads Node from `.nvmrc`, uses the standard npm cache keyed by
-`package-lock.json`, installs with `npm ci`, and gates dependency audit,
-formatting, type-checking, lint, build, the standard test suite, POSIX tests,
-and case-sensitive import checks.
+## Architecture
 
-This Linux CI does not exercise Neutralino/WebView2 or WebKitGTK, MPV, FFmpeg,
-audio hardware, native dialogs, or Raspberry Pi runtime behavior. Windows
-changes still require real application QA with `npm.cmd run dev`; use a native
-case-sensitive WSL/Debian clone for Linux diagnosis and platform-sensitive
-checks. Raspberry Pi 3B touch, audio, performance, and shutdown validation
-remain separate hardware work.
+```text
+Neutralino shell
+      │ native dialogs / drop events
+      ▼
+PlatformBridge ── vanilla TypeScript UI
+                       │ REST commands
+                       │ player-state SSE
+                       │ visualizer SSE
+                       ▼
+                  Node.js backend ── SQLite Library
+                       │
+                       ├── JSON IPC ── MPV playback
+                       └── PCM ────── optional FFmpeg analysis
+```
 
-## Local files and queue rules
+Shared contracts live in `packages/shared`. Components use central clients,
+stores, persistence, and `PlatformBridge`; local paths and binary artwork never
+enter UI state. See the [architecture guide](docs/development/architecture.md)
+and [Indexed Library guide](docs/development/library-index.md).
 
-Supported initial extensions are FLAC, WAV/WAVE, MP3, M4A, AAC, ALAC, OGG,
-Opus, AIFF/AIF, WMA, APE, and WV. The list lives once in `packages/shared` and is
-used by the native dialog, UI drop filter, backend validation, and tests.
+## Platforms and current limits
 
-- Opening one file reads only its parent directory's first level, natural-sorts
-  supported readable files by name, queues the whole folder, and starts exactly
-  at the selected file while MPV prepares the ordered playlist in pause.
-- Opening multiple files uses only the explicit selection, keeps its order, and
-  removes duplicates while retaining the first occurrence.
-- Invalid selections do not replace the current queue. No recursive scan, audio
-  decoding, or bulk metadata analysis happens in Node.js.
-- Queue `Add Files` appends only the explicit selection without expanding a
-  folder or interrupting playback. Individual opaque Queue IDs can be removed;
-  `Clear Queue` uses an accessible confirmation and resets playback.
+- **Windows:** primary implementation and Neutralino/WebView2 QA platform.
+- **Debian 13 amd64 under WSL2/WSLg:** audited development environment with
+  Linux x64 runtime preparation.
+- **Raspberry Pi OS / Linux arm64:** statically prepared; full runtime and
+  hardware validation remains outstanding.
+- **Browser fallback:** can render the UI but cannot provide trusted native
+  local paths or replace Neutralino validation.
 
-File actions outside the empty Now Playing screen use the native
-`PlatformBridge`. Native `filesDropped` events enter the same backend open flow.
-A regular browser fallback cannot open trusted absolute local paths and reports
-that the native shell is required.
+Not yet implemented: Favorite Albums/Artists, Recently Played, playlists,
+Vinyl Player, automatic USB mounting, SMB/network-share playback, AirPlay,
+Spotify Connect, tag editing, online artwork, and a packaged installer. USB
+Storage and Network Shares remain interface placeholders.
 
-## Local Sources, Folders, and Library
+## Roadmap
 
-Sources can add a real local folder through Neutralino's native folder dialog.
-Rename changes only its display name, while Remove only removes configuration:
-media files are never changed or deleted. USB Storage and Network Shares remain
-non-functional placeholders.
+Near-term work focuses on documentation/release readiness, deeper Linux and
+Raspberry Pi validation, and measured embedded performance. Later product work
+may add Favorite Albums/Artists, history, playlists, additional player
+presentations, removable/network sources, and selected network playback
+integrations. Roadmap items are not commitments or current functionality.
 
-Sources persist in `%APPDATA%\Eidetic Player\sources.json` on Windows and
-`${XDG_CONFIG_HOME:-~/.config}/eidetic-player/sources.json` on Linux using
-atomic writes and corruption recovery.
+## License
 
-Folders reads one directory level on demand. Its source/folder cards support
-persistent sorting and List/Grid preferences, clickable body/artwork Open
-targets, per-folder file counts, and lazy real-artwork previews (sidecar first,
-otherwise up to four unique embedded covers from the first eight direct audio
-files). Folder and audio-row menus expose Play/Add to Queue. Audio rows add compact
-container/codec, bitrate, bit-depth, and sample-rate quality without a second
-metadata parse. Opening a row or playing a folder uses the existing atomic
-`PlayerService` path; adding a folder appends without starting an empty Queue.
+Eidetic Player is licensed under the
+[Apache License 2.0](LICENSE). Bundled fonts and third-party components retain
+their own notices and licenses.
 
-Library maintains a recursive, persistent SQLite index of configured Sources.
-Its touch-first browser exposes persistent Albums, Artists, and Tracks
-segments. Albums support independent Grid/List presentation; album and artist
-details provide Play and Add to Queue, and tapping a Track starts its complete
-ordered context directly at that Track. Opaque keyset cursors bound every list,
-and unavailable catalog entries remain visible but cannot be played. The
-compact scan surface still shows summary, progress, last success, Rescan, and
-cooperative Cancel. First scans run automatically; later scans are explicit
-from Library or a Source menu. Incremental scans skip metadata for unchanged
-size/mtime pairs.
+## Continuous Integration
 
-The database lives at `%LOCALAPPDATA%\Eidetic Player\Data\library.db` on
-Windows and `${XDG_DATA_HOME:-~/.local/share}/eidetic-player/library.db` on
-Linux. It uses the built-in Node SQLite API, versioned migrations, WAL,
-foreign keys, bounded transactions, interrupted-run recovery, and
-corruption-preserving rebuild. See the
-[Indexed Library guide](docs/development/library-index.md).
+The `Eidetic Player CI` workflow runs on `ubuntu-latest` for pushes to `main`,
+pull requests targeting `main`, and manual dispatches. It reads Node from
+`.nvmrc`, installs reproducibly with `npm ci`, verifies that the lockfile stays
+unchanged, audits dependencies, and runs formatting, type-checking, lint,
+build, the standard suite, POSIX tests, and case-sensitive import checks.
 
-Native roots remain backend-only after Add Folder. UI contracts use opaque
-source/entry IDs and logical relative paths. Central Windows/POSIX containment
-checks block traversal and prefix collisions; symlinks and junctions are not
-browsable. The directory LRU is limited to 32 entries.
-
-## Playback behavior
-
-The real controls cover play/pause, previous (restart after three seconds),
-next, absolute seek, queue selection, software volume, mute, Shuffle, and Repeat
-Off/All/One. Volume, mute, shuffle, repeat, and existing UI preferences persist
-locally. Queue order and current-track identity are restored through the
-backend session, paused at position zero. Playback position and play/pause
-state are deliberately not persisted.
-
-MPV remains authoritative for playback, duration, codec, output sample rate,
-audio device, and controls. The backend uses `music-metadata` for asynchronous
-tag enrichment and artwork discovery without delaying MPV startup. Missing tags
-use filename, Unknown Artist, and Unknown Album fallbacks.
-
-Artwork priority is embedded front cover, then case-insensitive `cover`,
-`folder`, and `front` JPEG/PNG/WebP files in the track directory. Images are
-validated by MIME and signature and limited to 15 MiB. Embedded images use a
-private session directory under the OS temporary directory; the UI receives
-only opaque artwork IDs. Current and next-track metadata are cached and
-preloaded, while other Queue artwork loads lazily.
-
-## Real analysis and waveform
-
-FFmpeg runs only as a sidecar and never changes MPV's playback signal. One
-shared, real-time process decodes stereo float PCM at 24 kHz for a 20 Hz SSE
-stream. The internal engine computes honest sample peak, L/R RMS, logarithmic
-FFT bands, and a three-second K-weighted LUFS-S value from the same PCM. Meter
-uses enhanced dB geometry plus time-based attack/release and peak hold.
-Technical mode presents Crest Factor, LUFS-S, and the compact peak-hold stereo
-meter; it does not claim true peak, integrated loudness, LRA, or normalization.
-Visualizer frames use a small 120 ms presentation lead to compensate for the
-combined analyzer, event-stream, and display latency without changing playback.
-The analyzer stops on pause, seek, track change, Queue clear, leaving Now
-Playing, mode None, or the last subscriber disconnecting.
-
-Waveforms decode mono PCM at 8 kHz without `-re`, aggregate incrementally into
-512 normalized points, and use a 64-entry session LRU keyed by canonical file
-identity. Current track has priority, followed by the next track. If FFmpeg is
-missing or fails, playback continues and the existing deterministic Canvas
-graphics remain available.
-
-`EIDETIC_ANALYZER_ENABLED=false` disables real-time analysis and
-`EIDETIC_WAVEFORM_PRELOAD_NEXT=false` disables next-track waveform preload.
-
-## Current scope and limits (through Step 2.5)
-
-The Windows/Neutralino runtime currently provides local Sources, one-level
-Folders navigation, persistent indexed Library summaries/scanning, persistent
-Queue/current-track restore, metadata and artwork enrichment, real waveform
-generation, Meter/Mono/Stereo visualizers, and the Technical Crest
-Factor/LUFS-S view. Visual QA covers the supported desktop viewports from
-1024 × 600 through 1600 × 900.
-
-The following remain outside the implemented scope:
-
-- no indexed Artist/Album/Track browsing, search, or filters yet; Step 2.5
-  exposes summary and scan controls only;
-- no filesystem watcher, tag editing, online artwork lookup, or generated
-  thumbnail service;
-- no functional network-share or USB-storage provider and no dedicated DAC
-  selection workflow;
-- no audio DSP or modification of MPV's playback signal;
-- no true-peak meter, integrated loudness, loudness range, or normalization;
-- no Raspberry Pi 3B runtime/performance validation; Linux arm64 and Raspberry
-  Pi OS remain statically prepared rather than hardware-verified.
-
-See the [Linux/Debian guide](docs/development/linux-debian.md) and the
-[Step 2.4.5 report](prompts/step2.4.5_output.md) for the compatibility matrix,
-measurements, and remaining Raspberry Pi checks.
-
-See [Architecture](docs/architecture.md) and [UI calibration](docs/ui.md).
+Hosted CI is a Linux source/build gate, not GUI, playback, or hardware
+certification. It does not exercise Neutralino/WebView2 or WebKitGTK, MPV,
+FFmpeg, native dialogs, audio hardware, or Raspberry Pi runtime behavior; those
+remain real-environment QA responsibilities.
