@@ -29,7 +29,9 @@ import {
   saveMainPlayerMode,
   saveMusicBrowsingVisibility,
   saveReturnToNowPlayingSeconds,
+  saveOnScreenKeyboardMode,
 } from "../utils/storage";
+import { createEideticKeyboardAdapter } from "./eidetic-keyboard-adapter";
 import { createMiniPlayer, type MiniPlayer } from "./mini-player";
 import { ArtworkPreloader } from "./artwork";
 import { createQueueDrawer } from "./queue-drawer";
@@ -186,6 +188,10 @@ export function mountApp(
     dropOverlay,
     toastHost.element,
   );
+  const keyboardAdapter = createEideticKeyboardAdapter(root, {
+    enabled: store.getState().onScreenKeyboardMode === "auto",
+    animationsEnabled: store.getState().animationsEnabled,
+  });
   let miniPlayer: MiniPlayer | null = null;
   const artworkPreloader = new ArtworkPreloader();
   let currentScreen: ComponentView | null = null;
@@ -216,6 +222,7 @@ export function mountApp(
     },
   };
   function renderScreen(screen: ScreenId): void {
+    keyboardAdapter.hide();
     currentScreen?.destroy();
     const state = store.getState();
     topBar.setTitle(t(getNavigationItem(screen).titleKey));
@@ -346,6 +353,16 @@ export function mountApp(
         }
         return true;
       },
+      setOnScreenKeyboardMode: (value) => {
+        const previous = store.getState().onScreenKeyboardMode;
+        store.setOnScreenKeyboardMode(value);
+        if (!saveOnScreenKeyboardMode(value)) {
+          store.setOnScreenKeyboardMode(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
+      },
       showToast: (message, tone = "neutral") => {
         showMessage(message, tone);
       },
@@ -429,6 +446,7 @@ export function mountApp(
       state.volumeOpen ||
       nativeDialogOpen ||
       dropOverlay.classList.contains("drop-overlay--visible") ||
+      root.dataset.keyboardOpen === "true" ||
       screenRegion.querySelector('[data-settings-subscreen="true"]') !== null ||
       active instanceof HTMLInputElement ||
       active instanceof HTMLTextAreaElement
@@ -539,7 +557,10 @@ export function mountApp(
     }
     if (state.animationsEnabled !== previousState.animationsEnabled) {
       root.dataset.animations = String(state.animationsEnabled);
+      keyboardAdapter.setAnimationsEnabled(state.animationsEnabled);
     }
+    if (state.onScreenKeyboardMode !== previousState.onScreenKeyboardMode)
+      keyboardAdapter.setEnabled(state.onScreenKeyboardMode === "auto");
     if (
       state.musicBrowsingVisibility !== previousState.musicBrowsingVisibility
     ) {
@@ -661,6 +682,7 @@ export function mountApp(
       artworkPreloader.destroy();
       topBar.destroy();
       toastHost.destroy();
+      keyboardAdapter.destroy();
       window.clearTimeout(inactivityTimer);
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
         document.removeEventListener(eventName, noteActivity);

@@ -16,6 +16,7 @@ export default tseslint.config(
           "./apps/ui/tsconfig.json",
           "./apps/backend/tsconfig.json",
           "./scripts/tsconfig.json",
+          "./packages/on-screen-keyboard/tsconfig.json",
         ],
         tsconfigRootDir: import.meta.dirname,
       },

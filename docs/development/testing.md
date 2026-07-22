@@ -461,3 +461,24 @@ unchanged mini-player controls, return to Default without playback mutation,
 absence of remote font requests and FFmpeg in Cassette, and clean shutdown.
 Test asset failure with the prototype still mounted; do not weaken or bypass
 production loading logic.
+
+## On-screen keyboard checks
+
+Run the package editing/layout suite and the Eidetic adapter regression suite,
+then exercise the real Neutralino/WebView2 path:
+
+1. confirm touch and pen open opted-in fields while mouse and physical-keyboard
+   focus do not, and that Auto/Off persists immediately;
+2. verify caret insertion, selection replacement, Backspace, Clear,
+   `maxlength`, one-shot Shift, double-tap Caps Lock, symbols, Hide, Escape,
+   Search's single Enter, and Done;
+3. cover text, numeric, and IPv4 fixtures, plus disabled, readonly, password,
+   removed, and unregistered fields;
+4. verify navigation, field removal, animations Off, reduced motion, and shell
+   teardown leave no visible keyboard or duplicate listener/controller;
+5. inspect the alphabetic and `123` grids at exact client viewports 1280 x 800,
+   1280 x 720, and 1024 x 600. Confirm full-width rows, the alphabetic stagger,
+   symmetric symbol controls, 64/56 px key heights, safe-area behavior, input
+   visibility, mini-player layering, and no horizontal overflow;
+6. inspect Default, Cassette, and mini-player surfaces to confirm that none has
+   become an opt-in field and their geometry is unchanged.

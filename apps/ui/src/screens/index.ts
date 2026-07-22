@@ -15,6 +15,7 @@ import type {
   TimelineStyle,
   VisualizerMode,
   MainPlayerMode,
+  OnScreenKeyboardMode,
 } from "../state/types";
 import { createFoldersScreen } from "./folders";
 import { createLibraryScreen } from "./library";
@@ -46,6 +47,7 @@ export interface ScreenContext {
   readonly setReturnToNowPlayingSeconds: (
     value: Parameters<AppStore["setReturnToNowPlayingSeconds"]>[0],
   ) => boolean;
+  readonly setOnScreenKeyboardMode: (value: OnScreenKeyboardMode) => boolean;
   readonly showToast: (
     message: string,
     tone?: "error" | "success" | "neutral",
@@ -171,12 +173,14 @@ export function createScreen(
         timelineStyle: context.state.timelineStyle,
         musicBrowsingVisibility: context.state.musicBrowsingVisibility,
         returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
+        onScreenKeyboardMode: context.state.onScreenKeyboardMode,
         onAnimationsChange: context.setAnimationsEnabled,
         onMainPlayerModeChange: context.setMainPlayerMode,
         onVisualizerModeChange: context.setVisualizerMode,
         onTimelineStyleChange: context.setTimelineStyle,
         onMusicBrowsingVisibilityChange: context.setMusicBrowsingVisibility,
         onReturnToNowPlayingSecondsChange: context.setReturnToNowPlayingSeconds,
+        onScreenKeyboardModeChange: context.setOnScreenKeyboardMode,
       });
   }
 }

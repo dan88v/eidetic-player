@@ -22,6 +22,7 @@ export type FolderSortMode =
   "name-asc" | "name-desc" | "files-desc" | "files-asc";
 export type MusicBrowsingVisibility = "both" | "folders" | "library";
 export type ReturnToNowPlayingSeconds = 0 | 10 | 30 | 60 | 120;
+export type OnScreenKeyboardMode = "auto" | "off";
 
 export interface AppState {
   readonly activeScreen: ScreenId;
@@ -35,4 +36,5 @@ export interface AppState {
   readonly timelineTimeMode: TimelineTimeMode;
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
+  readonly onScreenKeyboardMode: OnScreenKeyboardMode;
 }

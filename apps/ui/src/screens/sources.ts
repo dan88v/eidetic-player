@@ -58,7 +58,7 @@ export function createSourcesScreen(
     <section class="source-dialog" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="source-dialog-title">
       <h2 id="source-dialog-title"></h2>
       <p class="source-dialog__description"></p>
-      <label class="source-dialog__field"><span>${t("sources.nameLabel")}</span><input type="text" maxlength="80" autocomplete="off"></label>
+      <label class="source-dialog__field"><span>${t("sources.nameLabel")}</span><input type="text" maxlength="80" autocomplete="off" data-onscreen-keyboard="text"></label>
       <div class="source-dialog__actions"><button type="button" data-action="cancel">${t("sources.cancel")}</button><button class="source-dialog__confirm" type="button" data-action="confirm"></button></div>
     </section>`;
   const localList = section.querySelector<HTMLElement>(".sources-list--local");

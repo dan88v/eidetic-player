@@ -6,6 +6,8 @@ These documents expand the mandatory rules in the repository
 - [Architecture](architecture.md) — component boundaries and state ownership.
 - [Touch UI and UX](ui-ux.md) — physical touch, stable geometry, loading, and
   transitions.
+- [Reusable on-screen keyboard](on-screen-keyboard.md) — opt-in profiles,
+  touch-only policy, editing, layout, and lifecycle ownership.
 - [Performance](performance.md) — Raspberry Pi 3B budgets, Canvas, SSE, MPV,
   and FFmpeg.
 - [Cassette main player](cassette-player.md) — Queue tape progress, mechanics,

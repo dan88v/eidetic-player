@@ -10,6 +10,7 @@ import type {
   LibraryAlbumViewMode,
   LibrarySegment,
   FavoriteSegment,
+  OnScreenKeyboardMode,
 } from "../state/types";
 import type { RepeatMode } from "../../../../packages/shared/src/player";
 
@@ -32,7 +33,16 @@ const storageKeys = {
   libraryAlbumView: "eidetic-player.interface.library-album-view",
   favoriteSegment: "eidetic-player.interface.favorite-segment",
   favoriteAlbumView: "eidetic-player.interface.favorite-album-view",
+  onScreenKeyboard: "eidetic-player.interface.on-screen-keyboard",
 } as const;
+
+export function loadOnScreenKeyboardMode(): OnScreenKeyboardMode {
+  return read(storageKeys.onScreenKeyboard) === "off" ? "off" : "auto";
+}
+
+export function saveOnScreenKeyboardMode(value: OnScreenKeyboardMode): boolean {
+  return write(storageKeys.onScreenKeyboard, value);
+}
 
 export function loadLibrarySegment(): LibrarySegment {
   const value = read(storageKeys.librarySegment);

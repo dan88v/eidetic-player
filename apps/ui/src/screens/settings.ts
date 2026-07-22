@@ -8,6 +8,7 @@ import type {
   TimelineStyle,
   VisualizerMode,
   MainPlayerMode,
+  OnScreenKeyboardMode,
 } from "../state/types";
 
 export interface SettingsScreenOptions {
@@ -17,6 +18,7 @@ export interface SettingsScreenOptions {
   readonly timelineStyle: TimelineStyle;
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
+  readonly onScreenKeyboardMode: OnScreenKeyboardMode;
   readonly onAnimationsChange: (enabled: boolean) => boolean;
   readonly onVisualizerModeChange: (mode: VisualizerMode) => boolean;
   readonly onMainPlayerModeChange: (mode: MainPlayerMode) => boolean;
@@ -27,6 +29,7 @@ export interface SettingsScreenOptions {
   readonly onReturnToNowPlayingSecondsChange: (
     value: ReturnToNowPlayingSeconds,
   ) => boolean;
+  readonly onScreenKeyboardModeChange: (value: OnScreenKeyboardMode) => boolean;
 }
 
 type SettingsPage =
@@ -43,6 +46,7 @@ export function createSettingsScreen(
   let mainPlayer = options.mainPlayerMode;
   let browsing = options.musicBrowsingVisibility;
   let inactivity = options.returnToNowPlayingSeconds;
+  let onScreenKeyboard = options.onScreenKeyboardMode;
 
   const chevron = (): string =>
     `<span class="settings-chevron" aria-hidden="true">${icon("chevronRight")}</span>`;
@@ -200,6 +204,26 @@ export function createSettingsScreen(
     });
     animationsRow.append(animationControl.element);
 
+    const keyboardRow = document.createElement("div");
+    keyboardRow.className = "settings-row-base setting-row";
+    keyboardRow.innerHTML = `<div class="setting-row__copy"><span class="setting-row__label">${t("settings.onScreenKeyboard")}</span><span class="setting-row__description">${t("settings.onScreenKeyboardDescription")}</span></div>`;
+    const keyboardControl = createSegmentedControl<OnScreenKeyboardMode>({
+      label: t("settings.onScreenKeyboard"),
+      value: onScreenKeyboard,
+      items: [
+        { value: "auto", label: t("common.auto") },
+        { value: "off", label: t("common.off") },
+      ],
+      onChange(value) {
+        if (!options.onScreenKeyboardModeChange(value)) {
+          keyboardControl.setValue(onScreenKeyboard);
+          return;
+        }
+        onScreenKeyboard = value;
+      },
+    });
+    keyboardRow.append(keyboardControl.element);
+
     const mainPlayerRow = document.createElement("div");
     mainPlayerRow.className = "settings-row-base setting-row";
     mainPlayerRow.innerHTML = `<div class="setting-row__copy"><span class="setting-row__label">${t("settings.mainPlayer")}</span><span class="setting-row__description">${t("settings.mainPlayerDescription")}</span></div>`;
@@ -269,6 +293,7 @@ export function createSettingsScreen(
     });
     panel.append(
       animationsRow,
+      keyboardRow,
       mainPlayerRow,
       browsingRow,
       visualizerRow,

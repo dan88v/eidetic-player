@@ -12,6 +12,7 @@ import {
   loadMainPlayerMode,
   loadMusicBrowsingVisibility,
   loadReturnToNowPlayingSeconds,
+  loadOnScreenKeyboardMode,
 } from "./utils/storage";
 import { correctInitialViewportOnce } from "./utils/viewport";
 import { PlayerApiClient } from "./api/player-api-client";
@@ -95,6 +96,7 @@ async function bootstrap(): Promise<void> {
     timelineTimeMode: loadTimelineTimeMode(),
     musicBrowsingVisibility: loadMusicBrowsingVisibility(),
     returnToNowPlayingSeconds: loadReturnToNowPlayingSeconds(),
+    onScreenKeyboardMode: loadOnScreenKeyboardMode(),
   });
   const app = mountApp(root, store, platform.bridge, playerState);
   const splash = document.querySelector<HTMLElement>("#app-splash");

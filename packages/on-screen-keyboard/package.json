@@ -1,0 +1,13 @@
+{
+  "name": "@eidetic/on-screen-keyboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/on-screen-keyboard.ts",
+    "./styles.css": "./src/on-screen-keyboard.css"
+  },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts"
+  }
+}

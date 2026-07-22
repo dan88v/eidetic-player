@@ -5,3 +5,4 @@
 @import "./screens.css";
 @import "./responsive.css";
 @import "./cassette-player.css";
+@import "../../../../packages/on-screen-keyboard/src/on-screen-keyboard.css";

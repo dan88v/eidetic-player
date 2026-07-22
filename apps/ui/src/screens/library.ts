@@ -226,7 +226,7 @@ export function createLibraryScreen(
         <button class="folders-back library-search-close" type="button" aria-label="${t("library.searchClose")}" hidden>${icon("back")}<span>${t("common.back")}</span></button>
         <div class="library-search-field" hidden>
           <label class="visually-hidden" for="library-search-input">${t("library.searchLabel")}</label>
-          <input id="library-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="${t("library.searchPlaceholder")}" />
+          <input id="library-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="${t("library.searchPlaceholder")}" data-onscreen-keyboard="text" data-onscreen-keyboard-enter="search" />
           <button class="library-search-clear" type="button" aria-label="${t("library.searchClear")}" hidden>${icon("close")}</button>
         </div>
       </header>

@@ -261,6 +261,13 @@ existing right-side actions, and omit decorative icons, eyebrows, and visible
 
 ## Accessibility
 
+The reusable touch keyboard follows the explicit opt-in, opening, editing,
+layout, and teardown contract in
+[Reusable on-screen keyboard](on-screen-keyboard.md). Keep the actual input as
+the only displayed value field. New text-like fields must not automatically
+inherit the keyboard: select `text`, `numeric`, or `ipv4` deliberately and
+retain ordinary mouse and physical-keyboard behavior.
+
 Use semantic buttons, dialogs, sliders, labels, focus order, focus traps, focus
 restoration, `aria-current`, `aria-expanded`, `aria-pressed`, and dynamic
 labels where applicable. Visualizer cycling must work with tap, Enter, and

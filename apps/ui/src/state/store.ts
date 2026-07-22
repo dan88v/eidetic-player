@@ -7,6 +7,7 @@ import type {
   MainPlayerMode,
   MusicBrowsingVisibility,
   ReturnToNowPlayingSeconds,
+  OnScreenKeyboardMode,
 } from "./types";
 
 type StateListener = (state: AppState, previousState: AppState) => void;
@@ -24,6 +25,7 @@ export interface AppStore {
   setTimelineTimeMode(mode: TimelineTimeMode): void;
   setMusicBrowsingVisibility(value: MusicBrowsingVisibility): void;
   setReturnToNowPlayingSeconds(value: ReturnToNowPlayingSeconds): void;
+  setOnScreenKeyboardMode(value: OnScreenKeyboardMode): void;
   subscribe(listener: StateListener): () => void;
 }
 
@@ -44,7 +46,8 @@ export function createAppStore(initialState: AppState): AppStore {
       nextState.timelineStyle === state.timelineStyle &&
       nextState.timelineTimeMode === state.timelineTimeMode &&
       nextState.musicBrowsingVisibility === state.musicBrowsingVisibility &&
-      nextState.returnToNowPlayingSeconds === state.returnToNowPlayingSeconds
+      nextState.returnToNowPlayingSeconds === state.returnToNowPlayingSeconds &&
+      nextState.onScreenKeyboardMode === state.onScreenKeyboardMode
     ) {
       return;
     }
@@ -88,6 +91,9 @@ export function createAppStore(initialState: AppState): AppStore {
     },
     setReturnToNowPlayingSeconds: (returnToNowPlayingSeconds) => {
       update({ returnToNowPlayingSeconds });
+    },
+    setOnScreenKeyboardMode: (onScreenKeyboardMode) => {
+      update({ onScreenKeyboardMode });
     },
     subscribe(listener) {
       listeners.add(listener);
