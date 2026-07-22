@@ -1,6 +1,9 @@
 import { icon } from "./icons";
 import { t } from "../i18n";
-import type { FavoriteTrackStore } from "../state/favorite-track-store";
+import type {
+  FavoriteEntityStore,
+  FavoriteTrackStore,
+} from "../state/favorite-track-store";
 
 export interface FavoriteTrackButton {
   readonly element: HTMLButtonElement;
@@ -10,6 +13,20 @@ export interface FavoriteTrackButton {
 export function createFavoriteTrackButton(options: {
   readonly trackId: string;
   readonly store: FavoriteTrackStore;
+  readonly onError: (error: unknown) => void;
+  readonly onChange?: (isFavorite: boolean) => void;
+}): FavoriteTrackButton {
+  return createFavoriteEntityButton({
+    entityId: options.trackId,
+    store: options.store,
+    onError: options.onError,
+    ...(options.onChange ? { onChange: options.onChange } : {}),
+  });
+}
+
+export function createFavoriteEntityButton(options: {
+  readonly entityId: string;
+  readonly store: FavoriteEntityStore;
   readonly onError: (error: unknown) => void;
   readonly onChange?: (isFavorite: boolean) => void;
 }): FavoriteTrackButton {
@@ -27,14 +44,14 @@ export function createFavoriteTrackButton(options: {
       t(favorite ? "favorites.remove" : "favorites.add"),
     );
   };
-  const unsubscribe = options.store.subscribe(options.trackId, render);
+  const unsubscribe = options.store.subscribe(options.entityId, render);
   element.addEventListener("click", (event) => {
     event.stopPropagation();
     if (element.disabled) return;
     const next = !favorite;
     element.disabled = true;
     void options.store
-      .set(options.trackId, next)
+      .set(options.entityId, next)
       .then(() => options.onChange?.(next))
       .catch(options.onError)
       .finally(() => {

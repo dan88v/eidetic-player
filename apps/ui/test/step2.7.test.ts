@@ -129,10 +129,17 @@ void test("Search Track play delegates to current-catalog Track context", () => 
   assert.match(repository, /s\.available = 1 AND s\.removed = 0/);
 });
 
-void test("unavailable Search rows remain visible and primary/secondary actions are disabled", () => {
+void test("unavailable Search rows remain visible and playback actions are disabled", () => {
   assert.match(library, /library-item--unavailable/);
   assert.match(library, /main\.disabled = unavailable/);
-  assert.match(library, /more\.disabled = unavailable/);
+  assert.match(
+    library,
+    /label: t\("library\.playArtist"\),\s+disabled: unavailable/,
+  );
+  assert.match(
+    library,
+    /label: t\("library\.playAlbum"\),\s+disabled: unavailable/,
+  );
   assert.match(library, /library-unavailable-label/);
   assert.match(repository, /COUNT\(\*\) OVER \(\) AS total_count/);
 });
@@ -161,8 +168,8 @@ void test("Library toolbar is one compact row and scan actions remain in Manage"
   assert.match(css, /\.library-toolbar-actions/);
 });
 
-void test("schema v3 retains v2 materialized keys, stable ranking and no FTS", () => {
-  assert.match(migrations, /LIBRARY_SCHEMA_VERSION = 3/);
+void test("schema v4 retains v2 materialized keys, stable ranking and no FTS", () => {
+  assert.match(migrations, /LIBRARY_SCHEMA_VERSION = 4/);
   assert.match(migrations, /const migrationV2/);
   for (const key of [
     "search_name",

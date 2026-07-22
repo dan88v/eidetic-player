@@ -31,6 +31,13 @@ deleted cannot leave an orphan. The `(created_at DESC, track_id ASC)` index
 serves newest-first keyset pages. Migration from v1 runs v2 and v3 in the same
 bounded transaction; Track metadata is never duplicated in the Favorite row.
 
+Schema v4 adds dedicated `favorite_albums` and `favorite_artists` tables. Each
+stores only the opaque entity ID and creation timestamp, uses a real cascading
+foreign key, and has a `(created_at DESC, entity_id ASC)` index for stable
+newest-first keyset pagination. Source offline/removed state retains the
+catalog entity and Favorite; only definitive orphan cleanup cascades it. The
+v3-to-v4 migration and the complete v1/v2 upgrade path run transactionally.
+
 ## Identity and incremental scans
 
 A Track is identified by the pair `(sourceId, logicalRelativePath)`. Its opaque
@@ -148,17 +155,27 @@ visible until superseded or shutdown. The toast has no controls; management
 stays on the Library screen. No polling,
 second EventSource, second toast host, or scan-specific endpoint is used.
 
-Favorite Tracks is a separate main screen, visible whenever Library browsing
-is enabled. Its bounded 48-item keyset pages retain at most 192 mounted rows
-and preserve unavailable entries while excluding them from playback. A shared
-512-entry frontend LRU requests visible Favorite state in batches of at most
-192 IDs; optimistic heart changes synchronize mounted Library, Search, detail,
-Favorites, and indexed Queue rows without polling or another EventSource.
-Heart actions have an immediate visible result and only toast on error; menu
-actions use the same API and show the shared success toast. Favorites playback
-rebuilds the complete current database context, maps the selected Track
-directly, validates files before one atomic Queue replacement, and never
-depends on the currently mounted page.
+Favorites is a separate main screen, visible whenever Library browsing is
+enabled, with persistent Tracks, Albums, and Artists segments. Bounded 48-item
+keyset pages retain at most 192 mounted entries and preserve unavailable
+entities while excluding unavailable Tracks from playback. Album Grid/List is
+independent from the Library preference; Artists uses the established touch
+list geometry.
+
+The three entity stores share one bounded 512-entry implementation and request
+visible Favorite state in batches of at most 192 IDs. Optimistic hearts
+synchronize mounted Library, Search, detail, Favorites, player Track status,
+and indexed Queue rows as applicable, without polling or another EventSource.
+Heart actions toast only on error; contextual menu mutations use the same API
+and show the shared success toast.
+
+Track playback retains its selected-Track direct-index behavior. Album Play
+all concatenates favorite Albums newest-first and preserves the existing
+disc/track/title/ID order inside each Album. Artist Play all concatenates each
+favorite Artist's established context, including compilation ownership and
+collaborations. Both category builders deduplicate globally by Track ID,
+validate files, exclude unavailable entries, and perform one atomic Queue
+replacement without depending on the mounted page.
 
 ## Search
 

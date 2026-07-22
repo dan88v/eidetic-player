@@ -18,6 +18,12 @@ import type {
   FavoriteTrackMutationResponse,
   FavoriteTrackStatusResponse,
   FavoriteTracksPlayRequest,
+  FavoriteAlbumPage,
+  FavoriteArtistPage,
+  FavoriteAlbumMutationResponse,
+  FavoriteArtistMutationResponse,
+  FavoriteAlbumStatusResponse,
+  FavoriteArtistStatusResponse,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -113,6 +119,84 @@ export class LibraryApiClient {
     return this.request("/api/library/favorites/tracks/play", {
       method: "POST",
       body: JSON.stringify(request),
+    });
+  }
+
+  favoriteAlbums(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<FavoriteAlbumPage> {
+    return this.request(
+      this.pagePath("/api/library/favorites/albums", cursor, limit),
+    );
+  }
+
+  favoriteAlbumStatus(
+    albumIds: readonly string[],
+  ): Promise<FavoriteAlbumStatusResponse> {
+    return this.request("/api/library/favorites/albums/status", {
+      method: "POST",
+      body: JSON.stringify({ albumIds }),
+    });
+  }
+
+  addFavoriteAlbum(albumId: string): Promise<FavoriteAlbumMutationResponse> {
+    return this.request(
+      `/api/library/favorites/albums/${encodeURIComponent(albumId)}`,
+      { method: "PUT" },
+    );
+  }
+
+  removeFavoriteAlbum(albumId: string): Promise<FavoriteAlbumMutationResponse> {
+    return this.request(
+      `/api/library/favorites/albums/${encodeURIComponent(albumId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  playFavoriteAlbums(): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/favorites/albums/play", {
+      method: "POST",
+    });
+  }
+
+  favoriteArtists(
+    cursor: string | null = null,
+    limit = 48,
+  ): Promise<FavoriteArtistPage> {
+    return this.request(
+      this.pagePath("/api/library/favorites/artists", cursor, limit),
+    );
+  }
+
+  favoriteArtistStatus(
+    artistIds: readonly string[],
+  ): Promise<FavoriteArtistStatusResponse> {
+    return this.request("/api/library/favorites/artists/status", {
+      method: "POST",
+      body: JSON.stringify({ artistIds }),
+    });
+  }
+
+  addFavoriteArtist(artistId: string): Promise<FavoriteArtistMutationResponse> {
+    return this.request(
+      `/api/library/favorites/artists/${encodeURIComponent(artistId)}`,
+      { method: "PUT" },
+    );
+  }
+
+  removeFavoriteArtist(
+    artistId: string,
+  ): Promise<FavoriteArtistMutationResponse> {
+    return this.request(
+      `/api/library/favorites/artists/${encodeURIComponent(artistId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  playFavoriteArtists(): Promise<LibraryQueueActionResponse> {
+    return this.request("/api/library/favorites/artists/play", {
+      method: "POST",
     });
   }
 

@@ -247,6 +247,52 @@ export interface LibraryArtist {
   readonly availability: LibraryEntityAvailability;
 }
 
+export interface FavoriteAlbum extends LibraryAlbum {
+  readonly favoritedAt: number;
+}
+
+export interface FavoriteArtist extends LibraryArtist {
+  readonly favoritedAt: number;
+}
+
+export interface FavoriteAlbumPage extends LibraryPage<FavoriteAlbum> {
+  readonly total: number;
+  readonly availableCount: number;
+}
+
+export interface FavoriteArtistPage extends LibraryPage<FavoriteArtist> {
+  readonly total: number;
+  readonly availableCount: number;
+}
+
+export interface FavoriteAlbumStatusResponse {
+  readonly favoriteAlbumIds: readonly string[];
+}
+
+export interface FavoriteArtistStatusResponse {
+  readonly favoriteArtistIds: readonly string[];
+}
+
+export interface FavoriteAlbumMutationResponse {
+  readonly albumId: string;
+  readonly isFavorite: boolean;
+  readonly favoritedAt: number | null;
+}
+
+export interface FavoriteArtistMutationResponse {
+  readonly artistId: string;
+  readonly isFavorite: boolean;
+  readonly favoritedAt: number | null;
+}
+
+export interface FavoriteAlbumStatusRequest {
+  readonly albumIds: readonly string[];
+}
+
+export interface FavoriteArtistStatusRequest {
+  readonly artistIds: readonly string[];
+}
+
 export interface LibraryAlbumDetail extends LibraryAlbum {
   readonly tracks: readonly LibraryTrack[];
 }

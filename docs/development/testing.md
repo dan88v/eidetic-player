@@ -376,6 +376,28 @@ Repeat populated visual inspection at 1280x800, 1366x768, 1600x900,
    44 px heart hit areas, menu focus, and Folders-only/Library-only/Both at
    1280x800, 1280x720, and 1024x600 in the real Neutralino/WebView2 app.
 
+## Step 2.8.2 Favorite Albums and Artists checks
+
+1. migrate v1, v2, and v3 databases to v4; verify dedicated tables, real
+   cascading foreign keys, idempotency, timestamps, indexed newest-first
+   keyset pages, tie-breakers, and retained offline/removed entities;
+2. verify the persistent Tracks/Albums/Artists segmented control, unchanged
+   Track behavior, independent Grid-default Album Grid/List, Artist touch list,
+   bounded pages, preserved scroll, approved empty states, and no Search;
+3. exercise Album/Artist hearts on Library root, details, grouped/View-all
+   Search, and Favorites; confirm 44 px sibling targets, dynamic labels,
+   synchronized optimistic state, rollback/error toast, and no success toast;
+4. exercise each contextual menu and confirm single-entity Play/Add-to-Queue,
+   Add/Remove wording, shared success toast, unavailable disabling, detail tap,
+   focus restoration, and no nested buttons;
+5. verify Album Play all ordering and Artist context ordering across
+   collaborations/compilations, global Track-ID deduplication, unavailable
+   filtering, atomic Queue replacement, and unchanged Queue on resolution
+   failure;
+6. inspect Tracks, Album Grid/List, Artists, Library/Search/detail hearts,
+   empty/unavailable states, Default/Cassette/mini-player, Queue, and toast at
+   1280x800, 1280x720, and 1024x600 in the real Neutralino/WebView2 app.
+
 ## Step 2.5 indexed Library checks
 
 Verify the indexed Library separately from on-demand Folders:

@@ -14,7 +14,11 @@ import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
 import { foldersSession } from "../state/folders-session";
-import { FavoriteTrackStore } from "../state/favorite-track-store";
+import {
+  FavoriteAlbumStore,
+  FavoriteArtistStore,
+  FavoriteTrackStore,
+} from "../state/favorite-track-store";
 import {
   loadPlaybackPreferences,
   saveAnimationsEnabled,
@@ -49,6 +53,12 @@ export function mountApp(
   const foldersApi = new FoldersApiClient();
   const libraryApi = new LibraryApiClient();
   const favorites = new FavoriteTrackStore(libraryApi);
+  const favoriteAlbums = new FavoriteAlbumStore(libraryApi);
+  const favoriteArtists = new FavoriteArtistStore(libraryApi);
+  let pendingLibraryEntity: {
+    readonly kind: "album" | "artist";
+    readonly id: string;
+  } | null = null;
   const playerStore = new PlayerStore(initialPlayerState);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
@@ -216,6 +226,13 @@ export function mountApp(
       foldersApi,
       libraryApi,
       favorites,
+      favoriteAlbums,
+      favoriteArtists,
+      initialLibraryEntity: pendingLibraryEntity,
+      openLibraryEntity: (kind, id) => {
+        pendingLibraryEntity = { kind, id };
+        navigate("library");
+      },
       librarySnapshot: currentLibrarySnapshot,
       addLocalFolder,
       openFolderSource: (sourceId) => {
@@ -354,6 +371,7 @@ export function mountApp(
         }
       },
     });
+    if (screen === "library") pendingLibraryEntity = null;
     screenRegion.replaceChildren(currentScreen.element);
     sideMenu.setActiveScreen(screen);
     if (import.meta.env.DEV && screen === "nowPlaying")
@@ -458,8 +476,11 @@ export function mountApp(
     if (
       favoriteCatalogGeneration !== "" &&
       nextFavoriteCatalogGeneration !== favoriteCatalogGeneration
-    )
+    ) {
       favorites.invalidate();
+      favoriteAlbums.invalidate();
+      favoriteArtists.invalidate();
+    }
     favoriteCatalogGeneration = nextFavoriteCatalogGeneration;
     toastHost.updateLibrary(snapshot);
     currentScreen?.updateLibrarySnapshot?.(snapshot);

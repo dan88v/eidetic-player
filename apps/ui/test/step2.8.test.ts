@@ -65,7 +65,8 @@ void test("approved Track surfaces share semantic heart and menu actions", async
   assert.match(library, /createFavoriteTrackButton/);
   assert.match(library, /favorites\.added/);
   assert.match(favorites, /favorites\.emptyTitle/);
-  assert.doesNotMatch(favorites, /createSegmentedControl|type="search"/);
+  assert.match(favorites, /createSegmentedControl/);
+  assert.doesNotMatch(favorites, /type="search"/);
   assert.match(queue, /item\.libraryTrackId\s*\?/);
   assert.match(button, /element\.type = "button"/);
   assert.match(button, /aria-pressed/);

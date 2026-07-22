@@ -166,14 +166,20 @@ app-styled popup menu rather than a native select. Its outer container owns the
 single border; the transparent inner trigger uses an inset accent focus ring.
 The breadcrumb element is hidden entirely when there are no useful ancestors.
 
-## Favorite Tracks
+## Favorites
 
 Favorites is a primary browsing route immediately after Library and follows
-the same Folders-only/Library-only/Both visibility rule as Library. Step 2.8
-shows Track rows only: no Search, one-option segmented control, Grid/List,
-hero, or statistics. The header keeps a single non-wrapping Play all action,
-and the empty
-state contains only the approved title and guidance text.
+the same Folders-only/Library-only/Both visibility rule as Library. Its
+accessible segmented control switches between Tracks, Albums, and Artists on
+the same route; no segment adds Search, sorting, a hero, or statistics. The
+selection persists locally and defaults to Tracks. The header keeps one
+non-wrapping, category-labelled Play all action.
+
+Tracks retains the Step 2.8 row behavior. Albums reuses the four/two/one-column
+Library Grid and List geometry with an independent Grid-default preference.
+Artists reuses the touch list. Each entity has a sibling heart and menu button;
+the main Album/Artist target opens its Library detail and never starts
+playback. Empty Album and Artist segments contain only their approved title.
 
 The Track heart is a semantic button with a 44 px hit area, dynamic accessible
 name, visible focus, and filled/empty state. It is a sibling of the row Play
@@ -181,6 +187,10 @@ button, so activating it cannot start playback. Queue shows it only when the
 backend supplies an explicit stable Library Track ID; filenames, titles and
 paths are never used to infer Favorite identity. Unavailable Favorites remain
 visible and removable, but their Play and Add to Queue actions are disabled.
+Album and Artist hearts follow the same semantic contract on Library root,
+detail, grouped/View-all Search, and Favorites surfaces. Their menus expose
+single-entity Play/Add-to-Queue plus Add/Remove Favorite actions; only the menu
+mutation shows a success toast.
 
 ## Settings and inactivity
 

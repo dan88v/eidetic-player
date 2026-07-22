@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { LibraryFutureVersionError } from "./library-errors.js";
 
-export const LIBRARY_SCHEMA_VERSION = 3;
+export const LIBRARY_SCHEMA_VERSION = 4;
 
 const migrationV1 = `
 CREATE TABLE library_sources (
@@ -154,6 +154,23 @@ CREATE INDEX favorite_tracks_created_idx
   ON favorite_tracks(created_at DESC, track_id ASC);
 `;
 
+const migrationV4 = `
+CREATE TABLE favorite_albums (
+  album_id TEXT PRIMARY KEY REFERENCES albums(album_id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL CHECK (created_at >= 0)
+) STRICT;
+
+CREATE TABLE favorite_artists (
+  artist_id TEXT PRIMARY KEY REFERENCES artists(artist_id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL CHECK (created_at >= 0)
+) STRICT;
+
+CREATE INDEX favorite_albums_created_idx
+  ON favorite_albums(created_at DESC, album_id ASC);
+CREATE INDEX favorite_artists_created_idx
+  ON favorite_artists(created_at DESC, artist_id ASC);
+`;
+
 function userVersion(database: DatabaseSync): number {
   const row = database.prepare("PRAGMA user_version").get() as
     { user_version?: unknown } | undefined;
@@ -172,6 +189,7 @@ export function migrateLibraryDatabase(database: DatabaseSync): number {
     if (current < 1) database.exec(migrationV1);
     if (current < 2) database.exec(migrationV2);
     if (current < 3) database.exec(migrationV3);
+    if (current < 4) database.exec(migrationV4);
     database.exec(`PRAGMA user_version = ${String(LIBRARY_SCHEMA_VERSION)}`);
     database.exec("COMMIT");
   } catch (error) {

@@ -91,7 +91,7 @@ void test("Track lists are touch-semantic, unavailable-aware and DOM-bounded", (
   assert.match(css, /\.library-track-row \{[\s\S]*min-height: 5\.5rem/);
   assert.match(css, /\.library-item-more \{[\s\S]*var\(--touch-min\)/);
   assert.match(library, /row\.append\(main, favorite\.element, more\)/);
-  assert.match(library, /card\.append\(open, more\)/);
+  assert.match(library, /card\.append\(open, heart\.element, more\)/);
   assert.match(library, /decode\(\)/);
 });
 

@@ -43,6 +43,8 @@ import type {
   LibraryTrackQueueRequest,
   FavoriteTrackStatusRequest,
   FavoriteTracksPlayRequest,
+  FavoriteAlbumStatusRequest,
+  FavoriteArtistStatusRequest,
 } from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
@@ -420,6 +422,30 @@ function favoriteTracksPlayBody(value: unknown): FavoriteTracksPlayRequest {
   };
 }
 
+function favoriteAlbumStatusBody(value: unknown): FavoriteAlbumStatusRequest {
+  const body = objectBody(value);
+  if (!Array.isArray(body.albumIds))
+    throw new LibraryError(
+      "INVALID_LIBRARY_FAVORITE_STATUS",
+      "Select valid Library albums.",
+    );
+  return {
+    albumIds: body.albumIds.map((id) => libraryEntityId(id, "album")),
+  };
+}
+
+function favoriteArtistStatusBody(value: unknown): FavoriteArtistStatusRequest {
+  const body = objectBody(value);
+  if (!Array.isArray(body.artistIds))
+    throw new LibraryError(
+      "INVALID_LIBRARY_FAVORITE_STATUS",
+      "Select valid Library artists.",
+    );
+  return {
+    artistIds: body.artistIds.map((id) => libraryEntityId(id, "artist")),
+  };
+}
+
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
   const body = objectBody(value);
   for (const field of ["scanId", "sourceId"] as const)
@@ -715,6 +741,154 @@ async function handleRequest(
       const context = await (
         await indexedLibraryPromise
       ).resolveFavorites(body.selectedTrackId, body.catalogFingerprint);
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/favorites/albums"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).favoriteAlbums(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/favorites/albums/status"
+    ) {
+      const body = favoriteAlbumStatusBody(await readBody(request));
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          favoriteAlbumIds: (await indexedLibraryPromise).favoriteAlbumIds(
+            body.albumIds,
+          ),
+        },
+      });
+      return;
+    }
+    const favoriteAlbumMatch =
+      /^\/api\/library\/favorites\/albums\/(album-[0-9a-f]{32})$/.exec(
+        url.pathname,
+      );
+    if (favoriteAlbumMatch && request.method === "PUT") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).addFavoriteAlbum(
+          favoriteAlbumMatch[1] ?? "",
+        ),
+      });
+      return;
+    }
+    if (favoriteAlbumMatch && request.method === "DELETE") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).removeFavoriteAlbum(
+          favoriteAlbumMatch[1] ?? "",
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/favorites/albums/play"
+    ) {
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveFavoriteAlbums();
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/library/favorites/artists"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).favoriteArtists(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/favorites/artists/status"
+    ) {
+      const body = favoriteArtistStatusBody(await readBody(request));
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          favoriteArtistIds: (await indexedLibraryPromise).favoriteArtistIds(
+            body.artistIds,
+          ),
+        },
+      });
+      return;
+    }
+    const favoriteArtistMatch =
+      /^\/api\/library\/favorites\/artists\/(artist-[0-9a-f]{32})$/.exec(
+        url.pathname,
+      );
+    if (favoriteArtistMatch && request.method === "PUT") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).addFavoriteArtist(
+          favoriteArtistMatch[1] ?? "",
+        ),
+      });
+      return;
+    }
+    if (favoriteArtistMatch && request.method === "DELETE") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).removeFavoriteArtist(
+          favoriteArtistMatch[1] ?? "",
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/favorites/artists/play"
+    ) {
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveFavoriteArtists();
       await player.openResolvedQueue(
         context.paths,
         context.selectedIndex,

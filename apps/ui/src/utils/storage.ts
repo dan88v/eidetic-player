@@ -9,6 +9,7 @@ import type {
   ReturnToNowPlayingSeconds,
   LibraryAlbumViewMode,
   LibrarySegment,
+  FavoriteSegment,
 } from "../state/types";
 import type { RepeatMode } from "../../../../packages/shared/src/player";
 
@@ -29,6 +30,8 @@ const storageKeys = {
   returnToNowPlaying: "eidetic-player.interface.return-to-now-playing",
   librarySegment: "eidetic-player.interface.library-segment",
   libraryAlbumView: "eidetic-player.interface.library-album-view",
+  favoriteSegment: "eidetic-player.interface.favorite-segment",
+  favoriteAlbumView: "eidetic-player.interface.favorite-album-view",
 } as const;
 
 export function loadLibrarySegment(): LibrarySegment {
@@ -46,6 +49,25 @@ export function loadLibraryAlbumViewMode(): LibraryAlbumViewMode {
 
 export function saveLibraryAlbumViewMode(value: LibraryAlbumViewMode): boolean {
   return write(storageKeys.libraryAlbumView, value);
+}
+
+export function loadFavoriteSegment(): FavoriteSegment {
+  const value = read(storageKeys.favoriteSegment);
+  return value === "albums" || value === "artists" ? value : "tracks";
+}
+
+export function saveFavoriteSegment(value: FavoriteSegment): boolean {
+  return write(storageKeys.favoriteSegment, value);
+}
+
+export function loadFavoriteAlbumViewMode(): LibraryAlbumViewMode {
+  return read(storageKeys.favoriteAlbumView) === "list" ? "list" : "grid";
+}
+
+export function saveFavoriteAlbumViewMode(
+  value: LibraryAlbumViewMode,
+): boolean {
+  return write(storageKeys.favoriteAlbumView, value);
 }
 
 export function loadMusicBrowsingVisibility(): MusicBrowsingVisibility {

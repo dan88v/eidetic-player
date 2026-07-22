@@ -19,7 +19,11 @@ import type {
 import { createFoldersScreen } from "./folders";
 import { createLibraryScreen } from "./library";
 import { createFavoritesScreen } from "./favorites";
-import type { FavoriteTrackStore } from "../state/favorite-track-store";
+import type {
+  FavoriteAlbumStore,
+  FavoriteArtistStore,
+  FavoriteTrackStore,
+} from "../state/favorite-track-store";
 import { createMainPlayerHost } from "../main-player/main-player-host";
 import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
@@ -55,6 +59,13 @@ export interface ScreenContext {
   readonly foldersApi: FoldersApiClient;
   readonly libraryApi: LibraryApiClient;
   readonly favorites: FavoriteTrackStore;
+  readonly favoriteAlbums: FavoriteAlbumStore;
+  readonly favoriteArtists: FavoriteArtistStore;
+  readonly initialLibraryEntity: {
+    readonly kind: "album" | "artist";
+    readonly id: string;
+  } | null;
+  readonly openLibraryEntity: (kind: "album" | "artist", id: string) => void;
   readonly librarySnapshot: IndexedLibrarySnapshot | null;
   readonly addLocalFolder: () => Promise<AddLocalSourceResponse | null>;
   readonly openFolderSource: (sourceId: string) => void;
@@ -124,11 +135,19 @@ export function createScreen(
         setTitle: context.setScreenTitle,
         showToast: context.showToast,
         favorites: context.favorites,
+        favoriteAlbums: context.favoriteAlbums,
+        favoriteArtists: context.favoriteArtists,
+        ...(context.initialLibraryEntity
+          ? { initialEntity: context.initialLibraryEntity }
+          : {}),
       });
     case "favorites":
       return createFavoritesScreen({
         api: context.libraryApi,
         favorites: context.favorites,
+        favoriteAlbums: context.favoriteAlbums,
+        favoriteArtists: context.favoriteArtists,
+        openLibraryEntity: context.openLibraryEntity,
         noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
       });

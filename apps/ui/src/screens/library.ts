@@ -18,8 +18,17 @@ import { createSegmentedControl } from "../components/segmented-control";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
 import type { LibraryAlbumViewMode, LibrarySegment } from "../state/types";
-import type { FavoriteTrackStore } from "../state/favorite-track-store";
-import { createFavoriteTrackButton } from "../components/favorite-track-button";
+import type {
+  FavoriteAlbumStore,
+  FavoriteArtistStore,
+  FavoriteEntityStore,
+  FavoriteTrackStore,
+} from "../state/favorite-track-store";
+import {
+  createFavoriteEntityButton,
+  createFavoriteTrackButton,
+  type FavoriteTrackButton,
+} from "../components/favorite-track-button";
 import {
   loadLibraryAlbumViewMode,
   loadLibrarySegment,
@@ -38,6 +47,12 @@ export interface LibraryScreenOptions {
     tone?: "error" | "success" | "neutral",
   ) => void;
   readonly favorites: FavoriteTrackStore;
+  readonly favoriteAlbums: FavoriteAlbumStore;
+  readonly favoriteArtists: FavoriteArtistStore;
+  readonly initialEntity?: {
+    readonly kind: "album" | "artist";
+    readonly id: string;
+  };
 }
 
 type LibraryRoute =
@@ -412,7 +427,9 @@ export function createLibraryScreen(
       ? { segment, albumView, scrollTop: 0 }
       : null,
   };
-  let route: LibraryRoute = { kind: "root" };
+  let route: LibraryRoute = options.initialEntity
+    ? { kind: options.initialEntity.kind, id: options.initialEntity.id }
+    : { kind: "root" };
   let destroyed = false;
   let requestGeneration = 0;
   let scanPending = false;
@@ -455,6 +472,35 @@ export function createLibraryScreen(
     } catch (error) {
       favoriteError(error);
     }
+  };
+
+  const favoriteEntityMenuAction = async (
+    store: FavoriteEntityStore,
+    id: string,
+  ): Promise<void> => {
+    const next = !(store.get(id) ?? false);
+    try {
+      await store.set(id, next);
+      options.showToast(
+        t(next ? "favorites.added" : "favorites.removed"),
+        "success",
+      );
+    } catch (error) {
+      favoriteError(error);
+    }
+  };
+
+  const entityHeart = (
+    store: FavoriteEntityStore,
+    id: string,
+  ): FavoriteTrackButton => {
+    const heart = createFavoriteEntityButton({
+      entityId: id,
+      store,
+      onError: favoriteError,
+    });
+    favoriteViews.add(heart);
+    return heart;
   };
 
   const closeMenu = (focus = false): void => {
@@ -709,7 +755,6 @@ export function createLibraryScreen(
     const more = document.createElement("button");
     more.className = "library-item-more";
     more.type = "button";
-    more.disabled = album.availableTrackCount === 0;
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute(
       "aria-label",
@@ -719,16 +764,32 @@ export function createLibraryScreen(
     more.addEventListener("click", () => {
       showMenu(more, [
         {
+          label: t("library.playAlbum"),
+          disabled: album.availableTrackCount === 0,
+          run: () => void play({ context: "album", id: album.id }),
+        },
+        {
           label: t("library.addAlbum"),
+          disabled: album.availableTrackCount === 0,
           run: () =>
             void queueContext(
               { context: "album", id: album.id },
               t("library.albumAdded"),
             ),
         },
+        {
+          label: t(
+            options.favoriteAlbums.get(album.id)
+              ? "favorites.removeAlbum"
+              : "favorites.addAlbum",
+          ),
+          run: () =>
+            void favoriteEntityMenuAction(options.favoriteAlbums, album.id),
+        },
       ]);
     });
-    card.append(open, more);
+    const heart = entityHeart(options.favoriteAlbums, album.id);
+    card.append(open, heart.element, more);
     return card;
   };
 
@@ -975,7 +1036,6 @@ export function createLibraryScreen(
     const more = document.createElement("button");
     more.type = "button";
     more.className = "library-item-more";
-    more.disabled = unavailable;
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute(
       "aria-label",
@@ -998,9 +1058,19 @@ export function createLibraryScreen(
               t("library.artistAdded"),
             ),
         },
+        {
+          label: t(
+            options.favoriteArtists.get(artist.id)
+              ? "favorites.removeArtist"
+              : "favorites.addArtist",
+          ),
+          run: () =>
+            void favoriteEntityMenuAction(options.favoriteArtists, artist.id),
+        },
       ]);
     });
-    row.append(open, more);
+    const heart = entityHeart(options.favoriteArtists, artist.id);
+    row.append(open, heart.element, more);
     return row;
   };
 
@@ -1051,7 +1121,6 @@ export function createLibraryScreen(
     const more = document.createElement("button");
     more.type = "button";
     more.className = "library-item-more";
-    more.disabled = unavailable;
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute(
       "aria-label",
@@ -1074,9 +1143,19 @@ export function createLibraryScreen(
               t("library.albumAdded"),
             ),
         },
+        {
+          label: t(
+            options.favoriteAlbums.get(album.id)
+              ? "favorites.removeAlbum"
+              : "favorites.addAlbum",
+          ),
+          run: () =>
+            void favoriteEntityMenuAction(options.favoriteAlbums, album.id),
+        },
       ]);
     });
-    row.append(open, more);
+    const heart = entityHeart(options.favoriteAlbums, album.id);
+    row.append(open, heart.element, more);
     return row;
   };
 
@@ -1504,8 +1583,11 @@ export function createLibraryScreen(
       const list = document.createElement("div");
       list.className = "library-artist-list";
       for (const item of pages.artists.items) {
+        const unavailable = item.availableTrackCount === 0;
+        const row = document.createElement("article");
+        row.className = `library-artist-row${unavailable ? " library-item--unavailable" : ""}`;
         const button = document.createElement("button");
-        button.className = `library-artist-row${item.availability === "unavailable" ? " library-item--unavailable" : ""}`;
+        button.className = "library-artist-row__main";
         button.type = "button";
         const copy = document.createElement("span");
         const name = document.createElement("strong");
@@ -1521,7 +1603,45 @@ export function createLibraryScreen(
           route = { kind: "artist", id: item.id };
           void renderRoute();
         });
-        list.append(button);
+        const heart = entityHeart(options.favoriteArtists, item.id);
+        const more = document.createElement("button");
+        more.className = "library-item-more";
+        more.type = "button";
+        more.setAttribute("aria-haspopup", "menu");
+        more.setAttribute(
+          "aria-label",
+          message("library.moreActions", { name: item.name }),
+        );
+        more.innerHTML = icon("more");
+        more.addEventListener("click", () => {
+          showMenu(more, [
+            {
+              label: t("library.playArtist"),
+              disabled: unavailable,
+              run: () => void play({ context: "artist", id: item.id }),
+            },
+            {
+              label: t("library.addArtist"),
+              disabled: unavailable,
+              run: () =>
+                void queueContext(
+                  { context: "artist", id: item.id },
+                  t("library.artistAdded"),
+                ),
+            },
+            {
+              label: t(
+                options.favoriteArtists.get(item.id)
+                  ? "favorites.removeArtist"
+                  : "favorites.addArtist",
+              ),
+              run: () =>
+                void favoriteEntityMenuAction(options.favoriteArtists, item.id),
+            },
+          ]);
+        });
+        row.append(button, heart.element, more);
+        list.append(row);
       }
       fragment.append(list);
     } else {
@@ -1587,6 +1707,7 @@ export function createLibraryScreen(
     playLabel: string,
     playAction: () => void,
     menuAction: (trigger: HTMLButtonElement) => void,
+    heart: FavoriteTrackButton,
     playable: boolean,
   ): HTMLElement => {
     const header = document.createElement("header");
@@ -1626,14 +1747,13 @@ export function createLibraryScreen(
     const more = document.createElement("button");
     more.className = "library-item-more";
     more.type = "button";
-    more.disabled = !playable;
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute("aria-label", t("library.moreActions"));
     more.innerHTML = icon("more");
     more.addEventListener("click", () => {
       menuAction(more);
     });
-    actions.append(playButton, more);
+    actions.append(playButton, heart.element, more);
     header.append(back, spacer, actions);
     return header;
   };
@@ -1650,15 +1770,31 @@ export function createLibraryScreen(
         (trigger) => {
           showMenu(trigger, [
             {
+              label: t("library.playAlbum"),
+              disabled: album.availableTrackCount === 0,
+              run: () => void play({ context: "album", id: album.id }),
+            },
+            {
               label: t("library.addAlbum"),
+              disabled: album.availableTrackCount === 0,
               run: () =>
                 void queueContext(
                   { context: "album", id: album.id },
                   t("library.albumAdded"),
                 ),
             },
+            {
+              label: t(
+                options.favoriteAlbums.get(album.id)
+                  ? "favorites.removeAlbum"
+                  : "favorites.addAlbum",
+              ),
+              run: () =>
+                void favoriteEntityMenuAction(options.favoriteAlbums, album.id),
+            },
           ]);
         },
+        entityHeart(options.favoriteAlbums, album.id),
         album.availableTrackCount > 0,
       ),
     );
@@ -1730,15 +1866,34 @@ export function createLibraryScreen(
         (trigger) => {
           showMenu(trigger, [
             {
+              label: t("library.playArtist"),
+              disabled: artist.availableTrackCount === 0,
+              run: () => void play({ context: "artist", id: artist.id }),
+            },
+            {
               label: t("library.addArtist"),
+              disabled: artist.availableTrackCount === 0,
               run: () =>
                 void queueContext(
                   { context: "artist", id: artist.id },
                   t("library.artistAdded"),
                 ),
             },
+            {
+              label: t(
+                options.favoriteArtists.get(artist.id)
+                  ? "favorites.removeArtist"
+                  : "favorites.addArtist",
+              ),
+              run: () =>
+                void favoriteEntityMenuAction(
+                  options.favoriteArtists,
+                  artist.id,
+                ),
+            },
           ]);
         },
+        entityHeart(options.favoriteArtists, artist.id),
         artist.availableTrackCount > 0,
       ),
     );

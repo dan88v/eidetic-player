@@ -13,6 +13,10 @@ import type {
   LibrarySearchCategory,
   FavoriteTrackPage,
   FavoriteTrackMutationResponse,
+  FavoriteAlbumPage,
+  FavoriteArtistPage,
+  FavoriteAlbumMutationResponse,
+  FavoriteArtistMutationResponse,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
@@ -316,6 +320,82 @@ export class IndexedLibraryService {
     return this.resolvedContext(resolved, selectedIndex);
   }
 
+  favoriteAlbums(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): FavoriteAlbumPage {
+    this.ensureOpen();
+    return this.repository.favoriteAlbums(cursor, this.pageLimit(limit));
+  }
+
+  favoriteAlbumIds(albumIds: readonly string[]): readonly string[] {
+    this.validateFavoriteIds(albumIds, "album");
+    return this.repository.favoriteAlbumIds(albumIds);
+  }
+
+  addFavoriteAlbum(albumId: string): FavoriteAlbumMutationResponse {
+    this.ensureOpen();
+    const result = this.repository.addFavoriteAlbum(albumId);
+    if (!result)
+      throw new LibraryError(
+        "LIBRARY_ALBUM_NOT_FOUND",
+        "This album is no longer in the Library.",
+        404,
+      );
+    return result;
+  }
+
+  removeFavoriteAlbum(albumId: string): FavoriteAlbumMutationResponse {
+    this.ensureOpen();
+    return this.repository.removeFavoriteAlbum(albumId);
+  }
+
+  resolveFavoriteAlbums(): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    return this.resolveFavoriteEntityRecords(
+      () => this.repository.favoriteAlbumContextTracks(),
+      "No available favorite album tracks were found.",
+    );
+  }
+
+  favoriteArtists(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): FavoriteArtistPage {
+    this.ensureOpen();
+    return this.repository.favoriteArtists(cursor, this.pageLimit(limit));
+  }
+
+  favoriteArtistIds(artistIds: readonly string[]): readonly string[] {
+    this.validateFavoriteIds(artistIds, "artist");
+    return this.repository.favoriteArtistIds(artistIds);
+  }
+
+  addFavoriteArtist(artistId: string): FavoriteArtistMutationResponse {
+    this.ensureOpen();
+    const result = this.repository.addFavoriteArtist(artistId);
+    if (!result)
+      throw new LibraryError(
+        "LIBRARY_ARTIST_NOT_FOUND",
+        "This artist is no longer in the Library.",
+        404,
+      );
+    return result;
+  }
+
+  removeFavoriteArtist(artistId: string): FavoriteArtistMutationResponse {
+    this.ensureOpen();
+    return this.repository.removeFavoriteArtist(artistId);
+  }
+
+  resolveFavoriteArtists(): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    return this.resolveFavoriteEntityRecords(
+      () => this.repository.favoriteArtistContextTracks(),
+      "No available favorite artist tracks were found.",
+    );
+  }
+
   search(query: string, limitPerGroup?: number): LibraryGroupedSearchResults {
     this.ensureOpen();
     const normalizedQuery = this.searchQuery(query);
@@ -552,6 +632,40 @@ export class IndexedLibraryService {
         "Type at least 2 characters.",
       );
     return normalized;
+  }
+
+  private validateFavoriteIds(
+    ids: readonly string[],
+    entity: "album" | "artist",
+  ): void {
+    this.ensureOpen();
+    const expression = new RegExp(`^${entity}-[0-9a-f]{32}$`);
+    if (ids.length > 192 || ids.some((id) => !expression.test(id)))
+      throw new LibraryError(
+        "INVALID_LIBRARY_FAVORITE_STATUS",
+        `Select up to 192 valid Library ${entity}s.`,
+      );
+  }
+
+  private async resolveFavoriteEntityRecords(
+    getRecords: () => readonly {
+      readonly id: string;
+      readonly sourceId: string;
+      readonly relativePath: string;
+    }[],
+    emptyMessage: string,
+  ): Promise<ResolvedLibraryContext> {
+    const before = this.repository.catalogFingerprint();
+    const resolved = await this.resolveRecords(getRecords());
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    if (resolved.length === 0)
+      throw new LibraryError("LIBRARY_CONTEXT_EMPTY", emptyMessage, 409);
+    return this.resolvedContext(resolved, 0);
   }
 
   private async resolveRecords(

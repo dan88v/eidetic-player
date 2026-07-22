@@ -14,6 +14,10 @@ import type {
   LibraryScanStatus,
   FavoriteTrackPage,
   FavoriteTrackMutationResponse,
+  FavoriteAlbumPage,
+  FavoriteArtistPage,
+  FavoriteAlbumMutationResponse,
+  FavoriteArtistMutationResponse,
 } from "../../../../packages/shared/src/library.js";
 import type { StoredSource } from "../filesystem/filesystem-types.js";
 import { LibraryDatabase } from "./library-database.js";
@@ -980,6 +984,317 @@ export class LibraryRepository {
       sourceId: String(row.source_id),
       relativePath: String(row.relative_path),
     }));
+  }
+
+  addFavoriteAlbum(
+    albumId: string,
+    createdAt = Date.now(),
+  ): FavoriteAlbumMutationResponse | null {
+    const album = this.connection
+      .prepare("SELECT album_id FROM albums WHERE album_id = ?")
+      .get(albumId) as SqlRow | undefined;
+    if (!album) return null;
+    this.connection
+      .prepare(
+        `INSERT INTO favorite_albums (album_id, created_at) VALUES (?, ?)
+         ON CONFLICT(album_id) DO NOTHING`,
+      )
+      .run(albumId, createdAt);
+    const row = this.connection
+      .prepare("SELECT created_at FROM favorite_albums WHERE album_id = ?")
+      .get(albumId) as SqlRow;
+    return {
+      albumId,
+      isFavorite: true,
+      favoritedAt: numberValue(row.created_at),
+    };
+  }
+
+  removeFavoriteAlbum(albumId: string): FavoriteAlbumMutationResponse {
+    this.connection
+      .prepare("DELETE FROM favorite_albums WHERE album_id = ?")
+      .run(albumId);
+    return { albumId, isFavorite: false, favoritedAt: null };
+  }
+
+  favoriteAlbumIds(albumIds: readonly string[]): readonly string[] {
+    const unique = [...new Set(albumIds)];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => "?").join(", ");
+    return (
+      this.connection
+        .prepare(
+          `SELECT album_id FROM favorite_albums
+           WHERE album_id IN (${placeholders}) ORDER BY album_id`,
+        )
+        .all(...unique) as SqlRow[]
+    ).map((row) => String(row.album_id));
+  }
+
+  favoriteAlbums(cursor: string | null, limit: number): FavoriteAlbumPage {
+    const decoded = decodeCursor(cursor, 2);
+    if (
+      decoded &&
+      (typeof decoded[0] !== "number" || typeof decoded[1] !== "string")
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_CURSOR",
+        "The Library page cursor is invalid.",
+      );
+    const createdAt = decoded ? numberValue(decoded[0]) : null;
+    const albumId = decoded ? String(decoded[1]) : null;
+    const rows = this.connection
+      .prepare(
+        `SELECT a.album_id, a.display_title, a.album_artist_display, a.year,
+                a.representative_track_id, a.track_count,
+                COUNT(DISTINCT CASE
+                  WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                  THEN t.track_id END) AS available_track_count,
+                COALESCE(SUM(CASE
+                  WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                  THEN t.duration_seconds ELSE 0 END), 0) AS total_duration_seconds,
+                f.created_at
+         FROM favorite_albums f
+         JOIN albums a ON a.album_id = f.album_id
+         LEFT JOIN tracks t ON t.album_id = a.album_id
+         LEFT JOIN library_sources s ON s.source_id = t.source_id
+         ${decoded ? "WHERE f.created_at < ? OR (f.created_at = ? AND f.album_id > ?)" : ""}
+         GROUP BY a.album_id, f.created_at
+         ORDER BY f.created_at DESC, f.album_id ASC
+         LIMIT ?`,
+      )
+      .all(
+        ...(decoded ? [createdAt, createdAt, albumId] : []),
+        limit + 1,
+      ) as SqlRow[];
+    const counts = this.connection
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN EXISTS (
+                  SELECT 1 FROM tracks t
+                  JOIN library_sources s ON s.source_id = t.source_id
+                  WHERE t.album_id = f.album_id AND t.available = 1
+                    AND s.available = 1 AND s.removed = 0
+                ) THEN 1 ELSE 0 END) AS available
+         FROM favorite_albums f`,
+      )
+      .get() as SqlRow;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((row) => ({
+        ...albumFromRow(row),
+        favoritedAt: numberValue(row.created_at),
+      })),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([numberValue(last.created_at), String(last.album_id)])
+          : null,
+      total: numberValue(counts.total),
+      availableCount: numberValue(counts.available),
+    };
+  }
+
+  favoriteAlbumContextTracks(): readonly LibraryContextTrack[] {
+    const rows = this.connection
+      .prepare(
+        `SELECT t.track_id, t.source_id, t.relative_path
+           FROM favorite_albums f
+           JOIN tracks t ON t.album_id = f.album_id
+           JOIN library_sources s ON s.source_id = t.source_id
+           WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+           ORDER BY f.created_at DESC, f.album_id ASC,
+                    t.disc_number IS NULL, t.disc_number,
+                    t.track_number IS NULL, t.track_number,
+                    lower(COALESCE(t.title, t.filename)), t.track_id`,
+      )
+      .all() as SqlRow[];
+    const seen = new Set<string>();
+    const result: LibraryContextTrack[] = [];
+    for (const row of rows) {
+      const id = String(row.track_id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      result.push({
+        id,
+        sourceId: String(row.source_id),
+        relativePath: String(row.relative_path),
+      });
+    }
+    return result;
+  }
+
+  addFavoriteArtist(
+    artistId: string,
+    createdAt = Date.now(),
+  ): FavoriteArtistMutationResponse | null {
+    const artist = this.connection
+      .prepare("SELECT artist_id FROM artists WHERE artist_id = ?")
+      .get(artistId) as SqlRow | undefined;
+    if (!artist) return null;
+    this.connection
+      .prepare(
+        `INSERT INTO favorite_artists (artist_id, created_at) VALUES (?, ?)
+         ON CONFLICT(artist_id) DO NOTHING`,
+      )
+      .run(artistId, createdAt);
+    const row = this.connection
+      .prepare("SELECT created_at FROM favorite_artists WHERE artist_id = ?")
+      .get(artistId) as SqlRow;
+    return {
+      artistId,
+      isFavorite: true,
+      favoritedAt: numberValue(row.created_at),
+    };
+  }
+
+  removeFavoriteArtist(artistId: string): FavoriteArtistMutationResponse {
+    this.connection
+      .prepare("DELETE FROM favorite_artists WHERE artist_id = ?")
+      .run(artistId);
+    return { artistId, isFavorite: false, favoritedAt: null };
+  }
+
+  favoriteArtistIds(artistIds: readonly string[]): readonly string[] {
+    const unique = [...new Set(artistIds)];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => "?").join(", ");
+    return (
+      this.connection
+        .prepare(
+          `SELECT artist_id FROM favorite_artists
+           WHERE artist_id IN (${placeholders}) ORDER BY artist_id`,
+        )
+        .all(...unique) as SqlRow[]
+    ).map((row) => String(row.artist_id));
+  }
+
+  favoriteArtists(cursor: string | null, limit: number): FavoriteArtistPage {
+    const decoded = decodeCursor(cursor, 2);
+    if (
+      decoded &&
+      (typeof decoded[0] !== "number" || typeof decoded[1] !== "string")
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_CURSOR",
+        "The Library page cursor is invalid.",
+      );
+    const createdAt = decoded ? numberValue(decoded[0]) : null;
+    const artistId = decoded ? String(decoded[1]) : null;
+    const rows = this.connection
+      .prepare(
+        `WITH favorite_artist_tracks AS (
+           SELECT f.artist_id, ta.track_id
+           FROM favorite_artists f
+           JOIN track_artists ta ON ta.artist_id = f.artist_id
+           UNION
+           SELECT f.artist_id, t.track_id
+           FROM favorite_artists f
+           JOIN albums a ON a.album_artist_id = f.artist_id
+           JOIN tracks t ON t.album_id = a.album_id
+         )
+         SELECT ar.artist_id, ar.display_name, ar.album_count, ar.track_count,
+                COUNT(DISTINCT CASE
+                  WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                  THEN t.track_id END) AS available_track_count,
+                f.created_at
+         FROM favorite_artists f
+         JOIN artists ar ON ar.artist_id = f.artist_id
+         LEFT JOIN favorite_artist_tracks fat ON fat.artist_id = f.artist_id
+         LEFT JOIN tracks t ON t.track_id = fat.track_id
+         LEFT JOIN library_sources s ON s.source_id = t.source_id
+         ${decoded ? "WHERE f.created_at < ? OR (f.created_at = ? AND f.artist_id > ?)" : ""}
+         GROUP BY ar.artist_id, f.created_at
+         ORDER BY f.created_at DESC, f.artist_id ASC
+         LIMIT ?`,
+      )
+      .all(
+        ...(decoded ? [createdAt, createdAt, artistId] : []),
+        limit + 1,
+      ) as SqlRow[];
+    const counts = this.connection
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN EXISTS (
+                  SELECT 1 FROM tracks t
+                  JOIN library_sources s ON s.source_id = t.source_id
+                  WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+                    AND (EXISTS (
+                      SELECT 1 FROM track_artists ta
+                      WHERE ta.track_id = t.track_id AND ta.artist_id = f.artist_id
+                    ) OR EXISTS (
+                      SELECT 1 FROM albums a
+                      WHERE a.album_id = t.album_id
+                        AND a.album_artist_id = f.artist_id
+                    ))
+                ) THEN 1 ELSE 0 END) AS available
+         FROM favorite_artists f`,
+      )
+      .get() as SqlRow;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((row) => ({
+        ...artistFromRow(row),
+        favoritedAt: numberValue(row.created_at),
+      })),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([numberValue(last.created_at), String(last.artist_id)])
+          : null,
+      total: numberValue(counts.total),
+      availableCount: numberValue(counts.available),
+    };
+  }
+
+  favoriteArtistContextTracks(): readonly LibraryContextTrack[] {
+    const rows = this.connection
+      .prepare(
+        `WITH favorite_artist_tracks AS (
+           SELECT f.artist_id, f.created_at, ta.track_id
+           FROM favorite_artists f
+           JOIN track_artists ta ON ta.artist_id = f.artist_id
+           UNION
+           SELECT f.artist_id, f.created_at, t.track_id
+           FROM favorite_artists f
+           JOIN albums owned ON owned.album_artist_id = f.artist_id
+           JOIN tracks t ON t.album_id = owned.album_id
+         )
+         SELECT fat.artist_id, fat.created_at, t.track_id, t.source_id,
+                t.relative_path, t.album_id,
+                lower(COALESCE(a.display_title, '')) AS album_key,
+                lower(COALESCE(a.album_artist_display, '')) AS album_artist_key,
+                lower(COALESCE(t.title, t.filename)) AS title_key,
+                t.disc_number, t.track_number
+         FROM favorite_artist_tracks fat
+         JOIN tracks t ON t.track_id = fat.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+         ORDER BY fat.created_at DESC, fat.artist_id ASC,
+                  t.album_id IS NULL, album_key, album_artist_key,
+                  CASE WHEN t.album_id IS NULL THEN 1 ELSE t.disc_number IS NULL END,
+                  CASE WHEN t.album_id IS NULL THEN 2147483647
+                       ELSE COALESCE(t.disc_number, 2147483647) END,
+                  CASE WHEN t.album_id IS NULL THEN 1 ELSE t.track_number IS NULL END,
+                  CASE WHEN t.album_id IS NULL THEN 2147483647
+                       ELSE COALESCE(t.track_number, 2147483647) END,
+                  title_key, t.track_id`,
+      )
+      .all() as SqlRow[];
+    const seen = new Set<string>();
+    const result: LibraryContextTrack[] = [];
+    for (const row of rows) {
+      const id = String(row.track_id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      result.push({
+        id,
+        sourceId: String(row.source_id),
+        relativePath: String(row.relative_path),
+      });
+    }
+    return result;
   }
 
   searchArtists(
