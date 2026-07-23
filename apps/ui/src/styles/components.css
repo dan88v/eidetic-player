@@ -76,6 +76,15 @@
     justify-content: center;
   }
 
+  .top-bar__system-icon--active {
+    color: var(--color-text);
+  }
+
+  .top-bar__system-icon--connecting {
+    color: var(--color-accent);
+    opacity: 0.78;
+  }
+
   .top-bar__system-icon .icon {
     width: 1.625rem;
     height: 1.625rem;

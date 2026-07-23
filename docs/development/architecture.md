@@ -94,6 +94,10 @@ Do not introduce a second owner for any of these concerns.
   and logical coverage state. Stable volume identity, drive letters, mount
   points, and native roots remain backend-only. Existing Quick Browse Queue
   origins are never converted when the same folder is indexed.
+- Network REST/SSE exposes opaque adapter and session-network IDs, safe link,
+  radio, connectivity, scan and read-only IP state. One AppShell subscription
+  feeds Settings and the top bar. Passwords, BSSID/MAC, native GUID/UUID,
+  profile material, helper commands, and native errors remain backend-only.
 - Library REST/SSE carries only opaque Source/Album/Artist/Track identity,
   catalog metadata, aggregate counts, progress, and safe error codes. Database
   paths and native roots remain backend-only. Native paths are reconstructed

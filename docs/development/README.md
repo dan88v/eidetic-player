@@ -8,6 +8,8 @@ These documents expand the mandatory rules in the repository
   transitions.
 - [Reusable on-screen keyboard](on-screen-keyboard.md) — opt-in profiles,
   touch-only policy, editing, layout, and lifecycle ownership.
+- [Network](network.md) — global status, platform Wi-Fi adapters, security,
+  Settings behavior, and lifecycle ownership.
 - [Performance](performance.md) — Raspberry Pi 3B budgets, Canvas, SSE, MPV,
   and FFmpeg.
 - [Cassette main player](cassette-player.md) — Queue tape progress, mechanics,

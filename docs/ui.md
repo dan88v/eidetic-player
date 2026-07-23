@@ -49,7 +49,7 @@ including when an idle staged Queue must first be materialized; Remove remains
 a separate sibling control. Drag reordering remains out of scope.
 
 The top bar begins with a 64 px Hamburger and the screen title. Its right side
-contains neutral, non-interactive Ethernet, Wi-Fi, and USB/DAC placeholder SVGs
+contains non-interactive Ethernet and Wi-Fi status plus the unchanged USB/DAC SVG
 followed by the unchanged 25 px tabular clock; no Home or audio-device chrome is
 rendered there. The lower row uses three stable zones: Library and Folders at
 the left edge;
@@ -218,6 +218,14 @@ ellipsis instead of one-line WebKit clamping. The left, center, and right
 transport zones share one vertical center axis.
 
 ## Settings and startup
+
+Settings root separates Interface and Network. Network selects a Wired or
+Wi-Fi view without disabling the other interface, shows current IPv4 values
+read-only, and keeps scan/connection dialogs on the existing Settings and
+shared-dialog surfaces. Its content header matches Interface, with Back and
+description on the left and the Wired/Wi-Fi selector on the right; the Settings
+hamburger remains unchanged. Ethernet and Wi-Fi top-bar icons reflect the shared
+global network snapshot without becoming controls.
 
 The Interface screen includes an inline Main player segmented control with
 `Default` and `Cassette`. The choice commits immediately through the central

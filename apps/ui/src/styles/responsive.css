@@ -102,6 +102,14 @@
       width: 100%;
     }
 
+    .network-details {
+      grid-template-columns: 1fr;
+    }
+
+    .network-details dd {
+      margin-bottom: var(--space-2);
+    }
+
     .sources-list--placeholders {
       grid-template-columns: 1fr;
     }

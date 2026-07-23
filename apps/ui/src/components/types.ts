@@ -1,6 +1,7 @@
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import type { IndexedLibrarySnapshot } from "../../../../packages/shared/src/library";
 import type { RemovableDeviceListResponse } from "../../../../packages/shared/src/library";
+import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 
 export interface ComponentView<T extends HTMLElement = HTMLElement> {
   readonly element: T;
@@ -8,5 +9,6 @@ export interface ComponentView<T extends HTMLElement = HTMLElement> {
   updateSeekPreview?(positionSeconds: number | null): void;
   updateLibrarySnapshot?(snapshot: IndexedLibrarySnapshot): void;
   updateRemovableDevices?(snapshot: RemovableDeviceListResponse): void;
+  updateNetworkSnapshot?(snapshot: NetworkSnapshot): void;
   destroy(): void;
 }

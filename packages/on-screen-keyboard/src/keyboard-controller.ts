@@ -89,7 +89,7 @@ export function createOnScreenKeyboard(
     keys.replaceChildren();
     keys.dataset.profile = profile?.name ?? "text";
     keys.dataset.layer =
-      profile?.name === "text"
+      profile?.name === "text" || profile?.name === "password"
         ? symbols
           ? "symbols"
           : "letters"
@@ -113,7 +113,9 @@ export function createOnScreenKeyboard(
         button.textContent =
           key.action === "enter"
             ? label
-            : key.value && profile?.name === "text" && !symbols
+            : key.value &&
+                (profile?.name === "text" || profile?.name === "password") &&
+                !symbols
               ? capsLock !== shift
                 ? key.value.toUpperCase()
                 : key.value
@@ -170,7 +172,11 @@ export function createOnScreenKeyboard(
 
   const handleKey = (button: HTMLButtonElement): void => {
     const input = activeInput;
-    if (!input || !isEligibleKeyboardInput(input) || !input.isConnected) {
+    if (
+      !input ||
+      !isEligibleKeyboardInput(input, activeProfile()?.name) ||
+      !input.isConnected
+    ) {
       api.hide();
       return;
     }
@@ -211,7 +217,10 @@ export function createOnScreenKeyboard(
     else {
       const raw = button.dataset.value ?? "";
       const value =
-        activeProfile()?.name === "text" && !symbols && capsLock !== shift
+        (activeProfile()?.name === "text" ||
+          activeProfile()?.name === "password") &&
+        !symbols &&
+        capsLock !== shift
           ? raw.toUpperCase()
           : raw;
       replaceSelection(input, value);
@@ -258,7 +267,7 @@ export function createOnScreenKeyboard(
         target instanceof HTMLTextAreaElement
       ) ||
       !profiles.has(target) ||
-      !isEligibleKeyboardInput(target)
+      !isEligibleKeyboardInput(target, profiles.get(target)?.name)
     )
       return;
     activeInput = target;
@@ -304,7 +313,7 @@ export function createOnScreenKeyboard(
         automaticMode === "off" ||
         preferNativeKeyboard ||
         !profiles.has(input) ||
-        !isEligibleKeyboardInput(input)
+        !isEligibleKeyboardInput(input, profiles.get(input)?.name)
       )
         return;
       activeInput = input;

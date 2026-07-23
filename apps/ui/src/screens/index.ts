@@ -5,6 +5,8 @@ import type { PlayerActions } from "./now-playing";
 import type { FoldersApiClient } from "../api/folders-api-client";
 import type { LibraryApiClient } from "../api/library-api-client";
 import type { RemovableStorageApiClient } from "../api/removable-storage-api-client";
+import type { NetworkApiClient } from "../api/network-api-client";
+import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -66,6 +68,9 @@ export interface ScreenContext {
   readonly playerActions: PlayerActions;
   readonly foldersApi: FoldersApiClient;
   readonly removableApi: RemovableStorageApiClient;
+  readonly networkApi: NetworkApiClient;
+  readonly networkSnapshot: NetworkSnapshot;
+  readonly openSystemNetworkSettings: () => Promise<void>;
   readonly removableDevices: RemovableDeviceListResponse;
   readonly selectedRemovableDevice: RemovableDevice | null;
   readonly openUsbStorage: (trigger?: HTMLElement) => void;
@@ -233,6 +238,12 @@ export function createScreen(
         musicBrowsingVisibility: context.state.musicBrowsingVisibility,
         returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
         onScreenKeyboardMode: context.state.onScreenKeyboardMode,
+        networkApi: context.networkApi,
+        networkSnapshot: context.networkSnapshot,
+        showToast: context.showToast,
+        openSystemNetworkSettings: context.openSystemNetworkSettings,
+        setScreenTitle: context.setScreenTitle,
+        setHeaderActions: context.setHeaderActions,
         onAnimationsChange: context.setAnimationsEnabled,
         onMainPlayerModeChange: context.setMainPlayerMode,
         onVisualizerModeChange: context.setVisualizerMode,

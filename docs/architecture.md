@@ -184,6 +184,10 @@ Commands use validated JSON POST endpoints:
   `/tracks`, `/tracks/:trackId/artwork`
 - `POST /api/library/play`, `/queue`, `/tracks/queue`
 - `POST /api/library/scan`, `/scan/cancel`, `/recovery/acknowledge`
+- `GET /api/network/state`, `/events`
+- `POST /api/network/wifi/scan`, `/radio`, `/connect`, `/connect-hidden`,
+  `/disconnect`
+- `DELETE /api/network/wifi/managed-profile`
 
 `GET /api/player/state` returns a full snapshot. `GET /api/player/events` is an
 SSE stream that sends an immediate snapshot, subsequent state, and a lightweight
@@ -197,7 +201,7 @@ and image data never appear in artwork URLs or SSE references. Unknown IDs and
 traversal-like inputs return 404.
 
 Shared contracts in `packages/shared` define `PlayerState`, queue and track
-shapes, status/repeat types, Library snapshots/progress, API envelopes, and
+shapes, status/repeat types, Library and Network snapshots, API envelopes, and
 supported extensions. The UI has central API clients and one player store;
 components never issue raw `fetch` calls.
 

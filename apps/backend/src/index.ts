@@ -58,6 +58,17 @@ import { RemovableStorageService } from "./removable-storage/removable-storage-s
 import { createPlatformRemovableStorageProvider } from "./removable-storage/removable-storage-service.js";
 import { createPlatformRemovableMediaAdapter } from "./removable-storage/removable-storage-service.js";
 import { RemovableStorageSseHub } from "./api/removable-storage-sse-hub.js";
+import type {
+  WifiAdapterRequest,
+  WifiConnectRequest,
+  WifiHiddenConnectRequest,
+  WifiRadioRequest,
+  WifiSecurity,
+} from "../../../packages/shared/src/network.js";
+import { NetworkSseHub } from "./api/network-sse-hub.js";
+import { NetworkService } from "./network/network-service.js";
+import { createPlatformNetworkAdapter } from "./network/platform-network-adapter.js";
+import { NetworkAdapterError } from "./network/network-adapter.js";
 
 const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
@@ -69,6 +80,10 @@ const removableStorage = new RemovableStorageService(
   pathService,
   2_500,
   createPlatformRemovableMediaAdapter(),
+);
+const network = new NetworkService(
+  createPlatformNetworkAdapter(),
+  process.platform === "win32" ? 15_000 : 5_000,
 );
 const sources = new SourceService(
   filesystemProvider,
@@ -173,6 +188,7 @@ const playerSession = new PlayerSessionService(
 );
 const events = new SseHub(player);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
+const networkEvents = new NetworkSseHub(network);
 const unsubscribeRemovablePlayer = removableStorage.subscribe((change) => {
   for (const deviceId of change.disconnectedIds) {
     folders.invalidateSource(deviceId);
@@ -750,6 +766,111 @@ async function handleRequest(
     }
     if (request.method === "GET" && url.pathname === "/api/player/state") {
       sendJson(response, 200, { ok: true, data: player.getPublicState() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/network/state") {
+      sendJson(response, 200, { ok: true, data: network.snapshot() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/network/events") {
+      networkEvents.add(response);
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/api/network/wifi/")
+    ) {
+      const body = await readBody(request);
+      if (!body || typeof body !== "object" || Array.isArray(body))
+        throw new NetworkAdapterError(
+          "generic-failure",
+          "Invalid network request.",
+        );
+      const record = body as Record<string, unknown>;
+      const adapterId = record.adapterId;
+      if (
+        typeof adapterId !== "string" ||
+        !/^network-[0-9a-f]{16}$/u.test(adapterId)
+      )
+        throw new NetworkAdapterError("no-adapter", "Invalid adapter.");
+      if (url.pathname === "/api/network/wifi/scan") {
+        await network.scan((record as unknown as WifiAdapterRequest).adapterId);
+      } else if (url.pathname === "/api/network/wifi/radio") {
+        if (typeof record.enabled !== "boolean")
+          throw new NetworkAdapterError(
+            "generic-failure",
+            "Invalid radio state.",
+          );
+        const requestBody = record as unknown as WifiRadioRequest;
+        await network.setRadio(requestBody.adapterId, requestBody.enabled);
+      } else if (url.pathname === "/api/network/wifi/connect") {
+        if (
+          typeof record.networkId !== "string" ||
+          !/^network-[0-9a-f]{16}$/u.test(record.networkId) ||
+          (record.password !== undefined && typeof record.password !== "string")
+        )
+          throw new NetworkAdapterError(
+            "generic-failure",
+            "Invalid connection request.",
+          );
+        const requestBody = record as unknown as WifiConnectRequest;
+        await network.connect(
+          requestBody.adapterId,
+          requestBody.networkId,
+          requestBody.password,
+        );
+      } else if (url.pathname === "/api/network/wifi/connect-hidden") {
+        const validSecurity = (
+          value: unknown,
+        ): value is Exclude<WifiSecurity, "unsupported"> =>
+          value === "open" ||
+          value === "wpa2-personal" ||
+          value === "wpa3-personal";
+        if (
+          typeof record.ssid !== "string" ||
+          record.ssid.trim().length === 0 ||
+          new TextEncoder().encode(record.ssid).length > 32 ||
+          !validSecurity(record.security) ||
+          (record.password !== undefined && typeof record.password !== "string")
+        )
+          throw new NetworkAdapterError(
+            "generic-failure",
+            "Invalid hidden network.",
+          );
+        const requestBody = record as unknown as WifiHiddenConnectRequest;
+        await network.connectHidden(
+          requestBody.adapterId,
+          requestBody.ssid.trim(),
+          requestBody.security,
+          requestBody.password,
+        );
+      } else if (url.pathname === "/api/network/wifi/disconnect") {
+        await network.disconnect(adapterId);
+      } else {
+        throw new NetworkAdapterError(
+          "generic-failure",
+          "Unknown network action.",
+        );
+      }
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/api/network/wifi/managed-profile"
+    ) {
+      const body = await readBody(request);
+      const adapterId =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>).adapterId
+          : null;
+      if (
+        typeof adapterId !== "string" ||
+        !/^network-[0-9a-f]{16}$/u.test(adapterId)
+      )
+        throw new NetworkAdapterError("no-adapter", "Invalid adapter.");
+      await network.forgetManagedProfile(adapterId);
+      sendJson(response, 200, { ok: true });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
@@ -2065,6 +2186,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof NetworkAdapterError) {
+      sendJson(response, error.code === "operation-conflict" ? 409 : 400, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     const playerError =
       error instanceof PlayerError ||
       error instanceof FilesystemError ||
@@ -2106,6 +2234,7 @@ function shutdown(signal: NodeJS.Signals): void {
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
   removableEvents.close();
+  networkEvents.close();
   unsubscribeRemovablePlayer();
   unsubscribeHistoryState();
   unsubscribeNaturalEnd();
@@ -2123,6 +2252,7 @@ function shutdown(signal: NodeJS.Signals): void {
         waveform.close(),
         folders.close(),
         removableStorage.close(),
+        network.close(),
         libraryEventsPromise
           .then((libraryEvents) => {
             libraryEvents.close();

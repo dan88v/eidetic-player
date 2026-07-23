@@ -9,6 +9,11 @@ import { PlayerApiClient } from "../api/player-api-client";
 import { FoldersApiClient } from "../api/folders-api-client";
 import { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
+import { NetworkApiClient } from "../api/network-api-client";
+import {
+  emptyNetworkSnapshot,
+  type NetworkSnapshot,
+} from "../../../../packages/shared/src/network";
 import { t } from "../i18n";
 import { getNavigationItem, isSettingsRoute } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
@@ -63,6 +68,7 @@ export function mountApp(
   const foldersApi = new FoldersApiClient();
   const removableApi = new RemovableStorageApiClient();
   const libraryApi = new LibraryApiClient();
+  const networkApi = new NetworkApiClient();
   const favorites = new FavoriteTrackStore(libraryApi);
   const favoriteAlbums = new FavoriteAlbumStore(libraryApi);
   const favoriteArtists = new FavoriteArtistStore(libraryApi);
@@ -234,6 +240,7 @@ export function mountApp(
     devices: [],
   };
   let selectedRemovableDevice: RemovableDevice | null = null;
+  let networkSnapshot: NetworkSnapshot = emptyNetworkSnapshot;
   let usbReturnScreen: ScreenId = "nowPlaying";
   const actions = {
     openFiles,
@@ -301,6 +308,14 @@ export function mountApp(
       playerActions: actions,
       foldersApi,
       removableApi,
+      networkApi,
+      networkSnapshot,
+      openSystemNetworkSettings: () =>
+        platform.openNetworkSettings
+          ? platform.openNetworkSettings()
+          : Promise.reject(
+              new Error("Opening system settings is unavailable."),
+            ),
       removableDevices,
       selectedRemovableDevice,
       openUsbStorage,
@@ -616,6 +631,25 @@ export function mountApp(
         },
       );
     });
+  const receiveNetworkSnapshot = (snapshot: NetworkSnapshot): void => {
+    if (appDestroyed || snapshot.revision < networkSnapshot.revision) return;
+    networkSnapshot = snapshot;
+    topBar.updateNetwork(snapshot);
+    currentScreen?.updateNetworkSnapshot?.(snapshot);
+  };
+  let unsubscribeNetwork = (): void => undefined;
+  void networkApi
+    .state()
+    .then(receiveNetworkSnapshot)
+    .catch((error: unknown) => {
+      console.warn("[network] initial snapshot unavailable", error);
+    })
+    .finally(() => {
+      if (appDestroyed) return;
+      unsubscribeNetwork = networkApi.subscribe(receiveNetworkSnapshot, () => {
+        // EventSource reconnects automatically; the last snapshot remains.
+      });
+    });
   const receiveLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
     if (appDestroyed) return;
     currentLibrarySnapshot = snapshot;
@@ -808,6 +842,7 @@ export function mountApp(
       unsubscribeEvents();
       unsubscribeLibrary();
       unsubscribeRemovable();
+      unsubscribeNetwork();
       unsubscribeDrops();
       unsubscribePlayer();
       unsubscribeApp();

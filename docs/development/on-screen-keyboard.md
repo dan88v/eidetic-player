@@ -8,7 +8,7 @@ styles, persistence, routing, or platform APIs. The Eidetic-specific adapter is
 ## Integration contract
 
 Eidetic mounts exactly one keyboard with the application shell. Fields opt in
-explicitly with `data-onscreen-keyboard="text|numeric|ipv4"`; no generic input
+explicitly with `data-onscreen-keyboard="text|numeric|ipv4|password"`; no generic input
 selector is used. `data-onscreen-keyboard-enter="search"` keeps the keyboard
 open after dispatching one Enter event, while the default `done` action closes
 it. The real input remains focused and authoritative; the keyboard does not
@@ -19,7 +19,10 @@ use the same exact ten-column geometry. The alphabetic rows follow the
 touch-keyboard stagger: `ASDFGHJKL` is centred between the first-row keys, and
 the third-row Shift/Backspace widths align Z below S and M below K. The symbols
 layer places digits above symbols and keeps its function keys symmetrical. The
-numeric profile exposes digits only; IPv4 adds the decimal point. Both include
+password profile reuses QWERTY and symbols without rendering a duplicate value
+or preview; password fields remain ineligible unless they explicitly choose
+that profile. Show/Hide remains owned by the form. The numeric profile exposes
+digits only; IPv4 adds the decimal point. Both include
 Backspace, Clear where applicable, Done, and Hide.
 
 The adapter maps package tokens to Eidetic theme variables and localized
@@ -31,7 +34,7 @@ labels, theme tokens, native-keyboard preference, and visibility callback.
 `Auto` is the default Eidetic setting. Automatic opening requires all of the
 following:
 
-- an explicitly opted-in, editable, non-password field;
+- an explicitly opted-in, editable field (password requires the password profile);
 - a touch or pen pointer origin;
 - the setting to be `Auto`;
 - a host that does not prefer its native software keyboard.

@@ -1,4 +1,4 @@
-export type KeyboardProfileName = "text" | "numeric" | "ipv4";
+export type KeyboardProfileName = "text" | "numeric" | "ipv4" | "password";
 export type KeyboardEnterAction = "search" | "done";
 export type KeyboardAutomaticMode = "auto" | "always" | "off";
 export type KeyboardInput = HTMLInputElement | HTMLTextAreaElement;

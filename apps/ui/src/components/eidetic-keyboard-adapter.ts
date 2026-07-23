@@ -25,7 +25,13 @@ function keyboardInput(target: EventTarget | null): KeyboardInput | null {
 
 function profileFor(input: KeyboardInput): KeyboardProfile | null {
   const name = input.dataset.onscreenKeyboard;
-  if (name !== "text" && name !== "numeric" && name !== "ipv4") return null;
+  if (
+    name !== "text" &&
+    name !== "numeric" &&
+    name !== "ipv4" &&
+    name !== "password"
+  )
+    return null;
   const enterAction =
     input.dataset.onscreenKeyboardEnter === "search" ? "search" : "done";
   return { name, enterAction };

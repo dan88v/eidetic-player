@@ -215,7 +215,9 @@ mutation shows a success toast.
 
 ## Settings and inactivity
 
-Settings uses root, Interface, and selection sub-screens. Every boolean uses an
+Settings uses root, Interface, Network, and selection sub-screens. Network
+reuses the segmented control to select Wired or Wi-Fi view without changing
+the other interface. Every boolean uses an
 inline segmented control. Without exceptions, any control with three or more
 choices uses a shared row, current-value summary, 30 px SVG chevron, and a
 dedicated selection screen; three-or-more-choice pill groups are not permitted

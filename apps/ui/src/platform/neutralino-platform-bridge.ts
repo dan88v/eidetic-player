@@ -49,6 +49,18 @@ export class NeutralinoPlatformBridge implements PlatformBridge {
     }
   }
 
+  openNetworkSettings(): Promise<void> {
+    if (!this.runtime.os.open)
+      return Promise.reject(
+        new Error("Opening system settings is unavailable."),
+      );
+    return this.runtime.os.open(
+      navigator.platform.toLowerCase().includes("win")
+        ? "ms-settings:privacy-location"
+        : "network:",
+    );
+  }
+
   subscribeToDroppedFiles(
     callback: (paths: readonly string[]) => void,
   ): () => void {

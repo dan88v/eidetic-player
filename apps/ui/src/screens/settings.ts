@@ -10,6 +10,13 @@ import type {
   MainPlayerMode,
   OnScreenKeyboardMode,
 } from "../state/types";
+import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
+import type { NetworkApiClient } from "../api/network-api-client";
+import {
+  createNetworkSettingsPanel,
+  networkSummary,
+  type NetworkSettingsPanel,
+} from "./network-settings-panel";
 
 export interface SettingsScreenOptions {
   readonly animationsEnabled: boolean;
@@ -19,6 +26,15 @@ export interface SettingsScreenOptions {
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
   readonly onScreenKeyboardMode: OnScreenKeyboardMode;
+  readonly networkApi: NetworkApiClient;
+  readonly networkSnapshot: NetworkSnapshot;
+  readonly showToast: (
+    message: string,
+    tone?: "error" | "success" | "neutral",
+  ) => void;
+  readonly openSystemNetworkSettings: () => Promise<void>;
+  readonly setScreenTitle: (title: string) => void;
+  readonly setHeaderActions: (back: (() => void) | null, more: null) => void;
   readonly onAnimationsChange: (enabled: boolean) => boolean;
   readonly onVisualizerModeChange: (mode: VisualizerMode) => boolean;
   readonly onMainPlayerModeChange: (mode: MainPlayerMode) => boolean;
@@ -33,7 +49,13 @@ export interface SettingsScreenOptions {
 }
 
 type SettingsPage =
-  "root" | "interface" | "keyboard" | "browsing" | "visualizer" | "inactivity";
+  | "root"
+  | "interface"
+  | "network"
+  | "keyboard"
+  | "browsing"
+  | "visualizer"
+  | "inactivity";
 
 export function createSettingsScreen(
   options: SettingsScreenOptions,
@@ -47,12 +69,14 @@ export function createSettingsScreen(
   let browsing = options.musicBrowsingVisibility;
   let inactivity = options.returnToNowPlayingSeconds;
   let onScreenKeyboard = options.onScreenKeyboardMode;
+  let networkSnapshot = options.networkSnapshot;
+  let networkPanel: NetworkSettingsPanel | null = null;
 
   const chevron = (): string =>
     `<span class="settings-chevron" aria-hidden="true">${icon("chevronRight")}</span>`;
 
   const navigateBack = (): void => {
-    page = page === "interface" ? "root" : "interface";
+    page = page === "interface" || page === "network" ? "root" : "interface";
     render();
   };
 
@@ -75,8 +99,36 @@ export function createSettingsScreen(
   };
 
   function render(): void {
+    networkPanel?.destroy();
+    networkPanel = null;
     section.dataset.settingsPage = page;
     section.replaceChildren();
+    if (page === "network") {
+      options.setScreenTitle(t("screen.settings.title"));
+      options.setHeaderActions(null, null);
+      networkPanel = createNetworkSettingsPanel({
+        api: options.networkApi,
+        initialSnapshot: networkSnapshot,
+        showToast: options.showToast,
+        openSystemSettings: options.openSystemNetworkSettings,
+      });
+      const header = document.createElement("header");
+      header.className =
+        "screen-header screen-header--compact network-settings-header";
+      header.setAttribute("aria-label", "Network");
+      header.innerHTML =
+        '<p class="screen-header__description">View network status and manage Wi-Fi.</p>';
+      const back = document.createElement("button");
+      back.className = "icon-button settings-back";
+      back.type = "button";
+      back.setAttribute("aria-label", t("common.back"));
+      back.innerHTML = icon("back");
+      back.addEventListener("click", navigateBack);
+      header.prepend(back);
+      header.append(networkPanel.selectorElement);
+      section.append(header, networkPanel.element);
+      return;
+    }
     const header = document.createElement("header");
     header.className = "screen-header screen-header--compact";
     const title =
@@ -119,15 +171,25 @@ export function createSettingsScreen(
     section.append(header, panel);
 
     if (page === "root") {
-      const button = document.createElement("button");
-      button.className = "settings-row-base setting-navigation";
-      button.type = "button";
-      button.innerHTML = `<span><strong>${t("settings.interface")}</strong><small>${t("settings.interfaceDescription")}</small></span>${chevron()}`;
-      button.addEventListener("click", () => {
+      const interfaceButton = document.createElement("button");
+      interfaceButton.className = "settings-row-base setting-navigation";
+      interfaceButton.type = "button";
+      interfaceButton.innerHTML = `<span><strong>${t("settings.interface")}</strong><small>${t("settings.interfaceDescription")}</small></span>${chevron()}`;
+      interfaceButton.addEventListener("click", () => {
         page = "interface";
         render();
       });
-      panel.append(button);
+      const networkButton = document.createElement("button");
+      networkButton.className = "settings-row-base setting-navigation";
+      networkButton.type = "button";
+      networkButton.innerHTML = `<span><strong>Network</strong><small></small></span>${chevron()}`;
+      const summary = networkButton.querySelector("small");
+      if (summary) summary.textContent = networkSummary(networkSnapshot);
+      networkButton.addEventListener("click", () => {
+        page = "network";
+        render();
+      });
+      panel.append(interfaceButton, networkButton);
       return;
     }
 
@@ -315,7 +377,15 @@ export function createSettingsScreen(
   render();
   return {
     element: section,
+    updateNetworkSnapshot(snapshot) {
+      if (snapshot.revision < networkSnapshot.revision) return;
+      networkSnapshot = snapshot;
+      if (page === "network") networkPanel?.update(snapshot);
+      else if (page === "root") render();
+    },
     destroy() {
+      networkPanel?.destroy();
+      options.setHeaderActions(null, null);
       section.replaceChildren();
     },
   };

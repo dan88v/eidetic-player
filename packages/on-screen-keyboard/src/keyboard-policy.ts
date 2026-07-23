@@ -1,8 +1,15 @@
-import type { KeyboardAutomaticMode, KeyboardInput } from "./keyboard-types";
+import type {
+  KeyboardAutomaticMode,
+  KeyboardInput,
+  KeyboardProfileName,
+} from "./keyboard-types";
 
-export function isEligibleKeyboardInput(input: KeyboardInput): boolean {
+export function isEligibleKeyboardInput(
+  input: KeyboardInput,
+  profile?: KeyboardProfileName,
+): boolean {
   if (input.disabled || input.readOnly || input.type === "hidden") return false;
-  return input.type !== "password";
+  return input.type !== "password" || profile === "password";
 }
 
 export function shouldOpenAutomatically(

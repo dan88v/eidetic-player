@@ -172,6 +172,10 @@ void test("only editable non-password fields are eligible", () => {
   assert.equal(isEligibleKeyboardInput(field({ readOnly: true })), false);
   assert.equal(isEligibleKeyboardInput(field({ type: "hidden" })), false);
   assert.equal(isEligibleKeyboardInput(field({ type: "password" })), false);
+  assert.equal(
+    isEligibleKeyboardInput(field({ type: "password" }), "password"),
+    true,
+  );
 });
 
 void test("controller owns one mount, centralized listeners and complete teardown", () => {

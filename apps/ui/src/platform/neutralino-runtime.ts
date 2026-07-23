@@ -17,6 +17,7 @@ export interface NeutralinoRuntime {
       title?: string,
       options?: { readonly defaultPath?: string },
     ): Promise<unknown>;
+    open?(target: string): Promise<void>;
   };
   readonly events: {
     on(name: string, listener: NeutralinoListener): unknown;

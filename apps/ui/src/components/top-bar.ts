@@ -1,5 +1,6 @@
 import { icon } from "./icons";
 import { t } from "../i18n";
+import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 
 export interface TopBar {
   readonly element: HTMLElement;
@@ -9,6 +10,7 @@ export interface TopBar {
     back: (() => void) | null,
     more: ((trigger: HTMLButtonElement) => void) | null,
   ): void;
+  updateNetwork(snapshot: NetworkSnapshot): void;
   destroy(): void;
 }
 
@@ -27,10 +29,9 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
     <button class="top-bar__menu icon-button" type="button" aria-label="${t("nav.openMenu")}" aria-expanded="false" aria-controls="side-menu">${icon("menu")}</button>
     <h1 class="top-bar__title"></h1>
     <div class="top-bar__info">
-      <!-- Placeholder system indicators; real status binding belongs to a future step. -->
       <span class="top-bar__system-icons" aria-hidden="true">
-        <span class="top-bar__system-icon">${icon("ethernet")}</span>
-        <span class="top-bar__system-icon">${icon("wifi")}</span>
+        <span class="top-bar__system-icon" data-network-indicator="wired">${icon("ethernet")}</span>
+        <span class="top-bar__system-icon" data-network-indicator="wifi">${icon("wifi")}</span>
         <span class="top-bar__system-icon">${icon("usb")}</span>
       </span>
       <time class="top-bar__clock" aria-label="${t("topBar.clockLabel")}"></time>
@@ -39,7 +40,20 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
   const title = element.querySelector<HTMLHeadingElement>(".top-bar__title");
   const clock = element.querySelector<HTMLTimeElement>(".top-bar__clock");
   const info = element.querySelector<HTMLElement>(".top-bar__info");
-  if (!menuButton || !title || !clock || !info)
+  const wiredIndicator = element.querySelector<HTMLElement>(
+    '[data-network-indicator="wired"]',
+  );
+  const wifiIndicator = element.querySelector<HTMLElement>(
+    '[data-network-indicator="wifi"]',
+  );
+  if (
+    !menuButton ||
+    !title ||
+    !clock ||
+    !info ||
+    !wiredIndicator ||
+    !wifiIndicator
+  )
     throw new Error("Top bar is incomplete");
   const moreButton = document.createElement("button");
   moreButton.className = "top-bar__more icon-button";
@@ -75,6 +89,20 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
       menuButton.innerHTML = icon(back ? "back" : "menu");
       menuButton.setAttribute("aria-label", back ? "Back" : t("nav.openMenu"));
       moreButton.hidden = more === null;
+    },
+    updateNetwork(snapshot) {
+      wiredIndicator.classList.toggle(
+        "top-bar__system-icon--active",
+        snapshot.wiredAdapters.some((adapter) => adapter.connected),
+      );
+      wifiIndicator.classList.toggle(
+        "top-bar__system-icon--active",
+        snapshot.wifiAdapters.some((adapter) => adapter.connected),
+      );
+      wifiIndicator.classList.toggle(
+        "top-bar__system-icon--connecting",
+        snapshot.operationState === "connecting",
+      );
     },
     destroy() {
       window.clearInterval(clockTimer);
