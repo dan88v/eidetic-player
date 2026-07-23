@@ -578,11 +578,15 @@ export function mountApp(
     );
     const currentQueueItem =
       playerStore.getState().queue[playerStore.getState().currentQueueIndex];
-    const disconnectedCurrent = [...previousIds].find(
-      (deviceId) =>
-        !snapshot.devices.some((device) => device.id === deviceId) &&
-        currentQueueItem?.path.startsWith(`removable://${deviceId}/`),
+    const disconnectedDeviceIds = [...previousIds].filter(
+      (deviceId) => !snapshot.devices.some((device) => device.id === deviceId),
     );
+    const disconnectedCurrent =
+      disconnectedDeviceIds.some((deviceId) =>
+        currentQueueItem?.path.startsWith(`removable://${deviceId}/`),
+      ) ||
+      (disconnectedDeviceIds.length > 0 &&
+        currentQueueItem?.path.startsWith("library-source://"));
     removableDevices = snapshot;
     if (selectedRemovableDevice) {
       selectedRemovableDevice =

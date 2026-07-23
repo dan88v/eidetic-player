@@ -48,6 +48,10 @@ export function createSourcesScreen(
       <h2 id="usb-storage-heading">${t("sources.usbStorage")}</h2>
       <div class="sources-list sources-list--usb" aria-live="polite"></div>
     </section>
+    <section class="sources-section" aria-labelledby="usb-library-folders-heading">
+      <h2 id="usb-library-folders-heading">USB Library Folders</h2>
+      <div class="sources-list sources-list--removable-library" aria-live="polite"></div>
+    </section>
     <section class="sources-section" aria-labelledby="future-sources-heading">
       <h2 id="future-sources-heading" class="visually-hidden">${t("sources.comingLater")}</h2>
       <div class="sources-list sources-list--placeholders">
@@ -67,6 +71,9 @@ export function createSourcesScreen(
     </section>`;
   const localList = section.querySelector<HTMLElement>(".sources-list--local");
   const usbList = section.querySelector<HTMLElement>(".sources-list--usb");
+  const removableLibraryList = section.querySelector<HTMLElement>(
+    ".sources-list--removable-library",
+  );
   const addButton = section.querySelector<HTMLButtonElement>(
     ".sources-header__add",
   );
@@ -102,6 +109,7 @@ export function createSourcesScreen(
   if (
     !localList ||
     !usbList ||
+    !removableLibraryList ||
     !addButton ||
     !scanButton ||
     !dialog ||
@@ -258,20 +266,31 @@ export function createSourcesScreen(
   };
 
   const render = (sources: readonly LibrarySource[]): void => {
-    const fragment = document.createDocumentFragment();
-    if (sources.length === 0) {
+    const localFragment = document.createDocumentFragment();
+    const removableFragment = document.createDocumentFragment();
+    const localSources = sources.filter((source) => source.type === "local");
+    const removableSources = sources.filter(
+      (source) => source.type === "removable",
+    );
+    if (localSources.length === 0) {
       const empty = document.createElement("p");
       empty.className = "sources-empty";
       empty.textContent = t("sources.noLocalFolders");
-      fragment.append(empty);
+      localFragment.append(empty);
+    }
+    if (removableSources.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "sources-empty";
+      empty.textContent = "No USB Library folders.";
+      removableFragment.append(empty);
     }
     for (const source of sources) {
       const card = document.createElement("article");
       card.className = "source-card";
       card.dataset.sourceId = source.id;
       card.innerHTML = `
-        <span class="source-card__icon">${icon("folder")}</span>
-        <div class="source-card__copy"><h3></h3><p>${t("sources.localFolder")}</p><span class="source-card__status"></span></div>
+        <span class="source-card__icon">${icon(source.type === "removable" ? "usbStorage" : "folder")}</span>
+        <div class="source-card__copy"><h3></h3><p>${source.type === "removable" ? "USB Library folder" : t("sources.localFolder")}</p><span class="source-card__status"></span></div>
         <div class="source-card__actions">
           <button type="button" data-source-action="open">${t("sources.open")}</button>
           <button class="source-card__more" type="button" data-source-action="more" aria-label="${t("sources.actions")}" aria-haspopup="menu">${icon("more")}</button>
@@ -339,14 +358,18 @@ export function createSourcesScreen(
           )
           ?.focus();
       });
-      fragment.append(card);
+      (source.type === "removable" ? removableFragment : localFragment).append(
+        card,
+      );
     }
-    localList.replaceChildren(fragment);
+    localList.replaceChildren(localFragment);
+    removableLibraryList.replaceChildren(removableFragment);
   };
 
   const load = async (): Promise<void> => {
     const generation = ++requestGeneration;
     localList.setAttribute("aria-busy", "true");
+    removableLibraryList.setAttribute("aria-busy", "true");
     try {
       const response = await options.api.listSources();
       if (destroyed || generation !== requestGeneration) return;
@@ -356,6 +379,8 @@ export function createSourcesScreen(
     } finally {
       if (!destroyed && generation === requestGeneration)
         localList.removeAttribute("aria-busy");
+      if (!destroyed && generation === requestGeneration)
+        removableLibraryList.removeAttribute("aria-busy");
     }
   };
 

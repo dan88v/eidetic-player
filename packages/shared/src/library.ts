@@ -108,6 +108,24 @@ export interface AddLocalSourceResponse {
   readonly duplicate: boolean;
 }
 
+export type RemovableLibraryCoverageState =
+  "none" | "exact" | "covered-by-parent" | "overlaps-child";
+
+export interface RemovableLibraryCoverage {
+  readonly state: RemovableLibraryCoverageState;
+  readonly source: LibrarySource | null;
+}
+
+export interface AddRemovableLibrarySourceResponse {
+  readonly source: LibrarySource;
+  readonly scanQueued: boolean;
+  readonly coverage: RemovableLibraryCoverage;
+}
+
+export interface AddRemovableLibrarySourceRequest {
+  readonly logicalRelativePath: string;
+}
+
 export interface OpenLibraryEntryResponse {
   readonly selectedIndex: number;
   readonly queueLength: number;

@@ -62,15 +62,16 @@ const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
 const pathService = PathService.forCurrentPlatform(filesystemProvider);
 const sourceRepository = new SourceRepository();
-const sources = new SourceService(
-  filesystemProvider,
-  pathService,
-  sourceRepository,
-);
 const removableStorage = new RemovableStorageService(
   createPlatformRemovableStorageProvider(),
   filesystemProvider,
   pathService,
+);
+const sources = new SourceService(
+  filesystemProvider,
+  pathService,
+  sourceRepository,
+  removableStorage,
 );
 const directorySources = {
   getInternal: (sourceId: string) =>
@@ -138,6 +139,25 @@ const unsubscribeRemovablePlayer = removableStorage.subscribe((change) => {
   for (const deviceId of change.changedIds) folders.invalidateSource(deviceId);
   for (const deviceId of change.connectedIds)
     void player.setRemovableDeviceAvailable(deviceId, true);
+  void sources
+    .refreshRemovableAvailability()
+    .then(async (sourceChanges) => {
+      const indexedLibrary = await indexedLibraryPromise;
+      for (const sourceChange of sourceChanges) {
+        folders.invalidateSource(sourceChange.sourceId);
+        indexedLibrary.setSourceAvailability(
+          sourceChange.sourceId,
+          sourceChange.available,
+        );
+        await player.setFolderSourceAvailable(
+          sourceChange.sourceId,
+          sourceChange.available,
+        );
+      }
+    })
+    .catch((error: unknown) => {
+      console.warn("[removable-library] availability refresh failed", error);
+    });
 });
 const analyzer = new AudioAnalyzerService();
 const visualizerEvents = new VisualizerHub(analyzer);
@@ -296,9 +316,21 @@ async function execute(command: PlayerCommand): Promise<void> {
       await player.setRepeatMode(command.mode);
       break;
     case "queue-play":
-      await player.playQueueIndex(command.index, (deviceId, relativePath) =>
-        removableStorage.resolveLogicalPath(deviceId, relativePath),
-      );
+      await player.playQueueIndex(command.index, async (origin) => {
+        if (origin.kind === "removable")
+          return removableStorage.resolveLogicalPath(
+            origin.deviceId,
+            origin.relativePath,
+          );
+        if (origin.kind === "folders") {
+          const source = await sources.getInternal(origin.sourceId);
+          return pathService.resolveWithinSource(
+            source.canonicalRoot,
+            origin.relativePath,
+          );
+        }
+        return origin.nativePath;
+      });
       break;
     case "queue-append":
       await player.append(command.paths);
@@ -1447,6 +1479,39 @@ async function handleRequest(
       /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/browse$/.exec(
         url.pathname,
       );
+    const removableLibrarySourceMatch =
+      /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/library-sources$/.exec(
+        url.pathname,
+      );
+    if (removableLibrarySourceMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await sources.removableCoverage(
+          removableLibrarySourceMatch[1] ?? "",
+          url.searchParams.get("logicalRelativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    if (removableLibrarySourceMatch && request.method === "POST") {
+      const body = objectBody(await readBody(request));
+      const logicalRelativePath =
+        typeof body.logicalRelativePath === "string"
+          ? body.logicalRelativePath
+          : "";
+      const result = await sources.addRemovable(
+        removableLibrarySourceMatch[1] ?? "",
+        logicalRelativePath,
+      );
+      try {
+        await (await indexedLibraryPromise).sourceAdded(result.source.id);
+      } catch (error) {
+        await sources.remove(result.source.id).catch(() => undefined);
+        throw error;
+      }
+      sendJson(response, 201, { ok: true, data: result });
+      return;
+    }
     if (removableBrowseMatch && request.method === "GET") {
       sendJson(response, 200, {
         ok: true,

@@ -139,7 +139,15 @@ export class IndexedLibraryService {
 
   async sourceAdded(sourceId: string): Promise<void> {
     this.ensureOpen();
-    const record = await this.sources.getInternal(sourceId);
+    const record = (await this.sourceRepository.list()).find(
+      (candidate) => candidate.id === sourceId,
+    );
+    if (!record)
+      throw new LibraryError(
+        "LIBRARY_SOURCE_NOT_FOUND",
+        "Library source not found.",
+        404,
+      );
     this.repository.upsertConfiguredSource(record);
     if (this.repository.sourceNeedsFirstScan(sourceId))
       this.scheduler.enqueueAutomatic([sourceId]);
@@ -157,6 +165,13 @@ export class IndexedLibraryService {
     this.scheduler.removeQueuedSource(sourceId);
     this.repository.markSourceRemoved(sourceId);
     this.publish();
+  }
+
+  setSourceAvailability(sourceId: string, available: boolean): void {
+    this.ensureOpen();
+    if (!available) this.scheduler.sourceUnavailable(sourceId);
+    if (this.repository.setSourceAvailability(sourceId, available))
+      this.publish();
   }
 
   async requestScan(
@@ -1116,6 +1131,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
+      readonly sourceType: "local" | "removable";
       readonly contextId?: string;
     }[]
   > {
@@ -1141,6 +1157,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
+      readonly sourceType: "local" | "removable";
       readonly contextId?: string;
     } | null>(records.length).fill(null);
     let next = 0;
@@ -1159,7 +1176,7 @@ export class IndexedLibraryService {
           const details = await this.provider.lstat(path);
           if (details.isSymbolicLink() || !details.isFile()) continue;
           await this.provider.access(path);
-          output[index] = { ...record, path };
+          output[index] = { ...record, path, sourceType: source.type };
         } catch {
           // Files can disappear after the indexed query; omit them atomically.
         }
@@ -1179,6 +1196,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
+      readonly sourceType: "local" | "removable";
     }[],
     selectedIndex: number,
   ): ResolvedLibraryContext {
@@ -1189,6 +1207,9 @@ export class IndexedLibraryService {
         sourceId: record.sourceId,
         relativePath: record.relativePath,
         libraryTrackId: record.id,
+        ...(record.sourceType === "removable"
+          ? { removable: true as const }
+          : {}),
       })),
       selectedIndex,
       trackIds: records.map((record) => record.id),

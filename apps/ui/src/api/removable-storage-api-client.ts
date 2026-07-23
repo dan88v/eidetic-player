@@ -1,10 +1,12 @@
 import type {
+  AddRemovableLibrarySourceResponse,
   DirectoryBrowseResponse,
   DirectoryQueueResponse,
   FolderArtworkPreview,
   LibraryMetadataSummary,
   OpenLibraryEntryResponse,
   RemovableDeviceListResponse,
+  RemovableLibraryCoverage,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -94,6 +96,29 @@ export class RemovableStorageApiClient {
     relativePath: string,
   ): Promise<DirectoryQueueResponse> {
     return this.directoryAction(deviceId, relativePath, "queue");
+  }
+
+  libraryCoverage(
+    deviceId: string,
+    logicalRelativePath: string,
+  ): Promise<RemovableLibraryCoverage> {
+    const query = new URLSearchParams({ logicalRelativePath });
+    return this.request(
+      `/api/removable-storage/${encodeURIComponent(deviceId)}/library-sources?${query.toString()}`,
+    );
+  }
+
+  addLibrarySource(
+    deviceId: string,
+    logicalRelativePath: string,
+  ): Promise<AddRemovableLibrarySourceResponse> {
+    return this.request(
+      `/api/removable-storage/${encodeURIComponent(deviceId)}/library-sources`,
+      {
+        method: "POST",
+        body: JSON.stringify({ logicalRelativePath }),
+      },
+    );
   }
 
   private entryAction<T>(

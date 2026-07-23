@@ -7,7 +7,7 @@ import { FilesystemError } from "../filesystem/filesystem-errors.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import type {
   DirectorySourceCatalog,
-  StoredSource,
+  ResolvedSource,
 } from "../filesystem/filesystem-types.js";
 import { PathService } from "../filesystem/path-service.js";
 import { LinuxRemovableStorageProvider } from "./linux-removable-storage-provider.js";
@@ -28,8 +28,16 @@ type ChangeListener = (change: RemovableStorageChange) => void;
 
 interface ActiveVolume {
   readonly identity: string;
-  readonly source: StoredSource;
+  readonly source: ResolvedSource;
   readonly device: RemovableDevice;
+}
+
+export interface RemovableDirectoryDescriptor {
+  readonly stableIdentity: string;
+  readonly logicalRelativeRoot: string;
+  readonly displayName: string;
+  readonly nativeRoot: string;
+  readonly canonicalRoot: string;
 }
 
 const collator = new Intl.Collator("en", {
@@ -96,7 +104,7 @@ export class RemovableStorageService implements DirectorySourceCatalog {
     return this.refreshPromise;
   }
 
-  getInternal(deviceId: string): Promise<StoredSource> {
+  getInternal(deviceId: string): Promise<ResolvedSource> {
     this.validateDeviceId(deviceId);
     const volume = this.active.get(deviceId);
     if (!volume)
@@ -106,6 +114,72 @@ export class RemovableStorageService implements DirectorySourceCatalog {
         409,
       );
     return Promise.resolve(volume.source);
+  }
+
+  async describeDirectory(
+    deviceId: string,
+    logicalRelativeRoot: string,
+  ): Promise<RemovableDirectoryDescriptor> {
+    const volume = this.requireActive(deviceId);
+    if (!volume.device.readable)
+      throw new FilesystemError(
+        "REMOVABLE_DEVICE_UNREADABLE",
+        "USB storage is not readable.",
+        409,
+      );
+    const logical = this.paths.validateLogicalRelativePath(logicalRelativeRoot);
+    const canonicalRoot = await this.paths.resolveWithinSource(
+      volume.source.canonicalRoot,
+      logical,
+    );
+    const details = await this.filesystem.lstat(canonicalRoot);
+    if (details.isSymbolicLink() || !details.isDirectory())
+      throw new FilesystemError(
+        "REMOVABLE_DIRECTORY_UNAVAILABLE",
+        "This USB folder is unavailable.",
+        409,
+      );
+    await this.filesystem.access(canonicalRoot);
+    return {
+      stableIdentity: volume.identity,
+      logicalRelativeRoot: logical,
+      displayName:
+        logical === ""
+          ? volume.device.displayName
+          : (logical.split("/").at(-1) ?? "USB Storage"),
+      nativeRoot: this.paths.fromLogicalRelativePath(
+        volume.source.nativeRoot,
+        logical,
+      ),
+      canonicalRoot,
+    };
+  }
+
+  async resolvePersistentDirectory(
+    stableIdentity: string,
+    logicalRelativeRoot: string,
+  ): Promise<RemovableDirectoryDescriptor> {
+    const volume = [...this.active.values()].find(
+      (candidate) => candidate.identity === stableIdentity,
+    );
+    if (!volume)
+      throw new FilesystemError(
+        "REMOVABLE_DEVICE_UNAVAILABLE",
+        "USB storage is no longer connected.",
+        409,
+      );
+    return this.describeDirectory(volume.device.id, logicalRelativeRoot);
+  }
+
+  isIdentityAvailable(stableIdentity: string): boolean {
+    const volume = [...this.active.values()].find(
+      (candidate) => candidate.identity === stableIdentity,
+    );
+    return volume?.device.readable === true;
+  }
+
+  identityForDevice(deviceId: string): string {
+    return this.requireActive(deviceId).identity;
   }
 
   availabilityOf(deviceId: string): Promise<"available" | "unavailable"> {
@@ -316,6 +390,18 @@ export class RemovableStorageService implements DirectorySourceCatalog {
         "USB storage was not found.",
         404,
       );
+  }
+
+  private requireActive(deviceId: string): ActiveVolume {
+    this.validateDeviceId(deviceId);
+    const volume = this.active.get(deviceId);
+    if (!volume)
+      throw new FilesystemError(
+        "REMOVABLE_DEVICE_UNAVAILABLE",
+        "USB storage is no longer connected.",
+        409,
+      );
+    return volume;
   }
 
   private isClosed(): boolean {

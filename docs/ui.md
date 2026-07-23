@@ -74,9 +74,10 @@ active. Adding a Source schedules only that persistent Source ID; an active scan
 retains one deduplicated pending request in the same scheduler. Rename is an
 accessible modal with Escape, focus trap, and focus restoration; Remove states
 that files are not deleted. USB Storage is a real, live section of mounted
-volumes with status, optional capacity/read-only detail, and Browse. It is not
-indexed or persisted as a Library Source. Network Shares remains a subdued
-static placeholder.
+volumes with status, optional capacity/read-only detail, and Browse. A separate
+USB Library Folders section manages opted-in persistent roots with Open,
+Rescan, Rename, Remove, and available/unavailable state. Network Shares remains
+a subdued static placeholder.
 
 Folders starts with a minimal configured-source collection and no duplicate
 hero or Add Folder action. Source/folder cards share persistent sorting and
@@ -89,6 +90,12 @@ USB Storage reuses the same Folders directory header, breadcrumb, cards, rows,
 lazy metadata/artwork, Play Folder, and Add-to-Queue mechanics with a separate
 per-device logical-path/scroll session. Disconnect keeps Back available,
 disables stale actions, and shows a persistent dark empty state.
+The header also offers a fixed-width Add this folder to Library action at the
+volume root and in subfolders. It becomes In Library after success, stays
+disabled with an accessible explanation for overlap, and leaves the Quick
+Browse screen open. Indexed USB folders also appear in Folders root with the
+dedicated USB storage icon; unavailable cards remain visible with playback
+actions disabled.
 
 Library root is dedicated to Albums, Artists, and Tracks browsing. A single
 compact toolbar places the segmented control on the left and Search, Manage,

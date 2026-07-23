@@ -53,8 +53,11 @@ future Raspberry shell.
 - `RemovableStorageService` owns the single mounted-USB monitor, opaque volume
   identity, current native-root mapping, and connect/disconnect lifecycle.
   Windows and Linux enumeration stay behind separate providers. Removable
-  volumes join the same provider-neutral `DirectoryBrowserService`; they never
-  become persistent Library Sources in Step 2.11.
+  volumes join the same provider-neutral `DirectoryBrowserService`. An
+  explicitly selected root or subfolder may also become a persistent
+  `removable` Source: its record contains only stable backend volume identity
+  and logical relative root, while the current native root is resolved again
+  for every open, scan, and playback command.
 - `IndexedLibraryService` owns the durable SQLite catalog and publishes
   low-frequency Library snapshots. `LibraryScheduler` owns the single active
   scan, while `LibraryScanner` owns recursive traversal and incremental
@@ -80,6 +83,10 @@ Do not introduce a second owner for any of these concerns.
   paths, capacity/status data, and opaque entry/artwork IDs. Queue origins keep
   `deviceId`, logical relative path, and entry identity; the backend resolves
   the device's current root immediately before playback.
+- Persistent removable Source APIs expose only normal opaque Source identity
+  and logical coverage state. Stable volume identity, drive letters, mount
+  points, and native roots remain backend-only. Existing Quick Browse Queue
+  origins are never converted when the same folder is indexed.
 - Library REST/SSE carries only opaque Source/Album/Artist/Track identity,
   catalog metadata, aggregate counts, progress, and safe error codes. Database
   paths and native roots remain backend-only. Native paths are reconstructed
@@ -154,6 +161,10 @@ the beginning of its saved current item.
 If the saved current item belongs to absent removable storage, the existing
 current-item restore rule invalidates that saved session rather than inventing
 a root or auto-resuming. Runtime disconnects preserve the in-memory Queue.
+For indexed removable playback, disconnect marks only affected Queue items
+unavailable in place and stops only when the current item depends on that
+volume. Reconnect restores resolution and availability without scanning,
+rebuilding the Queue, or autoplaying.
 
 ## Cross-platform behavior
 

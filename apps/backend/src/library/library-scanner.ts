@@ -366,17 +366,23 @@ export class LibraryScanner {
         signal.aborted ||
         (error instanceof DOMException && error.name === "AbortError")
       ) {
+        const sourceUnavailable =
+          signal.reason instanceof DOMException &&
+          signal.reason.name === "SourceUnavailableError";
         measureTransaction(() => {
           this.repository.finishUnsuccessfulScan(
             scanId,
             sourceId,
-            "cancelled",
+            sourceUnavailable ? "source-unavailable" : "cancelled",
             counters,
-            "SCAN_CANCELLED",
+            sourceUnavailable ? "SOURCE_UNAVAILABLE" : "SCAN_CANCELLED",
             this.now().toISOString(),
           );
         });
-        persistProgress(true, "cancelled");
+        persistProgress(
+          true,
+          sourceUnavailable ? "source-unavailable" : "cancelled",
+        );
         return finishResult();
       }
       measureTransaction(() => {

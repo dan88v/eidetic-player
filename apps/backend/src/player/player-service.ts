@@ -116,6 +116,7 @@ export class PlayerService {
   >();
   private readonly seekListeners = new Set<(state: PlayerState) => void>();
   private readonly removableAvailability = new Map<string, boolean>();
+  private readonly folderSourceAvailability = new Map<string, boolean>();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -129,13 +130,19 @@ export class PlayerService {
   getPublicState(): PlayerState {
     const publicPath = (nativePath: string): string => {
       const origin = this.queueOrigins.get(this.pathKey(nativePath));
-      if (origin?.kind !== "removable") return nativePath;
+      if (
+        origin?.kind !== "removable" &&
+        !(origin?.kind === "folders" && origin.removable)
+      )
+        return nativePath;
       const logicalPath = origin.relativePath
         .split("/")
         .filter(Boolean)
         .map(encodeURIComponent)
         .join("/");
-      return `removable://${origin.deviceId}/${logicalPath}`;
+      return origin.kind === "removable"
+        ? `removable://${origin.deviceId}/${logicalPath}`
+        : `library-source://${origin.sourceId}/${logicalPath}`;
     };
     return {
       ...this.state,
@@ -733,10 +740,7 @@ export class PlayerService {
 
   async playQueueIndex(
     index: number,
-    resolveRemovable?: (
-      deviceId: string,
-      relativePath: string,
-    ) => Promise<string>,
+    resolveOrigin?: (origin: PersistedQueueOrigin) => Promise<string>,
   ): Promise<void> {
     if (index < 0 || index >= this.state.queue.length)
       throw new PlayerError(
@@ -747,17 +751,17 @@ export class PlayerService {
     const selectedOrigin = selected
       ? this.queueOrigins.get(this.pathKey(selected.path))
       : undefined;
-    if (selectedOrigin?.kind === "removable") {
-      if (!resolveRemovable)
+    if (
+      selectedOrigin?.kind === "removable" ||
+      (selectedOrigin?.kind === "folders" && selectedOrigin.removable)
+    ) {
+      if (!resolveOrigin)
         throw new PlayerError(
           "REMOVABLE_DEVICE_UNAVAILABLE",
           "USB storage is unavailable.",
           409,
         );
-      const selectedPath = await resolveRemovable(
-        selectedOrigin.deviceId,
-        selectedOrigin.relativePath,
-      );
+      const selectedPath = await resolveOrigin(selectedOrigin);
       const origins = this.state.queue.map(
         (item) =>
           this.queueOrigins.get(this.pathKey(item.path)) ??
@@ -766,10 +770,13 @@ export class PlayerService {
       const paths = await Promise.all(
         origins.map(async (origin, itemIndex) => {
           if (itemIndex === index) return selectedPath;
-          if (origin.kind !== "removable")
+          if (
+            origin.kind !== "removable" &&
+            !(origin.kind === "folders" && origin.removable)
+          )
             return this.state.queue[itemIndex]?.path ?? "";
           try {
-            return await resolveRemovable(origin.deviceId, origin.relativePath);
+            return await resolveOrigin(origin);
           } catch {
             return this.state.queue[itemIndex]?.path ?? "";
           }
@@ -830,6 +837,44 @@ export class PlayerService {
     if (
       stoppedCurrent ||
       queue.some((item, index) => item !== this.state.queue[index])
+    )
+      this.update({
+        ...(stoppedCurrent ? { status: "stopped" as const, paused: true } : {}),
+        queue,
+        queueRevision: this.state.queueRevision,
+      });
+    return stoppedCurrent;
+  }
+
+  async setFolderSourceAvailable(
+    sourceId: string,
+    available: boolean,
+  ): Promise<boolean> {
+    this.folderSourceAvailability.set(sourceId, available);
+    const current = this.state.queue[this.state.currentQueueIndex];
+    const currentOrigin = current
+      ? this.queueOrigins.get(this.pathKey(current.path))
+      : undefined;
+    const stoppedCurrent =
+      !available &&
+      currentOrigin?.kind === "folders" &&
+      currentOrigin.removable === true &&
+      currentOrigin.sourceId === sourceId;
+    if (stoppedCurrent)
+      await this.controller
+        ?.command(["stop", "keep-playlist"])
+        .catch(() => undefined);
+    const queue = this.state.queue.map((item) => {
+      const origin = this.queueOrigins.get(this.pathKey(item.path));
+      return origin?.kind === "folders" &&
+        origin.removable === true &&
+        origin.sourceId === sourceId
+        ? { ...item, available }
+        : item;
+    });
+    if (
+      stoppedCurrent ||
+      queue.some((item, itemIndex) => item !== this.state.queue[itemIndex])
     )
       this.update({
         ...(stoppedCurrent ? { status: "stopped" as const, paused: true } : {}),
@@ -1226,7 +1271,9 @@ export class PlayerService {
           available:
             origin?.kind === "removable"
               ? (this.removableAvailability.get(origin.deviceId) ?? true)
-              : true,
+              : origin?.kind === "folders" && origin.removable
+                ? (this.folderSourceAvailability.get(origin.sourceId) ?? true)
+                : true,
           ...(origin?.kind === "folders" && origin.libraryTrackId
             ? { libraryTrackId: origin.libraryTrackId }
             : {}),
@@ -1284,6 +1331,7 @@ export class PlayerService {
       ? Number.parseInt(bitDepthText, 10)
       : Number.NaN;
     const codec = this.asString(this.properties.get("audio-codec-name"));
+    const origin = this.queueOrigins.get(this.pathKey(path));
     const baseTrack: PlayerTrack = {
       path,
       filename,
@@ -1313,7 +1361,8 @@ export class PlayerService {
       container: null,
       artwork: null,
       source:
-        this.queueOrigins.get(this.pathKey(path))?.kind === "removable"
+        origin?.kind === "removable" ||
+        (origin?.kind === "folders" && origin.removable)
           ? "USB Storage"
           : "Local File",
     };

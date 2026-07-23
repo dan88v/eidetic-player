@@ -891,6 +891,18 @@
     color: var(--color-on-accent);
     background: var(--color-accent);
   }
+  .folders-directory-library {
+    min-width: 12.5rem;
+    min-height: var(--touch-min);
+    padding-inline: var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+  }
+  .folders-directory-library:disabled {
+    color: var(--color-text-muted);
+  }
   .folders-content {
     padding-bottom: var(--space-6);
   }

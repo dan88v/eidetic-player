@@ -20,23 +20,40 @@ export interface FilesystemStat {
   isSymbolicLink(): boolean;
 }
 
-export interface StoredSource {
+export interface StoredSourceBase {
   readonly id: string;
-  readonly type: "local" | "removable";
   readonly displayName: string;
-  readonly nativeRoot: string;
-  readonly canonicalRoot: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
+export interface StoredLocalSource extends StoredSourceBase {
+  readonly type: "local";
+  readonly nativeRoot: string;
+  readonly canonicalRoot: string;
+}
+
+export interface StoredRemovableSource extends StoredSourceBase {
+  readonly type: "removable";
+  readonly stableIdentity: string;
+  readonly logicalRelativeRoot: string;
+}
+
+export type StoredSource = StoredLocalSource | StoredRemovableSource;
+
+export interface ResolvedSource extends StoredSourceBase {
+  readonly type: "local" | "removable";
+  readonly nativeRoot: string;
+  readonly canonicalRoot: string;
+}
+
 export interface DirectorySourceCatalog {
-  getInternal(sourceId: string): Promise<StoredSource>;
+  getInternal(sourceId: string): Promise<ResolvedSource>;
   availabilityOf(sourceId: string): Promise<"available" | "unavailable">;
 }
 
 export interface SourceConfig {
-  readonly version: 1;
+  readonly version: 2;
   readonly sources: readonly StoredSource[];
 }
 
@@ -62,7 +79,7 @@ export interface SourceServiceDiagnostics {
 }
 
 export function toPublicSource(
-  source: StoredSource,
+  source: StoredSourceBase & { readonly type: "local" | "removable" },
   availability: SourceAvailability,
 ): LibrarySource {
   return {

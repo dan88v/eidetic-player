@@ -86,6 +86,18 @@ export class LibraryScheduler {
     this.queue.splice(index, 1);
   }
 
+  sourceUnavailable(sourceId: string): void {
+    this.removeQueuedSource(sourceId);
+    if (this.active?.sourceId !== sourceId) {
+      this.onChange();
+      return;
+    }
+    this.active.controller.abort(
+      new DOMException("Library source unavailable.", "SourceUnavailableError"),
+    );
+    this.onChange();
+  }
+
   cancel(scanId?: string, sourceId?: string): void {
     const active = this.active;
     if (

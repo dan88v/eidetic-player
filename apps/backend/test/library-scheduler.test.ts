@@ -70,16 +70,24 @@ void test("scheduler runs one scan, rejects concurrent manual work and cancels c
         filesFailed: 0,
         totalFiles: 0,
       };
-      const status = signal.aborted ? "cancelled" : "completed";
+      const status =
+        signal.reason instanceof DOMException &&
+        signal.reason.name === "SourceUnavailableError"
+          ? "source-unavailable"
+          : signal.aborted
+            ? "cancelled"
+            : "completed";
       if (status === "completed")
         repository.completeScan(scanId, sourceId, run.generation, counters);
       else
         repository.finishUnsuccessfulScan(
           scanId,
           sourceId,
-          "cancelled",
+          status,
           counters,
-          "SCAN_CANCELLED",
+          status === "source-unavailable"
+            ? "SOURCE_UNAVAILABLE"
+            : "SCAN_CANCELLED",
         );
       active -= 1;
       completed.push(sourceId);
@@ -132,6 +140,17 @@ void test("scheduler runs one scan, rejects concurrent manual work and cancels c
     await waitFor(() => completed.length === 3);
     await yieldImmediate();
     assert.equal(started.length, 3);
+
+    scheduler.enqueueAutomatic([sourceB]);
+    await waitFor(() => started.length === 4);
+    scheduler.sourceUnavailable(sourceB);
+    await waitFor(() => completed.length === 4);
+    assert.equal(
+      repository.listSources().find((source) => source.sourceId === sourceB)
+        ?.scanStatus,
+      "source-unavailable",
+    );
+    assert.equal(scheduler.getDiagnostics().queued, 0);
     await scheduler.close();
     assert.equal(scheduler.getDiagnostics().active, false);
   } finally {

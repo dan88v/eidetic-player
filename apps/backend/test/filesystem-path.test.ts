@@ -141,7 +141,7 @@ void test("source repository persists atomically and recovers corrupt JSON", asy
     const parsed = JSON.parse(await readFile(configPath, "utf8")) as {
       version: number;
     };
-    assert.equal(parsed.version, 1);
+    assert.equal(parsed.version, 2);
 
     await writeFile(configPath, "{not-json", "utf8");
     assert.deepEqual(await new SourceRepository(configPath).list(), []);
@@ -182,8 +182,9 @@ void test("source add deduplicates, rename is display-only, and remove keeps fil
 
     const renamed = await service.rename(first.source.id, "  My Library  ");
     assert.equal(renamed.displayName, "My Library");
+    const stored = (await repository.list())[0];
     assert.equal(
-      (await repository.list())[0]?.canonicalRoot,
+      stored?.type === "local" ? stored.canonicalRoot : null,
       paths.normalizeNativePath(music),
     );
     await assert.rejects(service.rename(first.source.id, " "));

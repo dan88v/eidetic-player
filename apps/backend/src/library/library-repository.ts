@@ -346,6 +346,25 @@ export class LibraryRepository {
       .run(displayName, now, sourceId);
   }
 
+  setSourceAvailability(
+    sourceId: string,
+    available: boolean,
+    now = new Date().toISOString(),
+  ): boolean {
+    const changed = this.connection
+      .prepare(
+        `UPDATE library_sources
+         SET available = ?, updated_at = ?
+         WHERE source_id = ? AND removed = 0 AND available <> ?`,
+      )
+      .run(available ? 1 : 0, now, sourceId, available ? 1 : 0);
+    if (Number(changed.changes) > 0) {
+      this.rebuildAggregates(now);
+      return true;
+    }
+    return false;
+  }
+
   markSourceRemoved(sourceId: string, now = new Date().toISOString()): void {
     this.database.transaction(() => {
       this.connection

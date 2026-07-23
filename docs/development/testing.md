@@ -89,6 +89,17 @@ autoplay, and manual rematerialization. Inspect Sources, Default, Cassette,
 picker, USB browser, Queue, and Back at 1280x800, 1280x720, and 1024x600.
 Never count a fixture pass as physical USB detection.
 
+For USB Library integration, add both a volume root and a nested folder,
+confirm segment-aware same/parent/child overlap rejection, and verify that only
+the new Source receives its first scan. Disconnect during scanning must end as
+source-unavailable without mark-missing; reconnect must restore the catalog
+without rescan or autoplay. Exercise indexed Albums, Artists, Tracks, Search,
+Favorites, Playlists, History, and a mixed local/USB Queue. Confirm existing
+Quick Browse Queue IDs, origins, order, and revision are unchanged. Remove the
+QA Source afterward and verify that the live device and its media were not
+modified. Record physical unplug/reconnect as NOT TESTED unless it was actually
+performed.
+
 For Step 2.4.1 also verify sidecar-over-embedded preview priority, no recursive
 sampling, the 8-file/4-cover bounds, List/Grid persistence without requests or
 scroll loss, direct-folder Play ordering, and Add to Queue in both playing and

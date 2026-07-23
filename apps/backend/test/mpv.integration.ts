@@ -449,8 +449,12 @@ void test("USB disconnect stops without clearing or advancing and reconnect neve
     assert.equal(player.getState().paused, true);
     assert.equal(player.getState().queueRevision, revision);
 
-    await player.playQueueIndex(1, (_id, relativePath) =>
-      Promise.resolve(join(root, ...relativePath.split("/"))),
+    await player.playQueueIndex(1, (origin) =>
+      Promise.resolve(
+        origin.kind === "removable"
+          ? join(root, ...origin.relativePath.split("/"))
+          : "",
+      ),
     );
     const replayed = await waitFor(
       () => Promise.resolve(player.getState()),
@@ -461,6 +465,89 @@ void test("USB disconnect stops without clearing or advancing and reconnect neve
       replayed.queue.map((item) => item.id),
       ids,
     );
+  } finally {
+    await player.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("removable Library disconnect preserves a mixed Queue and stops only its current item", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "eidetic-player-usb-library-"));
+  const localPath = join(root, "Local.wav");
+  const usbPath = join(root, "USB.wav");
+  await Promise.all([
+    writeFile(localPath, silentWav(10)),
+    writeFile(usbPath, silentWav(10)),
+  ]);
+  const sourceId = "33333333-3333-4333-8333-333333333333";
+  const origins = [
+    {
+      kind: "folders" as const,
+      sourceId: "22222222-2222-4222-8222-222222222222",
+      relativePath: "Local.wav",
+      libraryTrackId: `track-${"1".repeat(32)}`,
+    },
+    {
+      kind: "folders" as const,
+      sourceId,
+      relativePath: "USB.wav",
+      libraryTrackId: `track-${"2".repeat(32)}`,
+      removable: true as const,
+    },
+  ];
+  const player = new PlayerService();
+  try {
+    await player.initialize();
+    await player.openResolvedQueue([localPath, usbPath], 0, origins);
+    const playingLocal = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentQueueIndex === 0 && !state.paused,
+      5_000,
+    );
+    const ids = playingLocal.queue.map((item) => item.id);
+    const revision = playingLocal.queueRevision;
+    assert.equal(await player.setFolderSourceAvailable(sourceId, false), false);
+    assert.equal(player.getState().status, "playing");
+    assert.equal(player.getState().queue[0]?.available, true);
+    assert.equal(player.getState().queue[1]?.available, false);
+    assert.deepEqual(
+      player.getState().queue.map((item) => item.id),
+      ids,
+    );
+    assert.equal(player.getState().queueRevision, revision);
+    assert.equal(player.getPublicState().currentTrack?.path, localPath);
+    assert.match(
+      player.getPublicState().queue[1]?.path ?? "",
+      /^library-source:\/\//,
+    );
+
+    await player.setFolderSourceAvailable(sourceId, true);
+    await player.playQueueIndex(1, (origin) =>
+      Promise.resolve(
+        origin.kind === "folders" && origin.sourceId === sourceId
+          ? usbPath
+          : localPath,
+      ),
+    );
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentQueueIndex === 1 && !state.paused,
+      5_000,
+    );
+    assert.equal(player.getState().currentTrack?.source, "USB Storage");
+    assert.equal(await player.setFolderSourceAvailable(sourceId, false), true);
+    assert.equal(player.getState().status, "stopped");
+    assert.equal(player.getState().currentQueueIndex, 1);
+    assert.deepEqual(
+      player.getState().queue.map((item) => item.id),
+      ids,
+    );
+    assert.equal(player.getState().queueRevision, revision);
   } finally {
     await player.shutdown();
     await rm(root, { recursive: true, force: true });

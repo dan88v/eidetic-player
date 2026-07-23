@@ -50,6 +50,7 @@ void test("Step 2.11 surfaces keep the approved USB boundaries", () => {
   assert.match(source, /#66e3d0/);
   assert.match(source, /removableDevices/);
   assert.match(source, /USB storage disconnected\./);
+  assert.match(source, /startsWith\("library-source:\/\/"\)/);
   assert.match(source, /kind: "removable"/);
   assert.doesNotMatch(source, /Add to Library/);
   assert.doesNotMatch(source, /data-screen="usbStorage"/);

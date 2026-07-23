@@ -65,11 +65,16 @@ Electron.
 
 ## Mounted USB storage
 
-Step 2.11 reads already-mounted USB volumes only. The Linux provider consumes
+Steps 2.11 and 2.11.1 read already-mounted USB volumes only. The Linux provider consumes
 `lsblk --json` transport topology, accepts mounted disk/partition nodes whose
 physical ancestry reports `TRAN=usb`, excludes `/` and non-USB/network/optical
 devices, and prefers filesystem UUID for stable identity. It does not call
 `mount`, `umount`, `eject`, `udisksctl`, sudo, udev, or systemd.
+
+An opted-in USB Library Source persists the stable identity and logical
+relative root, not its mount point. Reconnect resolution and availability are
+provider-neutral, but physical Debian/Raspberry Pi OS relink, permission, scan
+interruption, and playback-disconnect behavior still require real-hardware QA.
 
 Debian/Raspberry Pi OS runtime detection, permissions, read-only media, and
 disconnect latency remain hardware checks; WSL may expose no representative

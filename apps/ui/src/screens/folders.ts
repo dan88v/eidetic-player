@@ -66,6 +66,9 @@ export interface FoldersScreenOptions {
   readonly session?: FoldersBrowserSession;
   readonly rootBack?: () => void;
   readonly hideRootTitle?: boolean;
+  readonly createDirectoryHeaderAction?: (
+    response: DirectoryBrowseResponse,
+  ) => HTMLElement | null;
 }
 
 interface AudioRow {
@@ -84,6 +87,7 @@ interface FolderTarget {
   readonly relativePath: string;
   readonly name: string;
   readonly available: boolean;
+  readonly iconName?: "folder" | "usbStorage";
 }
 
 interface AudioTarget {
@@ -609,7 +613,7 @@ export function createFoldersScreen(
     art.dataset.sourceId = target.sourceId;
     art.dataset.relativePath = target.relativePath;
     art.dataset.previewKey = `${target.sourceId}:${target.relativePath}`;
-    art.innerHTML = icon("folder");
+    art.innerHTML = icon(target.iconName ?? "folder");
     artButton.append(art);
     artButton.addEventListener("click", () => {
       void runFolderAction(target, "open");
@@ -624,7 +628,9 @@ export function createFoldersScreen(
     const detail = document.createElement("small");
     detail.dataset.fileCount = "";
     detail.textContent = target.available
-      ? t("folders.countingFiles")
+      ? target.iconName === "usbStorage"
+        ? "USB Library folder"
+        : t("folders.countingFiles")
       : t("folders.unavailable");
     body.append(name, detail);
     body.addEventListener("click", () => {
@@ -643,7 +649,7 @@ export function createFoldersScreen(
     });
     actions.append(more);
     card.append(artButton, body, actions);
-    if (target.available) {
+    if (target.available && target.iconName !== "usbStorage") {
       if (observer) observer.observe(art);
       else void loadFolderPreview(art);
     }
@@ -794,6 +800,8 @@ export function createFoldersScreen(
       );
     });
     directoryActions.append(play);
+    const extraAction = options.createDirectoryHeaderAction?.(response);
+    if (extraAction) directoryActions.append(extraAction);
     renderBreadcrumbs(response);
 
     const fragment = document.createDocumentFragment();
@@ -952,6 +960,7 @@ export function createFoldersScreen(
             relativePath: "",
             name: source.displayName,
             available: source.availability === "available",
+            iconName: source.type === "removable" ? "usbStorage" : "folder",
           }),
         );
       if (!response.sources.length) {

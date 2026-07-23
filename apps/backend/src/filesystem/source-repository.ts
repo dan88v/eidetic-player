@@ -6,19 +6,29 @@ import type { SourceConfig, StoredSource } from "./filesystem-types.js";
 
 function isStoredSource(value: unknown): value is StoredSource {
   if (!value || typeof value !== "object") return false;
-  const record = value as Partial<StoredSource>;
-  return (
+  const record = value as Record<string, unknown>;
+  const common =
     typeof record.id === "string" &&
     /^[0-9a-f-]{36}$/i.test(record.id) &&
-    record.type === "local" &&
     typeof record.displayName === "string" &&
     record.displayName.trim().length > 0 &&
-    typeof record.nativeRoot === "string" &&
-    record.nativeRoot.length > 0 &&
-    typeof record.canonicalRoot === "string" &&
-    record.canonicalRoot.length > 0 &&
     typeof record.createdAt === "string" &&
-    typeof record.updatedAt === "string"
+    typeof record.updatedAt === "string";
+  if (!common) return false;
+  if (record.type === "local")
+    return (
+      typeof record.nativeRoot === "string" &&
+      record.nativeRoot.length > 0 &&
+      typeof record.canonicalRoot === "string" &&
+      record.canonicalRoot.length > 0
+    );
+  return (
+    record.type === "removable" &&
+    typeof record.stableIdentity === "string" &&
+    record.stableIdentity.length > 0 &&
+    !record.stableIdentity.includes("\0") &&
+    typeof record.logicalRelativeRoot === "string" &&
+    !record.logicalRelativeRoot.includes("\0")
   );
 }
 
@@ -46,7 +56,7 @@ export class SourceRepository {
 
   async replace(records: readonly StoredSource[]): Promise<void> {
     const next = [...records];
-    await this.writeAtomic({ version: 1, sources: next });
+    await this.writeAtomic({ version: 2, sources: next });
     this.records = next;
   }
 
@@ -63,7 +73,9 @@ export class SourceRepository {
       throw error;
     }
     try {
-      const parsed = JSON.parse(text) as Partial<SourceConfig>;
+      const parsed = JSON.parse(text) as Partial<SourceConfig> & {
+        readonly version?: unknown;
+      };
       const candidates = Array.isArray(parsed.sources) ? parsed.sources : [];
       this.records = candidates.filter(isStoredSource);
     } catch {

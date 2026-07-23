@@ -29,6 +29,64 @@ export function createUsbStorageScreen(options: {
     session: usbStorageSession,
     rootBack: options.back,
     hideRootTitle: true,
+    createDirectoryHeaderAction: (response) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "folders-directory-library";
+      button.textContent = "Add this folder to Library";
+      button.disabled = true;
+      const applyCoverage = (
+        state: "none" | "exact" | "covered-by-parent" | "overlaps-child",
+      ): void => {
+        if (state === "none") {
+          button.textContent = "Add this folder to Library";
+          button.disabled = false;
+          button.removeAttribute("title");
+          return;
+        }
+        button.disabled = true;
+        button.textContent = state === "exact" ? "In Library" : "Covered";
+        button.title =
+          state === "exact"
+            ? "This folder is already in Library."
+            : "This folder overlaps an existing USB Library folder.";
+      };
+      void options.api
+        .libraryCoverage(response.source.id, response.current.relativePath)
+        .then((coverage) => {
+          if (button.isConnected) applyCoverage(coverage.state);
+        })
+        .catch((error: unknown) => {
+          if (!button.isConnected) return;
+          button.disabled = true;
+          options.showToast(
+            error instanceof Error
+              ? error.message
+              : "Unable to check this USB folder.",
+            "error",
+          );
+        });
+      button.addEventListener("click", () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        void options.api
+          .addLibrarySource(response.source.id, response.current.relativePath)
+          .then(() => {
+            if (button.isConnected) applyCoverage("exact");
+          })
+          .catch((error: unknown) => {
+            if (!button.isConnected) return;
+            button.disabled = false;
+            options.showToast(
+              error instanceof Error
+                ? error.message
+                : "Unable to add this USB folder to Library.",
+              "error",
+            );
+          });
+      });
+      return button;
+    },
     openSources: options.back,
     openEntry: async (deviceId, entryId) => {
       options.noteTrackCommand();
