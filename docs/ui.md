@@ -220,12 +220,16 @@ transport zones share one vertical center axis.
 ## Settings and startup
 
 Settings root separates Interface and Network. Network selects a Wired or
-Wi-Fi view without disabling the other interface, shows current IPv4 values
-read-only, and keeps scan/connection dialogs on the existing Settings and
-shared-dialog surfaces. Its content header matches Interface, with Back and
-description on the left and the Wired/Wi-Fi selector on the right; the Settings
-hamburger remains unchanged. Ethernet and Wi-Fi top-bar icons reflect the shared
-global network snapshot without becoming controls.
+Wi-Fi view without disabling the other interface and keeps scan/connection
+dialogs on the existing Settings and shared-dialog surfaces. Each adapter shows
+effective DHCP values in the existing adapter/current-network details. The IPv4
+section stays compact in DHCP and reveals a session-only Manual draft when
+selected; Apply appears only after a real change. Manual uses inline validation,
+the reusable IPv4 keyboard, and safe Keep/Revert rollback.
+Its content header matches Interface, with Back and description on the left and
+the Wired/Wi-Fi selector on the right; the Settings hamburger remains
+unchanged. Ethernet and Wi-Fi top-bar icons reflect the shared global network
+snapshot without becoming controls.
 
 The Interface screen includes an inline Main player segmented control with
 `Default` and `Cassette`. The choice commits immediately through the central

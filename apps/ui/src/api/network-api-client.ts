@@ -1,4 +1,6 @@
 import type {
+  Ipv4Draft,
+  Ipv4ValidationResult,
   NetworkSnapshot,
   WifiHiddenConnectRequest,
   WifiRadioRequest,
@@ -57,6 +59,28 @@ export class NetworkApiClient {
       { adapterId },
       "DELETE",
     );
+  }
+  validateIpv4(configuration: Ipv4Draft): Promise<Ipv4ValidationResult> {
+    return this.request("/api/network/ipv4/validate", {
+      method: "POST",
+      body: JSON.stringify({ configuration }),
+      headers: { "content-type": "application/json" },
+    });
+  }
+  applyIpv4(adapterId: string, configuration: Ipv4Draft): Promise<void> {
+    return this.action("/api/network/ipv4/apply", {
+      adapterId,
+      configuration,
+    });
+  }
+  confirmIpv4(): Promise<void> {
+    return this.action("/api/network/ipv4/confirm", {});
+  }
+  rollbackIpv4(): Promise<void> {
+    return this.action("/api/network/ipv4/rollback", {});
+  }
+  retryIpv4Recovery(): Promise<void> {
+    return this.action("/api/network/ipv4/retry-recovery", {});
   }
   private action(path: string, body: object, method = "POST"): Promise<void> {
     return this.request(path, {

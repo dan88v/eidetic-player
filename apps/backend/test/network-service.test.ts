@@ -223,6 +223,10 @@ void test("platform adapters keep secrets out of argv and avoid a shell", () => 
     new URL("../src/network/windows-network-adapter.ts", import.meta.url),
     "utf8",
   );
+  const windowsHelper = readFileSync(
+    new URL("../src/network/windows-native-wifi-helper.ts", import.meta.url),
+    "utf8",
+  );
   assert.match(runner, /shell: false/);
   assert.match(runner, /windowsHide: true/);
   assert.match(linux, /--passwd-file/);
@@ -230,4 +234,13 @@ void test("platform adapters keep secrets out of argv and avoid a shell", () => 
   assert.doesNotMatch(linux, /exec\(|sudo|wpa_supplicant|dhcpcd\.conf/u);
   assert.match(windows, /input: JSON\.stringify\(request\)/);
   assert.doesNotMatch(windows, /netsh/u);
+  assert.match(linux, /ipv4\.method/);
+  assert.match(
+    linux,
+    /IPv4 is read-only for Wi-Fi profiles managed by the system/,
+  );
+  assert.doesNotMatch(linux, /\/etc\/|connection\.uuid/u);
+  assert.match(windows, /action: "ipv4"/);
+  assert.match(windowsHelper, /Start-Process[\s\S]*-Verb RunAs/);
+  assert.match(windowsHelper, /finally[\s\S]*Remove-Item/);
 });

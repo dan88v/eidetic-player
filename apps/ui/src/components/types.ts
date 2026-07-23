@@ -10,5 +10,6 @@ export interface ComponentView<T extends HTMLElement = HTMLElement> {
   updateLibrarySnapshot?(snapshot: IndexedLibrarySnapshot): void;
   updateRemovableDevices?(snapshot: RemovableDeviceListResponse): void;
   updateNetworkSnapshot?(snapshot: NetworkSnapshot): void;
+  requestLeave?(leave: () => void): boolean;
   destroy(): void;
 }

@@ -1252,6 +1252,67 @@
     display: grid;
     gap: var(--space-3);
   }
+  .network-ipv4 {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-6);
+    border-bottom: 1px solid var(--color-border);
+    background: color-mix(
+      in srgb,
+      var(--color-surface-raised) 42%,
+      transparent
+    );
+  }
+  .network-ipv4__header,
+  .network-ipv4__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+  .network-ipv4__header h2 {
+    font-size: var(--font-size-lg);
+  }
+  .network-ipv4__header .segmented-control {
+    width: 17rem;
+  }
+  .network-ipv4__fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+  .network-ipv4__field {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    color: var(--color-text-secondary);
+  }
+  .network-ipv4__field input {
+    width: 100%;
+    min-height: var(--touch-min);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    background: var(--color-bg);
+  }
+  .network-ipv4__field input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
+  .network-ipv4__error {
+    min-height: 1.2em;
+    color: var(--color-danger);
+  }
+  .network-ipv4__actions {
+    justify-content: flex-end;
+  }
+  .network-ipv4__actions button {
+    min-width: 12rem;
+    min-height: var(--touch-min);
+    padding-inline: var(--space-4);
+    border-radius: var(--radius-md);
+    white-space: nowrap;
+  }
   .network-current h2,
   .network-list-header h2 {
     font-size: var(--font-size-lg);

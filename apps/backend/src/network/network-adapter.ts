@@ -1,4 +1,5 @@
 import type {
+  Ipv4Configuration,
   NetworkAdapterSnapshot,
   NetworkConnectivity,
   NetworkPermissionState,
@@ -8,6 +9,14 @@ import type {
 } from "../../../../packages/shared/src/network.js";
 
 export const EIDETIC_WIFI_PROFILE = "Eidetic Player Wi-Fi";
+
+export interface AdapterIpv4RollbackState {
+  readonly version: 1;
+  readonly adapterId: string;
+  readonly nativeAdapterId: string;
+  readonly configuration: Ipv4Configuration;
+  readonly nativeState?: Readonly<Record<string, unknown>>;
+}
 
 export interface AdapterNetworkState {
   readonly connectivity: NetworkConnectivity;
@@ -40,6 +49,12 @@ export interface NetworkAdapter {
   ): Promise<void>;
   disconnect(adapterId: string): Promise<void>;
   forgetManagedProfile(adapterId: string): Promise<void>;
+  captureIpv4?(adapterId: string): Promise<AdapterIpv4RollbackState>;
+  applyIpv4?(
+    adapterId: string,
+    configuration: Ipv4Configuration,
+  ): Promise<void>;
+  restoreIpv4?(state: AdapterIpv4RollbackState): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -55,6 +70,13 @@ export class NetworkAdapterError extends Error {
       | "network-not-found"
       | "connection-timeout"
       | "profile-error"
+      | "elevation-cancelled"
+      | "access-denied"
+      | "adapter-not-found"
+      | "address-conflict"
+      | "invalid-configuration"
+      | "operation-timeout"
+      | "rollback-failed"
       | "operation-conflict"
       | "generic-failure",
     message: string,

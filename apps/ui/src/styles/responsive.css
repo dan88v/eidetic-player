@@ -110,6 +110,10 @@
       margin-bottom: var(--space-2);
     }
 
+    .network-ipv4__fields {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .sources-list--placeholders {
       grid-template-columns: 1fr;
     }

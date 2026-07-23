@@ -59,6 +59,7 @@ import { createPlatformRemovableStorageProvider } from "./removable-storage/remo
 import { createPlatformRemovableMediaAdapter } from "./removable-storage/removable-storage-service.js";
 import { RemovableStorageSseHub } from "./api/removable-storage-sse-hub.js";
 import type {
+  Ipv4Draft,
   WifiAdapterRequest,
   WifiConnectRequest,
   WifiHiddenConnectRequest,
@@ -774,6 +775,80 @@ async function handleRequest(
     }
     if (request.method === "GET" && url.pathname === "/api/network/events") {
       networkEvents.add(response);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/network/ipv4/pending"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: network.snapshot().configurationTransaction,
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      (url.pathname === "/api/network/ipv4/validate" ||
+        url.pathname === "/api/network/ipv4/apply")
+    ) {
+      const body = await readBody(request);
+      if (!body || typeof body !== "object" || Array.isArray(body))
+        throw new NetworkAdapterError(
+          "generic-failure",
+          "Invalid IPv4 request.",
+        );
+      const record = body as Record<string, unknown>;
+      const configuration = record.configuration;
+      if (
+        !configuration ||
+        typeof configuration !== "object" ||
+        Array.isArray(configuration)
+      )
+        throw new NetworkAdapterError(
+          "generic-failure",
+          "Invalid IPv4 configuration.",
+        );
+      const candidate = configuration as Record<string, unknown>;
+      if (
+        (candidate.method !== "dhcp" && candidate.method !== "manual") ||
+        !["address", "subnetMask", "gateway", "dns1", "dns2"].every(
+          (key) =>
+            typeof candidate[key] === "string" && candidate[key].length <= 64,
+        )
+      )
+        throw new NetworkAdapterError(
+          "generic-failure",
+          "Invalid IPv4 configuration.",
+        );
+      const draft = candidate as unknown as Ipv4Draft;
+      if (url.pathname.endsWith("/validate")) {
+        sendJson(response, 200, {
+          ok: true,
+          data: network.validateIpv4(draft),
+        });
+        return;
+      }
+      if (
+        typeof record.adapterId !== "string" ||
+        !/^network-[0-9a-f]{16}$/u.test(record.adapterId)
+      )
+        throw new NetworkAdapterError("no-adapter", "Invalid adapter.");
+      await network.applyIpv4(record.adapterId, draft);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      (url.pathname === "/api/network/ipv4/confirm" ||
+        url.pathname === "/api/network/ipv4/rollback" ||
+        url.pathname === "/api/network/ipv4/retry-recovery")
+    ) {
+      if (url.pathname.endsWith("/confirm")) await network.confirmIpv4();
+      else if (url.pathname.endsWith("/retry-recovery"))
+        await network.retryIpv4Recovery();
+      else await network.rollbackIpv4();
+      sendJson(response, 200, { ok: true });
       return;
     }
     if (

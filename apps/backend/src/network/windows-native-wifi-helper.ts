@@ -221,6 +221,72 @@ if (Test-Path -LiteralPath $nativeAssembly) {
   Add-Type -Path $nativeAssembly
 }
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+function Invoke-ElevatedIpv4([object]$ipv4Request) {
+  $token = [Guid]::NewGuid().ToString('N')
+  $requestPath = Join-Path ([System.IO.Path]::GetTempPath()) "eidetic-ipv4-$token.json"
+  $resultPath = Join-Path ([System.IO.Path]::GetTempPath()) "eidetic-ipv4-$token.result"
+  $scriptPath = Join-Path ([System.IO.Path]::GetTempPath()) "eidetic-ipv4-$token.ps1"
+  $script = @'
+param([string]$RequestPath, [string]$ResultPath)
+$ErrorActionPreference = 'Stop'
+try {
+  $request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+  $adapter = Get-NetAdapter -Physical | Where-Object {
+    $_.InterfaceGuid -and $_.InterfaceGuid.ToString() -eq $request.nativeId
+  } | Select-Object -First 1
+  if (-not $adapter) { throw 'adapter-not-found' }
+  $configuration = $request.configuration
+  $existing = @(Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)
+  foreach ($address in $existing) {
+    Remove-NetIPAddress -InputObject $address -Confirm:$false -ErrorAction SilentlyContinue
+  }
+  if ($configuration.method -eq 'dhcp') {
+    Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Dhcp Enabled
+    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses
+  } else {
+    $bits = ($configuration.subnetMask.Split('.') | ForEach-Object {
+      [Convert]::ToString([int]$_, 2).PadLeft(8, '0')
+    }) -join ''
+    $prefix = ($bits.ToCharArray() | Where-Object { $_ -eq '1' }).Count
+    Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Dhcp Disabled
+    $addressParameters = @{
+      InterfaceIndex = $adapter.ifIndex
+      AddressFamily = 'IPv4'
+      IPAddress = $configuration.address
+      PrefixLength = $prefix
+    }
+    if ($configuration.gateway) {
+      $addressParameters.DefaultGateway = $configuration.gateway
+    }
+    New-NetIPAddress @addressParameters
+    $dns = @($configuration.dns1, $configuration.dns2) | Where-Object { $_ }
+    if ($dns.Count -gt 0) {
+      Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dns
+    } else {
+      Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses
+    }
+  }
+  'ok' | Set-Content -LiteralPath $ResultPath -Encoding UTF8
+} catch {
+  $_.Exception.Message | Set-Content -LiteralPath $ResultPath -Encoding UTF8
+  exit 1
+}
+'@
+  try {
+    $ipv4Request | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $requestPath -Encoding UTF8
+    $script | Set-Content -LiteralPath $scriptPath -Encoding UTF8
+    $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -PassThru -Wait -ArgumentList @(
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', $scriptPath, $requestPath, $resultPath
+    )
+    $result = if (Test-Path -LiteralPath $resultPath) {
+      Get-Content -LiteralPath $resultPath -Raw
+    } else { 'authorization-required' }
+    if ($process.ExitCode -ne 0 -or $result.Trim() -ne 'ok') { throw $result.Trim() }
+  } finally {
+    Remove-Item -LiteralPath $requestPath, $resultPath, $scriptPath -Force -ErrorAction SilentlyContinue
+  }
+}
 switch ($request.action) {
   'state' {
     $wifi = @([EideticNativeWifi]::Interfaces())
@@ -255,6 +321,7 @@ switch ($request.action) {
   'radio' { [EideticNativeWifi]::RadioSet($request.nativeId, [bool]$request.enabled) }
   'disconnect' { [EideticNativeWifi]::Disconnect($request.nativeId) }
   'forget' { [EideticNativeWifi]::Delete($request.nativeId, 'Eidetic Player Wi-Fi') }
+  'ipv4' { Invoke-ElevatedIpv4 $request }
   'connect' {
     $pending = 'Eidetic Player Wi-Fi pending'
     try {

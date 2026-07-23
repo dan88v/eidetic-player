@@ -76,6 +76,14 @@ export function createSettingsScreen(
     `<span class="settings-chevron" aria-hidden="true">${icon("chevronRight")}</span>`;
 
   const navigateBack = (): void => {
+    if (
+      page === "network" &&
+      networkPanel?.requestLeave(() => {
+        page = "root";
+        render();
+      })
+    )
+      return;
     page = page === "interface" || page === "network" ? "root" : "interface";
     render();
   };
@@ -382,6 +390,11 @@ export function createSettingsScreen(
       networkSnapshot = snapshot;
       if (page === "network") networkPanel?.update(snapshot);
       else if (page === "root") render();
+    },
+    requestLeave(leave) {
+      return page === "network"
+        ? (networkPanel?.requestLeave(leave) ?? false)
+        : false;
     },
     destroy() {
       networkPanel?.destroy();

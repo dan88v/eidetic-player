@@ -83,3 +83,36 @@ void test("Network reuses the Interface content header and keeps the hamburger",
   assert.match(settings, /options\.setHeaderActions\(null, null\)/);
   assert.doesNotMatch(settings, /setHeaderActions\(navigateBack/);
 });
+
+void test("IPv4 editor is draft-only, touch-keyboard aware, and protects navigation", () => {
+  const panel = readFileSync(
+    new URL("../src/screens/network-settings-panel.ts", import.meta.url),
+    "utf8",
+  );
+  const client = readFileSync(
+    new URL("../src/api/network-api-client.ts", import.meta.url),
+    "utf8",
+  );
+  const shell = readFileSync(
+    new URL("../src/components/app-shell.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /value: draft\.method/);
+  assert.match(panel, /dataset\.onscreenKeyboard = "ipv4"/);
+  assert.match(panel, /validateIpv4Draft/);
+  assert.match(panel, /if \(draft\.method === "manual"\)/);
+  assert.match(panel, /actions\.hidden = !isDirty\(adapter\)/);
+  assert.doesNotMatch(
+    panel,
+    /Address, gateway and DNS servers are assigned automatically/,
+  );
+  assert.match(panel, /Discard network changes\?/);
+  assert.match(panel, /Continue editing/);
+  assert.match(panel, /Apply network settings\?/);
+  assert.match(panel, /Keep settings/);
+  assert.match(panel, /requestLeave\(leave\)/);
+  assert.match(client, /\/api\/network\/ipv4\/validate/);
+  assert.match(client, /\/api\/network\/ipv4\/apply/);
+  assert.match(shell, /currentScreen\?\.requestLeave/);
+  assert.doesNotMatch(panel, /localStorage|sessionStorage|setInterval/);
+});

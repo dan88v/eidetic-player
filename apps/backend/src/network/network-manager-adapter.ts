@@ -1,4 +1,5 @@
 import type {
+  Ipv4Configuration,
   NetworkAdapterSnapshot,
   WifiNetwork,
   WifiSecurity,
@@ -9,6 +10,7 @@ import {
   NetworkAdapterError,
   sortAndDeduplicateNetworks,
   type AdapterNetworkState,
+  type AdapterIpv4RollbackState,
   type NetworkAdapter,
 } from "./network-adapter.js";
 import { opaqueNetworkId } from "./network-service.js";
@@ -51,6 +53,8 @@ function prefixToMask(prefix: number): string {
 
 export class NetworkManagerAdapter implements NetworkAdapter {
   private nativeById = new Map<string, string>();
+  private connectionById = new Map<string, string>();
+  private pendingIpv4ById = new Map<string, AdapterIpv4RollbackState>();
   private networkById = new Map<
     string,
     { ssid: string; security: WifiSecurity }
@@ -119,12 +123,14 @@ export class NetworkManagerAdapter implements NetworkAdapter {
     const wiredAdapters: NetworkAdapterSnapshot[] = [];
     const wifiAdapters: NetworkAdapterSnapshot[] = [];
     this.nativeById.clear();
+    this.connectionById.clear();
     for (const line of status.split(/\r?\n/u).filter(Boolean)) {
       const [native = "", type = "", state = "", connection = ""] =
         splitEscaped(line);
       if (type !== "ethernet" && type !== "wifi") continue;
       const id = opaqueNetworkId(`${type}:${native}`);
       this.nativeById.set(id, native);
+      this.connectionById.set(id, connection === "--" ? "" : connection);
       const details = await this.nmcli([
         "-t",
         "-e",
@@ -377,9 +383,160 @@ export class NetworkManagerAdapter implements NetworkAdapter {
       () => undefined,
     );
   }
+
+  async captureIpv4(adapterId: string): Promise<AdapterIpv4RollbackState> {
+    const native = this.native(adapterId);
+    const current = this.connectionById.get(adapterId) ?? "";
+    if (!current)
+      throw new NetworkAdapterError(
+        "profile-error",
+        "The adapter has no active NetworkManager profile.",
+      );
+    const state = await this.readState();
+    const adapter = [...state.wiredAdapters, ...state.wifiAdapters].find(
+      (candidate) => candidate.id === adapterId,
+    );
+    if (!adapter)
+      throw new NetworkAdapterError("no-adapter", "Adapter not found.");
+    if (adapter.type === "wifi" && current !== EIDETIC_WIFI_PROFILE)
+      throw new NetworkAdapterError(
+        "profile-error",
+        "IPv4 is read-only for Wi-Fi profiles managed by the system.",
+      );
+    const managed =
+      adapter.type === "wifi"
+        ? EIDETIC_WIFI_PROFILE
+        : `Eidetic Player IPv4 ${adapterId.slice(-6)}`;
+    const rollback: AdapterIpv4RollbackState = {
+      version: 1,
+      adapterId,
+      nativeAdapterId: native,
+      configuration: {
+        method: adapter.ipv4Method === "manual" ? "manual" : "dhcp",
+        address: adapter.ipv4Address ?? "",
+        subnetMask: adapter.subnetMask ?? "",
+        gateway: adapter.gateway ?? "",
+        dns1: adapter.dnsServers[0] ?? "",
+        dns2: adapter.dnsServers[1] ?? "",
+      },
+      nativeState: {
+        previousConnection: current,
+        managedConnection: managed,
+      },
+    };
+    this.pendingIpv4ById.set(adapterId, rollback);
+    return rollback;
+  }
+
+  async applyIpv4(
+    adapterId: string,
+    configuration: Ipv4Configuration,
+  ): Promise<void> {
+    const rollback = this.pendingIpv4ById.get(adapterId);
+    const managed = rollback?.nativeState?.managedConnection;
+    const previous = rollback?.nativeState?.previousConnection;
+    if (typeof managed !== "string" || typeof previous !== "string")
+      throw new NetworkAdapterError(
+        "profile-error",
+        "The managed IPv4 profile is unavailable.",
+      );
+    if (managed !== previous) {
+      await this.nmcli(["connection", "delete", managed]).catch(
+        () => undefined,
+      );
+      await this.nmcli(["connection", "clone", previous, managed]);
+    }
+    const prefix = maskToPrefix(configuration.subnetMask);
+    const properties =
+      configuration.method === "dhcp"
+        ? [
+            "ipv4.method",
+            "auto",
+            "ipv4.addresses",
+            "",
+            "ipv4.gateway",
+            "",
+            "ipv4.dns",
+            "",
+          ]
+        : [
+            "ipv4.method",
+            "manual",
+            "ipv4.addresses",
+            `${configuration.address}/${String(prefix)}`,
+            "ipv4.gateway",
+            configuration.gateway,
+            "ipv4.dns",
+            [configuration.dns1, configuration.dns2].filter(Boolean).join(","),
+          ];
+    await this.nmcli(["connection", "modify", managed, ...properties]);
+    await this.nmcli([
+      "--wait",
+      "20",
+      "connection",
+      "up",
+      managed,
+      "ifname",
+      this.native(adapterId),
+    ]);
+  }
+
+  async restoreIpv4(state: AdapterIpv4RollbackState): Promise<void> {
+    const previous = state.nativeState?.previousConnection;
+    const managed = state.nativeState?.managedConnection;
+    if (typeof previous !== "string" || previous.length === 0)
+      throw new NetworkAdapterError(
+        "profile-error",
+        "The previous NetworkManager profile is unavailable.",
+      );
+    if (managed === previous) {
+      const configuration = state.configuration;
+      const properties =
+        configuration.method === "dhcp"
+          ? [
+              "ipv4.method",
+              "auto",
+              "ipv4.addresses",
+              "",
+              "ipv4.gateway",
+              "",
+              "ipv4.dns",
+              "",
+            ]
+          : [
+              "ipv4.method",
+              "manual",
+              "ipv4.addresses",
+              `${configuration.address}/${String(maskToPrefix(configuration.subnetMask))}`,
+              "ipv4.gateway",
+              configuration.gateway,
+              "ipv4.dns",
+              [configuration.dns1, configuration.dns2]
+                .filter(Boolean)
+                .join(","),
+            ];
+      await this.nmcli(["connection", "modify", previous, ...properties]);
+    }
+    await this.nmcli([
+      "--wait",
+      "20",
+      "connection",
+      "up",
+      previous,
+      "ifname",
+      state.nativeAdapterId,
+    ]);
+    if (typeof managed === "string" && managed !== previous)
+      await this.nmcli(["connection", "delete", managed]).catch(
+        () => undefined,
+      );
+    this.pendingIpv4ById.delete(state.adapterId);
+  }
   close(): Promise<void> {
     this.nativeById.clear();
     this.networkById.clear();
+    this.connectionById.clear();
+    this.pendingIpv4ById.clear();
     return Promise.resolve();
   }
 
@@ -389,4 +546,15 @@ export class NetworkManagerAdapter implements NetworkAdapter {
       throw new NetworkAdapterError("no-adapter", "Wi-Fi adapter not found.");
     return native;
   }
+}
+
+function maskToPrefix(mask: string): number {
+  return mask
+    .split(".")
+    .map(Number)
+    .reduce(
+      (total, octet) =>
+        total + octet.toString(2).padStart(8, "0").replaceAll("0", "").length,
+      0,
+    );
 }

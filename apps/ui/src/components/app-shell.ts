@@ -126,7 +126,15 @@ export function mountApp(
     store.setQueueOpen(false);
     store.setVolumeOpen(false);
   };
+  let currentScreen: ComponentView | null = null;
   const navigate = (screen: ScreenId): void => {
+    if (
+      screen !== store.getState().activeScreen &&
+      currentScreen?.requestLeave?.(() => {
+        navigate(screen);
+      })
+    )
+      return;
     closeOverlays();
     store.setActiveScreen(screen);
   };
@@ -231,7 +239,6 @@ export function mountApp(
   });
   let miniPlayer: MiniPlayer | null = null;
   const artworkPreloader = new ArtworkPreloader();
-  let currentScreen: ComponentView | null = null;
   let cassetteFallbackNotified = false;
   let cassetteAssetFallbackNotified = false;
   let currentLibrarySnapshot: IndexedLibrarySnapshot | null = null;
@@ -631,11 +638,22 @@ export function mountApp(
         },
       );
     });
+  let networkRecoveryNoticeShown = false;
   const receiveNetworkSnapshot = (snapshot: NetworkSnapshot): void => {
     if (appDestroyed || snapshot.revision < networkSnapshot.revision) return;
     networkSnapshot = snapshot;
     topBar.updateNetwork(snapshot);
     currentScreen?.updateNetworkSnapshot?.(snapshot);
+    if (
+      !networkRecoveryNoticeShown &&
+      snapshot.configurationTransaction?.state === "recovery-required"
+    ) {
+      networkRecoveryNoticeShown = true;
+      showMessage(
+        "Network recovery requires attention. Open Settings → Network.",
+        "error",
+      );
+    }
   };
   let unsubscribeNetwork = (): void => undefined;
   void networkApi

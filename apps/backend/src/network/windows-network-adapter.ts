@@ -1,4 +1,5 @@
 import type {
+  Ipv4Configuration,
   NetworkAdapterSnapshot,
   WifiNetwork,
   WifiSecurity,
@@ -8,6 +9,7 @@ import {
   NetworkAdapterError,
   sortAndDeduplicateNetworks,
   type AdapterNetworkState,
+  type AdapterIpv4RollbackState,
   type NetworkAdapter,
 } from "./network-adapter.js";
 import { opaqueNetworkId } from "./network-service.js";
@@ -65,6 +67,7 @@ function securityOf(auth: number): WifiSecurity {
 
 export class WindowsNetworkAdapter implements NetworkAdapter {
   private nativeById = new Map<string, string>();
+  private snapshotById = new Map<string, NetworkAdapterSnapshot>();
   private networkById = new Map<
     string,
     { ssid: string; security: WifiSecurity }
@@ -86,9 +89,18 @@ export class WindowsNetworkAdapter implements NetworkAdapter {
           "-Command",
           WINDOWS_NATIVE_WIFI_HELPER,
         ],
-        { input: JSON.stringify(request), timeoutMs: 20_000 },
+        {
+          input: JSON.stringify(request),
+          timeoutMs: request.action === "ipv4" ? 45_000 : 20_000,
+        },
       );
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("timed out"))
+        throw new NetworkAdapterError(
+          "operation-timeout",
+          "Network helper timed out.",
+        );
       throw new NetworkAdapterError(
         "generic-failure",
         "Network helper failed.",
@@ -97,12 +109,36 @@ export class WindowsNetworkAdapter implements NetworkAdapter {
     if (result.exitCode !== 0) {
       const detail = result.stderr.toLowerCase();
       if (
-        detail.includes("access is denied") ||
-        detail.includes("native-wifi-5")
+        request.action !== "ipv4" &&
+        (detail.includes("access is denied") ||
+          detail.includes("native-wifi-5"))
       )
         throw new NetworkAdapterError(
           "permission-required",
           "Location permission is required.",
+        );
+      if (
+        detail.includes("operation was canceled") ||
+        detail.includes("authorization-required")
+      )
+        throw new NetworkAdapterError(
+          "elevation-cancelled",
+          "System authorization was cancelled.",
+        );
+      if (
+        detail.includes("access is denied") ||
+        detail.includes("native-wifi-5")
+      )
+        throw new NetworkAdapterError("access-denied", "Access was denied.");
+      if (detail.includes("already exists") || detail.includes("conflict"))
+        throw new NetworkAdapterError(
+          "address-conflict",
+          "The address conflicts with an existing configuration.",
+        );
+      if (detail.includes("adapter-not-found"))
+        throw new NetworkAdapterError(
+          "adapter-not-found",
+          "Adapter not found.",
         );
       throw new NetworkAdapterError(
         "generic-failure",
@@ -116,6 +152,7 @@ export class WindowsNetworkAdapter implements NetworkAdapter {
     const raw = await this.helper({ action: "state" });
     const state = JSON.parse(raw) as HelperState;
     this.nativeById.clear();
+    this.snapshotById.clear();
     const wiredAdapters: NetworkAdapterSnapshot[] = [];
     const wifiAdapters: NetworkAdapterSnapshot[] = [];
     for (const adapter of state.adapters) {
@@ -143,6 +180,7 @@ export class WindowsNetworkAdapter implements NetworkAdapter {
         gateway: adapter.gateway,
         dnsServers: adapter.dns.slice(0, 2),
       };
+      this.snapshotById.set(id, item);
       (adapter.type === "wifi" ? wifiAdapters : wiredAdapters).push(item);
     }
     this.networkById.clear();
@@ -256,8 +294,44 @@ export class WindowsNetworkAdapter implements NetworkAdapter {
       nativeId: this.native(adapterId),
     }).then(() => undefined);
   }
+  captureIpv4(adapterId: string): Promise<AdapterIpv4RollbackState> {
+    const adapter = this.snapshotById.get(adapterId);
+    if (!adapter)
+      throw new NetworkAdapterError("no-adapter", "Adapter not found.");
+    return Promise.resolve({
+      version: 1,
+      adapterId,
+      nativeAdapterId: this.native(adapterId),
+      configuration: {
+        method: adapter.ipv4Method === "manual" ? "manual" : "dhcp",
+        address: adapter.ipv4Address ?? "",
+        subnetMask: adapter.subnetMask ?? "",
+        gateway: adapter.gateway ?? "",
+        dns1: adapter.dnsServers[0] ?? "",
+        dns2: adapter.dnsServers[1] ?? "",
+      },
+    });
+  }
+  applyIpv4(
+    adapterId: string,
+    configuration: Ipv4Configuration,
+  ): Promise<void> {
+    return this.helper({
+      action: "ipv4",
+      nativeId: this.native(adapterId),
+      configuration,
+    }).then(() => undefined);
+  }
+  restoreIpv4(state: AdapterIpv4RollbackState): Promise<void> {
+    return this.helper({
+      action: "ipv4",
+      nativeId: state.nativeAdapterId,
+      configuration: state.configuration,
+    }).then(() => undefined);
+  }
   close(): Promise<void> {
     this.nativeById.clear();
+    this.snapshotById.clear();
     this.networkById.clear();
     return Promise.resolve();
   }

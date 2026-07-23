@@ -1,8 +1,13 @@
 import type {
+  Ipv4Draft,
   NetworkAdapterSnapshot,
   NetworkSnapshot,
   WifiNetwork,
   WifiSecurity,
+} from "../../../../packages/shared/src/network";
+import {
+  ipv4ConfigurationOf,
+  validateIpv4Draft,
 } from "../../../../packages/shared/src/network";
 import type { NetworkApiClient } from "../api/network-api-client";
 import { createSegmentedControl } from "../components/segmented-control";
@@ -11,6 +16,7 @@ export interface NetworkSettingsPanel {
   readonly element: HTMLElement;
   readonly selectorElement: HTMLElement;
   update(snapshot: NetworkSnapshot): void;
+  requestLeave(leave: () => void): boolean;
   destroy(): void;
 }
 
@@ -109,6 +115,7 @@ export function createNetworkSettingsPanel(options: {
   let selectedWiredId = snapshot.wiredAdapters[0]?.id ?? "";
   let selectedWifiId = snapshot.wifiAdapters[0]?.id ?? "";
   let initialScanRequested = false;
+  const drafts = new Map<string, Ipv4Draft>();
   let dialogCleanup = (): void => undefined;
   const viewControl = createSegmentedControl<View>({
     label: "Network interface",
@@ -118,6 +125,18 @@ export function createNetworkSettingsPanel(options: {
       { value: "wifi", label: "Wi-Fi" },
     ],
     onChange(value) {
+      if (value === view) return;
+      const previous = view;
+      if (
+        requestDiscard(() => {
+          view = value;
+          viewControl.setValue(value);
+          render();
+        })
+      ) {
+        viewControl.setValue(previous);
+        return;
+      }
       view = value;
       render();
     },
@@ -144,6 +163,9 @@ export function createNetworkSettingsPanel(options: {
     content: HTMLElement,
     confirmLabel: string,
     submit: () => Promise<void>,
+    dismissible = true,
+    cancelLabel = "Cancel",
+    closeOnSuccess = true,
   ): void => {
     closeDialog();
     const backdrop = document.createElement("div");
@@ -159,27 +181,33 @@ export function createNetworkSettingsPanel(options: {
     actions.className = "source-dialog__actions";
     const cancel = document.createElement("button");
     cancel.type = "button";
-    cancel.textContent = "Cancel";
+    cancel.textContent = cancelLabel;
     const confirm = document.createElement("button");
     confirm.type = "button";
     confirm.className = "source-dialog__confirm";
     confirm.textContent = confirmLabel;
-    actions.append(cancel, confirm);
+    if (dismissible) actions.append(cancel);
+    actions.append(confirm);
     dialog.append(heading, content, actions);
     element.append(backdrop, dialog);
     const dismiss = (): void => {
       closeDialog();
     };
-    cancel.addEventListener("click", dismiss);
-    backdrop.addEventListener("click", dismiss);
+    if (dismissible) {
+      cancel.addEventListener("click", dismiss);
+      backdrop.addEventListener("click", dismiss);
+    }
     confirm.addEventListener("click", () => {
       confirm.disabled = true;
-      cancel.disabled = true;
+      if (dismissible) cancel.disabled = true;
       void submit()
-        .then(closeDialog)
+        .then(() => {
+          if (closeOnSuccess || !snapshot.configurationTransaction)
+            closeDialog();
+        })
         .catch((error: unknown) => {
           confirm.disabled = false;
-          cancel.disabled = false;
+          if (dismissible) cancel.disabled = false;
           options.showToast(
             error instanceof Error ? error.message : "Network action failed.",
             "error",
@@ -187,7 +215,7 @@ export function createNetworkSettingsPanel(options: {
         });
     });
     const escape = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") closeDialog();
+      if (dismissible && event.key === "Escape") closeDialog();
     };
     document.addEventListener("keydown", escape);
     dialogCleanup = () => {
@@ -196,6 +224,266 @@ export function createNetworkSettingsPanel(options: {
     queueMicrotask(() => {
       (dialog.querySelector("input") ?? confirm).focus();
     });
+  };
+
+  const adapterForView = (): NetworkAdapterSnapshot | undefined =>
+    view === "wired"
+      ? (snapshot.wiredAdapters.find(
+          (adapter) => adapter.id === selectedWiredId,
+        ) ?? snapshot.wiredAdapters[0])
+      : (snapshot.wifiAdapters.find(
+          (adapter) => adapter.id === selectedWifiId,
+        ) ?? snapshot.wifiAdapters[0]);
+
+  const draftFor = (adapter: NetworkAdapterSnapshot): Ipv4Draft => {
+    const existing = drafts.get(adapter.id);
+    if (existing) return existing;
+    const created = ipv4ConfigurationOf(adapter);
+    drafts.set(adapter.id, created);
+    return created;
+  };
+
+  const isDirty = (adapter = adapterForView()): boolean => {
+    if (!adapter) return false;
+    const draft = draftFor(adapter);
+    const current = ipv4ConfigurationOf(adapter);
+    return draft.method === "dhcp"
+      ? current.method !== "dhcp"
+      : JSON.stringify(draft) !== JSON.stringify(current);
+  };
+
+  const requestDiscard = (leave: () => void): boolean => {
+    if (!isDirty()) return false;
+    const content = document.createElement("p");
+    content.className = "source-dialog__description";
+    content.textContent = "Your IPv4 changes have not been applied.";
+    openDialog(
+      "Discard network changes?",
+      content,
+      "Discard",
+      () => {
+        const adapter = adapterForView();
+        if (adapter) drafts.set(adapter.id, ipv4ConfigurationOf(adapter));
+        leave();
+        return Promise.resolve();
+      },
+      true,
+      "Continue editing",
+    );
+    return true;
+  };
+
+  const ipv4Editor = (adapter: NetworkAdapterSnapshot): HTMLElement => {
+    const section = document.createElement("section");
+    section.className = "network-ipv4";
+    const heading = document.createElement("div");
+    heading.className = "network-ipv4__header";
+    const title = document.createElement("h2");
+    title.textContent = "IPv4 configuration";
+    const draft = draftFor(adapter);
+    const mode = createSegmentedControl<"dhcp" | "manual">({
+      label: "IPv4 configuration method",
+      value: draft.method,
+      items: [
+        { value: "dhcp", label: "DHCP" },
+        { value: "manual", label: "Manual" },
+      ],
+      onChange(method) {
+        drafts.set(adapter.id, { ...draftFor(adapter), method });
+        render();
+      },
+    });
+    heading.append(title, mode.element);
+    section.append(heading);
+    if (draft.method === "manual") {
+      const fields = document.createElement("div");
+      fields.className = "network-ipv4__fields";
+      const fieldDefinitions: readonly [
+        Exclude<keyof Ipv4Draft, "method">,
+        string,
+        boolean,
+      ][] = [
+        ["address", "IP address", true],
+        ["subnetMask", "Subnet mask", true],
+        ["gateway", "Gateway", false],
+        ["dns1", "DNS 1", false],
+        ["dns2", "DNS 2", false],
+      ];
+      const validation = validateIpv4Draft(draft);
+      for (const [key, labelText, required] of fieldDefinitions) {
+        const label = document.createElement("label");
+        label.className = "network-ipv4__field";
+        const labelCopy = document.createElement("span");
+        labelCopy.textContent = labelText;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.inputMode = "decimal";
+        input.autocomplete = "off";
+        input.maxLength = 15;
+        input.required = required;
+        input.value = draft[key];
+        input.dataset.onscreenKeyboard = "ipv4";
+        const error = document.createElement("small");
+        error.className = "network-ipv4__error";
+        error.textContent = validation.errors[key] ?? "";
+        input.setAttribute(
+          "aria-invalid",
+          String(validation.errors[key] !== undefined),
+        );
+        input.addEventListener("input", () => {
+          drafts.set(adapter.id, {
+            ...draftFor(adapter),
+            [key]: input.value,
+          });
+          const next = validateIpv4Draft(draftFor(adapter));
+          error.textContent = next.errors[key] ?? "";
+          input.setAttribute(
+            "aria-invalid",
+            String(next.errors[key] !== undefined),
+          );
+          actions.hidden = !isDirty(adapter);
+          apply.disabled = !next.valid || !isDirty(adapter);
+        });
+        label.append(labelCopy, input, error);
+        fields.append(label);
+      }
+      section.append(fields);
+    }
+    const actions = document.createElement("div");
+    actions.className = "network-ipv4__actions";
+    actions.hidden = !isDirty(adapter);
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "source-dialog__confirm";
+    apply.textContent = "Apply network settings";
+    apply.disabled = !validateIpv4Draft(draft).valid || !isDirty(adapter);
+    apply.addEventListener("click", () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const next = validateIpv4Draft(draftFor(adapter)).normalized;
+      const content = document.createElement("div");
+      content.className = "network-dialog__content";
+      const summary =
+        next.method === "dhcp"
+          ? `${adapter.type === "wired" ? "Wired" : "Wi-Fi"} · DHCP`
+          : `${adapter.type === "wired" ? "Wired" : "Wi-Fi"} · IP ${next.address} · Mask ${next.subnetMask} · Gateway ${next.gateway || "None"} · DNS ${[next.dns1, next.dns2].filter(Boolean).join(", ") || "None"}`;
+      const copy = document.createElement("p");
+      copy.className = "source-dialog__description";
+      copy.textContent = summary;
+      const warning = document.createElement("p");
+      warning.className = "source-dialog__description";
+      warning.textContent =
+        "The network connection may be interrupted temporarily.";
+      content.append(copy, warning);
+      openDialog(
+        "Apply network settings?",
+        content,
+        "Apply",
+        async () => {
+          const backendValidation = await options.api.validateIpv4(next);
+          if (!backendValidation.valid)
+            throw new Error("Review the invalid IPv4 fields.");
+          await options.api.applyIpv4(adapter.id, backendValidation.normalized);
+        },
+        true,
+        "Cancel",
+        false,
+      );
+    });
+    actions.append(apply);
+    section.append(actions);
+    return section;
+  };
+
+  const showTransactionDialog = (): void => {
+    const transaction = snapshot.configurationTransaction;
+    if (!transaction) return;
+    closeDialog();
+    const content = document.createElement("div");
+    content.className = "network-dialog__content";
+    const description = document.createElement("p");
+    description.className = "source-dialog__description";
+    if (transaction.state === "awaiting-confirmation") {
+      description.textContent = `Keep these network settings? They will be reverted in ${String(transaction.secondsRemaining ?? 0)} seconds.`;
+      content.append(description);
+      const backdrop = document.createElement("div");
+      backdrop.className =
+        "source-dialog-backdrop source-dialog-backdrop--open network-dialog-backdrop";
+      const dialog = document.createElement("section");
+      dialog.className = "source-dialog source-dialog--open network-dialog";
+      dialog.setAttribute("role", "alertdialog");
+      dialog.setAttribute("aria-modal", "true");
+      const title = document.createElement("h2");
+      title.textContent = "Network settings applied";
+      const actions = document.createElement("div");
+      actions.className = "source-dialog__actions";
+      const revert = document.createElement("button");
+      revert.type = "button";
+      revert.textContent = "Revert";
+      const keep = document.createElement("button");
+      keep.type = "button";
+      keep.className = "source-dialog__confirm";
+      keep.textContent = "Keep settings";
+      revert.addEventListener("click", () => {
+        revert.disabled = true;
+        keep.disabled = true;
+        run(options.api.rollbackIpv4());
+      });
+      keep.addEventListener("click", () => {
+        revert.disabled = true;
+        keep.disabled = true;
+        run(options.api.confirmIpv4());
+      });
+      actions.append(revert, keep);
+      dialog.append(title, content, actions);
+      element.append(backdrop, dialog);
+      element.querySelector(".network-panel")?.toggleAttribute("inert", true);
+      viewControl.element.toggleAttribute("inert", true);
+      queueMicrotask(() => {
+        keep.focus();
+      });
+      return;
+    }
+    description.textContent =
+      transaction.message ??
+      (transaction.state === "recovery-required"
+        ? "Network recovery requires attention."
+        : "Updating network settings…");
+    content.append(description);
+    const backdrop = document.createElement("div");
+    backdrop.className =
+      "source-dialog-backdrop source-dialog-backdrop--open network-dialog-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "source-dialog source-dialog--open network-dialog";
+    dialog.setAttribute("role", "alertdialog");
+    dialog.setAttribute("aria-modal", "true");
+    const title = document.createElement("h2");
+    title.textContent =
+      transaction.state === "recovery-required"
+        ? "Network recovery required"
+        : "Updating network";
+    dialog.append(title, content);
+    if (transaction.state === "recovery-required") {
+      const actions = document.createElement("div");
+      actions.className = "source-dialog__actions";
+      const system = document.createElement("button");
+      system.type = "button";
+      system.textContent = "Open system settings";
+      system.addEventListener("click", () => {
+        run(options.openSystemSettings());
+      });
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "source-dialog__confirm";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", () => {
+        run(options.api.retryIpv4Recovery());
+      });
+      actions.append(system, retry);
+      dialog.append(actions);
+    }
+    element.append(backdrop, dialog);
+    element.querySelector(".network-panel")?.toggleAttribute("inert", true);
+    viewControl.element.toggleAttribute("inert", true);
   };
 
   const passwordContent = (
@@ -311,6 +599,7 @@ export function createNetworkSettingsPanel(options: {
 
   function render(): void {
     closeDialog();
+    viewControl.element.toggleAttribute("inert", false);
     element.replaceChildren();
     if (view === "wired") {
       renderWired();
@@ -326,6 +615,7 @@ export function createNetworkSettingsPanel(options: {
         run(options.api.scan(selectedWifiId));
       }
     }
+    showTransactionDialog();
   }
 
   function adapterPicker(
@@ -345,7 +635,17 @@ export function createNetworkSettingsPanel(options: {
       select.append(option);
     }
     select.addEventListener("change", () => {
-      onSelect(select.value);
+      const next = select.value;
+      if (
+        requestDiscard(() => {
+          onSelect(next);
+          render();
+        })
+      ) {
+        select.value = selected;
+        return;
+      }
+      onSelect(next);
       render();
     });
     return select;
@@ -370,13 +670,11 @@ export function createNetworkSettingsPanel(options: {
         '<p class="network-empty">No wired adapter available.</p>';
     } else {
       selectedWiredId = adapter.id;
-      panel.append(details(adapter, connectivityLabel(snapshot)));
+      panel.append(
+        details(adapter, connectivityLabel(snapshot)),
+        ipv4Editor(adapter),
+      );
     }
-    const note = document.createElement("p");
-    note.className = "network-note";
-    note.textContent =
-      "IP configuration will be available in a later network setup step.";
-    panel.append(note);
     element.append(panel);
   }
 
@@ -513,6 +811,7 @@ export function createNetworkSettingsPanel(options: {
       currentSection.append(disconnected);
     }
     panel.append(currentSection);
+    panel.append(ipv4Editor(adapter));
     const listHeader = document.createElement("div");
     listHeader.className = "network-list-header";
     listHeader.innerHTML = "<h2>Available networks</h2>";
@@ -564,11 +863,6 @@ export function createNetworkSettingsPanel(options: {
     other.addEventListener("click", hiddenNetwork);
     list.append(other);
     panel.append(list);
-    const note = document.createElement("p");
-    note.className = "network-note";
-    note.textContent =
-      "IP configuration will be available in a later network setup step.";
-    panel.append(note);
     element.append(panel);
   }
 
@@ -578,9 +872,21 @@ export function createNetworkSettingsPanel(options: {
     selectorElement: viewControl.element,
     update(next) {
       if (next.revision < snapshot.revision) return;
+      const transactionFinished =
+        snapshot.configurationTransaction !== null &&
+        next.configurationTransaction === null;
       snapshot = next;
-      if (element.querySelector(".network-dialog")) return;
+      if (transactionFinished) drafts.clear();
+      if (
+        element.querySelector(".network-dialog") &&
+        !next.configurationTransaction
+      )
+        return;
       render();
+    },
+    requestLeave(leave) {
+      if (snapshot.configurationTransaction) return true;
+      return requestDiscard(leave);
     },
     destroy() {
       closeDialog();
