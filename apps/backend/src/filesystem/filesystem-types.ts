@@ -22,12 +22,17 @@ export interface FilesystemStat {
 
 export interface StoredSource {
   readonly id: string;
-  readonly type: "local";
+  readonly type: "local" | "removable";
   readonly displayName: string;
   readonly nativeRoot: string;
   readonly canonicalRoot: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export interface DirectorySourceCatalog {
+  getInternal(sourceId: string): Promise<StoredSource>;
+  availabilityOf(sourceId: string): Promise<"available" | "unavailable">;
 }
 
 export interface SourceConfig {

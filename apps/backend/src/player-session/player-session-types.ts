@@ -8,6 +8,12 @@ export type PersistedQueueOrigin =
   | {
       readonly kind: "direct";
       readonly nativePath: string;
+    }
+  | {
+      readonly kind: "removable";
+      readonly deviceId: string;
+      readonly relativePath: string;
+      readonly entryId: string;
     };
 
 export interface PersistedQueueItem {

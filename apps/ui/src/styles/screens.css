@@ -300,6 +300,11 @@
     width: var(--touch-medium);
     height: var(--touch-medium);
   }
+  .transport__button--usb-storage {
+    color: #66e3d0;
+    background: #12302f;
+    border: 1px solid #2d756d;
+  }
   .transport__button--small span {
     position: absolute;
     width: 1px;
@@ -1100,6 +1105,16 @@
     justify-items: center;
     gap: var(--space-3);
     color: var(--color-text-secondary);
+  }
+  .folders-source-unavailable {
+    display: grid;
+    min-height: 12rem;
+    margin: 0;
+    place-content: center;
+    color: var(--color-text-secondary);
+  }
+  .folders-screen--source-unavailable .folders-content {
+    display: none;
   }
   .folders-error button {
     min-height: var(--touch-min);

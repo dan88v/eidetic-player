@@ -3,15 +3,18 @@ import type {
   DirectoryEntry,
   DirectoryQueueResponse,
   FolderArtworkPreview,
+  LibraryMetadataSummary,
 } from "../../../../packages/shared/src/library";
 import type { PlayerState } from "../../../../packages/shared/src/player";
-import type { FoldersApiClient } from "../api/folders-api-client";
 import { createArtwork, type ArtworkView } from "../components/artwork";
 import { icon } from "../components/icons";
 import { t } from "../i18n";
 import { formatTime } from "../components/timeline";
 import type { ComponentView } from "../components/types";
-import { foldersSession } from "../state/folders-session";
+import {
+  foldersSession,
+  type FoldersBrowserSession,
+} from "../state/folders-session";
 import type { FolderSortMode, FolderViewMode } from "../state/types";
 import {
   loadFolderSortMode,
@@ -22,7 +25,33 @@ import {
 import { formatAudioQuality } from "../utils/audio-quality";
 
 export interface FoldersScreenOptions {
-  readonly api: FoldersApiClient;
+  readonly api: {
+    browse(
+      sourceId: string,
+      relativePath?: string,
+    ): Promise<DirectoryBrowseResponse>;
+    metadata(
+      sourceId: string,
+      entryId: string,
+      signal?: AbortSignal,
+    ): Promise<LibraryMetadataSummary>;
+    addEntryToQueue(
+      sourceId: string,
+      entryId: string,
+    ): Promise<DirectoryQueueResponse>;
+    addDirectoryToQueue(
+      sourceId: string,
+      relativePath: string,
+    ): Promise<DirectoryQueueResponse>;
+    folderArtwork(
+      sourceId: string,
+      relativePath: string,
+      signal?: AbortSignal,
+    ): Promise<FolderArtworkPreview>;
+    listSources?(): Promise<{
+      readonly sources: readonly DirectoryBrowseResponse["source"][];
+    }>;
+  };
   readonly openSources: () => void;
   readonly openEntry: (sourceId: string, entryId: string) => Promise<void>;
   readonly playDirectory: (
@@ -34,6 +63,9 @@ export interface FoldersScreenOptions {
     message: string,
     tone?: "error" | "success" | "neutral",
   ) => void;
+  readonly session?: FoldersBrowserSession;
+  readonly rootBack?: () => void;
+  readonly hideRootTitle?: boolean;
 }
 
 interface AudioRow {
@@ -82,7 +114,8 @@ function rememberPreview(key: string, preview: FolderArtworkPreview): void {
 
 export function createFoldersScreen(
   options: FoldersScreenOptions,
-): ComponentView {
+): ComponentView & { setSourceAvailable(available: boolean): void } {
+  const session = options.session ?? foldersSession;
   const section = document.createElement("section");
   section.className = "screen folders-screen";
   section.innerHTML = `
@@ -172,10 +205,10 @@ export function createFoldersScreen(
     section.closest<HTMLElement>(".screen-region");
 
   const rememberScroll = (): void => {
-    const location = foldersSession.getLocation();
+    const location = session.getLocation();
     const region = scrollRegion();
     if (location.sourceId && region)
-      foldersSession.saveScroll(
+      session.saveScroll(
         location.sourceId,
         location.relativePath,
         region.scrollTop,
@@ -324,7 +357,7 @@ export function createFoldersScreen(
 
   const navigateDirectory = (sourceId: string, relativePath: string): void => {
     rememberScroll();
-    foldersSession.setLocation(sourceId, relativePath);
+    session.setLocation(sourceId, relativePath);
     void loadDirectory(sourceId, relativePath);
   };
 
@@ -392,7 +425,7 @@ export function createFoldersScreen(
         await options.openEntry(target.sourceId, target.entryId);
         if (destroyed || playRequestGeneration !== audioPlayRequestGeneration)
           return;
-        foldersSession.setSelected(target.entryId);
+        session.setSelected(target.entryId);
       } else {
         const result = await options.api.addEntryToQueue(
           target.sourceId,
@@ -631,7 +664,7 @@ export function createFoldersScreen(
   };
 
   const restoreScroll = (sourceId: string, relativePath: string): void => {
-    const target = foldersSession.scrollFor(sourceId, relativePath);
+    const target = session.scrollFor(sourceId, relativePath);
     requestAnimationFrame(() => {
       if (!destroyed) scrollRegion()?.scrollTo({ top: target });
     });
@@ -736,6 +769,10 @@ export function createFoldersScreen(
     rootToolbar.hidden = true;
     title.textContent =
       response.breadcrumbs.at(-1)?.name ?? response.source.displayName;
+    title.classList.toggle(
+      "visually-hidden",
+      options.hideRootTitle === true && response.current.relativePath === "",
+    );
     directoryActions.replaceChildren();
     breadcrumbs.hidden = true;
     const play = document.createElement("button");
@@ -876,7 +913,7 @@ export function createFoldersScreen(
     try {
       const response = await options.api.browse(sourceId, relativePath);
       if (destroyed || requestGeneration !== generation) return;
-      foldersSession.setLocation(sourceId, response.current.relativePath);
+      session.setLocation(sourceId, response.current.relativePath);
       renderDirectory(response, requestGeneration);
       restoreScroll(sourceId, relativePath);
     } catch (error) {
@@ -895,13 +932,14 @@ export function createFoldersScreen(
     const requestGeneration = ++generation;
     disposeContent();
     currentResponse = null;
-    foldersSession.showSources();
+    session.showSources();
     directoryHeader.hidden = true;
     rootToolbar.hidden = false;
     rootSort.replaceChildren(sortControls());
     rootActions.replaceChildren(viewControls());
     try {
-      const response = await options.api.listSources();
+      const response = await options.api.listSources?.();
+      if (!response) throw new Error("Source listing is unavailable");
       if (destroyed || requestGeneration !== generation) return;
       previewController = new AbortController();
       const list = document.createElement("div");
@@ -943,13 +981,16 @@ export function createFoldersScreen(
         currentResponse.parent.sourceId,
         currentResponse.parent.relativePath,
       );
-    else {
+    else if (options.rootBack) {
+      rememberScroll();
+      options.rootBack();
+    } else {
       rememberScroll();
       void showSourceChooser();
     }
   });
 
-  const initial = foldersSession.getLocation();
+  const initial = session.getLocation();
   if (initial.sourceId)
     void loadDirectory(initial.sourceId, initial.relativePath);
   else void showSourceChooser();
@@ -959,6 +1000,36 @@ export function createFoldersScreen(
     updatePlayerState(state) {
       playerState = state;
       updateCurrentRows();
+    },
+    setSourceAvailable(available) {
+      if (!available) {
+        generation += 1;
+        metadataController?.abort();
+        previewController?.abort();
+        closeMenu(false);
+      }
+      section.classList.toggle(
+        "folders-screen--source-unavailable",
+        !available,
+      );
+      for (const control of section.querySelectorAll<HTMLButtonElement>(
+        "button:not(.folders-back)",
+      ))
+        control.disabled = !available;
+      let notice = section.querySelector<HTMLElement>(
+        ".folders-source-unavailable",
+      );
+      if (!available && !notice) {
+        notice = document.createElement("p");
+        notice.className = "folders-source-unavailable";
+        notice.textContent = "USB storage disconnected.";
+        content.after(notice);
+      } else if (available && notice) {
+        notice.remove();
+        const location = session.getLocation();
+        if (location.sourceId)
+          void loadDirectory(location.sourceId, location.relativePath);
+      }
     },
     destroy() {
       rememberScroll();

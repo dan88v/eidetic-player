@@ -4,6 +4,7 @@ import { PathService } from "../filesystem/path-service.js";
 import { SourceService } from "../filesystem/source-service.js";
 import type { PlayerService } from "../player/player-service.js";
 import { PlayerSessionRepository } from "./player-session-repository.js";
+import type { RemovableStorageService } from "../removable-storage/removable-storage-service.js";
 import type {
   PersistedPlayerSession,
   PersistedQueueItem,
@@ -28,6 +29,7 @@ export class PlayerSessionService {
     private readonly paths: PathService,
     private readonly sources: SourceService,
     private readonly player: PlayerService,
+    private readonly removableStorage?: RemovableStorageService,
   ) {}
 
   async restore(): Promise<PlayerRestoreResult> {
@@ -160,9 +162,10 @@ export class PlayerSessionService {
   }
 
   private originKey(origin: PersistedQueueOrigin): string {
-    return origin.kind === "direct"
-      ? `direct:${origin.nativePath}`
-      : `folders:${origin.sourceId}:${origin.relativePath}:${origin.libraryTrackId ?? ""}`;
+    if (origin.kind === "direct") return `direct:${origin.nativePath}`;
+    if (origin.kind === "removable")
+      return `removable:${origin.deviceId}:${origin.relativePath}:${origin.entryId}`;
+    return `folders:${origin.sourceId}:${origin.relativePath}:${origin.libraryTrackId ?? ""}`;
   }
 
   private async resolveItem(
@@ -172,7 +175,9 @@ export class PlayerSessionService {
       const nativePath =
         item.origin.kind === "direct"
           ? this.paths.normalizeNativePath(item.origin.nativePath)
-          : await this.resolveFoldersOrigin(item.origin);
+          : item.origin.kind === "removable"
+            ? await this.resolveRemovableOrigin(item.origin)
+            : await this.resolveFoldersOrigin(item.origin);
       const details = await this.provider.lstat(nativePath);
       if (
         details.isSymbolicLink() ||
@@ -199,6 +204,16 @@ export class PlayerSessionService {
       throw new Error("source unavailable");
     return this.paths.resolveWithinSource(
       source.canonicalRoot,
+      origin.relativePath,
+    );
+  }
+
+  private async resolveRemovableOrigin(
+    origin: Extract<PersistedQueueOrigin, { kind: "removable" }>,
+  ): Promise<string> {
+    if (!this.removableStorage) throw new Error("removable unavailable");
+    return this.removableStorage.resolveLogicalPath(
+      origin.deviceId,
       origin.relativePath,
     );
   }

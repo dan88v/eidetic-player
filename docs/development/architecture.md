@@ -50,6 +50,11 @@ future Raspberry shell.
   availability. `DirectoryBrowserService` owns one-level listings and its
   bounded cache; `FolderArtworkPreviewService` owns bounded direct-child folder
   previews; `PathService` is the only logical/native path authority.
+- `RemovableStorageService` owns the single mounted-USB monitor, opaque volume
+  identity, current native-root mapping, and connect/disconnect lifecycle.
+  Windows and Linux enumeration stay behind separate providers. Removable
+  volumes join the same provider-neutral `DirectoryBrowserService`; they never
+  become persistent Library Sources in Step 2.11.
 - `IndexedLibraryService` owns the durable SQLite catalog and publishes
   low-frequency Library snapshots. `LibraryScheduler` owns the single active
   scan, while `LibraryScanner` owns recursive traversal and incremental
@@ -71,6 +76,10 @@ Do not introduce a second owner for any of these concerns.
 - Large binary data, local paths, base64, and PCM never belong in player SSE.
 - Folders responses use opaque IDs and logical relative paths. Absolute roots
   remain backend-only after the native Add Source command.
+- Removable Storage REST/SSE exposes only opaque `usb-*` device IDs, logical
+  paths, capacity/status data, and opaque entry/artwork IDs. Queue origins keep
+  `deviceId`, logical relative path, and entry identity; the backend resolves
+  the device's current root immediately before playback.
 - Library REST/SSE carries only opaque Source/Album/Artist/Track identity,
   catalog metadata, aggregate counts, progress, and safe error codes. Database
   paths and native roots remain backend-only. Native paths are reconstructed
@@ -142,6 +151,9 @@ restore. The UI keeps the static splash visible until this endpoint completes,
 subject to the minimum display interval and safety timeout, then mounts the
 shell once with the returned state. A restored Queue always starts paused at
 the beginning of its saved current item.
+If the saved current item belongs to absent removable storage, the existing
+current-item restore rule invalidates that saved session rather than inventing
+a root or auto-resuming. Runtime disconnects preserve the in-memory Queue.
 
 ## Cross-platform behavior
 
@@ -154,6 +166,13 @@ to XDG. Persistent Sources and player-session state belong to config,
 regenerable artwork belongs to cache, the SQLite Library belongs to data, and
 MPV Unix sockets belong to a private runtime directory. Windows keeps its
 APPDATA/LOCALAPPDATA and named-pipe adapters.
+
+Mounted removable storage uses CIM disk/partition/volume associations on
+Windows and `lsblk` transport topology on Linux. Filesystem UUID or volume
+serial is preferred; provider device identity plus partition is the fallback,
+and a final model/name/size-style fallback is session-stable only where the OS
+supplies no durable identifier. Raw identity and mount roots never cross the
+backend boundary.
 
 MPV, FFmpeg, and native-shell absence must degrade independently:
 

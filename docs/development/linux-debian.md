@@ -63,6 +63,19 @@ WebKitGTK/GTK, DBus, `DISPLAY`/`WAYLAND_DISPLAY`, runtime binary architecture,
 backend startup, and filesystem permissions. Do not replace Neutralino with
 Electron.
 
+## Mounted USB storage
+
+Step 2.11 reads already-mounted USB volumes only. The Linux provider consumes
+`lsblk --json` transport topology, accepts mounted disk/partition nodes whose
+physical ancestry reports `TRAN=usb`, excludes `/` and non-USB/network/optical
+devices, and prefers filesystem UUID for stable identity. It does not call
+`mount`, `umount`, `eject`, `udisksctl`, sudo, udev, or systemd.
+
+Debian/Raspberry Pi OS runtime detection, permissions, read-only media, and
+disconnect latency remain hardware checks; WSL may expose no representative
+USB block topology. Step 2.11.2 will cover platform-specific mount, unmount,
+eject, safe removal, udev/udisks/systemd integration, and authorization.
+
 ## Audio
 
 MPV keeps automatic device selection; no PulseAudio, PipeWire, ALSA, or device

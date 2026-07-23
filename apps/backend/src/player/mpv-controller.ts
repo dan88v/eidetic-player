@@ -88,6 +88,10 @@ export class MpvController {
     if (!first || !paths[selectedIndex])
       throw new Error("Cannot load an empty playlist");
     await this.setProperty("pause", true);
+    // MPV's loadfile "replace" behavior can retain non-current playlist
+    // entries in an already populated session. Clear those entries first so
+    // every direct-open operation is an exact Queue replacement.
+    await this.command(["playlist-clear"]);
     const selected = paths[selectedIndex] ?? first;
     await this.command(["loadfile", selected, "replace"]);
     for (let index = 0; index < selectedIndex; index += 1) {
@@ -97,11 +101,20 @@ export class MpvController {
     for (const path of paths.slice(selectedIndex + 1)) {
       await this.command(["loadfile", path, "append"]);
     }
-    const currentIndex = await this.getProperty("playlist-pos");
-    if (currentIndex !== selectedIndex)
-      throw new Error(
-        `MPV selected index mismatch: expected ${String(selectedIndex)}, got ${String(currentIndex)}`,
-      );
+    const deadline = Date.now() + 2_000;
+    let currentIndex: unknown;
+    let currentPath: unknown;
+    do {
+      [currentIndex, currentPath] = await Promise.all([
+        this.getProperty("playlist-pos"),
+        this.getProperty("path"),
+      ]);
+      if (currentIndex === selectedIndex && currentPath === selected) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } while (Date.now() < deadline);
+    throw new Error(
+      `MPV selected item mismatch: expected index ${String(selectedIndex)} and the requested path, got index ${String(currentIndex)} and ${typeof currentPath === "string" ? "another path" : "no path"}`,
+    );
   }
 
   async appendToPlaylist(paths: readonly string[]): Promise<void> {

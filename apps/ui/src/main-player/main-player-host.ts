@@ -36,6 +36,8 @@ export function createMainPlayerHost(
         onOpenQueue: options.onOpenQueue,
         onOpenLibrary: options.onOpenLibrary,
         onOpenFolders: options.onOpenFolders,
+        onOpenUsbStorage: options.onOpenUsbStorage,
+        removableDevices: options.removableDevices,
         onToggleVolume: options.onToggleVolume,
         onAssetError: options.onCassetteAssetError,
         onError: options.onCassetteError,

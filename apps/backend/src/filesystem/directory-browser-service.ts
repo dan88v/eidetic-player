@@ -13,10 +13,10 @@ import { isSupportedAudioPath } from "../../../../packages/shared/src/audio.js";
 import type { FilesystemProvider } from "./filesystem-provider.js";
 import { FilesystemError } from "./filesystem-errors.js";
 import { PathService } from "./path-service.js";
-import { SourceService } from "./source-service.js";
 import { FolderArtworkPreviewService } from "./folder-artwork-preview-service.js";
 import {
   type CachedDirectory,
+  type DirectorySourceCatalog,
   type InternalDirectoryEntry,
   toPublicSource,
 } from "./filesystem-types.js";
@@ -52,7 +52,7 @@ export class DirectoryBrowserService {
   constructor(
     private readonly provider: FilesystemProvider,
     private readonly paths: PathService,
-    private readonly sources: SourceService,
+    private readonly sources: DirectorySourceCatalog,
     private readonly currentPath: () => string | null,
     private readonly metadata = new MetadataService(),
     private readonly artwork = new ArtworkService(),
@@ -410,6 +410,20 @@ export class DirectoryBrowserService {
 
   relativePathForEntry(sourceId: string, entryId: string): string {
     return this.requireAudioEntry(sourceId, entryId).publicEntry.relativePath;
+  }
+
+  entryIdForRelativePath(sourceId: string, relativePath: string): string {
+    for (const [entryId, entry] of this.entries)
+      if (
+        entry.publicEntry.sourceId === sourceId &&
+        entry.publicEntry.relativePath === relativePath
+      )
+        return entryId;
+    throw new FilesystemError(
+      "ENTRY_NOT_FOUND",
+      "This audio file is no longer available.",
+      404,
+    );
   }
 
   folderArtworkFor(sourceId: string, relativePath: string) {

@@ -4,10 +4,13 @@ import type { PlayerState } from "../../../../packages/shared/src/player";
 import type { PlayerActions } from "./now-playing";
 import type { FoldersApiClient } from "../api/folders-api-client";
 import type { LibraryApiClient } from "../api/library-api-client";
+import type { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
   IndexedLibrarySnapshot,
+  RemovableDevice,
+  RemovableDeviceListResponse,
 } from "../../../../packages/shared/src/library";
 import type {
   AppState,
@@ -31,6 +34,7 @@ import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
 import { createSourcesScreen } from "./sources";
 import { createPlaylistsScreen } from "./playlists";
+import { createUsbStorageScreen } from "./usb-storage";
 
 export interface ScreenContext {
   readonly state: AppState;
@@ -61,6 +65,12 @@ export interface ScreenContext {
   readonly playerState: PlayerState;
   readonly playerActions: PlayerActions;
   readonly foldersApi: FoldersApiClient;
+  readonly removableApi: RemovableStorageApiClient;
+  readonly removableDevices: RemovableDeviceListResponse;
+  readonly selectedRemovableDevice: RemovableDevice | null;
+  readonly openUsbStorage: (trigger?: HTMLElement) => void;
+  readonly openUsbStorageForDevice: (device: RemovableDevice) => void;
+  readonly backFromUsbStorage: () => void;
   readonly libraryApi: LibraryApiClient;
   readonly favorites: FavoriteTrackStore;
   readonly favoriteAlbums: FavoriteAlbumStore;
@@ -122,6 +132,8 @@ export function createScreen(
         onOpenQueue: context.openQueue,
         onOpenLibrary: context.openLibrary,
         onOpenFolders: context.openFolders,
+        onOpenUsbStorage: context.openUsbStorage,
+        removableDevices: context.removableDevices,
         onToggleVolume: context.toggleVolume,
         initialPlayerState: context.playerState,
         actions: context.playerActions,
@@ -136,6 +148,19 @@ export function createScreen(
         openEntry: context.openFolderEntry,
         playDirectory: context.playFolderDirectory,
         initialPlayerState: context.playerState,
+        showToast: context.showToast,
+      });
+    case "usbStorage":
+      if (!context.selectedRemovableDevice)
+        throw new Error("USB Storage requires a selected device");
+      return createUsbStorageScreen({
+        api: context.removableApi,
+        device: context.selectedRemovableDevice,
+        devices: context.removableDevices,
+        initialPlayerState: context.playerState,
+        back: context.backFromUsbStorage,
+        setTitle: context.setScreenTitle,
+        noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
       });
     case "library":
@@ -193,6 +218,8 @@ export function createScreen(
         openSource: context.openFolderSource,
         onSourceRemoved: context.removeFolderSource,
         showToast: context.showToast,
+        removableDevices: context.removableDevices,
+        openRemovableDevice: context.openUsbStorageForDevice,
       });
     case "queue":
       return staticView(createQueueScreen());

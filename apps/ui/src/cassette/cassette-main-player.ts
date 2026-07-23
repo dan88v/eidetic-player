@@ -25,6 +25,7 @@ import { createCassetteSnapshot } from "./cassette-snapshot";
 import { createCassetteMetadataLayer } from "./cassette-metadata-layer";
 import { createCassetteTimeRow } from "./cassette-time-row";
 import { createCassetteUtilityControls } from "./cassette-utility-controls";
+import type { RemovableDeviceListResponse } from "../../../../packages/shared/src/library";
 
 export interface CassetteMainPlayerOptions {
   readonly initialPlayerState: PlayerState;
@@ -35,6 +36,8 @@ export interface CassetteMainPlayerOptions {
   readonly onOpenQueue: (trigger: HTMLButtonElement) => void;
   readonly onOpenLibrary: () => void;
   readonly onOpenFolders: () => void;
+  readonly onOpenUsbStorage: (trigger?: HTMLElement) => void;
+  readonly removableDevices: RemovableDeviceListResponse;
   readonly onToggleVolume: (trigger: HTMLButtonElement) => void;
   readonly onAssetError: () => void;
   readonly onError: () => void;
@@ -115,6 +118,8 @@ export function createCassetteMainPlayer(
     musicBrowsingVisibility: options.musicBrowsingVisibility,
     onOpenLibrary: options.onOpenLibrary,
     onOpenFolders: options.onOpenFolders,
+    onOpenUsbStorage: options.onOpenUsbStorage,
+    removableDevices: options.removableDevices,
     onToggleVolume: options.onToggleVolume,
     onOpenQueue: options.onOpenQueue,
   });
@@ -226,6 +231,9 @@ export function createCassetteMainPlayer(
   return {
     element: section,
     updatePlayerState: update,
+    updateRemovableDevices: (snapshot) => {
+      utilityControls.updateRemovableDevices(snapshot);
+    },
     updateSeekPreview(positionSeconds) {
       previewPositionSeconds = positionSeconds;
       controller.update(createCassetteSnapshot(playerState, positionSeconds));

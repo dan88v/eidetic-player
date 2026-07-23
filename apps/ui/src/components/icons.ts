@@ -26,6 +26,7 @@ export type IconName =
   | "settings"
   | "sources"
   | "usb"
+  | "usbStorage"
   | "volume"
   | "volumeMuted"
   | "wifi";
@@ -66,6 +67,8 @@ const paths: Record<IconName, string> = {
   sources:
     '<circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/>',
   usb: '<path d="M12 3v14M12 3l-2.5 2.5M12 3l2.5 2.5M12 10l-4-2M8 8v7M8 15a2 2 0 1 0 0 4M12 13l4-2M16 11v4"/><rect x="14.5" y="15" width="3" height="3"/>',
+  usbStorage:
+    '<path d="M9 2h6v4H9zM10.5 2v2M13.5 2v2"/><rect x="7" y="6" width="10" height="16" rx="2"/><circle cx="12" cy="17.5" r="1.25"/>',
   volume:
     '<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/>',
   volumeMuted:

@@ -1,6 +1,7 @@
 export const screenIds = [
   "nowPlaying",
   "folders",
+  "usbStorage",
   "library",
   "favorites",
   "playlists",

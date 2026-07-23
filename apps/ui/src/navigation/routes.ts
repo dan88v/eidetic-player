@@ -70,6 +70,14 @@ export const navigationItems: readonly NavigationItem[] = [
 ] as const;
 
 export function getNavigationItem(screen: ScreenId): NavigationItem {
+  if (screen === "usbStorage")
+    return {
+      id: "usbStorage",
+      titleKey: "sources.usbStorage",
+      descriptionKey: "screen.sources.description",
+      icon: "usbStorage",
+      screenGroup: "main",
+    };
   const item = navigationItems.find(({ id }) => id === screen);
   if (!item) throw new Error(`Unknown screen: ${screen}`);
   return item;

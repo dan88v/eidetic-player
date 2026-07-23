@@ -55,7 +55,11 @@ rendered there. The lower row uses three stable zones: Library and Folders at
 the left edge;
 the symmetric Shuffle/Previous/Play/Next/Repeat group at center; and
 Volume/Queue at the right edge. Play/Pause remains centered on the viewport.
-The development viewport badge is not mounted in the normal UI.
+The development viewport badge is not mounted in the normal UI. When at least
+one readable mounted USB volume exists, a USB control appears immediately
+after Folders in the left group; otherwise it occupies no space. One device
+opens directly and multiple devices use the shared picker. The same ordering
+and visibility apply to Cassette without changing its playback-side controls.
 
 At 1280 × 800, artwork and visualizer share the same structural row. The stereo
 meter keeps its approved 16 px L/R bars and 10 px gap, while the reduced
@@ -69,8 +73,10 @@ that action to Cancel Scan while the single Library scheduler is queued or
 active. Adding a Source schedules only that persistent Source ID; an active scan
 retains one deduplicated pending request in the same scheduler. Rename is an
 accessible modal with Escape, focus trap, and focus restoration; Remove states
-that files are not deleted. USB Storage and Network Shares remain subdued static
-placeholders.
+that files are not deleted. USB Storage is a real, live section of mounted
+volumes with status, optional capacity/read-only detail, and Browse. It is not
+indexed or persisted as a Library Source. Network Shares remains a subdued
+static placeholder.
 
 Folders starts with a minimal configured-source collection and no duplicate
 hero or Add Folder action. Source/folder cards share persistent sorting and
@@ -78,6 +84,11 @@ List/Grid presentation, real single/mosaic artwork, clickable artwork/body Open
 targets, direct-audio counts, and a sibling accessible action menu. Switching
 view changes CSS state only: it performs no request, artwork reload, screen
 rebuild, or scroll reset.
+
+USB Storage reuses the same Folders directory header, breadcrumb, cards, rows,
+lazy metadata/artwork, Play Folder, and Add-to-Queue mechanics with a separate
+per-device logical-path/scroll session. Disconnect keeps Back available,
+disables stale actions, and shows a persistent dark empty state.
 
 Library root is dedicated to Albums, Artists, and Tracks browsing. A single
 compact toolbar places the segmented control on the left and Search, Manage,

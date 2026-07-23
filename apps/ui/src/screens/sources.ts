@@ -2,6 +2,8 @@ import type {
   AddLocalSourceResponse,
   IndexedLibrarySnapshot,
   LibrarySource,
+  RemovableDevice,
+  RemovableDeviceListResponse,
 } from "../../../../packages/shared/src/library";
 import type { FoldersApiClient } from "../api/folders-api-client";
 import type { LibraryApiClient } from "../api/library-api-client";
@@ -20,6 +22,8 @@ export interface SourcesScreenOptions {
     message: string,
     tone?: "error" | "success" | "neutral",
   ) => void;
+  readonly removableDevices: RemovableDeviceListResponse;
+  readonly openRemovableDevice: (device: RemovableDevice) => void;
 }
 
 export function createSourcesScreen(
@@ -40,13 +44,13 @@ export function createSourcesScreen(
       <h2 id="local-folders-heading">${t("sources.localFolders")}</h2>
       <div class="sources-list sources-list--local" aria-live="polite"></div>
     </section>
+    <section class="sources-section" aria-labelledby="usb-storage-heading">
+      <h2 id="usb-storage-heading">${t("sources.usbStorage")}</h2>
+      <div class="sources-list sources-list--usb" aria-live="polite"></div>
+    </section>
     <section class="sources-section" aria-labelledby="future-sources-heading">
       <h2 id="future-sources-heading" class="visually-hidden">${t("sources.comingLater")}</h2>
       <div class="sources-list sources-list--placeholders">
-        <article class="source-card source-card--placeholder">
-          <span class="source-card__icon">${icon("usb")}</span>
-          <div class="source-card__copy"><h3>${t("sources.usbStorage")}</h3><p>${t("sources.notConfigured")} · ${t("sources.comingLater")}</p></div>
-        </article>
         <article class="source-card source-card--placeholder">
           <span class="source-card__icon">${icon("ethernet")}</span>
           <div class="source-card__copy"><h3>${t("sources.networkShares")}</h3><p>${t("sources.notConfigured")} · ${t("sources.comingLater")}</p></div>
@@ -62,6 +66,7 @@ export function createSourcesScreen(
       <div class="source-dialog__actions"><button type="button" data-action="cancel">${t("sources.cancel")}</button><button class="source-dialog__confirm" type="button" data-action="confirm"></button></div>
     </section>`;
   const localList = section.querySelector<HTMLElement>(".sources-list--local");
+  const usbList = section.querySelector<HTMLElement>(".sources-list--usb");
   const addButton = section.querySelector<HTMLButtonElement>(
     ".sources-header__add",
   );
@@ -96,6 +101,7 @@ export function createSourcesScreen(
   const actionMenu = section.querySelector<HTMLElement>(".folders-action-menu");
   if (
     !localList ||
+    !usbList ||
     !addButton ||
     !scanButton ||
     !dialog ||
@@ -122,6 +128,60 @@ export function createSourcesScreen(
   let activeScanId: string | null = null;
   let scanPending = false;
   let librarySnapshot = options.initialLibrarySnapshot;
+
+  const renderRemovableDevices = (
+    snapshot: RemovableDeviceListResponse,
+  ): void => {
+    const fragment = document.createDocumentFragment();
+    if (snapshot.devices.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "sources-empty";
+      empty.textContent = "No USB storage connected.";
+      fragment.append(empty);
+    }
+    for (const device of snapshot.devices) {
+      const card = document.createElement("article");
+      card.className = "source-card source-card--removable";
+      const iconSurface = document.createElement("span");
+      iconSurface.className = "source-card__icon";
+      iconSurface.innerHTML = icon("usbStorage");
+      const copy = document.createElement("div");
+      copy.className = "source-card__copy";
+      const name = document.createElement("h3");
+      name.textContent = device.displayName;
+      const details = document.createElement("p");
+      const capacity =
+        device.capacityBytes === undefined
+          ? ""
+          : new Intl.NumberFormat("en", {
+              style: "unit",
+              unit: "gigabyte",
+              maximumFractionDigits: 1,
+            }).format(device.capacityBytes / 1_000_000_000);
+      details.textContent = [
+        device.readable ? "Ready" : "Unavailable",
+        capacity,
+        device.readOnly ? "Read-only" : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      copy.append(name, details);
+      const actions = document.createElement("div");
+      actions.className = "source-card__actions";
+      const browse = document.createElement("button");
+      browse.type = "button";
+      browse.textContent = "Browse";
+      browse.disabled = !device.readable;
+      browse.addEventListener("click", () => {
+        options.openRemovableDevice(device);
+      });
+      actions.append(browse);
+      card.append(iconSurface, copy, actions);
+      fragment.append(card);
+    }
+    usbList.replaceChildren(fragment);
+  };
+  renderRemovableDevices(options.removableDevices);
 
   const updateLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
     librarySnapshot = snapshot;
@@ -442,6 +502,7 @@ export function createSourcesScreen(
   void load();
   return {
     element: section,
+    updateRemovableDevices: renderRemovableDevices,
     updateLibrarySnapshot,
     destroy() {
       destroyed = true;

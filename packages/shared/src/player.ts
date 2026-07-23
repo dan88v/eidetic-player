@@ -39,7 +39,7 @@ export interface PlayerTrack {
   readonly lossless: boolean | null;
   readonly container: string | null;
   readonly artwork: ArtworkRef | null;
-  readonly source: "Local File";
+  readonly source: "Local File" | "USB Storage";
 }
 
 export interface QueueItem {
@@ -51,6 +51,7 @@ export interface QueueItem {
   readonly durationSeconds?: number | undefined;
   readonly artwork: ArtworkRef | null;
   readonly isCurrent: boolean;
+  readonly available?: boolean;
   readonly libraryTrackId?: string;
 }
 

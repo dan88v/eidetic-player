@@ -62,6 +62,12 @@
     outline-offset: 0.16rem;
   }
 
+  .cassette-player .cassette-player__utility-button--usb-storage {
+    color: #66e3d0;
+    background: #12302f;
+    border: 1px solid #2d756d;
+  }
+
   .cassette-player .cassette-player__utility-button:active {
     transform: scale(0.96);
   }

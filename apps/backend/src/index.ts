@@ -54,6 +54,9 @@ import type {
   PlaylistPlayRequest,
   PlaylistReorderRequest,
 } from "../../../packages/shared/src/library.js";
+import { RemovableStorageService } from "./removable-storage/removable-storage-service.js";
+import { createPlatformRemovableStorageProvider } from "./removable-storage/removable-storage-service.js";
+import { RemovableStorageSseHub } from "./api/removable-storage-sse-hub.js";
 
 const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
@@ -64,10 +67,25 @@ const sources = new SourceService(
   pathService,
   sourceRepository,
 );
+const removableStorage = new RemovableStorageService(
+  createPlatformRemovableStorageProvider(),
+  filesystemProvider,
+  pathService,
+);
+const directorySources = {
+  getInternal: (sourceId: string) =>
+    sourceId.startsWith("usb-")
+      ? removableStorage.getInternal(sourceId)
+      : sources.getInternal(sourceId),
+  availabilityOf: (sourceId: string) =>
+    sourceId.startsWith("usb-")
+      ? removableStorage.availabilityOf(sourceId)
+      : sources.availabilityOf(sourceId),
+};
 const folders = new DirectoryBrowserService(
   filesystemProvider,
   pathService,
-  sources,
+  directorySources,
   () => player.getCurrentPath(),
 );
 const indexedLibraryPromise = IndexedLibraryService.create(
@@ -108,8 +126,19 @@ const playerSession = new PlayerSessionService(
   pathService,
   sources,
   player,
+  removableStorage,
 );
 const events = new SseHub(player);
+const removableEvents = new RemovableStorageSseHub(removableStorage);
+const unsubscribeRemovablePlayer = removableStorage.subscribe((change) => {
+  for (const deviceId of change.disconnectedIds) {
+    folders.invalidateSource(deviceId);
+    void player.setRemovableDeviceAvailable(deviceId, false);
+  }
+  for (const deviceId of change.changedIds) folders.invalidateSource(deviceId);
+  for (const deviceId of change.connectedIds)
+    void player.setRemovableDeviceAvailable(deviceId, true);
+});
 const analyzer = new AudioAnalyzerService();
 const visualizerEvents = new VisualizerHub(analyzer);
 const waveform = new WaveformService(() => analyzer.getDiscovery());
@@ -143,8 +172,10 @@ const unsubscribeAnalyzerState = player.subscribe((state) => {
   analyzer.updatePlayerState(state);
   preloadWaveforms();
 });
-const bootstrapPromise = player
-  .initialize()
+const bootstrapPromise = Promise.all([
+  player.initialize(),
+  removableStorage.start(),
+])
   .then(async () => {
     const restore = await playerSession.restore();
     playerSession.start();
@@ -265,7 +296,9 @@ async function execute(command: PlayerCommand): Promise<void> {
       await player.setRepeatMode(command.mode);
       break;
     case "queue-play":
-      await player.playQueueIndex(command.index);
+      await player.playQueueIndex(command.index, (deviceId, relativePath) =>
+        removableStorage.resolveLogicalPath(deviceId, relativePath),
+      );
       break;
     case "queue-append":
       await player.append(command.paths);
@@ -635,7 +668,7 @@ async function handleRequest(
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/player/state") {
-      sendJson(response, 200, { ok: true, data: player.getState() });
+      sendJson(response, 200, { ok: true, data: player.getPublicState() });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
@@ -643,7 +676,7 @@ async function handleRequest(
       sendJson(response, 200, {
         ok: true,
         data: {
-          playerState: player.getState(),
+          playerState: player.getPublicState(),
           restore: {
             status: restore.status,
             restoredCount: restore.restoredCount,
@@ -662,6 +695,23 @@ async function handleRequest(
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/removable-storage/devices"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: removableStorage.snapshot(),
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/removable-storage/events"
+    ) {
+      removableEvents.add(response);
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/library/diagnostics"
     ) {
       const indexedLibrary = await indexedLibraryPromise;
@@ -669,6 +719,7 @@ async function handleRequest(
         ok: true,
         data: {
           folders: folders.getDiagnostics(),
+          removableStorage: removableStorage.diagnostics(),
           indexed: indexedLibrary.getDiagnostics(),
         },
       });
@@ -1392,6 +1443,166 @@ async function handleRequest(
       });
       return;
     }
+    const removableBrowseMatch =
+      /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/browse$/.exec(
+        url.pathname,
+      );
+    if (removableBrowseMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await folders.browse(
+          removableBrowseMatch[1] ?? "",
+          url.searchParams.get("relativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    const removableFolderArtworkMatch =
+      /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/folder-artwork$/.exec(
+        url.pathname,
+      );
+    if (removableFolderArtworkMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await folders.folderArtworkFor(
+          removableFolderArtworkMatch[1] ?? "",
+          url.searchParams.get("relativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    const removableDirectoryActionMatch =
+      /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/directory\/(play|queue)$/.exec(
+        url.pathname,
+      );
+    if (removableDirectoryActionMatch && request.method === "POST") {
+      const deviceId = removableDirectoryActionMatch[1] ?? "";
+      const action = removableDirectoryActionMatch[2] ?? "";
+      const body = (await readBody(request)) as { relativePath?: unknown };
+      const relativePath =
+        typeof body.relativePath === "string" ? body.relativePath : "";
+      const requestGeneration =
+        action === "play" ? player.reserveOpenRequest() : undefined;
+      const queue = await folders.queueForDirectoryWithOrigins(
+        deviceId,
+        relativePath,
+      );
+      const origins = queue.relativePaths.map((entryRelativePath) => ({
+        kind: "removable" as const,
+        deviceId,
+        relativePath: entryRelativePath,
+        entryId: folders.entryIdForRelativePath(deviceId, entryRelativePath),
+      }));
+      if (action === "play") {
+        if (queue.paths.length)
+          await player.openResolvedQueue(
+            queue.paths,
+            0,
+            origins,
+            requestGeneration,
+          );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: queue.paths.length,
+            appendedCount: queue.paths.length,
+          },
+        });
+      } else {
+        const appendedCount = queue.paths.length
+          ? await player.append(queue.paths, origins)
+          : 0;
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            appendedCount,
+          },
+        });
+      }
+      return;
+    }
+    const removableEntryMatch =
+      /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/entries\/(entry-[0-9a-f]{32})\/(metadata|artwork|open|queue)$/.exec(
+        url.pathname,
+      );
+    if (removableEntryMatch) {
+      const deviceId = removableEntryMatch[1] ?? "";
+      const entryId = removableEntryMatch[2] ?? "";
+      const action = removableEntryMatch[3] ?? "";
+      if (request.method === "GET" && action === "metadata") {
+        sendJson(response, 200, {
+          ok: true,
+          data: await folders.metadataFor(deviceId, entryId),
+        });
+        return;
+      }
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        action === "artwork"
+      ) {
+        const resource = await folders.artworkFor(deviceId, entryId);
+        if (!resource) {
+          sendJson(response, 404, {
+            ok: false,
+            error: {
+              code: "REMOVABLE_ARTWORK_NOT_FOUND",
+              message: "Artwork not found.",
+            },
+          });
+          return;
+        }
+        await sendArtworkResource(request, response, resource);
+        return;
+      }
+      if (request.method === "POST" && action === "open") {
+        await readBody(request);
+        const requestGeneration = player.reserveOpenRequest();
+        const queue = await folders.queueForEntry(deviceId, entryId);
+        await player.openResolvedQueue(
+          queue.paths,
+          queue.selectedIndex,
+          queue.relativePaths.map((relativePath) => ({
+            kind: "removable" as const,
+            deviceId,
+            relativePath,
+            entryId: folders.entryIdForRelativePath(deviceId, relativePath),
+          })),
+          requestGeneration,
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            selectedIndex: queue.selectedIndex,
+            queueLength: queue.paths.length,
+          },
+        });
+        return;
+      }
+      if (request.method === "POST" && action === "queue") {
+        await readBody(request);
+        const path = await folders.pathForEntry(deviceId, entryId);
+        const appendedCount = await player.append(
+          [path],
+          [
+            {
+              kind: "removable",
+              deviceId,
+              relativePath: folders.relativePathForEntry(deviceId, entryId),
+              entryId,
+            },
+          ],
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            appendedCount,
+          },
+        });
+        return;
+      }
+    }
     const sourceMatch = /^\/api\/sources\/([0-9a-f-]{36})$/i.exec(url.pathname);
     if (sourceMatch && request.method === "PATCH") {
       const sourceId = sourceMatch[1] ?? "";
@@ -1732,6 +1943,8 @@ function shutdown(signal: NodeJS.Signals): void {
   shuttingDown = true;
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
+  removableEvents.close();
+  unsubscribeRemovablePlayer();
   unsubscribeHistoryState();
   unsubscribeNaturalEnd();
   unsubscribeHistorySeek();
@@ -1747,6 +1960,7 @@ function shutdown(signal: NodeJS.Signals): void {
         visualizerEvents.close(),
         waveform.close(),
         folders.close(),
+        removableStorage.close(),
         libraryEventsPromise
           .then((libraryEvents) => {
             libraryEvents.close();

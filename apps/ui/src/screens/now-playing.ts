@@ -18,6 +18,7 @@ import { createTrackPresentationSnapshot } from "../state/track-transition-coord
 import { WaveformLoader } from "../timeline/waveform-loader";
 import type { FavoriteTrackStore } from "../state/favorite-track-store";
 import { createFavoriteTrackIndicator } from "../components/favorite-track-indicator";
+import type { RemovableDeviceListResponse } from "../../../../packages/shared/src/library";
 
 export interface PlayerActions {
   readonly openFiles: () => void;
@@ -41,6 +42,8 @@ export interface NowPlayingOptions {
   readonly onOpenQueue: (trigger: HTMLButtonElement) => void;
   readonly onOpenLibrary: () => void;
   readonly onOpenFolders: () => void;
+  readonly onOpenUsbStorage: (trigger?: HTMLElement) => void;
+  readonly removableDevices: RemovableDeviceListResponse;
   readonly onToggleVolume: (trigger: HTMLButtonElement) => void;
   readonly favorites: FavoriteTrackStore;
 }
@@ -75,6 +78,7 @@ export function createNowPlayingScreen(
       <div class="transport__zone transport__zone--left">
         <button class="transport__button transport__button--small" type="button" data-control="library" aria-label="${t("nav.openLibrary")}">${icon("library")}<span>${t("screen.library.title")}</span></button>
         <button class="transport__button transport__button--small" type="button" data-control="folders" aria-label="${t("nav.openFolders")}">${icon("folder")}<span>${t("screen.folders.title")}</span></button>
+        <button class="transport__button transport__button--small transport__button--usb-storage" type="button" data-control="usb-storage" aria-label="USB Storage">${icon("usbStorage")}<span>USB</span></button>
       </div>
       <div class="transport__zone transport__zone--center">
         <button class="transport__button transport__button--small transport__button--outer" type="button" data-control="shuffle" aria-pressed="false" aria-label="${t("nowPlaying.shuffle")}">${icon("shuffle")}<span>${t("nowPlaying.shuffle")}</span></button>
@@ -94,10 +98,20 @@ export function createNowPlayingScreen(
   const foldersNavigation = section.querySelector<HTMLElement>(
     '[data-control="folders"]',
   );
+  const usbNavigation = section.querySelector<HTMLButtonElement>(
+    '[data-control="usb-storage"]',
+  );
   if (libraryNavigation)
     libraryNavigation.hidden = options.musicBrowsingVisibility === "folders";
   if (foldersNavigation)
     foldersNavigation.hidden = options.musicBrowsingVisibility === "library";
+  const updateUsbButton = (snapshot: RemovableDeviceListResponse): void => {
+    if (usbNavigation)
+      usbNavigation.hidden = !snapshot.devices.some(
+        (device) => device.readable,
+      );
+  };
+  updateUsbButton(options.removableDevices);
 
   const visualizer = createVisualizer({
     mode: options.visualizerMode,
@@ -175,6 +189,7 @@ export function createNowPlayingScreen(
     !queueButton ||
     !libraryButton ||
     !foldersButton ||
+    !usbNavigation ||
     !volumeButton
   )
     throw new Error("Now Playing controls are missing");
@@ -189,6 +204,9 @@ export function createNowPlayingScreen(
   });
   libraryButton.addEventListener("click", options.onOpenLibrary);
   foldersButton.addEventListener("click", options.onOpenFolders);
+  usbNavigation.addEventListener("click", () => {
+    options.onOpenUsbStorage(usbNavigation);
+  });
   volumeButton.addEventListener("click", () => {
     options.onToggleVolume(volumeButton);
   });
@@ -314,6 +332,7 @@ export function createNowPlayingScreen(
   update(playerState);
   return {
     element: section,
+    updateRemovableDevices: updateUsbButton,
     updatePlayerState: update,
     destroy() {
       visualizer.destroy();

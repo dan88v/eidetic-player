@@ -115,6 +115,7 @@ export class PlayerService {
     (state: PlayerState) => void
   >();
   private readonly seekListeners = new Set<(state: PlayerState) => void>();
+  private readonly removableAvailability = new Map<string, boolean>();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -123,6 +124,32 @@ export class PlayerService {
 
   getState(): PlayerState {
     return this.state;
+  }
+
+  getPublicState(): PlayerState {
+    const publicPath = (nativePath: string): string => {
+      const origin = this.queueOrigins.get(this.pathKey(nativePath));
+      if (origin?.kind !== "removable") return nativePath;
+      const logicalPath = origin.relativePath
+        .split("/")
+        .filter(Boolean)
+        .map(encodeURIComponent)
+        .join("/");
+      return `removable://${origin.deviceId}/${logicalPath}`;
+    };
+    return {
+      ...this.state,
+      currentTrack: this.state.currentTrack
+        ? {
+            ...this.state.currentTrack,
+            path: publicPath(this.state.currentTrack.path),
+          }
+        : null,
+      queue: this.state.queue.map((item) => ({
+        ...item,
+        path: publicPath(item.path),
+      })),
+    };
   }
 
   getMpvExecutable(): string | null {
@@ -281,9 +308,12 @@ export class PlayerService {
       readonly autoplay: boolean;
       readonly origins?: readonly PersistedQueueOrigin[];
       readonly itemIds?: readonly string[];
+      readonly allowUnavailablePaths?: boolean;
     },
   ): Promise<void> {
-    const queue = await buildExplicitQueue(paths, true);
+    const queue = options.allowUnavailablePaths
+      ? [...paths]
+      : await buildExplicitQueue(paths, true);
     if (
       !Number.isInteger(selectedIndex) ||
       selectedIndex < 0 ||
@@ -701,12 +731,58 @@ export class PlayerService {
     this.update({ shuffleEnabled: enabled });
   }
 
-  async playQueueIndex(index: number): Promise<void> {
+  async playQueueIndex(
+    index: number,
+    resolveRemovable?: (
+      deviceId: string,
+      relativePath: string,
+    ) => Promise<string>,
+  ): Promise<void> {
     if (index < 0 || index >= this.state.queue.length)
       throw new PlayerError(
         "INVALID_QUEUE_INDEX",
         "Queue index is out of range.",
       );
+    const selected = this.state.queue[index];
+    const selectedOrigin = selected
+      ? this.queueOrigins.get(this.pathKey(selected.path))
+      : undefined;
+    if (selectedOrigin?.kind === "removable") {
+      if (!resolveRemovable)
+        throw new PlayerError(
+          "REMOVABLE_DEVICE_UNAVAILABLE",
+          "USB storage is unavailable.",
+          409,
+        );
+      const selectedPath = await resolveRemovable(
+        selectedOrigin.deviceId,
+        selectedOrigin.relativePath,
+      );
+      const origins = this.state.queue.map(
+        (item) =>
+          this.queueOrigins.get(this.pathKey(item.path)) ??
+          ({ kind: "direct", nativePath: item.path } as const),
+      );
+      const paths = await Promise.all(
+        origins.map(async (origin, itemIndex) => {
+          if (itemIndex === index) return selectedPath;
+          if (origin.kind !== "removable")
+            return this.state.queue[itemIndex]?.path ?? "";
+          try {
+            return await resolveRemovable(origin.deviceId, origin.relativePath);
+          } catch {
+            return this.state.queue[itemIndex]?.path ?? "";
+          }
+        }),
+      );
+      await this.loadResolvedQueue(paths, index, {
+        autoplay: true,
+        origins,
+        itemIds: this.state.queue.map((item) => item.id),
+        allowUnavailablePaths: true,
+      });
+      return;
+    }
     if (this.stagedQueue) {
       const staged = [...this.stagedQueue];
       await this.loadResolvedQueue(staged, index, {
@@ -726,6 +802,41 @@ export class PlayerService {
     this.pendingTrackTarget = index;
     await this.requireController().setProperty("playlist-pos", index);
     await this.requireController().setProperty("pause", false);
+  }
+
+  async setRemovableDeviceAvailable(
+    deviceId: string,
+    available: boolean,
+  ): Promise<boolean> {
+    this.removableAvailability.set(deviceId, available);
+    const current = this.state.queue[this.state.currentQueueIndex];
+    const currentOrigin = current
+      ? this.queueOrigins.get(this.pathKey(current.path))
+      : undefined;
+    const stoppedCurrent =
+      !available &&
+      currentOrigin?.kind === "removable" &&
+      currentOrigin.deviceId === deviceId;
+    if (stoppedCurrent)
+      await this.controller
+        ?.command(["stop", "keep-playlist"])
+        .catch(() => undefined);
+    const queue = this.state.queue.map((item) => {
+      const origin = this.queueOrigins.get(this.pathKey(item.path));
+      return origin?.kind === "removable" && origin.deviceId === deviceId
+        ? { ...item, available }
+        : item;
+    });
+    if (
+      stoppedCurrent ||
+      queue.some((item, index) => item !== this.state.queue[index])
+    )
+      this.update({
+        ...(stoppedCurrent ? { status: "stopped" as const, paused: true } : {}),
+        queue,
+        queueRevision: this.state.queueRevision,
+      });
+    return stoppedCurrent;
   }
 
   getArtworkResource(id: string): Promise<ArtworkResource | null> {
@@ -1112,6 +1223,10 @@ export class PlayerService {
             index === currentIndex ||
             playlistEntry.current === true ||
             playlistEntry.playing === true,
+          available:
+            origin?.kind === "removable"
+              ? (this.removableAvailability.get(origin.deviceId) ?? true)
+              : true,
           ...(origin?.kind === "folders" && origin.libraryTrackId
             ? { libraryTrackId: origin.libraryTrackId }
             : {}),
@@ -1131,6 +1246,7 @@ export class PlayerService {
           previous.durationSeconds === item.durationSeconds &&
           previous.artwork?.id === item.artwork?.id &&
           previous.libraryTrackId === item.libraryTrackId &&
+          previous.available === item.available &&
           previous.isCurrent === item.isCurrent
         );
       })
@@ -1196,7 +1312,10 @@ export class PlayerService {
       lossless: null,
       container: null,
       artwork: null,
-      source: "Local File",
+      source:
+        this.queueOrigins.get(this.pathKey(path))?.kind === "removable"
+          ? "USB Storage"
+          : "Local File",
     };
     return this.currentEnrichment?.pathKey === this.pathKey(path)
       ? mergeTrackMetadata(

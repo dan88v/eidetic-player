@@ -169,6 +169,52 @@ void test("MPV loads the selected fifth item without flashing the first", async 
   }
 });
 
+void test("MPV replaces every item from an existing Queue", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-mpv-replace-"));
+  const controller = new MpvController();
+  try {
+    const oldQueue = await Promise.all(
+      ["old-one.wav", "old-two.wav", "old-three.wav"].map(async (name) => {
+        const path = join(folder, name);
+        await writeFile(path, silentWav(5));
+        return path;
+      }),
+    );
+    const usbQueue = await Promise.all(
+      ["01 USB.wav", "02 USB.wav"].map(async (name) => {
+        const path = join(folder, name);
+        await writeFile(path, silentWav(5));
+        return path;
+      }),
+    );
+    await controller.start({
+      executable: discovery.executable,
+      extraArguments: ["--ao=null"],
+    });
+    await controller.loadPlaylist(oldQueue, 1);
+    await controller.loadPlaylist(usbQueue, 1);
+    const playlist = await controller.getProperty("playlist");
+    assert.deepEqual(
+      (playlist as { readonly filename: string }[]).map(
+        (item) => item.filename,
+      ),
+      usbQueue,
+    );
+    assert.equal(await controller.getProperty("playlist-pos"), 1);
+    assert.equal(await controller.getProperty("path"), usbQueue[1]);
+  } finally {
+    await controller.stop().catch(() => {
+      // Cleanup continues with the temporary directory.
+    });
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 void test("PlayerService replaces the Queue and opens the selected ninth item", async (context) => {
   const discovery = await discoverMpv();
   if (!discovery) {
@@ -336,4 +382,87 @@ void test("PlayerService enriches a silent real file and cleans artwork", async 
     await rm(folder, { recursive: true, force: true });
   }
   await assert.rejects(access(artwork.tempDirectory));
+});
+
+void test("USB disconnect stops without clearing or advancing and reconnect never autoplays", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "eidetic-player-usb-stop-"));
+  const paths = await Promise.all(
+    ["01 First.wav", "02 Selected.wav", "03 Last.wav"].map(async (filename) => {
+      const path = join(root, filename);
+      await writeFile(path, silentWav(10));
+      return path;
+    }),
+  );
+  const deviceId = `usb-${"a".repeat(32)}`;
+  const origins = paths.map((path, index) => ({
+    kind: "removable" as const,
+    deviceId,
+    relativePath: path.slice(root.length + 1).replaceAll("\\", "/"),
+    entryId: `entry-${String(index + 1).repeat(32)}`,
+  }));
+  const player = new PlayerService();
+  try {
+    await player.initialize();
+    await player.openResolvedQueue(paths, 1, origins);
+    const playing = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentQueueIndex === 1 && !state.paused,
+      5_000,
+    );
+    const ids = playing.queue.map((item) => item.id);
+    const revision = playing.queueRevision;
+    const transition = playing.trackTransitionId;
+
+    assert.equal(
+      await player.setRemovableDeviceAvailable(deviceId, false),
+      true,
+    );
+    const disconnected = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.status === "stopped",
+    );
+    assert.deepEqual(
+      disconnected.queue.map((item) => item.id),
+      ids,
+    );
+    assert.equal(disconnected.currentQueueIndex, 1);
+    assert.equal(disconnected.queueRevision, revision);
+    assert.equal(disconnected.trackTransitionId, transition);
+    assert.equal(
+      disconnected.queue.every((item) => item.available === false),
+      true,
+    );
+    const publicState = player.getPublicState();
+    assert.equal(JSON.stringify(publicState).includes(root), false);
+    assert.match(publicState.queue[1]?.path ?? "", /^removable:\/\/usb-/);
+
+    assert.equal(
+      await player.setRemovableDeviceAvailable(deviceId, true),
+      false,
+    );
+    assert.equal(player.getState().status, "stopped");
+    assert.equal(player.getState().paused, true);
+    assert.equal(player.getState().queueRevision, revision);
+
+    await player.playQueueIndex(1, (_id, relativePath) =>
+      Promise.resolve(join(root, ...relativePath.split("/"))),
+    );
+    const replayed = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentQueueIndex === 1 && !state.paused,
+      5_000,
+    );
+    assert.deepEqual(
+      replayed.queue.map((item) => item.id),
+      ids,
+    );
+  } finally {
+    await player.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
 });

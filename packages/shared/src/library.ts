@@ -4,11 +4,38 @@ export type SourceAvailability = "available" | "unavailable" | "checking";
 
 export interface LibrarySource {
   readonly id: string;
-  readonly type: "local";
+  readonly type: "local" | "removable";
   readonly displayName: string;
   readonly availability: SourceAvailability;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export type RemovableDeviceState =
+  "connected" | "mounted" | "readable" | "unavailable" | "disconnected";
+
+export interface RemovableDeviceCapabilities {
+  readonly canMount: false;
+  readonly canUnmount: false;
+  readonly canEject: false;
+}
+
+export interface RemovableDevice {
+  readonly id: string;
+  readonly displayName: string;
+  readonly state: RemovableDeviceState;
+  readonly readable: boolean;
+  readonly readOnly: boolean;
+  readonly filesystemType?: string;
+  readonly capacityBytes?: number;
+  readonly availableBytes?: number;
+  readonly connectedAt: string;
+  readonly capabilities: RemovableDeviceCapabilities;
+}
+
+export interface RemovableDeviceListResponse {
+  readonly revision: number;
+  readonly devices: readonly RemovableDevice[];
 }
 
 export interface DirectoryLocation {

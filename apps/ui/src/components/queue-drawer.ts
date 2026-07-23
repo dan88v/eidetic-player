@@ -538,6 +538,11 @@ export function createQueueDrawer(options: {
           "aria-label",
           `${t("queueDrawer.play")} ${item.displayTitle}`,
         );
+        view.button.disabled = item.available === false;
+        view.row.classList.toggle(
+          "queue-item--unavailable",
+          item.available === false,
+        );
         view.remove.setAttribute(
           "aria-label",
           `${t("queueDrawer.remove")} ${item.displayTitle}`,

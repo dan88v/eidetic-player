@@ -1,15 +1,14 @@
 import type { ServerResponse } from "node:http";
-import type { PlayerService } from "../player/player-service.js";
+import type { RemovableStorageService } from "../removable-storage/removable-storage-service.js";
 
-export class SseHub {
+export class RemovableStorageSseHub {
   private readonly clients = new Set<ServerResponse>();
   private readonly unsubscribe: () => void;
   private readonly keepalive: NodeJS.Timeout;
 
-  constructor(private readonly player: PlayerService) {
-    this.unsubscribe = player.subscribe((state) => {
-      void state;
-      this.broadcast(player.getPublicState());
+  constructor(private readonly storage: RemovableStorageService) {
+    this.unsubscribe = storage.subscribe(({ snapshot }) => {
+      for (const client of this.clients) this.send(client, snapshot);
     });
     this.keepalive = setInterval(() => {
       for (const client of this.clients) client.write(": keepalive\n\n");
@@ -26,7 +25,7 @@ export class SseHub {
     });
     response.flushHeaders();
     this.clients.add(response);
-    this.send(response, this.player.getPublicState());
+    this.send(response, this.storage.snapshot());
     response.once("close", () => this.clients.delete(response));
   }
 
@@ -37,11 +36,7 @@ export class SseHub {
     this.clients.clear();
   }
 
-  private broadcast(state: unknown): void {
-    for (const client of this.clients) this.send(client, state);
-  }
-
-  private send(client: ServerResponse, state: unknown): void {
-    client.write(`data: ${JSON.stringify(state)}\n\n`);
+  private send(client: ServerResponse, snapshot: unknown): void {
+    client.write(`data: ${JSON.stringify(snapshot)}\n\n`);
   }
 }

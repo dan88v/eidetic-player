@@ -18,15 +18,27 @@ import type {
 function isOrigin(value: unknown): value is PersistedQueueOrigin {
   if (!value || typeof value !== "object") return false;
   const origin = value as Partial<PersistedQueueOrigin>;
-  return origin.kind === "direct"
-    ? typeof origin.nativePath === "string" && origin.nativePath.length > 0
-    : origin.kind === "folders" &&
-        typeof origin.sourceId === "string" &&
-        /^[0-9a-f-]{36}$/i.test(origin.sourceId) &&
-        typeof origin.relativePath === "string" &&
-        (origin.libraryTrackId === undefined ||
-          (typeof origin.libraryTrackId === "string" &&
-            /^track-[0-9a-f]{32}$/.test(origin.libraryTrackId)));
+  if (origin.kind === "direct")
+    return (
+      typeof origin.nativePath === "string" && origin.nativePath.length > 0
+    );
+  if (origin.kind === "removable")
+    return (
+      typeof origin.deviceId === "string" &&
+      /^usb-[0-9a-f]{32}$/.test(origin.deviceId) &&
+      typeof origin.relativePath === "string" &&
+      typeof origin.entryId === "string" &&
+      /^entry-[0-9a-f]{32}$/.test(origin.entryId)
+    );
+  return (
+    origin.kind === "folders" &&
+    typeof origin.sourceId === "string" &&
+    /^[0-9a-f-]{36}$/i.test(origin.sourceId) &&
+    typeof origin.relativePath === "string" &&
+    (origin.libraryTrackId === undefined ||
+      (typeof origin.libraryTrackId === "string" &&
+        /^track-[0-9a-f]{32}$/.test(origin.libraryTrackId)))
+  );
 }
 
 function isItem(value: unknown): value is PersistedQueueItem {

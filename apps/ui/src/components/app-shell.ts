@@ -1,8 +1,13 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
-import type { IndexedLibrarySnapshot } from "../../../../packages/shared/src/library";
+import type {
+  IndexedLibrarySnapshot,
+  RemovableDevice,
+  RemovableDeviceListResponse,
+} from "../../../../packages/shared/src/library";
 import { PlayerApiClient } from "../api/player-api-client";
 import { FoldersApiClient } from "../api/folders-api-client";
+import { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
 import { t } from "../i18n";
 import { getNavigationItem, isSettingsRoute } from "../navigation/routes";
@@ -14,6 +19,7 @@ import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
 import { foldersSession } from "../state/folders-session";
+import { usbStorageSession } from "../state/folders-session";
 import {
   FavoriteAlbumStore,
   FavoriteArtistStore,
@@ -41,6 +47,7 @@ import { createToastHost } from "./toast-host";
 import type { ComponentView } from "./types";
 import { createVolumePopover } from "./volume-popover";
 import { createPlaylistPicker } from "./playlist-picker";
+import { createRemovableDevicePicker } from "./removable-device-picker";
 
 export interface MountedApp {
   destroy(): void;
@@ -54,6 +61,7 @@ export function mountApp(
 ): MountedApp {
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
+  const removableApi = new RemovableStorageApiClient();
   const libraryApi = new LibraryApiClient();
   const favorites = new FavoriteTrackStore(libraryApi);
   const favoriteAlbums = new FavoriteAlbumStore(libraryApi);
@@ -145,6 +153,7 @@ export function mountApp(
     api: libraryApi,
     showToast: showMessage,
   });
+  const removablePicker = createRemovableDevicePicker();
   const queueDrawer = createQueueDrawer({
     onClose: () => {
       store.setQueueOpen(false);
@@ -203,6 +212,8 @@ export function mountApp(
     playlistPicker.element,
     playlistPicker.nameDialog.backdrop,
     playlistPicker.nameDialog.element,
+    removablePicker.backdrop,
+    removablePicker.element,
     volumePopover.backdrop,
     volumePopover.element,
     dropOverlay,
@@ -218,6 +229,12 @@ export function mountApp(
   let cassetteFallbackNotified = false;
   let cassetteAssetFallbackNotified = false;
   let currentLibrarySnapshot: IndexedLibrarySnapshot | null = null;
+  let removableDevices: RemovableDeviceListResponse = {
+    revision: 0,
+    devices: [],
+  };
+  let selectedRemovableDevice: RemovableDevice | null = null;
+  let usbReturnScreen: ScreenId = "nowPlaying";
   const actions = {
     openFiles,
     playPause: () => {
@@ -241,6 +258,37 @@ export function mountApp(
       run(api.repeat(mode));
     },
   };
+  const openUsbDevice = (
+    device: RemovableDevice,
+    returnScreen: ScreenId = store.getState().activeScreen,
+  ): void => {
+    selectedRemovableDevice = device;
+    if (returnScreen !== "usbStorage") usbReturnScreen = returnScreen;
+    usbStorageSession.openSource(device.id);
+    navigate("usbStorage");
+  };
+  const openUsbStorage = (trigger?: HTMLElement): void => {
+    const readable = removableDevices.devices.filter(
+      (device) => device.readable,
+    );
+    if (readable.length === 0) {
+      showMessage("No USB storage connected.", "neutral");
+      return;
+    }
+    if (readable.length === 1) {
+      const onlyDevice = readable[0];
+      if (onlyDevice) openUsbDevice(onlyDevice);
+      return;
+    }
+    closeOverlays();
+    removablePicker.open(
+      readable,
+      (device) => {
+        openUsbDevice(device);
+      },
+      trigger,
+    );
+  };
   function renderScreen(screen: ScreenId): void {
     keyboardAdapter.hide();
     currentScreen?.destroy();
@@ -252,6 +300,16 @@ export function mountApp(
       playerState: playerStore.getState(),
       playerActions: actions,
       foldersApi,
+      removableApi,
+      removableDevices,
+      selectedRemovableDevice,
+      openUsbStorage,
+      openUsbStorageForDevice: (device) => {
+        openUsbDevice(device, "sources");
+      },
+      backFromUsbStorage: () => {
+        navigate(usbReturnScreen);
+      },
       libraryApi,
       favorites,
       favoriteAlbums,
@@ -511,6 +569,49 @@ export function mountApp(
   let recoveryNoticeHandled = false;
   let favoriteCatalogGeneration = "";
   let appDestroyed = false;
+  const receiveRemovableDevices = (
+    snapshot: RemovableDeviceListResponse,
+  ): void => {
+    if (appDestroyed || snapshot.revision < removableDevices.revision) return;
+    const previousIds = new Set(
+      removableDevices.devices.map((device) => device.id),
+    );
+    const currentQueueItem =
+      playerStore.getState().queue[playerStore.getState().currentQueueIndex];
+    const disconnectedCurrent = [...previousIds].find(
+      (deviceId) =>
+        !snapshot.devices.some((device) => device.id === deviceId) &&
+        currentQueueItem?.path.startsWith(`removable://${deviceId}/`),
+    );
+    removableDevices = snapshot;
+    if (selectedRemovableDevice) {
+      selectedRemovableDevice =
+        snapshot.devices.find(
+          (device) => device.id === selectedRemovableDevice?.id,
+        ) ?? selectedRemovableDevice;
+    }
+    currentScreen?.updateRemovableDevices?.(snapshot);
+    if (removablePicker.update(snapshot.devices))
+      showMessage("No USB storage connected.", "neutral");
+    if (disconnectedCurrent)
+      showMessage("USB storage disconnected.", "neutral");
+  };
+  let unsubscribeRemovable = (): void => undefined;
+  void removableApi
+    .devices()
+    .then(receiveRemovableDevices)
+    .catch((error: unknown) => {
+      console.warn("[removable-storage] initial snapshot unavailable", error);
+    })
+    .finally(() => {
+      if (appDestroyed) return;
+      unsubscribeRemovable = removableApi.subscribe(
+        receiveRemovableDevices,
+        () => {
+          // EventSource reconnects automatically; the last snapshot remains.
+        },
+      );
+    });
   const receiveLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
     if (appDestroyed) return;
     currentLibrarySnapshot = snapshot;
@@ -702,6 +803,7 @@ export function mountApp(
       appDestroyed = true;
       unsubscribeEvents();
       unsubscribeLibrary();
+      unsubscribeRemovable();
       unsubscribeDrops();
       unsubscribePlayer();
       unsubscribeApp();
@@ -709,6 +811,7 @@ export function mountApp(
       miniPlayer?.destroy();
       queueDrawer.destroy();
       playlistPicker.destroy();
+      removablePicker.destroy();
       artworkPreloader.destroy();
       topBar.destroy();
       toastHost.destroy();

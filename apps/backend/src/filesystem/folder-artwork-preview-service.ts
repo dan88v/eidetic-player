@@ -6,7 +6,7 @@ import { MetadataService } from "../metadata/metadata-service.js";
 import { LimitedConcurrency } from "../utils/limited-concurrency.js";
 import type { FilesystemProvider } from "./filesystem-provider.js";
 import { PathService } from "./path-service.js";
-import { SourceService } from "./source-service.js";
+import type { DirectorySourceCatalog } from "./filesystem-types.js";
 
 const collator = new Intl.Collator("en", {
   numeric: true,
@@ -20,7 +20,7 @@ export class FolderArtworkPreviewService {
   constructor(
     private readonly provider: FilesystemProvider,
     private readonly paths: PathService,
-    private readonly sources: SourceService,
+    private readonly sources: DirectorySourceCatalog,
     private readonly metadata: MetadataService,
     private readonly artwork: ArtworkService,
     private readonly maxRecords = 32,

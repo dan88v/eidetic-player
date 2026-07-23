@@ -80,6 +80,15 @@ logical breadcrumb/Back, session scroll restoration, lazy enrichment, and an
 exact non-first Queue index. Confirm no Source/browse response contains a native
 absolute path.
 
+For USB Quick Browse, verify Windows physical detection separately from fixture
+coverage. Cover zero/one/multiple mounted volumes, opaque identity across a
+drive-letter or mount-point change, read-only/unreadable state, natural
+one-level browsing, direct selected-index playback, Add Track/Folder,
+disconnect Stop with unchanged Queue IDs/order/revision, reconnect without
+autoplay, and manual rematerialization. Inspect Sources, Default, Cassette,
+picker, USB browser, Queue, and Back at 1280x800, 1280x720, and 1024x600.
+Never count a fixture pass as physical USB detection.
+
 For Step 2.4.1 also verify sidecar-over-embedded preview priority, no recursive
 sampling, the 8-file/4-cover bounds, List/Grid persistence without requests or
 scroll loss, direct-folder Play ordering, and Add to Queue in both playing and
