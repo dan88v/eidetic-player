@@ -1399,6 +1399,7 @@
   }
   .playlist-detail-toolbar__queue {
     border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
     background: var(--color-surface-raised);
     color: var(--color-text);
   }
@@ -1480,7 +1481,7 @@
     margin: 0;
     color: var(--color-danger);
   }
-  @media (max-height: 40rem) {
+  @media (max-height: 45rem) {
     .app-root[data-keyboard-open="true"] .playlist-name-dialog {
       top: calc(var(--top-bar-height) + var(--space-2));
       transform: translate(-50%, 0);

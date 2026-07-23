@@ -58,6 +58,17 @@ See [architecture guidelines](docs/development/architecture.md).
 
 See [touch UI and seamless rendering](docs/development/ui-ux.md).
 
+## Canonical UI surfaces and visual QA
+
+- Every new page must name and reuse its canonical surface for the header,
+  introductory row, list or grid, dialog, menu, and empty state.
+- Validate the real application visually at 1280 x 800 and its relevant
+  responsive viewports; source review and automated tests alone are not a
+  visual PASS.
+- Compare spacing, alignment, wrapping, focus, overlay stacking, and responsive
+  behavior with the canonical surface. Any remaining visual difference must be
+  intentional and documented in the step report.
+
 ## Performance rules
 
 - Treat Raspberry Pi 3B constraints as the default design budget.
