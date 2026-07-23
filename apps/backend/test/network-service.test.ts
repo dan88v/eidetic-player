@@ -56,6 +56,40 @@ void test("NetworkService deduplicates unchanged monitor snapshots", async () =>
   await service.close();
 });
 
+void test("NetworkService recovers when NetworkManager becomes available after bootstrap", async () => {
+  const fixture = new FixtureNetworkAdapter(state());
+  let reads = 0;
+  const adapter: NetworkAdapter = {
+    readState: () => {
+      reads += 1;
+      return reads === 1
+        ? Promise.reject(
+            new NetworkAdapterError(
+              "unsupported",
+              "NetworkManager is restarting",
+            ),
+          )
+        : fixture.readState();
+    },
+    scan: (id) => fixture.scan(id),
+    setRadio: (id, enabled) => fixture.setRadio(id, enabled),
+    connect: (id, network, password) => fixture.connect(id, network, password),
+    connectHidden: (id, ssid, security, password) =>
+      fixture.connectHidden(id, ssid, security, password),
+    disconnect: (id) => fixture.disconnect(id),
+    forgetManagedProfile: (id) => fixture.forgetManagedProfile(id),
+    close: () => fixture.close(),
+  };
+  const service = new NetworkService(adapter, 60_000);
+  await service.refresh();
+  assert.equal(service.snapshot().permissionState, "unsupported");
+  await service.refresh();
+  assert.equal(service.snapshot().permissionState, "granted");
+  assert.equal(service.snapshot().wiredAdapters.length, 1);
+  assert.equal(service.snapshot().lastError, null);
+  await service.close();
+});
+
 void test("NetworkService serializes adapter operations", async () => {
   let release = (): void => undefined;
   const blocked = new Promise<void>((resolve) => {

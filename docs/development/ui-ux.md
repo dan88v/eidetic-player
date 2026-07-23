@@ -19,6 +19,21 @@ Emergency layouts below 1280 × 800 may scroll or hide secondary information.
 They must not shrink touch targets below safe sizes or introduce horizontal
 overflow.
 
+## Native visual validation
+
+On Windows, validate UI changes only in the real Neutralino/WebView2
+application launched from the repository root with:
+
+```text
+npm.cmd run dev
+```
+
+The Vite page opened in a normal browser, browser automation, and headless
+rendering are not substitutes for this check. They do not prove the native
+shell, PlatformBridge, focus, resize, overlays, or shutdown path. Inspect every
+viewport named by the step directly in the Neutralino window and exercise the
+requested interaction flows before recording a visual PASS.
+
 ## Seamless is a feature
 
 Loading, navigation, track changes, artwork swaps, Queue updates, and mode

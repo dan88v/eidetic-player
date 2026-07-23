@@ -24,6 +24,8 @@ Keep the clone on a native case-sensitive Linux filesystem, such as
 ```bash
 npm ci
 npm run doctor:linux
+npm run doctor:network:linux
+npm run verify:network:deployment
 npm run test:linux
 npm run build:linux
 npm run smoke:linux
@@ -110,6 +112,28 @@ does not install, enable, or start anything. Neutralino must run in a graphical
 user session; future kiosk/autostart needs compositor ordering and crash
 recovery testing.
 
+`deploy/linux/network/` adds the optional NetworkManager deployment layer. Its
+explicit installer requires the runtime user, dedicated authorization group,
+and installation directory. It installs only a narrowly scoped polkit rule,
+the backend service drop-in, and non-secret deployment metadata. The drop-in
+uses `After=dbus.service NetworkManager.service` and
+`Wants=NetworkManager.service`; it does not require
+`network-online.target`, so missing Internet or adapters cannot block the
+player. The uninstaller removes only those three artifacts. Neither script
+starts/restarts the service or changes a NetworkManager profile.
+
+Run `npm run doctor:network:linux` as the runtime user after installation. The
+read-only doctor distinguishes missing D-Bus, NetworkManager, `nmcli`, polkit,
+authorization, and adapters; Wired-only is valid. It also checks the backend
+drop-in, dedicated group membership, pending IPv4 transaction ownership/mode,
+and reports `iw reg get` only as information. Verify the distribution packages
+that provide missing executables/services on the actual target; the doctor
+does not install them.
+
+The Wi-Fi regulatory domain must be configured correctly on the final device.
+No country is selected or stored by this repository. Configuration and
+hardware validation are deferred to Step 2.12.3.
+
 Primary recommendation: use Neutralino Linux arm64 in fullscreen/window mode
 when its WebKitGTK runtime proves reliable on the Pi. It preserves the native
 bridge and dialogs with a smaller architecture change. A browser kiosk plus
@@ -143,4 +167,7 @@ Still required on a Raspberry Pi 3B with Raspberry Pi OS 64-bit:
 - MP3/FLAC Queue, artwork, waveform, visualizer and session restore;
 - dialogs or the chosen kiosk-safe source workflow;
 - SIGTERM, power-loss recovery, stale socket/cache cleanup and boot ordering;
+- NetworkManager/polkit authorization, radio, scan/connect/disconnect/forget,
+  DHCP/manual IPv4 rollback, service restart, delayed adapters, and regulatory
+  domain on the installed device;
 - at least 20 rapid transitions with one MPV, analyzer, EventSource and rAF.

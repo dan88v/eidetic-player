@@ -34,6 +34,13 @@ the input.
 - Keep executable discovery explicit and verified with version commands.
 - Keep Neutralino native allowlists minimal.
 - Never use wildcard CORS for convenience.
+- Keep Linux NetworkManager authorization limited to the documented action
+  IDs, dedicated runtime group, exact backend systemd unit, and
+  `NoNewPrivileges=true`. Never add a NetworkManager wildcard, sudoers rule,
+  `CAP_NET_ADMIN`, or a privileged network boot helper.
+- Linux deployment installers must validate user/group and traversal-free
+  absolute paths, reject symlink targets, quote values with spaces/Unicode,
+  support an isolated staging root, and never edit system connection profiles.
 
 ## Secrets and private data
 
@@ -48,6 +55,11 @@ Do not commit:
 - generated temporary artwork or waveform data.
 
 Examples and docs use placeholders or environment variables.
+
+The Linux network environment file contains only the authorization group and
+installation directory. Wi-Fi SSIDs, passwords, PSKs, profile contents, and
+pending transaction contents must not appear in deployment reports or doctor
+output.
 
 ## Failure behavior
 

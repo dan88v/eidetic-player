@@ -115,6 +115,12 @@ Do not claim a test passed when it was skipped, simulated, or inferred.
 
 ## Completion gate
 
+For every Windows UI or visual step, the mandatory native QA command is
+`npm.cmd run dev`. Exercise the requested flows and viewports in the
+Neutralino/WebView2 window opened by that command. A browser, direct Vite URL,
+browser automation, headless rendering, static inspection, or launch without
+interaction does not satisfy this completion gate.
+
 Before declaring completion:
 
 1. inspect the final diff;

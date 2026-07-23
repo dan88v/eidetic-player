@@ -1,0 +1,6 @@
+[Unit]
+After=dbus.service NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+EnvironmentFile=-/etc/eidetic-player/eidetic-player-network.env

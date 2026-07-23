@@ -116,3 +116,16 @@ void test("IPv4 editor is draft-only, touch-keyboard aware, and protects navigat
   assert.match(shell, /currentScreen\?\.requestLeave/);
   assert.doesNotMatch(panel, /localStorage|sessionStorage|setInterval/);
 });
+
+void test("completed IPv4 transactions close the dialog and resync the draft", () => {
+  const panel = readFileSync(
+    new URL("../src/screens/network-settings-panel.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /if \(transactionFinished\) drafts\.clear\(\)/);
+  assert.match(
+    panel,
+    /element\.querySelector\("\.network-dialog"\)[\s\S]*?!next\.configurationTransaction[\s\S]*?closeDialog\(\);\s*render\(\)/,
+  );
+  assert.doesNotMatch(panel, /!next\.configurationTransaction\s*\)\s*return;/);
+});

@@ -54,7 +54,10 @@ See [architecture guidelines](docs/development/architecture.md).
   component; do not add or broaden selectors for `svg`, `path`, `button`, or
   `.icon` without a documented reason and focused regression coverage. Verify
   these shared controls visually in the real app with `npm.cmd run dev` on
-  Windows before accepting a UI step.
+  Windows before accepting a UI step. This exact command is mandatory for
+  Windows visual QA; Vite in a browser, browser automation, screenshots of a
+  browser fallback, and headless tests do not replace the Neutralino/WebView2
+  application.
 
 See [touch UI and seamless rendering](docs/development/ui-ux.md).
 

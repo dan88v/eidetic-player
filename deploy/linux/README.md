@@ -24,3 +24,9 @@ For a future kiosk, prefer a graphical user-session unit that starts
 Neutralino after the compositor is ready. The backend unit here is useful for
 separation and diagnostics, but the final Raspberry Pi startup policy remains
 outside Step 2.4.5.
+
+NetworkManager integration is documented separately in
+[`network/README.md`](network/README.md). It is optional, reversible, and does
+not duplicate this full service: it installs a focused systemd drop-in and
+minimal polkit authorization while leaving the backend non-root. Raspberry Pi
+network hardware validation remains Step 2.12.3.

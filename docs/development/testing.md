@@ -20,6 +20,29 @@ can expose the reported problem.
 Browser headless checks cannot replace Neutralino or real-media verification
 when native integration, playback, artwork, or realtime rendering is involved.
 
+## Mandatory Windows visual QA command
+
+Every Windows UI or visual regression check must start the real application
+from the repository root with exactly:
+
+```text
+npm.cmd run dev
+```
+
+The QA target is the Neutralino/WebView2 window opened by that command,
+including its real backend and platform bridge. Opening the Vite URL in a
+browser, using browser automation/headless rendering, inspecting static HTML,
+or relying only on screenshots/tests is not an acceptable substitute. Browser
+tools may provide additional diagnostics, but they never satisfy the native
+visual QA gate.
+
+Resize and inspect the Neutralino window at every viewport required by the
+current step. Record each viewport and interaction as PASS, FAIL, or NOT TESTED
+in the step output. Merely launching `npm.cmd run dev` is not a visual PASS:
+the required surfaces and flows must be exercised in that window. Shut down
+the command cleanly afterward and verify that Neutralino, backend, Vite, MPV,
+FFmpeg/helpers, and ports 4310/5173 are gone.
+
 ## Standard commands
 
 Run the relevant commands from the repository root:
@@ -39,10 +62,13 @@ npm run test:ffmpeg
 On systems that block the PowerShell npm shim, use `npm.cmd` with the same
 arguments. Do not change machine execution policy as part of the project.
 
-Linux adds `doctor:linux`, `test:linux`, `test:posix`,
-`test:case-sensitive`, `build:linux`, `smoke:linux`, and `verify:arm`.
-Run them from a native case-sensitive filesystem. Static ARM inspection is not
-runtime evidence.
+Linux adds `doctor:linux`, `doctor:network:linux`,
+`verify:network:deployment`, `test:linux`, `test:posix`,
+`test:case-sensitive`, `build:linux`, `smoke:linux`, and `verify:arm`. Run them
+from a native case-sensitive filesystem. The network doctor is read-only: it
+must not scan, connect, change radio/IP, or edit files. Deployment tests use
+`--root` with a temporary staging tree and never install host policy. Static
+ARM inspection and WSL staging are not Raspberry Pi runtime evidence.
 
 ## GitHub Actions Linux CI
 

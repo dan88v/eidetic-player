@@ -65,7 +65,33 @@ For IPv4, system-managed Wi-Fi profiles stay read-only. Wired configuration
 clones the active profile into a dedicated Eidetic profile so rollback can
 reactivate the original without altering or deleting it. No system file, sudo,
 UUID, or unrelated profile is modified. Product polkit/deployment policy
-remains Step 2.12.2.
+is provided by the optional Linux deployment layer.
+
+## Linux deployment and authorization
+
+The optional `deploy/linux/network/` integration keeps the backend non-root
+and grants no Linux capability or sudoers access. Its generated polkit rule
+matches the dedicated configured group, the exact
+`eidetic-player-backend.service` system unit, and systemd
+`NoNewPrivileges=true`. It authorizes only:
+
+- `org.freedesktop.NetworkManager.network-control` for activation, scan,
+  disconnect, and reactivation;
+- `org.freedesktop.NetworkManager.enable-disable-wifi` for the software radio;
+- `org.freedesktop.NetworkManager.settings.modify.system` for Eidetic-managed
+  connection creation/change/removal and IPv4 rollback.
+
+There is no NetworkManager wildcard. Nonmatching actions and subjects fall
+through to the distribution policy, while the backend continues to enforce
+opaque adapter IDs and its managed-profile boundary.
+
+The mode-0600 pending transaction remains in the runtime user's XDG config
+directory and is processed before new mutations. A successful automatic
+rollback removes it. Failed rollback, missing NetworkManager at boot, or an
+adapter not yet present keeps `recovery-required` visible: the bounded existing
+monitor can rediscover the service/adapter, and local Retry repeats the same
+rollback path. Open system settings remains the manual recovery route. No root
+boot helper mutates the network.
 
 ## UI contract
 

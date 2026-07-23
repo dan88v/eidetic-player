@@ -279,11 +279,15 @@ export class NetworkService {
         "No network configuration is awaiting confirmation.",
       );
     this.stopTransactionTimer();
-    this.setTransaction({ ...this.transaction, state: "confirming" });
+    const confirming: NetworkConfigurationTransaction = {
+      ...this.transaction,
+      state: "confirming",
+    };
+    this.setTransaction(confirming);
     try {
       await this.transactionRepository.remove();
       this.pending = null;
-      this.setTransaction(null);
+      this.transaction = null;
       await this.refresh();
     } catch (error) {
       const remaining = Math.max(
@@ -291,7 +295,7 @@ export class NetworkService {
         Math.ceil((Date.parse(pending.expiresAt) - Date.now()) / 1_000),
       );
       this.setTransaction({
-        ...this.transaction,
+        ...confirming,
         state: "awaiting-confirmation",
         secondsRemaining: remaining,
         remainingSeconds: remaining,
@@ -447,7 +451,7 @@ export class NetworkService {
         throw new Error("Rollback verification failed.");
       await this.transactionRepository.remove();
       this.pending = null;
-      this.setTransaction(null);
+      this.transaction = null;
       await this.refresh();
       return true;
     } catch {

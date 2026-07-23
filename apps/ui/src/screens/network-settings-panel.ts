@@ -881,7 +881,7 @@ export function createNetworkSettingsPanel(options: {
         element.querySelector(".network-dialog") &&
         !next.configurationTransaction
       )
-        return;
+        closeDialog();
       render();
     },
     requestLeave(leave) {

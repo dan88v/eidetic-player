@@ -190,11 +190,20 @@ void test("explicit Revert restores state and duplicate Apply is rejected", asyn
       30_000,
     );
     await service.refresh();
+    const publishedMethods: string[] = [];
+    const unsubscribe = service.subscribe((snapshot) => {
+      if (snapshot.configurationTransaction === null)
+        publishedMethods.push(
+          snapshot.wiredAdapters[0]?.ipv4Method ?? "missing",
+        );
+    });
     await service.applyIpv4(adapterId, manual);
     await assert.rejects(service.applyIpv4(adapterId, manual));
     await service.rollbackIpv4();
     assert.equal(service.snapshot().wiredAdapters[0]?.ipv4Method, "dhcp");
+    assert.deepEqual(publishedMethods, ["dhcp"]);
     assert.equal((await repository.read()).status, "none");
+    unsubscribe();
     await service.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
