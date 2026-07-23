@@ -77,6 +77,10 @@ export function createFavoritesScreen(options: {
     message: string,
     tone?: "error" | "success" | "neutral",
   ) => void;
+  readonly openPlaylistPicker: (
+    trackIds: readonly string[],
+    trigger?: HTMLElement,
+  ) => void;
   readonly openLibraryEntity: (kind: "album" | "artist", id: string) => void;
 }): ComponentView {
   const section = document.createElement("section");
@@ -85,10 +89,12 @@ export function createFavoritesScreen(options: {
   section.innerHTML = `
     <header class="favorites-header">
       <span class="screen-header__description">${t("screen.favorites.description")}</span>
-      <button class="primary-action favorites-play-all" type="button" disabled>${icon("play")}<span>${t("favorites.playAll")}</span></button>
+      <div class="favorites-header__actions">
+        <div class="favorites-segments"></div>
+        <button class="primary-action favorites-play-all" type="button" disabled>${icon("play")}<span>${t("favorites.playAll")}</span></button>
+      </div>
     </header>
     <div class="favorites-category-toolbar">
-      <div class="favorites-segments"></div>
       <div class="favorites-view-controls"></div>
     </div>
     <div class="favorites-content" aria-live="polite"></div>
@@ -331,6 +337,12 @@ export function createFavoritesScreen(options: {
                 );
               })
               .catch(errorToast),
+        },
+        {
+          label: t("common.addToPlaylist"),
+          run: () => {
+            options.openPlaylistPicker([track.id], more);
+          },
         },
         {
           label: t("favorites.remove"),

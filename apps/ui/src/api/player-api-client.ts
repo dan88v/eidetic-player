@@ -113,6 +113,9 @@ export class PlayerApiClient {
   removeQueueItem(queueItemId: string): Promise<void> {
     return this.post("queue/remove", { queueItemId });
   }
+  reorderQueueItem(queueItemId: string, toIndex: number): Promise<void> {
+    return this.post("queue/reorder", { queueItemId, toIndex });
+  }
   clearQueue(): Promise<void> {
     return this.post("queue/clear", {});
   }

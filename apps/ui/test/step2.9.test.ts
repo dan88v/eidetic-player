@@ -17,7 +17,7 @@ void test("Recently Played follows Favorites and Library visibility", () => {
     routes.indexOf('id: "favorites"') < routes.indexOf('id: "recentlyPlayed"'),
   );
   assert.ok(
-    routes.indexOf('id: "recentlyPlayed"') < routes.indexOf('id: "folders"'),
+    routes.indexOf('id: "playlists"') < routes.indexOf('id: "recentlyPlayed"'),
   );
   assert.match(sideMenu, /data-screen="recentlyPlayed"/);
   assert.match(sideMenu, /recentlyPlayed\.hidden = value === "folders"/);

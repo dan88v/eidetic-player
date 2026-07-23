@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { LibraryFutureVersionError } from "./library-errors.js";
 
-export const LIBRARY_SCHEMA_VERSION = 6;
+export const LIBRARY_SCHEMA_VERSION = 7;
 
 const migrationV1 = `
 CREATE TABLE library_sources (
@@ -199,6 +199,31 @@ CREATE INDEX track_play_stats_ranking_idx
   ON track_play_stats(play_count DESC, last_played_at DESC, track_id ASC);
 `;
 
+const migrationV7 = `
+CREATE TABLE IF NOT EXISTS playlists (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL CHECK (created_at >= 0),
+  updated_at INTEGER NOT NULL CHECK (updated_at >= 0)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS playlist_items (
+  id TEXT PRIMARY KEY,
+  playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  track_id TEXT NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK (position >= 0),
+  created_at INTEGER NOT NULL CHECK (created_at >= 0)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS playlists_updated_idx ON playlists(updated_at DESC, id ASC);
+CREATE UNIQUE INDEX IF NOT EXISTS playlist_items_position_idx
+  ON playlist_items(playlist_id, position);
+CREATE INDEX IF NOT EXISTS playlist_items_order_idx
+  ON playlist_items(playlist_id, position, id);
+CREATE INDEX IF NOT EXISTS playlist_items_track_idx ON playlist_items(track_id);
+`;
+
 function userVersion(database: DatabaseSync): number {
   const row = database.prepare("PRAGMA user_version").get() as
     { user_version?: unknown } | undefined;
@@ -220,6 +245,7 @@ export function migrateLibraryDatabase(database: DatabaseSync): number {
     if (current < 4) database.exec(migrationV4);
     if (current < 5) database.exec(migrationV5);
     if (current < 6) database.exec(migrationV6);
+    if (current < 7) database.exec(migrationV7);
     database.exec(`PRAGMA user_version = ${String(LIBRARY_SCHEMA_VERSION)}`);
     database.exec("COMMIT");
   } catch (error) {

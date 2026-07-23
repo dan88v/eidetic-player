@@ -26,6 +26,13 @@ export const navigationItems: readonly NavigationItem[] = [
     screenGroup: "main",
   },
   {
+    id: "folders",
+    titleKey: "screen.folders.title",
+    descriptionKey: "screen.folders.description",
+    icon: "folder",
+    screenGroup: "main",
+  },
+  {
     id: "favorites",
     titleKey: "screen.favorites.title",
     descriptionKey: "screen.favorites.description",
@@ -33,17 +40,17 @@ export const navigationItems: readonly NavigationItem[] = [
     screenGroup: "main",
   },
   {
+    id: "playlists",
+    titleKey: "screen.playlists.title",
+    descriptionKey: "screen.playlists.description",
+    icon: "list",
+    screenGroup: "main",
+  },
+  {
     id: "recentlyPlayed",
     titleKey: "screen.recentlyPlayed.title",
     descriptionKey: "screen.recentlyPlayed.description",
     icon: "history",
-    screenGroup: "main",
-  },
-  {
-    id: "folders",
-    titleKey: "screen.folders.title",
-    descriptionKey: "screen.folders.description",
-    icon: "folder",
     screenGroup: "main",
   },
   {

@@ -44,6 +44,8 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
         "favorite_tracks",
         "library_sources",
         "play_history",
+        "playlist_items",
+        "playlists",
         "scan_runs",
         "track_artists",
         "track_play_stats",
@@ -95,7 +97,7 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
   }
 });
 
-void test("schema v1 migrates through v6 and backfills accent-insensitive Search keys", async () => {
+void test("schema v1 migrates through v7 and backfills accent-insensitive Search keys", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v1-"));
   const path = join(temporary, "library.db");
   try {
@@ -130,7 +132,7 @@ void test("schema v1 migrates through v6 and backfills accent-insensitive Search
 
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 6);
+      assert.equal(migrated.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
       assert.equal(
         (
           migrated.connection
@@ -162,7 +164,7 @@ void test("schema v2 migrates transactionally through Stats v6", async () => {
     legacy.close();
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 6);
+      assert.equal(migrated.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
       const foreignKey = migrated.connection
         .prepare("PRAGMA foreign_key_list(favorite_tracks)")
         .get() as { table: string; on_delete: string };
@@ -190,7 +192,7 @@ void test("schema v3 migrates transactionally through Stats v6", async () => {
     legacy.close();
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 6);
+      assert.equal(migrated.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
       for (const [table, parent] of [
         ["favorite_albums", "albums"],
         ["favorite_artists", "artists"],
@@ -223,7 +225,7 @@ void test("schema v4 migrates transactionally through Stats v6", async () => {
     legacy.close();
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 6);
+      assert.equal(migrated.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
       const foreignKey = migrated.connection
         .prepare("PRAGMA foreign_key_list(play_history)")
         .get() as { table: string; on_delete: string };
@@ -255,7 +257,7 @@ void test("schema v5 adds empty strict play statistics without history backfill"
     legacy.close();
     const migrated = await LibraryDatabase.open(path);
     try {
-      assert.equal(migrated.diagnostics.schemaVersion, 6);
+      assert.equal(migrated.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
       const foreignKey = migrated.connection
         .prepare("PRAGMA foreign_key_list(track_play_stats)")
         .get() as { table: string; on_delete: string };
@@ -265,6 +267,39 @@ void test("schema v5 adds empty strict play statistics without history backfill"
         .prepare("SELECT COUNT(*) AS count FROM track_play_stats")
         .get() as { count: number };
       assert.equal(count.count, 0);
+    } finally {
+      migrated.close();
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("schema v6 migrates transactionally to playlist schema v7", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-v6-"));
+  const path = join(temporary, "library.db");
+  try {
+    const current = await LibraryDatabase.open(path);
+    current.close();
+    const legacy = new DatabaseSync(path);
+    legacy.exec(
+      "DROP TABLE playlist_items; DROP TABLE playlists; PRAGMA user_version = 6",
+    );
+    legacy.close();
+    const migrated = await LibraryDatabase.open(path);
+    try {
+      assert.equal(migrated.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
+      const foreignKeys = migrated.connection
+        .prepare("PRAGMA foreign_key_list(playlist_items)")
+        .all() as { table: string; on_delete: string }[];
+      assert.deepEqual(
+        foreignKeys.map((row) => [row.table, row.on_delete]).sort(),
+        [
+          ["playlists", "CASCADE"],
+          ["tracks", "CASCADE"],
+        ],
+      );
+      assert.equal(migrated.integrityCheck(), true);
     } finally {
       migrated.close();
     }

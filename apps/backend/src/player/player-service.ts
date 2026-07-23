@@ -79,6 +79,7 @@ export class PlayerService {
   private originalQueue: string[] = [];
   private stagedQueue: string[] | null = null;
   private readonly itemIds = new Map<string, string>();
+  private playlistItemIds: string[] = [];
   private readonly queueOrigins = new Map<string, PersistedQueueOrigin>();
   private restartAttempted = false;
   private shuttingDown = false;
@@ -282,7 +283,7 @@ export class PlayerService {
       readonly itemIds?: readonly string[];
     },
   ): Promise<void> {
-    const queue = await buildExplicitQueue(paths);
+    const queue = await buildExplicitQueue(paths, true);
     if (
       !Number.isInteger(selectedIndex) ||
       selectedIndex < 0 ||
@@ -295,6 +296,9 @@ export class PlayerService {
     const controller = this.requireController();
     const hadQueue = this.state.queue.length > 0;
     this.itemIds.clear();
+    this.playlistItemIds = queue.map(
+      (_, index) => options.itemIds?.[index] ?? `queue-${randomUUID()}`,
+    );
     this.queueOrigins.clear();
     for (const path of queue) {
       const inputIndex = paths.findIndex(
@@ -357,6 +361,7 @@ export class PlayerService {
         (path) => !existing.has(this.pathKey(path)),
       );
       if (appended.length === 0) return 0;
+      this.playlistItemIds.push(...appended.map(() => `queue-${randomUUID()}`));
       for (const path of appended) {
         const inputIndex = paths.findIndex(
           (candidate) => this.pathKey(candidate) === this.pathKey(path),
@@ -370,7 +375,7 @@ export class PlayerService {
         this.originalQueue = [...staged];
         const queue = staged.map((path, index) => {
           const key = this.pathKey(path);
-          let id = this.itemIds.get(key);
+          let id = this.playlistItemIds[index] ?? this.itemIds.get(key);
           if (!id) {
             id = `queue-${randomUUID()}`;
             this.itemIds.set(key, id);
@@ -386,6 +391,63 @@ export class PlayerService {
             displayTitle:
               previous?.displayTitle ?? filename.replace(/\.[^.]+$/, ""),
             artwork: previous?.artwork ?? null,
+            isCurrent: false,
+            ...(origin?.kind === "folders" && origin.libraryTrackId
+              ? { libraryTrackId: origin.libraryTrackId }
+              : {}),
+          };
+        });
+        this.update({
+          status: "stopped",
+          currentTrack: null,
+          currentQueueIndex: -1,
+          queue,
+          queueRevision: this.state.queueRevision + 1,
+          paused: true,
+        });
+        return appended.length;
+      }
+      await controller.appendToPlaylist(appended);
+      this.originalQueue.push(...appended);
+      await this.refreshProperties();
+      return appended.length;
+    } finally {
+      this.preparingPlaylist = false;
+    }
+  }
+
+  async appendResolvedQueue(
+    paths: readonly string[],
+    origins?: readonly PersistedQueueOrigin[],
+  ): Promise<number> {
+    const appended = await buildExplicitQueue(paths, true);
+    const controller = this.requireController();
+    this.preparingPlaylist = true;
+    try {
+      for (const [index, path] of appended.entries()) {
+        const origin = origins?.[index];
+        if (origin) this.queueOrigins.set(this.pathKey(path), origin);
+      }
+      this.playlistItemIds.push(...appended.map(() => `queue-${randomUUID()}`));
+      if (this.stagedQueue || this.state.queue.length === 0) {
+        const staged = [...(this.stagedQueue ?? []), ...appended];
+        this.stagedQueue = staged;
+        this.originalQueue = [...staged];
+        const existing = this.state.queue;
+        const queue = staged.map((path, index) => {
+          const prior = existing[index];
+          const filename = basename(path);
+          const origin = this.queueOrigins.get(this.pathKey(path));
+          return {
+            id: this.playlistItemIds[index] ?? `queue-${randomUUID()}`,
+            index,
+            path,
+            filename,
+            displayTitle:
+              prior?.path === path
+                ? prior.displayTitle
+                : filename.replace(/\.[^.]+$/, ""),
+            artwork: prior?.path === path ? prior.artwork : null,
             isCurrent: false,
             ...(origin?.kind === "folders" && origin.libraryTrackId
               ? { libraryTrackId: origin.libraryTrackId }
@@ -427,6 +489,7 @@ export class PlayerService {
     const wasCurrent = index === this.state.currentQueueIndex;
     const remainingCount = this.state.queue.length - 1;
     const removedPath = this.state.queue[index]?.path ?? "";
+    this.playlistItemIds.splice(index, 1);
     this.queueOrigins.delete(this.pathKey(removedPath));
     if (this.stagedQueue) {
       this.stagedQueue = this.stagedQueue.filter(
@@ -460,6 +523,73 @@ export class PlayerService {
       await this.requireController().setProperty("pause", false);
     }
     await this.refreshProperties();
+  }
+
+  async reorderQueueItem(queueItemId: string, toIndex: number): Promise<void> {
+    if (!isQueueItemId(queueItemId) || !Number.isInteger(toIndex))
+      throw new PlayerError(
+        "INVALID_QUEUE_ITEM",
+        "Select a valid Queue position.",
+      );
+    const fromIndex = this.state.queue.findIndex(
+      (item) => item.id === queueItemId,
+    );
+    if (fromIndex < 0)
+      throw new PlayerError(
+        "QUEUE_ITEM_NOT_FOUND",
+        "Queue item not found.",
+        404,
+      );
+    if (toIndex < 0 || toIndex >= this.state.queue.length)
+      throw new PlayerError(
+        "INVALID_QUEUE_INDEX",
+        "Queue position is out of range.",
+      );
+    if (fromIndex === toIndex) return;
+    const queue = [...this.state.queue];
+    const [moved] = queue.splice(fromIndex, 1);
+    if (!moved) return;
+    queue.splice(toIndex, 0, moved);
+    const currentId = this.state.queue[this.state.currentQueueIndex]?.id;
+    const reordered = queue.map((item, index) => ({
+      ...item,
+      index,
+      isCurrent: item.id === currentId,
+    }));
+    const paths = reordered.map((item) => item.path);
+    this.playlistItemIds = reordered.map((item) => item.id);
+    if (this.stagedQueue) {
+      this.stagedQueue = paths;
+      this.originalQueue = [...paths];
+      this.update({
+        queue: reordered,
+        currentQueueIndex: currentId
+          ? reordered.findIndex((item) => item.id === currentId)
+          : -1,
+        queueRevision: this.state.queueRevision + 1,
+      });
+      return;
+    }
+    this.preparingPlaylist = true;
+    try {
+      const mpvTarget = fromIndex < toIndex ? toIndex + 1 : toIndex;
+      await this.requireController().command([
+        "playlist-move",
+        fromIndex,
+        mpvTarget,
+      ]);
+      this.originalQueue = paths;
+      this.update({
+        queue: reordered,
+        currentQueueIndex: currentId
+          ? reordered.findIndex((item) => item.id === currentId)
+          : -1,
+        queueRevision: this.state.queueRevision + 1,
+      });
+      await this.refreshProperties();
+    } finally {
+      this.preparingPlaylist = false;
+    }
   }
 
   async clearQueue(): Promise<void> {
@@ -689,6 +819,7 @@ export class PlayerService {
     this.originalQueue = [];
     this.stagedQueue = null;
     this.itemIds.clear();
+    this.playlistItemIds = [];
     this.queueOrigins.clear();
     this.enrichmentGeneration += 1;
     this.enrichmentPathKey = null;
@@ -952,14 +1083,16 @@ export class PlayerService {
       if (!path) return [];
       const filename = basename(path);
       const key = this.pathKey(path);
-      const previous = this.state.queue.find(
-        (item) => this.pathKey(item.path) === key,
-      );
+      const preferredId = this.playlistItemIds[index];
+      const previous =
+        this.state.queue.find((item) => item.id === preferredId) ??
+        this.state.queue[index];
       const origin = this.queueOrigins.get(key);
-      let id = this.itemIds.get(key);
+      let id = preferredId ?? this.itemIds.get(key);
       if (!id) {
         id = `queue-${randomUUID()}`;
         this.itemIds.set(key, id);
+        this.playlistItemIds[index] = id;
       }
       return [
         {

@@ -528,3 +528,20 @@ then exercise the real Neutralino/WebView2 path:
    overlay priority;
 6. inspect 1280 x 800, 1280 x 720 and 1024 x 600, then confirm clean shutdown
    and no project listeners or temporary QA artifacts remain.
+
+## Step 2.10 Playlist and Queue reorder checks
+
+1. migrate v1 through v6 to schema v7 and verify strict Playlist tables,
+   cascade behavior, normalized unique names, duplicate item IDs, keyset order,
+   unavailable retention, and absence of native paths in API data;
+2. verify picker add, create-and-add, duplicate confirmation, Play all, direct
+   selected-item playback, duplicate preservation, and available-only Queue
+   building;
+3. drag Playlist and Queue handles with mouse and touch Pointer Events; verify
+   one persistence operation, rollback, auto-scroll, stable item/current IDs,
+   unchanged playback/session/transition, and one Queue revision;
+4. inspect the Queue footer Add to Playlist action beside Clear Queue, including
+   mixed/unindexed Queue disabling and whole-Queue ordering;
+5. inspect list, detail, dialogs, on-screen keyboard and all three player
+   surfaces at 1280 x 800, 1280 x 720, and 1024 x 600, then verify clean
+   shutdown and no residual listeners, captures, dialogs, or fixtures.

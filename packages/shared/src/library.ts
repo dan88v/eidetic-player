@@ -170,6 +170,7 @@ export interface IndexedLibrarySnapshot {
   readonly status: IndexedLibraryStatus;
   readonly historyRevision: number;
   readonly statsRevision: number;
+  readonly playlistRevision?: number;
 }
 
 export interface LibraryScanRequest {
@@ -276,6 +277,53 @@ export interface ListeningStats {
 
 export interface ListeningStatsResetResponse {
   readonly removedCount: number;
+}
+
+export interface PlaylistSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly trackCount: number;
+  readonly availableTrackCount: number;
+  readonly totalDurationSeconds: number;
+  readonly artworkTrackId: string | null;
+}
+
+export interface PlaylistPage extends LibraryPage<PlaylistSummary> {
+  readonly total: number;
+}
+
+export interface PlaylistItem extends LibraryTrack {
+  readonly itemId: string;
+  readonly position: number;
+  readonly createdAt: number;
+}
+
+export interface PlaylistDetail extends PlaylistSummary {
+  readonly items: readonly PlaylistItem[];
+}
+
+export interface PlaylistNameRequest {
+  readonly name: string;
+}
+
+export interface PlaylistAddTracksRequest {
+  readonly trackIds: readonly string[];
+  readonly allowDuplicates?: boolean;
+}
+
+export interface PlaylistAddTracksResponse {
+  readonly addedCount: number;
+  readonly duplicateTrackIds: readonly string[];
+}
+
+export interface PlaylistReorderRequest {
+  readonly itemIds: readonly string[];
+}
+
+export interface PlaylistPlayRequest {
+  readonly selectedItemId?: string;
 }
 
 export interface LibraryAlbum {

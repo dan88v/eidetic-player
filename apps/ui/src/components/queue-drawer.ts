@@ -2,11 +2,15 @@ import type { PlayerState } from "../../../../packages/shared/src/player";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import { queueArtworkUrl } from "../api/player-api-client";
+import {
+  queueAutoScrollStep,
+  queueDropIndex,
+  shouldStartQueueDrag,
+} from "../utils/queue-reorder";
 import { createArtwork, type ArtworkView } from "./artwork";
 
 const focusableSelector =
   'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-
 export interface QueueDrawer {
   readonly element: HTMLElement;
   readonly backdrop: HTMLElement;
@@ -26,6 +30,7 @@ interface QueueRowView {
   readonly filename: HTMLElement;
   readonly remove: HTMLButtonElement;
   readonly artwork: ArtworkView;
+  readonly handle: HTMLButtonElement;
   artworkRevision: string | null;
   isCurrent: boolean;
 }
@@ -35,6 +40,11 @@ export function createQueueDrawer(options: {
   readonly onPlay: (index: number) => void;
   readonly onClear: () => void;
   readonly onRemove: (queueItemId: string) => void;
+  readonly onReorder: (queueItemId: string, toIndex: number) => Promise<void>;
+  readonly onAddToPlaylist: (
+    trackIds: readonly string[],
+    trigger: HTMLElement,
+  ) => void;
 }): QueueDrawer {
   let returnFocus: HTMLElement | null = null;
   let isOpen = false;
@@ -44,6 +54,7 @@ export function createQueueDrawer(options: {
   let loadGeneration = 0;
   let activeLoads = 0;
   let confirmationOpen = false;
+  let cancelActiveReorder: (() => void) | null = null;
   const pendingLoads: {
     readonly id: string;
     readonly view: ArtworkView;
@@ -74,6 +85,7 @@ export function createQueueDrawer(options: {
     </div>
     <ol class="queue-list">
       <li class="queue-list__clear" hidden>
+        <button class="queue-list__playlist-button" type="button">${t("common.addToPlaylist")}</button>
         <button class="queue-list__clear-button" type="button">${t("queueDrawer.clear")}</button>
       </li>
     </ol>`;
@@ -85,6 +97,9 @@ export function createQueueDrawer(options: {
     ".queue-list__clear-button",
   );
   const clearRow = element.querySelector<HTMLLIElement>(".queue-list__clear");
+  const playlistButton = element.querySelector<HTMLButtonElement>(
+    ".queue-list__playlist-button",
+  );
   const confirmation = element.querySelector<HTMLElement>(
     ".queue-confirmation",
   );
@@ -100,6 +115,7 @@ export function createQueueDrawer(options: {
     !clearButton ||
     !clearRow ||
     !confirmation ||
+    !playlistButton ||
     !cancelClear ||
     !confirmClear
   )
@@ -158,6 +174,12 @@ export function createQueueDrawer(options: {
   clearButton.addEventListener("click", () => {
     setConfirmationOpen(true);
   });
+  playlistButton.addEventListener("click", () => {
+    const trackIds = (queueSnapshot ?? []).flatMap((item) =>
+      item.libraryTrackId ? [item.libraryTrackId] : [],
+    );
+    options.onAddToPlaylist(trackIds, playlistButton);
+  });
   cancelClear.addEventListener("click", () => {
     setConfirmationOpen(false);
   });
@@ -182,6 +204,7 @@ export function createQueueDrawer(options: {
         observeLazyRows();
         closeButton.focus();
       } else {
+        cancelActiveReorder?.();
         confirmationOpen = false;
         confirmation.classList.remove("queue-confirmation--open");
         confirmation.setAttribute("aria-hidden", "true");
@@ -218,12 +241,20 @@ export function createQueueDrawer(options: {
     },
     update(state) {
       clearButton.disabled = state.queue.length === 0;
+      playlistButton.disabled =
+        state.queue.length === 0 ||
+        state.queue.some((item) => !item.libraryTrackId);
+      playlistButton.title =
+        playlistButton.disabled && state.queue.length > 0
+          ? "Every Queue track must be indexed in Library."
+          : "Add the entire Queue to a playlist";
       clearRow.hidden = state.queue.length === 0;
       if (
         state.queueRevision === queueRevision &&
         state.queue === queueSnapshot
       )
         return;
+      cancelActiveReorder?.();
       queueRevision = state.queueRevision;
       queueSnapshot = state.queue;
       const nextIds = state.queue.map((item) => item.id);
@@ -273,6 +304,11 @@ export function createQueueDrawer(options: {
           const button = document.createElement("button");
           button.type = "button";
           button.className = "queue-item__button";
+          const handle = document.createElement("button");
+          handle.type = "button";
+          handle.className = "queue-item__handle";
+          handle.setAttribute("aria-label", "Reorder track");
+          handle.textContent = "::";
           const number = document.createElement("span");
           number.className = "queue-item__index";
           const artwork = createArtwork({
@@ -297,7 +333,174 @@ export function createQueueDrawer(options: {
             event.stopPropagation();
             options.onRemove(item.id);
           });
-          row.append(button, remove);
+          const beginReorder = (event: PointerEvent): void => {
+            event.preventDefault();
+            event.stopPropagation();
+            cancelActiveReorder?.();
+            const pointerId = event.pointerId;
+            const startX = event.clientX;
+            const startY = event.clientY;
+            let latestClientY = startY;
+            let dragging = false;
+            let placeholder: HTMLLIElement | null = null;
+            let animationFrame = 0;
+            let rowOffsetY = 0;
+            const initial = [...list.children] as HTMLLIElement[];
+            const initialQueueIds = [
+              ...list.querySelectorAll<HTMLLIElement>(".queue-item"),
+            ].map((queueRow) => queueRow.dataset.queueItemId ?? "");
+            const initialScrollTop = list.scrollTop;
+            handle.setPointerCapture(pointerId);
+
+            const restoreInitialOrder = (): void => {
+              for (const child of initial) list.append(child);
+              list.scrollTop = initialScrollTop;
+            };
+
+            const resetRow = (): void => {
+              row.classList.remove("queue-item--dragging");
+              row.style.removeProperty("top");
+              row.style.removeProperty("left");
+              row.style.removeProperty("width");
+              row.style.removeProperty("height");
+              placeholder?.remove();
+              placeholder = null;
+            };
+
+            const positionPlaceholder = (): void => {
+              if (!placeholder) return;
+              const candidates = [
+                ...list.querySelectorAll<HTMLLIElement>(
+                  ".queue-item:not(.queue-item--dragging):not(.queue-item--placeholder)",
+                ),
+              ];
+              const index = queueDropIndex(
+                candidates.map((candidate) => {
+                  const rect = candidate.getBoundingClientRect();
+                  return rect.top + rect.height / 2;
+                }),
+                latestClientY,
+              );
+              const target = candidates[index];
+              if (target) list.insertBefore(placeholder, target);
+              else list.insertBefore(placeholder, clearRow);
+            };
+
+            const updateDraggedPosition = (): void => {
+              row.style.top = `${String(latestClientY - rowOffsetY)}px`;
+              positionPlaceholder();
+            };
+
+            const autoScroll = (): void => {
+              if (!dragging) return;
+              const bounds = list.getBoundingClientRect();
+              const step = queueAutoScrollStep(
+                latestClientY,
+                bounds.top,
+                bounds.bottom,
+              );
+              if (step !== 0) {
+                const previous = list.scrollTop;
+                list.scrollTop += step;
+                if (list.scrollTop !== previous) positionPlaceholder();
+              }
+              animationFrame = window.requestAnimationFrame(autoScroll);
+            };
+
+            const activate = (): void => {
+              if (dragging) return;
+              dragging = true;
+              const rect = row.getBoundingClientRect();
+              rowOffsetY = latestClientY - rect.top;
+              placeholder = document.createElement("li");
+              placeholder.className = "queue-item queue-item--placeholder";
+              placeholder.style.height = `${String(rect.height)}px`;
+              placeholder.setAttribute("aria-hidden", "true");
+              row.after(placeholder);
+              row.classList.add("queue-item--dragging");
+              row.style.top = `${String(rect.top)}px`;
+              row.style.left = `${String(rect.left)}px`;
+              row.style.width = `${String(rect.width)}px`;
+              row.style.height = `${String(rect.height)}px`;
+              animationFrame = window.requestAnimationFrame(autoScroll);
+            };
+
+            const move = (moveEvent: PointerEvent): void => {
+              if (moveEvent.pointerId !== pointerId) return;
+              latestClientY = moveEvent.clientY;
+              if (
+                !dragging &&
+                shouldStartQueueDrag(
+                  moveEvent.clientX - startX,
+                  moveEvent.clientY - startY,
+                )
+              )
+                activate();
+              if (dragging) updateDraggedPosition();
+            };
+
+            const cleanup = (): void => {
+              if (animationFrame) window.cancelAnimationFrame(animationFrame);
+              animationFrame = 0;
+              handle.removeEventListener("pointermove", move);
+              handle.removeEventListener("pointerup", drop);
+              handle.removeEventListener("pointercancel", cancel);
+              if (handle.hasPointerCapture(pointerId))
+                handle.releasePointerCapture(pointerId);
+              cancelActiveReorder = null;
+            };
+
+            const drop = (upEvent: PointerEvent): void => {
+              if (upEvent.pointerId !== pointerId) return;
+              cleanup();
+              if (!dragging || !placeholder) {
+                resetRow();
+                return;
+              }
+              list.insertBefore(row, placeholder);
+              resetRow();
+              const rows = [
+                ...list.querySelectorAll<HTMLLIElement>(".queue-item"),
+              ];
+              const toIndex = rows.indexOf(row);
+              const nextQueueIds = rows.map(
+                (queueRow) => queueRow.dataset.queueItemId ?? "",
+              );
+              if (
+                toIndex < 0 ||
+                nextQueueIds.every(
+                  (queueItemId, index) =>
+                    queueItemId === initialQueueIds[index],
+                )
+              )
+                return;
+              list.classList.add("queue-list--persisting");
+              void options
+                .onReorder(item.id, toIndex)
+                .catch(() => {
+                  restoreInitialOrder();
+                })
+                .finally(() => {
+                  list.classList.remove("queue-list--persisting");
+                });
+            };
+
+            const cancel = (cancelEvent?: PointerEvent): void => {
+              if (cancelEvent && cancelEvent.pointerId !== pointerId) return;
+              cleanup();
+              resetRow();
+              restoreInitialOrder();
+            };
+
+            cancelActiveReorder = () => {
+              cancel();
+            };
+            handle.addEventListener("pointermove", move);
+            handle.addEventListener("pointerup", drop);
+            handle.addEventListener("pointercancel", cancel);
+          };
+          handle.addEventListener("pointerdown", beginReorder);
+          row.append(handle, button, remove);
           view = {
             row,
             button,
@@ -306,12 +509,14 @@ export function createQueueDrawer(options: {
             filename,
             remove,
             artwork,
+            handle,
             artworkRevision: null,
             isCurrent: false,
           };
           rowViews.set(item.id, view);
         }
         view.row.dataset.queueIndex = String(item.index);
+        view.row.dataset.queueItemId = item.id;
         if (view.isCurrent !== item.isCurrent) {
           view.isCurrent = item.isCurrent;
           view.row.classList.toggle("queue-item--current", item.isCurrent);
@@ -358,6 +563,7 @@ export function createQueueDrawer(options: {
     },
     destroy() {
       isOpen = false;
+      cancelActiveReorder?.();
       loadGeneration += 1;
       observer.disconnect();
       pendingLoads.length = 0;

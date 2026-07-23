@@ -53,6 +53,10 @@ export interface LibraryScreenOptions {
     readonly kind: "album" | "artist";
     readonly id: string;
   };
+  readonly openPlaylistPicker: (
+    trackIds: readonly string[],
+    trigger?: HTMLElement,
+  ) => void;
 }
 
 type LibraryRoute =
@@ -692,6 +696,12 @@ export function createLibraryScreen(
           label: t("folders.addToQueue"),
           disabled: unavailable,
           run: () => void queueTrack(track.id),
+        },
+        {
+          label: t("common.addToPlaylist"),
+          run: () => {
+            options.openPlaylistPicker([track.id], more);
+          },
         },
         {
           label: t(

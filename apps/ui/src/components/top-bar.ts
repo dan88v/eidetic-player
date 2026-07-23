@@ -5,6 +5,10 @@ export interface TopBar {
   readonly element: HTMLElement;
   readonly menuButton: HTMLButtonElement;
   setTitle(title: string): void;
+  setDetailActions(
+    back: (() => void) | null,
+    more: ((trigger: HTMLButtonElement) => void) | null,
+  ): void;
   destroy(): void;
 }
 
@@ -34,7 +38,18 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
   const menuButton = element.querySelector<HTMLButtonElement>(".top-bar__menu");
   const title = element.querySelector<HTMLHeadingElement>(".top-bar__title");
   const clock = element.querySelector<HTMLTimeElement>(".top-bar__clock");
-  if (!menuButton || !title || !clock) throw new Error("Top bar is incomplete");
+  const info = element.querySelector<HTMLElement>(".top-bar__info");
+  if (!menuButton || !title || !clock || !info)
+    throw new Error("Top bar is incomplete");
+  const moreButton = document.createElement("button");
+  moreButton.className = "top-bar__more icon-button";
+  moreButton.type = "button";
+  moreButton.setAttribute("aria-label", "Playlist actions");
+  moreButton.innerHTML = icon("more");
+  moreButton.hidden = true;
+  info.prepend(moreButton);
+  let backAction: (() => void) | null = null;
+  let moreAction: ((trigger: HTMLButtonElement) => void) | null = null;
   const updateClock = (): void => {
     const now = new Date();
     clock.dateTime = now.toISOString();
@@ -42,12 +57,24 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
   };
   updateClock();
   const clockTimer = window.setInterval(updateClock, 60_000);
-  menuButton.addEventListener("click", onMenuToggle);
+  menuButton.addEventListener("click", () => {
+    if (backAction) backAction();
+    else onMenuToggle();
+  });
+  moreButton.addEventListener("click", () => moreAction?.(moreButton));
   return {
     element,
     menuButton,
     setTitle(screenTitle) {
       title.textContent = screenTitle;
+      title.title = screenTitle;
+    },
+    setDetailActions(back, more) {
+      backAction = back;
+      moreAction = more;
+      menuButton.innerHTML = icon(back ? "back" : "menu");
+      menuButton.setAttribute("aria-label", back ? "Back" : t("nav.openMenu"));
+      moreButton.hidden = more === null;
     },
     destroy() {
       window.clearInterval(clockTimer);

@@ -124,10 +124,14 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
       const recentlyPlayed = element.querySelector<HTMLElement>(
         '[data-screen="recentlyPlayed"]',
       );
+      const playlists = element.querySelector<HTMLElement>(
+        '[data-screen="playlists"]',
+      );
       if (folders) folders.hidden = value === "library";
       if (library) library.hidden = value === "folders";
       if (favorites) favorites.hidden = value === "folders";
       if (recentlyPlayed) recentlyPlayed.hidden = value === "folders";
+      if (playlists) playlists.hidden = value === "folders";
     },
   };
 }

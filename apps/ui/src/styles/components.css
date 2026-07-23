@@ -603,9 +603,9 @@
   .queue-list {
     display: grid;
     align-content: start;
-    gap: var(--space-2);
+    gap: 6px;
     margin: 0;
-    padding: var(--space-4);
+    padding: var(--space-3);
     overflow-y: auto;
     list-style: none;
   }
@@ -614,6 +614,132 @@
     display: flex;
     justify-content: center;
     padding: var(--space-4) 0 var(--space-2);
+  }
+
+  .queue-list__clear {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+  .queue-list__playlist-button {
+    min-height: 46px;
+    padding: 0 18px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    font-weight: 700;
+  }
+  .queue-item__handle {
+    align-self: stretch;
+    width: var(--touch-min);
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 20px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .queue-item--dragging {
+    position: fixed;
+    z-index: calc(var(--z-queue) + 1);
+    margin: 0;
+    opacity: 0.9;
+    outline: 2px solid var(--color-accent);
+    box-shadow: var(--shadow-panel);
+    pointer-events: none;
+  }
+  .queue-item--placeholder {
+    border: 1px dashed var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+  .queue-list--persisting {
+    pointer-events: none;
+  }
+
+  .playlist-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(0, 0, 0, 0.62);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .playlist-picker-backdrop--open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .playlist-picker {
+    position: fixed;
+    z-index: 71;
+    width: min(520px, calc(100vw - 32px));
+    max-height: min(650px, calc(100vh - 32px));
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0.98);
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    background: var(--color-surface);
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 20px 60px #0009;
+  }
+  .playlist-picker--open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  .playlist-picker header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .playlist-picker header h2 {
+    margin: 0;
+  }
+  .playlist-picker header button {
+    min-width: 44px;
+    min-height: 44px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 28px;
+  }
+  .playlist-picker__body {
+    display: grid;
+    max-height: 190px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 8px;
+    margin: 16px 0;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+  .playlist-picker__body > button {
+    min-height: 58px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-raised);
+    color: inherit;
+    text-align: left;
+  }
+  .playlist-picker__body > button span {
+    color: var(--color-text-muted);
+  }
+  .playlist-picker__error {
+    min-height: 1.4em;
+    color: var(--color-danger);
+  }
+  .playlist-picker footer button {
+    width: 100%;
+    min-height: 48px;
   }
 
   .queue-list__clear[hidden] {
@@ -637,11 +763,11 @@
 
   .queue-item {
     display: grid;
-    min-height: 5rem;
-    grid-template-columns: minmax(0, 1fr) var(--touch-small);
+    min-height: 4.25rem;
+    grid-template-columns: var(--touch-min) minmax(0, 1fr) var(--touch-small);
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3);
+    gap: var(--space-1);
+    padding: 6px 8px;
     border-radius: var(--radius-md);
     background: var(--color-surface);
   }
@@ -650,10 +776,17 @@
     display: grid;
     width: 100%;
     min-height: 3.5rem;
-    grid-template-columns: 2.5rem var(--touch-small) minmax(0, 1fr);
+    grid-template-columns: 1.5rem var(--touch-small) minmax(0, 1fr);
     align-items: center;
-    gap: var(--space-3);
+    gap: var(--space-2);
     text-align: left;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .queue-item__handle {
+    width: var(--touch-min);
+    padding: 0;
   }
 
   .queue-item__remove {
@@ -731,6 +864,8 @@
 
   .queue-item__index {
     color: var(--color-accent-strong);
+    font-size: var(--font-size-xs);
+    text-align: center;
   }
   .queue-item__copy {
     display: grid;
@@ -739,14 +874,14 @@
   }
   .queue-item__copy strong {
     overflow: hidden;
-    font-size: var(--font-size-sm);
+    font-size: 0.875rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .queue-item__copy span,
   .queue-item time {
     color: var(--color-text-secondary);
-    font-size: 0.9375rem;
+    font-size: 0.75rem;
   }
 
   .queue-list__empty {

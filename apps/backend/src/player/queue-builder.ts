@@ -72,9 +72,12 @@ export async function expandQueueFromSingleFile(
 
 export async function buildExplicitQueue(
   paths: readonly string[],
+  preserveDuplicates = false,
 ): Promise<string[]> {
-  const unique = deduplicatePaths(paths);
-  const validated = await Promise.all(unique.map(validateFile));
+  const candidates = preserveDuplicates
+    ? paths.map((path) => resolve(path))
+    : deduplicatePaths(paths);
+  const validated = await Promise.all(candidates.map(validateFile));
   const result = validated.filter((path): path is string => path !== null);
   if (result.length === 0)
     throw new PlayerError(

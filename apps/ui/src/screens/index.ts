@@ -30,6 +30,7 @@ import { createMainPlayerHost } from "../main-player/main-player-host";
 import { createQueueScreen } from "./queue";
 import { createSettingsScreen } from "./settings";
 import { createSourcesScreen } from "./sources";
+import { createPlaylistsScreen } from "./playlists";
 
 export interface ScreenContext {
   readonly state: AppState;
@@ -84,6 +85,14 @@ export interface ScreenContext {
   readonly removeFolderSource: (sourceId: string) => void;
   readonly noteTrackCommand: () => void;
   readonly setScreenTitle: (title: string) => void;
+  readonly openPlaylistPicker: (
+    trackIds: readonly string[],
+    trigger?: HTMLElement,
+  ) => void;
+  readonly setHeaderActions: (
+    back: (() => void) | null,
+    more: ((trigger: HTMLButtonElement) => void) | null,
+  ) => void;
 }
 
 function staticView(element: HTMLElement): ComponentView {
@@ -140,6 +149,7 @@ export function createScreen(
         favorites: context.favorites,
         favoriteAlbums: context.favoriteAlbums,
         favoriteArtists: context.favoriteArtists,
+        openPlaylistPicker: context.openPlaylistPicker,
         ...(context.initialLibraryEntity
           ? { initialEntity: context.initialLibraryEntity }
           : {}),
@@ -153,6 +163,17 @@ export function createScreen(
         openLibraryEntity: context.openLibraryEntity,
         noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
+        openPlaylistPicker: context.openPlaylistPicker,
+      });
+    case "playlists":
+      return createPlaylistsScreen({
+        api: context.libraryApi,
+        setTitle: context.setScreenTitle,
+        showToast: context.showToast,
+        openPlaylistPicker: context.openPlaylistPicker,
+        noteTrackCommand: context.noteTrackCommand,
+        favorites: context.favorites,
+        setHeaderActions: context.setHeaderActions,
       });
     case "recentlyPlayed":
       return createRecentlyPlayedScreen({
@@ -161,6 +182,7 @@ export function createScreen(
         initialSnapshot: context.librarySnapshot,
         noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
+        openPlaylistPicker: context.openPlaylistPicker,
       });
     case "sources":
       return createSourcesScreen({

@@ -22,6 +22,10 @@ import type {
   MostPlayedPage,
   ListeningStats,
   ListeningStatsResetResponse,
+  PlaylistPage,
+  PlaylistSummary,
+  PlaylistDetail,
+  PlaylistAddTracksResponse,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
@@ -75,6 +79,7 @@ export class IndexedLibraryService {
   private closed = false;
   private historyRevision = 0;
   private statsRevision = 0;
+  private playlistRevision = 0;
 
   private constructor(
     private readonly provider: FilesystemProvider,
@@ -189,6 +194,7 @@ export class IndexedLibraryService {
       status: this.scheduler.status(this.recoveryNotice),
       historyRevision: this.historyRevision,
       statsRevision: this.statsRevision,
+      playlistRevision: this.playlistRevision,
     };
   }
 
@@ -413,6 +419,144 @@ export class IndexedLibraryService {
         selectedTrackId
           ? "This track is no longer available."
           : "No available most-played tracks were found.",
+        409,
+      );
+    return this.resolvedContext(resolved, selectedIndex);
+  }
+
+  playlists(
+    cursor: string | null,
+    limit = DEFAULT_LIBRARY_PAGE_LIMIT,
+  ): PlaylistPage {
+    this.ensureOpen();
+    return this.repository.playlists(cursor, this.pageLimit(limit));
+  }
+
+  playlist(playlistId: string): PlaylistDetail {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    const detail = this.repository.playlist(playlistId);
+    if (!detail)
+      throw new LibraryError(
+        "PLAYLIST_NOT_FOUND",
+        "This playlist no longer exists.",
+        404,
+      );
+    return detail;
+  }
+
+  createPlaylist(name: string): PlaylistSummary {
+    this.ensureOpen();
+    const result = this.repository.createPlaylist(name);
+    this.publishPlaylistChange();
+    return result;
+  }
+
+  renamePlaylist(playlistId: string, name: string): PlaylistSummary {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    const result = this.repository.renamePlaylist(playlistId, name);
+    if (!result)
+      throw new LibraryError(
+        "PLAYLIST_NOT_FOUND",
+        "This playlist no longer exists.",
+        404,
+      );
+    this.publishPlaylistChange();
+    return result;
+  }
+
+  deletePlaylist(playlistId: string): { readonly removedCount: number } {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    const removedCount = this.repository.deletePlaylist(playlistId);
+    if (removedCount > 0) this.publishPlaylistChange();
+    return { removedCount };
+  }
+
+  addPlaylistTracks(
+    playlistId: string,
+    trackIds: readonly string[],
+    allowDuplicates = false,
+  ): PlaylistAddTracksResponse {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    if (trackIds.some((trackId) => !/^track-[0-9a-f]{32}$/.test(trackId)))
+      throw new LibraryError(
+        "INVALID_PLAYLIST_TRACKS",
+        "Select valid indexed Library tracks.",
+      );
+    const result = this.repository.addPlaylistTracks(
+      playlistId,
+      trackIds,
+      allowDuplicates,
+    );
+    if (result.addedCount > 0) this.publishPlaylistChange();
+    return result;
+  }
+
+  removePlaylistItem(
+    playlistId: string,
+    itemId: string,
+  ): { readonly removedCount: number } {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    this.requirePlaylistItemId(itemId);
+    const removedCount = this.repository.removePlaylistItem(playlistId, itemId);
+    if (removedCount > 0) this.publishPlaylistChange();
+    return { removedCount };
+  }
+
+  reorderPlaylist(
+    playlistId: string,
+    itemIds: readonly string[],
+  ): PlaylistDetail {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    if (itemIds.length > 2_000)
+      throw new LibraryError(
+        "PLAYLIST_TOO_LARGE",
+        "Playlist order is too large.",
+      );
+    itemIds.forEach((id) => {
+      this.requirePlaylistItemId(id);
+    });
+    if (this.repository.reorderPlaylist(playlistId, itemIds))
+      this.publishPlaylistChange();
+    return this.playlist(playlistId);
+  }
+
+  async resolvePlaylist(
+    playlistId: string,
+    selectedItemId?: string,
+  ): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    this.requirePlaylistId(playlistId);
+    if (selectedItemId) this.requirePlaylistItemId(selectedItemId);
+    if (!this.repository.playlist(playlistId))
+      throw new LibraryError(
+        "PLAYLIST_NOT_FOUND",
+        "This playlist no longer exists.",
+        404,
+      );
+    const before = this.repository.catalogFingerprint();
+    const records = this.repository.playlistContextTracks(playlistId);
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    const selectedIndex = selectedItemId
+      ? resolved.findIndex((record) => record.contextId === selectedItemId)
+      : 0;
+    if (resolved.length === 0 || selectedIndex < 0)
+      throw new LibraryError(
+        selectedItemId ? "PLAYLIST_ITEM_UNAVAILABLE" : "LIBRARY_CONTEXT_EMPTY",
+        selectedItemId
+          ? "This playlist track is unavailable."
+          : "No available playlist tracks were found.",
         409,
       );
     return this.resolvedContext(resolved, selectedIndex);
@@ -853,6 +997,24 @@ export class IndexedLibraryService {
     this.publish();
   }
 
+  private publishPlaylistChange(): void {
+    this.playlistRevision += 1;
+    this.publish();
+  }
+
+  private requirePlaylistId(value: string): void {
+    if (!/^playlist-[0-9a-f-]{36}$/i.test(value))
+      throw new LibraryError("INVALID_PLAYLIST", "Select a valid playlist.");
+  }
+
+  private requirePlaylistItemId(value: string): void {
+    if (!/^playlist-item-[0-9a-f-]{36}$/i.test(value))
+      throw new LibraryError(
+        "INVALID_PLAYLIST_ITEM",
+        "Select a valid playlist item.",
+      );
+  }
+
   private historyId(value: string): number | null {
     const match = /^history-([1-9][0-9]*)$/.exec(value);
     if (!match) return null;
@@ -946,6 +1108,7 @@ export class IndexedLibraryService {
       readonly id: string;
       readonly sourceId: string;
       readonly relativePath: string;
+      readonly contextId?: string;
     }[],
   ): Promise<
     readonly {
@@ -953,6 +1116,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
+      readonly contextId?: string;
     }[]
   > {
     const sourceCache = new Map<
@@ -977,6 +1141,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
+      readonly contextId?: string;
     } | null>(records.length).fill(null);
     let next = 0;
     const worker = async (): Promise<void> => {

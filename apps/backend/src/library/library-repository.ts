@@ -1,4 +1,5 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import type {
   LibraryAlbum,
   LibraryAlbumDetail,
@@ -21,6 +22,10 @@ import type {
   RecentlyPlayedPage,
   MostPlayedPage,
   ListeningStats,
+  PlaylistPage,
+  PlaylistSummary,
+  PlaylistDetail,
+  PlaylistItem,
 } from "../../../../packages/shared/src/library.js";
 import type { StoredSource } from "../filesystem/filesystem-types.js";
 import { LibraryDatabase } from "./library-database.js";
@@ -158,6 +163,20 @@ function historyId(id: number): string {
 
 const HISTORY_RETENTION_MILLISECONDS = 90 * 24 * 60 * 60 * 1_000;
 const MAX_HISTORY_EVENTS = 500;
+const MAX_PLAYLIST_ITEMS = 2_000;
+
+export function normalizePlaylistName(value: string): {
+  readonly name: string;
+  readonly normalizedName: string;
+} {
+  const name = value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  if (name.length === 0 || Array.from(name).length > 80)
+    throw new LibraryError(
+      "INVALID_PLAYLIST_NAME",
+      "Playlist names must contain between 1 and 80 characters.",
+    );
+  return { name, normalizedName: name.toLocaleLowerCase("en-US") };
+}
 
 function albumFromRow(row: SqlRow): LibraryAlbum {
   const trackCount = numberValue(row.track_count);
@@ -1198,6 +1217,399 @@ export class LibraryRepository {
     return Number(
       this.connection.prepare("DELETE FROM track_play_stats").run().changes,
     );
+  }
+
+  playlists(cursor: string | null, limit: number): PlaylistPage {
+    const decoded = decodeCursor(cursor, 2);
+    if (
+      decoded &&
+      (typeof decoded[0] !== "number" || typeof decoded[1] !== "string")
+    )
+      throw new LibraryError(
+        "INVALID_LIBRARY_CURSOR",
+        "The Library page cursor is invalid.",
+      );
+    const updatedAt = decoded ? Number(decoded[0]) : null;
+    const playlistId = decoded ? String(decoded[1]) : null;
+    const rows = this.connection
+      .prepare(
+        `SELECT p.id, p.name, p.created_at, p.updated_at,
+                COUNT(i.id) AS track_count,
+                COUNT(CASE WHEN t.available = 1 AND s.available = 1
+                                 AND s.removed = 0 THEN 1 END) AS available_count,
+                COALESCE(SUM(CASE WHEN t.available = 1 AND s.available = 1
+                                      AND s.removed = 0
+                                  THEN t.duration_seconds ELSE 0 END), 0)
+                  AS total_duration_seconds,
+                (SELECT COALESCE(
+                    CASE WHEN at.artwork_available = 1 THEN at.track_id END,
+                    aa.representative_track_id)
+                 FROM playlist_items ai
+                 JOIN tracks at ON at.track_id = ai.track_id
+                 JOIN library_sources als ON als.source_id = at.source_id
+                 LEFT JOIN albums aa ON aa.album_id = at.album_id
+                 WHERE ai.playlist_id = p.id AND at.available = 1
+                   AND als.available = 1 AND als.removed = 0
+                 ORDER BY ai.position, ai.id LIMIT 1) AS artwork_track_id
+         FROM playlists p
+         LEFT JOIN playlist_items i ON i.playlist_id = p.id
+         LEFT JOIN tracks t ON t.track_id = i.track_id
+         LEFT JOIN library_sources s ON s.source_id = t.source_id
+         ${decoded ? "WHERE p.updated_at < ? OR (p.updated_at = ? AND p.id > ?)" : ""}
+         GROUP BY p.id
+         ORDER BY p.updated_at DESC, p.id ASC
+         LIMIT ?`,
+      )
+      .all(
+        ...(decoded ? [updatedAt, updatedAt, playlistId] : []),
+        limit + 1,
+      ) as SqlRow[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    const total = this.connection
+      .prepare("SELECT COUNT(*) AS total FROM playlists")
+      .get() as SqlRow;
+    return {
+      items: page.map((row) => this.playlistSummaryFromRow(row)),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor([numberValue(last.updated_at), String(last.id)])
+          : null,
+      total: numberValue(total.total),
+    };
+  }
+
+  playlist(id: string): PlaylistDetail | null {
+    const summary = this.connection
+      .prepare(
+        `SELECT p.id, p.name, p.created_at, p.updated_at,
+                COUNT(i.id) AS track_count,
+                COUNT(CASE WHEN t.available = 1 AND s.available = 1
+                                 AND s.removed = 0 THEN 1 END) AS available_count,
+                COALESCE(SUM(CASE WHEN t.available = 1 AND s.available = 1
+                                      AND s.removed = 0
+                                  THEN t.duration_seconds ELSE 0 END), 0)
+                  AS total_duration_seconds,
+                NULL AS artwork_track_id
+         FROM playlists p
+         LEFT JOIN playlist_items i ON i.playlist_id = p.id
+         LEFT JOIN tracks t ON t.track_id = i.track_id
+         LEFT JOIN library_sources s ON s.source_id = t.source_id
+         WHERE p.id = ? GROUP BY p.id`,
+      )
+      .get(id) as SqlRow | undefined;
+    if (!summary) return null;
+    const rows = this.connection
+      .prepare(
+        `SELECT i.id AS item_id, i.position, i.created_at, t.track_id,
+                COALESCE(t.title, substr(t.filename, 1,
+                  length(t.filename) - length(t.extension) - 1)) AS display_title,
+                t.artist_display, a.display_title AS album_display,
+                t.duration_seconds, t.disc_number, t.track_number,
+                t.artwork_available, a.representative_track_id,
+                CASE WHEN t.available = 1 AND s.available = 1 AND s.removed = 0
+                     THEN 1 ELSE 0 END AS effective_available
+         FROM playlist_items i
+         JOIN tracks t ON t.track_id = i.track_id
+         JOIN library_sources s ON s.source_id = t.source_id
+         LEFT JOIN albums a ON a.album_id = t.album_id
+         WHERE i.playlist_id = ? ORDER BY i.position, i.id
+         LIMIT ?`,
+      )
+      .all(id, MAX_PLAYLIST_ITEMS + 1) as SqlRow[];
+    if (rows.length > MAX_PLAYLIST_ITEMS)
+      throw new LibraryError(
+        "PLAYLIST_TOO_LARGE",
+        `Playlist exceeds the ${String(MAX_PLAYLIST_ITEMS)} item safety limit.`,
+        409,
+      );
+    const items: PlaylistItem[] = rows.map((row) => ({
+      ...trackFromRow(row),
+      itemId: String(row.item_id),
+      position: numberValue(row.position),
+      createdAt: numberValue(row.created_at),
+    }));
+    const firstArtwork = items.find(
+      (item) => item.availability === "available" && item.artworkTrackId,
+    )?.artworkTrackId;
+    return {
+      ...this.playlistSummaryFromRow(summary),
+      artworkTrackId: firstArtwork ?? null,
+      items,
+    };
+  }
+
+  createPlaylist(nameValue: string, now = Date.now()): PlaylistSummary {
+    const { name, normalizedName } = normalizePlaylistName(nameValue);
+    const id = `playlist-${randomUUID()}`;
+    try {
+      this.connection
+        .prepare(
+          `INSERT INTO playlists (id, name, normalized_name, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(id, name, normalizedName, now, now);
+    } catch (error) {
+      if (String(error).includes("UNIQUE"))
+        throw new LibraryError(
+          "PLAYLIST_NAME_EXISTS",
+          "A playlist with this name already exists.",
+          409,
+        );
+      throw error;
+    }
+    const created = this.playlist(id);
+    if (!created) throw new Error("Created playlist could not be read");
+    return {
+      id: created.id,
+      name: created.name,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt,
+      trackCount: created.trackCount,
+      availableTrackCount: created.availableTrackCount,
+      totalDurationSeconds: created.totalDurationSeconds,
+      artworkTrackId: created.artworkTrackId,
+    };
+  }
+
+  renamePlaylist(
+    id: string,
+    nameValue: string,
+    now = Date.now(),
+  ): PlaylistSummary | null {
+    const { name, normalizedName } = normalizePlaylistName(nameValue);
+    try {
+      const result = this.connection
+        .prepare(
+          `UPDATE playlists SET name = ?, normalized_name = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(name, normalizedName, now, id);
+      if (Number(result.changes) === 0) return null;
+    } catch (error) {
+      if (String(error).includes("UNIQUE"))
+        throw new LibraryError(
+          "PLAYLIST_NAME_EXISTS",
+          "A playlist with this name already exists.",
+          409,
+        );
+      throw error;
+    }
+    const detail = this.playlist(id);
+    if (!detail) return null;
+    return {
+      id: detail.id,
+      name: detail.name,
+      createdAt: detail.createdAt,
+      updatedAt: detail.updatedAt,
+      trackCount: detail.trackCount,
+      availableTrackCount: detail.availableTrackCount,
+      totalDurationSeconds: detail.totalDurationSeconds,
+      artworkTrackId: detail.artworkTrackId,
+    };
+  }
+
+  deletePlaylist(id: string): number {
+    return Number(
+      this.connection.prepare("DELETE FROM playlists WHERE id = ?").run(id)
+        .changes,
+    );
+  }
+
+  addPlaylistTracks(
+    playlistId: string,
+    trackIds: readonly string[],
+    allowDuplicates: boolean,
+    now = Date.now(),
+  ): {
+    readonly addedCount: number;
+    readonly duplicateTrackIds: readonly string[];
+  } {
+    return this.database.transaction(() => {
+      const playlist = this.connection
+        .prepare("SELECT id FROM playlists WHERE id = ?")
+        .get(playlistId);
+      if (!playlist)
+        throw new LibraryError(
+          "PLAYLIST_NOT_FOUND",
+          "This playlist no longer exists.",
+          404,
+        );
+      if (trackIds.length === 0 || trackIds.length > MAX_PLAYLIST_ITEMS)
+        throw new LibraryError(
+          "INVALID_PLAYLIST_TRACKS",
+          "Select between 1 and 2000 Library tracks.",
+        );
+      const known = new Set(
+        (
+          this.connection
+            .prepare(
+              `SELECT track_id FROM tracks WHERE track_id IN (${trackIds.map(() => "?").join(",")})`,
+            )
+            .all(...trackIds) as SqlRow[]
+        ).map((row) => String(row.track_id)),
+      );
+      if (known.size !== new Set(trackIds).size)
+        throw new LibraryError(
+          "PLAYLIST_TRACK_NOT_FOUND",
+          "One or more tracks no longer exist in the Library.",
+          404,
+        );
+      const existing = new Set(
+        (
+          this.connection
+            .prepare(
+              "SELECT DISTINCT track_id FROM playlist_items WHERE playlist_id = ?",
+            )
+            .all(playlistId) as SqlRow[]
+        ).map((row) => String(row.track_id)),
+      );
+      const seen = new Set(existing);
+      const duplicates = new Set<string>();
+      for (const trackId of trackIds) {
+        if (seen.has(trackId)) duplicates.add(trackId);
+        seen.add(trackId);
+      }
+      if (duplicates.size > 0 && !allowDuplicates)
+        return { addedCount: 0, duplicateTrackIds: [...duplicates] };
+      const row = this.connection
+        .prepare(
+          "SELECT COALESCE(MAX(position), -1) AS position, COUNT(*) AS count FROM playlist_items WHERE playlist_id = ?",
+        )
+        .get(playlistId) as SqlRow;
+      if (numberValue(row.count) + trackIds.length > MAX_PLAYLIST_ITEMS)
+        throw new LibraryError(
+          "PLAYLIST_TOO_LARGE",
+          `Playlist cannot exceed ${String(MAX_PLAYLIST_ITEMS)} items.`,
+          409,
+        );
+      let position = numberValue(row.position) + 1;
+      const insert = this.connection.prepare(
+        `INSERT INTO playlist_items (id, playlist_id, track_id, position, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const trackId of trackIds)
+        insert.run(
+          `playlist-item-${randomUUID()}`,
+          playlistId,
+          trackId,
+          position++,
+          now,
+        );
+      this.connection
+        .prepare("UPDATE playlists SET updated_at = ? WHERE id = ?")
+        .run(now, playlistId);
+      return { addedCount: trackIds.length, duplicateTrackIds: [] };
+    });
+  }
+
+  removePlaylistItem(
+    playlistId: string,
+    itemId: string,
+    now = Date.now(),
+  ): number {
+    return this.database.transaction(() => {
+      const result = this.connection
+        .prepare("DELETE FROM playlist_items WHERE playlist_id = ? AND id = ?")
+        .run(playlistId, itemId);
+      if (Number(result.changes) === 0) return 0;
+      const rows = this.connection
+        .prepare(
+          "SELECT id FROM playlist_items WHERE playlist_id = ? ORDER BY position, id",
+        )
+        .all(playlistId) as SqlRow[];
+      this.connection
+        .prepare(
+          "UPDATE playlist_items SET position = position + 100000 WHERE playlist_id = ?",
+        )
+        .run(playlistId);
+      const update = this.connection.prepare(
+        "UPDATE playlist_items SET position = ? WHERE playlist_id = ? AND id = ?",
+      );
+      rows.forEach((row, index) =>
+        update.run(index, playlistId, String(row.id)),
+      );
+      this.connection
+        .prepare("UPDATE playlists SET updated_at = ? WHERE id = ?")
+        .run(now, playlistId);
+      return 1;
+    });
+  }
+
+  reorderPlaylist(
+    playlistId: string,
+    itemIds: readonly string[],
+    now = Date.now(),
+  ): boolean {
+    return this.database.transaction(() => {
+      const current = (
+        this.connection
+          .prepare(
+            "SELECT id FROM playlist_items WHERE playlist_id = ? ORDER BY position, id",
+          )
+          .all(playlistId) as SqlRow[]
+      ).map((row) => String(row.id));
+      if (
+        current.length !== itemIds.length ||
+        new Set(itemIds).size !== itemIds.length ||
+        itemIds.some((id) => !current.includes(id))
+      )
+        throw new LibraryError(
+          "INVALID_PLAYLIST_ORDER",
+          "Playlist order no longer matches the current items.",
+          409,
+        );
+      if (current.every((id, index) => id === itemIds[index])) return false;
+      this.connection
+        .prepare(
+          "UPDATE playlist_items SET position = position + 100000 WHERE playlist_id = ?",
+        )
+        .run(playlistId);
+      const update = this.connection.prepare(
+        "UPDATE playlist_items SET position = ? WHERE playlist_id = ? AND id = ?",
+      );
+      itemIds.forEach((id, index) => update.run(index, playlistId, id));
+      this.connection
+        .prepare("UPDATE playlists SET updated_at = ? WHERE id = ?")
+        .run(now, playlistId);
+      return true;
+    });
+  }
+
+  playlistContextTracks(
+    playlistId: string,
+  ): readonly (LibraryContextTrack & { readonly contextId: string })[] {
+    return (
+      this.connection
+        .prepare(
+          `SELECT i.id AS context_id, t.track_id, t.source_id, t.relative_path
+           FROM playlist_items i
+           JOIN tracks t ON t.track_id = i.track_id
+           JOIN library_sources s ON s.source_id = t.source_id
+           WHERE i.playlist_id = ? AND t.available = 1
+             AND s.available = 1 AND s.removed = 0
+           ORDER BY i.position, i.id`,
+        )
+        .all(playlistId) as SqlRow[]
+    ).map((row) => ({
+      id: String(row.track_id),
+      sourceId: String(row.source_id),
+      relativePath: String(row.relative_path),
+      contextId: String(row.context_id),
+    }));
+  }
+
+  private playlistSummaryFromRow(row: SqlRow): PlaylistSummary {
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      createdAt: numberValue(row.created_at),
+      updatedAt: numberValue(row.updated_at),
+      trackCount: numberValue(row.track_count),
+      availableTrackCount: numberValue(row.available_count),
+      totalDurationSeconds: numberValue(row.total_duration_seconds),
+      artworkTrackId: nullableString(row.artwork_track_id),
+    };
   }
 
   mostPlayedContextTracks(): readonly LibraryContextTrack[] {

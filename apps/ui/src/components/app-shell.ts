@@ -40,6 +40,7 @@ import { createTopBar } from "./top-bar";
 import { createToastHost } from "./toast-host";
 import type { ComponentView } from "./types";
 import { createVolumePopover } from "./volume-popover";
+import { createPlaylistPicker } from "./playlist-picker";
 
 export interface MountedApp {
   destroy(): void;
@@ -140,6 +141,10 @@ export function mountApp(
     onNavigate: navigate,
   });
   sideMenu.setMusicBrowsingVisibility(store.getState().musicBrowsingVisibility);
+  const playlistPicker = createPlaylistPicker({
+    api: libraryApi,
+    showToast: showMessage,
+  });
   const queueDrawer = createQueueDrawer({
     onClose: () => {
       store.setQueueOpen(false);
@@ -153,6 +158,19 @@ export function mountApp(
     },
     onRemove: (queueItemId) => {
       run(api.removeQueueItem(queueItemId));
+    },
+    onReorder: (queueItemId, toIndex) => {
+      return api
+        .reorderQueueItem(queueItemId, toIndex)
+        .catch((error: unknown) => {
+          showMessage(
+            error instanceof Error ? error.message : t("error.generic"),
+          );
+          throw error;
+        });
+    },
+    onAddToPlaylist: (trackIds, trigger) => {
+      playlistPicker.open(trackIds, trigger);
     },
   });
   const volumePopover = createVolumePopover({
@@ -181,6 +199,10 @@ export function mountApp(
     sideMenu.element,
     queueDrawer.backdrop,
     queueDrawer.element,
+    playlistPicker.backdrop,
+    playlistPicker.element,
+    playlistPicker.nameDialog.backdrop,
+    playlistPicker.nameDialog.element,
     volumePopover.backdrop,
     volumePopover.element,
     dropOverlay,
@@ -223,6 +245,7 @@ export function mountApp(
     keyboardAdapter.hide();
     currentScreen?.destroy();
     const state = store.getState();
+    topBar.setDetailActions(null, null);
     topBar.setTitle(t(getNavigationItem(screen).titleKey));
     currentScreen = createScreen(screen, {
       state,
@@ -264,6 +287,12 @@ export function mountApp(
       },
       setScreenTitle: (title) => {
         topBar.setTitle(title);
+      },
+      openPlaylistPicker: (trackIds, trigger) => {
+        playlistPicker.open(trackIds, trigger);
+      },
+      setHeaderActions: (back, more) => {
+        topBar.setDetailActions(back, more);
       },
       setAnimationsEnabled: (enabled) => {
         const previous = store.getState().animationsEnabled;
@@ -679,6 +708,7 @@ export function mountApp(
       currentScreen?.destroy();
       miniPlayer?.destroy();
       queueDrawer.destroy();
+      playlistPicker.destroy();
       artworkPreloader.destroy();
       topBar.destroy();
       toastHost.destroy();

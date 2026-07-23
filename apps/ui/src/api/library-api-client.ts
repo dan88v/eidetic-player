@@ -31,6 +31,10 @@ import type {
   MostPlayedPlayRequest,
   ListeningStats,
   ListeningStatsResetResponse,
+  PlaylistAddTracksResponse,
+  PlaylistDetail,
+  PlaylistPage,
+  PlaylistSummary,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -308,6 +312,102 @@ export class LibraryApiClient {
       method: "POST",
       body: JSON.stringify({ trackId }),
     });
+  }
+
+  playlists(cursor: string | null = null, limit = 100): Promise<PlaylistPage> {
+    return this.request(this.pagePath("/api/library/playlists", cursor, limit));
+  }
+
+  playlist(playlistId: string): Promise<PlaylistDetail> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}`,
+    );
+  }
+
+  createPlaylist(name: string): Promise<PlaylistSummary> {
+    return this.request("/api/library/playlists", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  renamePlaylist(playlistId: string, name: string): Promise<PlaylistSummary> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      },
+    );
+  }
+
+  deletePlaylist(
+    playlistId: string,
+  ): Promise<{ readonly removedCount: number }> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  addPlaylistTracks(
+    playlistId: string,
+    trackIds: readonly string[],
+    allowDuplicates = false,
+  ): Promise<PlaylistAddTracksResponse> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}/tracks`,
+      {
+        method: "POST",
+        body: JSON.stringify({ trackIds, allowDuplicates }),
+      },
+    );
+  }
+
+  removePlaylistItem(
+    playlistId: string,
+    itemId: string,
+  ): Promise<{ readonly removedCount: number }> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}/items/${encodeURIComponent(itemId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  reorderPlaylist(
+    playlistId: string,
+    itemIds: readonly string[],
+  ): Promise<PlaylistDetail> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}/reorder`,
+      {
+        method: "POST",
+        body: JSON.stringify({ itemIds }),
+      },
+    );
+  }
+
+  playPlaylist(
+    playlistId: string,
+    selectedItemId?: string,
+  ): Promise<LibraryQueueActionResponse> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}/play`,
+      {
+        method: "POST",
+        body: JSON.stringify(selectedItemId ? { selectedItemId } : {}),
+      },
+    );
+  }
+
+  queuePlaylist(playlistId: string): Promise<LibraryQueueActionResponse> {
+    return this.request(
+      `/api/library/playlists/${encodeURIComponent(playlistId)}/queue`,
+      {
+        method: "POST",
+        body: "{}",
+      },
+    );
   }
 
   artworkUrl(trackId: string): string {

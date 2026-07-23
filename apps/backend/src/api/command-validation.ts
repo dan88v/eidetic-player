@@ -11,6 +11,11 @@ export type PlayerCommand =
   | { readonly type: "queue-play"; readonly index: number }
   | { readonly type: "queue-append"; readonly paths: readonly string[] }
   | { readonly type: "queue-remove"; readonly queueItemId: string }
+  | {
+      readonly type: "queue-reorder";
+      readonly queueItemId: string;
+      readonly toIndex: number;
+    }
   | { readonly type: "empty" };
 
 function record(value: unknown): Record<string, unknown> {
@@ -94,6 +99,7 @@ export function validateCommandBody(
         );
       return { type, index: value.index };
     case "queue-remove":
+    case "queue-reorder":
       if (
         typeof value.queueItemId !== "string" ||
         !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -104,6 +110,18 @@ export function validateCommandBody(
           "INVALID_QUEUE_ITEM",
           "queueItemId must be an opaque Queue item ID.",
         );
+      if (type === "queue-reorder") {
+        if (
+          typeof value.toIndex !== "number" ||
+          !Number.isInteger(value.toIndex) ||
+          value.toIndex < 0
+        )
+          throw new PlayerError(
+            "INVALID_QUEUE_INDEX",
+            "toIndex must be a non-negative integer.",
+          );
+        return { type, queueItemId: value.queueItemId, toIndex: value.toIndex };
+      }
       return { type, queueItemId: value.queueItemId };
     case "empty":
       return { type };

@@ -49,7 +49,7 @@ void test("Favorites navigation and visibility follow Library", async () => {
     routes.indexOf('id: "library"') < routes.indexOf('id: "favorites"'),
   );
   assert.ok(
-    routes.indexOf('id: "favorites"') < routes.indexOf('id: "folders"'),
+    routes.indexOf('id: "folders"') < routes.indexOf('id: "favorites"'),
   );
   assert.match(menu, /favorites\.hidden = value === "folders"/);
 });

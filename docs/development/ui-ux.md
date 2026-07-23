@@ -266,6 +266,23 @@ by the top bar. Keep only `screen-header__description` at the left, retain
 existing right-side actions, and omit decorative icons, eyebrows, and visible
 `h1` elements.
 
+Playlist list/detail views follow the same rule. The detail name, Back action,
+and overflow action live in the global top bar. Track and Queue ordering starts
+only from the labelled drag handle, uses Pointer Events with capture, previews
+locally, and persists once on drop. Queue-wide actions remain together in the
+drawer footer: Add to Playlist is adjacent to Clear Queue and is enabled only
+when every queued item has a stable indexed Library Track ID.
+
+Playlist detail titles use `Playlists / <name>` with a single-line ellipsis and
+the complete accessible title. The detail summary stays left while the
+non-wrapping Play all and Add Playlist to Queue actions stay right. Playlist
+Track rows reserve stable columns for handle, artwork, left-aligned metadata,
+duration, Favorite, and overflow. The Add to Playlist picker is ordered by
+latest update and then Playlist ID, shows at most three rows before internal
+touch scrolling, and keeps Create New Playlist outside that scroll region.
+Create and Rename use the shared source-dialog geometry, focus trap, Escape
+handling, keyboard contract, and inline validation.
+
 ## Timeline and Canvas
 
 - A narrow visible track must have a much larger transparent touch area.

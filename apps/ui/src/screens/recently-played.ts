@@ -75,6 +75,10 @@ export function createRecentlyPlayedScreen(options: {
     message: string,
     tone?: "error" | "success" | "neutral",
   ) => void;
+  readonly openPlaylistPicker: (
+    trackIds: readonly string[],
+    trigger?: HTMLElement,
+  ) => void;
 }): ComponentView {
   const section = document.createElement("section");
   section.className = "screen recently-played-screen";
@@ -82,8 +86,8 @@ export function createRecentlyPlayedScreen(options: {
   section.innerHTML = `
     <header class="recently-played-header">
       <span class="screen-header__description">${t("screen.recentlyPlayed.description")}</span>
+      <div class="recently-played-segments"></div>
     </header>
-    <div class="recently-played-segments"></div>
     <div class="recently-played-content" aria-live="polite"></div>
     <div class="folders-action-menu library-action-menu recently-played-menu" role="menu" hidden></div>
     <div class="queue-confirmation recently-played-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="history-confirmation-title" aria-hidden="true">
@@ -309,6 +313,12 @@ export function createRecentlyPlayedScreen(options: {
     more.addEventListener("click", () => {
       showMenu(more, [
         { label: t("library.play"), disabled: unavailable, run: runPlay },
+        {
+          label: t("common.addToPlaylist"),
+          run: () => {
+            options.openPlaylistPicker([item.id], more);
+          },
+        },
         {
           label: t("folders.addToQueue"),
           disabled: unavailable,

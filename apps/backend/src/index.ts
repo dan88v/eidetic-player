@@ -49,6 +49,10 @@ import type {
   FavoriteArtistStatusRequest,
   RecentlyPlayedPlayRequest,
   MostPlayedPlayRequest,
+  PlaylistAddTracksRequest,
+  PlaylistNameRequest,
+  PlaylistPlayRequest,
+  PlaylistReorderRequest,
 } from "../../../packages/shared/src/library.js";
 
 const player = new PlayerService();
@@ -268,6 +272,9 @@ async function execute(command: PlayerCommand): Promise<void> {
       break;
     case "queue-remove":
       await player.removeQueueItem(command.queueItemId);
+      break;
+    case "queue-reorder":
+      await player.reorderQueueItem(command.queueItemId, command.toIndex);
       break;
     case "empty":
       break;
@@ -491,6 +498,51 @@ function mostPlayedPlayBody(value: unknown): MostPlayedPlayRequest {
   return { selectedTrackId: libraryEntityId(body.selectedTrackId, "track") };
 }
 
+function playlistNameBody(value: unknown): PlaylistNameRequest {
+  const body = objectBody(value);
+  if (typeof body.name !== "string")
+    throw new LibraryError("INVALID_PLAYLIST_NAME", "Enter a playlist name.");
+  return { name: body.name };
+}
+
+function playlistTracksBody(value: unknown): PlaylistAddTracksRequest {
+  const body = objectBody(value);
+  if (
+    !Array.isArray(body.trackIds) ||
+    body.trackIds.length < 1 ||
+    body.trackIds.length > 2_000
+  )
+    throw new LibraryError(
+      "INVALID_PLAYLIST_TRACKS",
+      "Select between 1 and 2,000 indexed tracks.",
+    );
+  return {
+    trackIds: body.trackIds.map((trackId) => libraryEntityId(trackId, "track")),
+    ...(body.allowDuplicates === true ? { allowDuplicates: true } : {}),
+  };
+}
+
+function playlistReorderBody(value: unknown): PlaylistReorderRequest {
+  const body = objectBody(value);
+  if (
+    !Array.isArray(body.itemIds) ||
+    body.itemIds.length > 2_000 ||
+    body.itemIds.some((id) => typeof id !== "string")
+  )
+    throw new LibraryError(
+      "INVALID_PLAYLIST_ORDER",
+      "The playlist order is invalid.",
+    );
+  return { itemIds: body.itemIds as string[] };
+}
+
+function playlistPlayBody(value: unknown): PlaylistPlayRequest {
+  const body = objectBody(value);
+  return typeof body.selectedItemId === "string"
+    ? { selectedItemId: body.selectedItemId }
+    : {};
+}
+
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
   const body = objectBody(value);
   for (const field of ["scanId", "sourceId"] as const)
@@ -518,6 +570,7 @@ const commandRoutes = new Map<string, PlayerCommand["type"]>([
   ["/api/player/queue/play", "queue-play"],
   ["/api/player/queue/append", "queue-append"],
   ["/api/player/queue/remove", "queue-remove"],
+  ["/api/player/queue/reorder", "queue-reorder"],
 ]);
 
 const emptyCommands = new Map<string, () => Promise<void>>([
@@ -1067,6 +1120,140 @@ async function handleRequest(
           appendedCount: 0,
         },
       });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/library/playlists") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).playlists(
+          libraryCursor(url),
+          libraryLimit(url),
+        ),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/playlists"
+    ) {
+      const body = playlistNameBody(await readBody(request));
+      sendJson(response, 201, {
+        ok: true,
+        data: (await indexedLibraryPromise).createPlaylist(body.name),
+      });
+      return;
+    }
+    const playlistMatch =
+      /^\/api\/library\/playlists\/(playlist-[0-9a-f-]{36})$/.exec(
+        url.pathname,
+      );
+    if (playlistMatch) {
+      const playlistId = playlistMatch[1] ?? "";
+      const indexedLibrary = await indexedLibraryPromise;
+      if (request.method === "GET") {
+        sendJson(response, 200, {
+          ok: true,
+          data: indexedLibrary.playlist(playlistId),
+        });
+        return;
+      }
+      if (request.method === "PATCH") {
+        const body = playlistNameBody(await readBody(request));
+        sendJson(response, 200, {
+          ok: true,
+          data: indexedLibrary.renamePlaylist(playlistId, body.name),
+        });
+        return;
+      }
+      if (request.method === "DELETE") {
+        sendJson(response, 200, {
+          ok: true,
+          data: indexedLibrary.deletePlaylist(playlistId),
+        });
+        return;
+      }
+    }
+    const playlistTracksMatch =
+      /^\/api\/library\/playlists\/(playlist-[0-9a-f-]{36})\/tracks$/.exec(
+        url.pathname,
+      );
+    if (playlistTracksMatch && request.method === "POST") {
+      const body = playlistTracksBody(await readBody(request));
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).addPlaylistTracks(
+          playlistTracksMatch[1] ?? "",
+          body.trackIds,
+          body.allowDuplicates,
+        ),
+      });
+      return;
+    }
+    const playlistItemMatch =
+      /^\/api\/library\/playlists\/(playlist-[0-9a-f-]{36})\/items\/(playlist-item-[0-9a-f-]{36})$/.exec(
+        url.pathname,
+      );
+    if (playlistItemMatch && request.method === "DELETE") {
+      sendJson(response, 200, {
+        ok: true,
+        data: (await indexedLibraryPromise).removePlaylistItem(
+          playlistItemMatch[1] ?? "",
+          playlistItemMatch[2] ?? "",
+        ),
+      });
+      return;
+    }
+    const playlistActionMatch =
+      /^\/api\/library\/playlists\/(playlist-[0-9a-f-]{36})\/(reorder|play|queue)$/.exec(
+        url.pathname,
+      );
+    if (playlistActionMatch && request.method === "POST") {
+      const playlistId = playlistActionMatch[1] ?? "";
+      const action = playlistActionMatch[2];
+      const indexedLibrary = await indexedLibraryPromise;
+      if (action === "reorder") {
+        const body = playlistReorderBody(await readBody(request));
+        sendJson(response, 200, {
+          ok: true,
+          data: indexedLibrary.reorderPlaylist(playlistId, body.itemIds),
+        });
+        return;
+      }
+      const body = playlistPlayBody(await readBody(request));
+      const context = await indexedLibrary.resolvePlaylist(
+        playlistId,
+        body.selectedItemId,
+      );
+      if (action === "play") {
+        const generation = player.reserveOpenRequest();
+        await player.openResolvedQueue(
+          context.paths,
+          context.selectedIndex,
+          context.origins,
+          generation,
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: context.paths.length,
+            selectedIndex: context.selectedIndex,
+            appendedCount: 0,
+          },
+        });
+      } else {
+        const appendedCount = await player.appendResolvedQueue(
+          context.paths,
+          context.origins,
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            selectedIndex: null,
+            appendedCount,
+          },
+        });
+      }
       return;
     }
     const libraryArtworkMatch =
