@@ -6,7 +6,9 @@ import type {
   LibraryMetadataSummary,
   OpenLibraryEntryResponse,
   RemovableDeviceListResponse,
+  RemovableDeviceUsage,
   RemovableLibraryCoverage,
+  RemovableOperationResponse,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import { config } from "../config";
@@ -117,6 +119,32 @@ export class RemovableStorageApiClient {
       {
         method: "POST",
         body: JSON.stringify({ logicalRelativePath }),
+      },
+    );
+  }
+
+  usage(deviceId: string): Promise<RemovableDeviceUsage> {
+    return this.request(
+      `/api/removable-storage/${encodeURIComponent(deviceId)}/usage`,
+    );
+  }
+
+  mount(deviceId: string): Promise<RemovableOperationResponse> {
+    return this.request(
+      `/api/removable-storage/${encodeURIComponent(deviceId)}/mount`,
+      { method: "POST", body: "{}" },
+    );
+  }
+
+  safelyRemove(
+    deviceId: string,
+    confirmed = false,
+  ): Promise<RemovableOperationResponse> {
+    return this.request(
+      `/api/removable-storage/${encodeURIComponent(deviceId)}/safe-remove`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmed }),
       },
     );
   }

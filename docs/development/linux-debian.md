@@ -65,21 +65,26 @@ Electron.
 
 ## Mounted USB storage
 
-Steps 2.11 and 2.11.1 read already-mounted USB volumes only. The Linux provider consumes
-`lsblk --json` transport topology, accepts mounted disk/partition nodes whose
+The Linux provider consumes `lsblk --json` transport topology, accepts USB
+filesystem disk/partition nodes, including unmounted volumes, whose
 physical ancestry reports `TRAN=usb`, excludes `/` and non-USB/network/optical
-devices, and prefers filesystem UUID for stable identity. It does not call
-`mount`, `umount`, `eject`, `udisksctl`, sudo, udev, or systemd.
+devices, and prefers filesystem UUID for stable identity. Step 2.11.2 adds an
+isolated UDisks2 adapter using bounded `udisksctl --no-user-interaction`
+argument arrays: Mount targets one volume; safe removal unmounts all mounted
+volumes without force and powers off the physical drive. It never invokes a
+shell, sudo, udev, or systemd and never opens a hidden password prompt.
 
 An opted-in USB Library Source persists the stable identity and logical
 relative root, not its mount point. Reconnect resolution and availability are
 provider-neutral, but physical Debian/Raspberry Pi OS relink, permission, scan
 interruption, and playback-disconnect behavior still require real-hardware QA.
 
-Debian/Raspberry Pi OS runtime detection, permissions, read-only media, and
-disconnect latency remain hardware checks; WSL may expose no representative
-USB block topology. Step 2.11.2 will cover platform-specific mount, unmount,
-eject, safe removal, udev/udisks/systemd integration, and authorization.
+Debian/Raspberry Pi OS runtime detection, UDisks2 availability, polkit
+authorization, read-only media, and disconnect latency remain hardware checks;
+WSL may expose no representative USB block topology. Missing UDisks2 or denied
+authorization degrades to unavailable capability or a structured error without
+sudo. Step 2.11.3 will own polkit/udev policy, automount, kiosk permissions,
+boot, and deployment.
 
 ## Audio
 

@@ -212,6 +212,7 @@ export function createScreen(
     case "sources":
       return createSourcesScreen({
         api: context.foldersApi,
+        removableApi: context.removableApi,
         libraryApi: context.libraryApi,
         initialLibrarySnapshot: context.librarySnapshot,
         addFolder: context.addLocalFolder,

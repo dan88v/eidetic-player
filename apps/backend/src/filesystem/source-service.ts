@@ -331,6 +331,18 @@ export class SourceService {
     return changes;
   }
 
+  async removableSourceIdsForIdentities(
+    stableIdentities: readonly string[],
+  ): Promise<readonly string[]> {
+    const identities = new Set(stableIdentities);
+    return (await this.repository.list())
+      .filter(
+        (record): record is StoredRemovableSource =>
+          record.type === "removable" && identities.has(record.stableIdentity),
+      )
+      .map((record) => record.id);
+  }
+
   private async check(
     record: StoredSource,
   ): Promise<"available" | "unavailable"> {

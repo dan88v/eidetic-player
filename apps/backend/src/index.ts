@@ -56,6 +56,7 @@ import type {
 } from "../../../packages/shared/src/library.js";
 import { RemovableStorageService } from "./removable-storage/removable-storage-service.js";
 import { createPlatformRemovableStorageProvider } from "./removable-storage/removable-storage-service.js";
+import { createPlatformRemovableMediaAdapter } from "./removable-storage/removable-storage-service.js";
 import { RemovableStorageSseHub } from "./api/removable-storage-sse-hub.js";
 
 const player = new PlayerService();
@@ -66,6 +67,8 @@ const removableStorage = new RemovableStorageService(
   createPlatformRemovableStorageProvider(),
   filesystemProvider,
   pathService,
+  2_500,
+  createPlatformRemovableMediaAdapter(),
 );
 const sources = new SourceService(
   filesystemProvider,
@@ -96,6 +99,45 @@ const indexedLibraryPromise = IndexedLibraryService.create(
   sources,
   player,
 );
+removableStorage.configureOperations({
+  async usage(deviceIds, stableVolumeIdentities) {
+    const sourceIds = await sources.removableSourceIdsForIdentities(
+      stableVolumeIdentities,
+    );
+    const playerUsage = player.removableUsage(deviceIds, sourceIds);
+    const status = (await indexedLibraryPromise).snapshot().status;
+    const scanWillCancel =
+      (status.activeScan !== null &&
+        sourceIds.includes(status.activeScan.sourceId)) ||
+      status.queuedSourceIds.some((sourceId) => sourceIds.includes(sourceId));
+    return {
+      inUse: playerUsage.queueContainsItems || scanWillCancel,
+      ...playerUsage,
+      scanWillCancel,
+      mountedVolumeCount: removableStorage
+        .snapshot()
+        .devices.filter(
+          (device) =>
+            deviceIds.includes(device.id) && device.capabilities.canUnmount,
+        ).length,
+    };
+  },
+  async prepareRemoval(deviceIds, stableVolumeIdentities) {
+    const sourceIds = await sources.removableSourceIdsForIdentities(
+      stableVolumeIdentities,
+    );
+    for (const deviceId of deviceIds) {
+      folders.invalidateSource(deviceId);
+      await player.setRemovableDeviceAvailable(deviceId, false);
+    }
+    const library = await indexedLibraryPromise;
+    for (const sourceId of sourceIds) {
+      folders.invalidateSource(sourceId);
+      library.setSourceAvailability(sourceId, false);
+      await player.setFolderSourceAvailable(sourceId, false);
+    }
+  },
+});
 const libraryEventsPromise = indexedLibraryPromise.then(
   (indexedLibrary) => new LibrarySseHub(indexedLibrary),
 );
@@ -136,7 +178,14 @@ const unsubscribeRemovablePlayer = removableStorage.subscribe((change) => {
     folders.invalidateSource(deviceId);
     void player.setRemovableDeviceAvailable(deviceId, false);
   }
-  for (const deviceId of change.changedIds) folders.invalidateSource(deviceId);
+  for (const deviceId of change.changedIds) {
+    folders.invalidateSource(deviceId);
+    const device = change.snapshot.devices.find(
+      (candidate) => candidate.id === deviceId,
+    );
+    if (device?.readable)
+      void player.setRemovableDeviceAvailable(deviceId, true);
+  }
   for (const deviceId of change.connectedIds)
     void player.setRemovableDeviceAvailable(deviceId, true);
   void sources
@@ -1479,6 +1528,54 @@ async function handleRequest(
       /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/browse$/.exec(
         url.pathname,
       );
+    const removableOperationMatch =
+      /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/(usage|mount|safe-remove)$/.exec(
+        url.pathname,
+      );
+    if (
+      removableOperationMatch &&
+      request.method === "GET" &&
+      removableOperationMatch[2] === "usage"
+    ) {
+      sendJson(response, 200, {
+        ok: true,
+        data: await removableStorage.usage(removableOperationMatch[1] ?? ""),
+      });
+      return;
+    }
+    if (
+      removableOperationMatch &&
+      request.method === "POST" &&
+      removableOperationMatch[2] === "mount"
+    ) {
+      await readBody(request);
+      sendJson(response, 200, {
+        ok: true,
+        data: await removableStorage.mount(removableOperationMatch[1] ?? ""),
+      });
+      return;
+    }
+    if (
+      removableOperationMatch &&
+      request.method === "POST" &&
+      removableOperationMatch[2] === "safe-remove"
+    ) {
+      const body = objectBody(await readBody(request));
+      if (body.confirmed !== undefined && typeof body.confirmed !== "boolean")
+        throw new FilesystemError(
+          "REMOVABLE_INVALID_OPERATION",
+          "Select a valid USB operation.",
+          400,
+        );
+      sendJson(response, 200, {
+        ok: true,
+        data: await removableStorage.safelyRemove(
+          removableOperationMatch[1] ?? "",
+          body.confirmed === true,
+        ),
+      });
+      return;
+    }
     const removableLibrarySourceMatch =
       /^\/api\/removable-storage\/(usb-[0-9a-f]{32})\/library-sources$/.exec(
         url.pathname,

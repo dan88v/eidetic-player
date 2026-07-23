@@ -884,6 +884,34 @@ export class PlayerService {
     return stoppedCurrent;
   }
 
+  removableUsage(
+    deviceIds: readonly string[],
+    sourceIds: readonly string[],
+  ): {
+    readonly playbackWillStop: boolean;
+    readonly queueContainsItems: boolean;
+  } {
+    const devices = new Set(deviceIds);
+    const sources = new Set(sourceIds);
+    const matches = (path: string): boolean => {
+      const origin = this.queueOrigins.get(this.pathKey(path));
+      return (
+        (origin?.kind === "removable" && devices.has(origin.deviceId)) ||
+        (origin?.kind === "folders" &&
+          origin.removable === true &&
+          sources.has(origin.sourceId))
+      );
+    };
+    const current = this.state.queue[this.state.currentQueueIndex];
+    return {
+      queueContainsItems: this.state.queue.some((item) => matches(item.path)),
+      playbackWillStop:
+        this.state.status !== "stopped" &&
+        current !== undefined &&
+        matches(current.path),
+    };
+  }
+
   getArtworkResource(id: string): Promise<ArtworkResource | null> {
     return this.artworkService.getResource(id);
   }

@@ -7,12 +7,14 @@ import type {
 } from "../../../../packages/shared/src/library";
 import type { FoldersApiClient } from "../api/folders-api-client";
 import type { LibraryApiClient } from "../api/library-api-client";
+import type { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { icon } from "../components/icons";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
 
 export interface SourcesScreenOptions {
   readonly api: FoldersApiClient;
+  readonly removableApi: RemovableStorageApiClient;
   readonly libraryApi: LibraryApiClient;
   readonly initialLibrarySnapshot: IndexedLibrarySnapshot | null;
   readonly addFolder: () => Promise<AddLocalSourceResponse | null>;
@@ -128,9 +130,11 @@ export function createSourcesScreen(
   let destroyed = false;
   let requestGeneration = 0;
   let dialogSource: LibrarySource | null = null;
-  let dialogMode: "rename" | "remove" | null = null;
+  let dialogDevice: RemovableDevice | null = null;
+  let dialogMode: "rename" | "remove" | "safe-remove" | null = null;
   let returnFocus: HTMLElement | null = null;
   let menuSource: LibrarySource | null = null;
+  let menuDevice: RemovableDevice | null = null;
   let menuTrigger: HTMLButtonElement | null = null;
   let libraryScanBusy = false;
   let activeScanId: string | null = null;
@@ -166,8 +170,25 @@ export function createSourcesScreen(
               unit: "gigabyte",
               maximumFractionDigits: 1,
             }).format(device.capacityBytes / 1_000_000_000);
+      const operationLabel: Record<
+        RemovableDevice["operation"]["state"],
+        string
+      > = {
+        idle: "",
+        mounting: "Mountingâ€¦",
+        "preparing-removal": "Preparing safe removalâ€¦",
+        unmounting: "Unmountingâ€¦",
+        ejecting: "Safely removingâ€¦",
+        "safe-to-remove": "Safe to remove",
+        busy: "Device is busy",
+        failed:
+          device.operation.errorCode === "authorization-required"
+            ? "Permission required"
+            : "Safe removal failed",
+      };
       details.textContent = [
-        device.readable ? "Ready" : "Unavailable",
+        operationLabel[device.operation.state] ||
+          (device.readable ? "Ready" : "Unavailable"),
         capacity,
         device.readOnly ? "Read-only" : "",
       ]
@@ -176,20 +197,69 @@ export function createSourcesScreen(
       copy.append(name, details);
       const actions = document.createElement("div");
       actions.className = "source-card__actions";
-      const browse = document.createElement("button");
-      browse.type = "button";
-      browse.textContent = "Browse";
-      browse.disabled = !device.readable;
-      browse.addEventListener("click", () => {
-        options.openRemovableDevice(device);
-      });
-      actions.append(browse);
+      const operationBusy = [
+        "mounting",
+        "preparing-removal",
+        "unmounting",
+        "ejecting",
+      ].includes(device.operation.state);
+      if (
+        device.operation.state !== "safe-to-remove" &&
+        device.capabilities.canMount &&
+        !device.readable
+      ) {
+        const mount = document.createElement("button");
+        mount.type = "button";
+        mount.textContent =
+          device.operation.retryAvailable && !operationBusy ? "Retry" : "Mount";
+        mount.disabled = operationBusy;
+        mount.addEventListener("click", () => {
+          void runDeviceOperation(device, "mount");
+        });
+        actions.append(mount);
+      } else if (device.operation.state !== "safe-to-remove") {
+        const browse = document.createElement("button");
+        browse.type = "button";
+        browse.textContent = "Browse";
+        browse.disabled = !device.readable || operationBusy;
+        browse.addEventListener("click", () => {
+          options.openRemovableDevice(device);
+        });
+        actions.append(browse);
+        if (device.capabilities.canSafelyRemove) {
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "source-card__more";
+          more.innerHTML = icon("more");
+          more.setAttribute("aria-label", `Actions for ${device.displayName}`);
+          more.setAttribute("aria-haspopup", "menu");
+          more.disabled = operationBusy;
+          more.addEventListener("click", () => {
+            closeMenu();
+            menuDevice = device;
+            menuTrigger = more;
+            const safeRemove = document.createElement("button");
+            safeRemove.type = "button";
+            safeRemove.role = "menuitem";
+            safeRemove.dataset.action = "safe-remove";
+            safeRemove.textContent = device.operation.retryAvailable
+              ? "Retry safe removal"
+              : "Safely remove";
+            actionMenu.replaceChildren(safeRemove);
+            actionMenu.hidden = false;
+            const rect = more.getBoundingClientRect();
+            actionMenu.style.top = `${String(rect.bottom + 6)}px`;
+            actionMenu.style.left = `${String(Math.max(8, rect.right - 180))}px`;
+            safeRemove.focus();
+          });
+          actions.append(more);
+        }
+      }
       card.append(iconSurface, copy, actions);
       fragment.append(card);
     }
     usbList.replaceChildren(fragment);
   };
-  renderRemovableDevices(options.removableDevices);
 
   const updateLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
     librarySnapshot = snapshot;
@@ -216,6 +286,7 @@ export function createSourcesScreen(
   const closeMenu = (restoreFocus = false): void => {
     actionMenu.hidden = true;
     menuSource = null;
+    menuDevice = null;
     if (restoreFocus) menuTrigger?.focus();
     menuTrigger = null;
   };
@@ -228,6 +299,7 @@ export function createSourcesScreen(
     dialog.inert = true;
     dialogMode = null;
     dialogSource = null;
+    dialogDevice = null;
     returnFocus?.focus();
     returnFocus = null;
   };
@@ -263,6 +335,79 @@ export function createSourcesScreen(
         dialogInput.select();
       } else cancelButton.focus();
     });
+  };
+
+  const runDeviceOperation = async (
+    device: RemovableDevice,
+    operation: "mount" | "safe-remove",
+    confirmed = false,
+  ): Promise<void> => {
+    try {
+      if (operation === "mount") await options.removableApi.mount(device.id);
+      else await options.removableApi.safelyRemove(device.id, confirmed);
+    } catch (error) {
+      options.showToast(
+        error instanceof Error
+          ? error.message
+          : operation === "mount"
+            ? "Unable to mount USB storage."
+            : "Unable to safely remove USB storage.",
+        "error",
+      );
+    }
+  };
+
+  const openSafeRemoveDialog = (
+    device: RemovableDevice,
+    usage: Awaited<ReturnType<RemovableStorageApiClient["usage"]>>,
+    trigger: HTMLElement,
+  ): void => {
+    dialogDevice = device;
+    dialogMode = "safe-remove";
+    returnFocus = trigger;
+    dialogTitle.textContent = "Safely remove USB storage?";
+    const messages = [
+      ...(usage.playbackWillStop ? ["Playback will stop."] : []),
+      ...(usage.queueContainsItems
+        ? ["USB items will remain in the Queue but become unavailable."]
+        : []),
+      ...(usage.scanWillCancel
+        ? ["An active Library scan will be cancelled."]
+        : []),
+      ...(usage.mountedVolumeCount > 0
+        ? ["All mounted volumes on this device will be removed."]
+        : []),
+    ];
+    dialogDescription.textContent = messages.join(" ");
+    dialogField.remove();
+    confirmButton.textContent = "Safely remove";
+    confirmButton.classList.remove("source-dialog__confirm--danger");
+    dialog.inert = false;
+    dialog.setAttribute("aria-hidden", "false");
+    backdrop.setAttribute("aria-hidden", "false");
+    dialog.classList.add("source-dialog--open");
+    backdrop.classList.add("source-dialog-backdrop--open");
+    queueMicrotask(() => {
+      cancelButton.focus();
+    });
+  };
+
+  const requestSafeRemoval = async (
+    device: RemovableDevice,
+    trigger: HTMLElement,
+  ): Promise<void> => {
+    try {
+      const usage = await options.removableApi.usage(device.id);
+      if (usage.inUse) openSafeRemoveDialog(device, usage, trigger);
+      else await runDeviceOperation(device, "safe-remove");
+    } catch (error) {
+      options.showToast(
+        error instanceof Error
+          ? error.message
+          : "Unable to safely remove USB storage.",
+        "error",
+      );
+    }
   };
 
   const render = (sources: readonly LibrarySource[]): void => {
@@ -428,8 +573,19 @@ export function createSourcesScreen(
   backdrop.addEventListener("pointerup", closeDialog);
   confirmButton.addEventListener("click", () => {
     const source = dialogSource;
+    const device = dialogDevice;
     const mode = dialogMode;
-    if (!source || !mode) return;
+    if (!mode) return;
+    if (mode === "safe-remove") {
+      if (!device) return;
+      confirmButton.disabled = true;
+      void runDeviceOperation(device, "safe-remove", true).finally(() => {
+        confirmButton.disabled = false;
+        closeDialog();
+      });
+      return;
+    }
+    if (!source) return;
     const operation =
       mode === "rename"
         ? options.api.renameSource(source.id, dialogInput.value)
@@ -462,10 +618,16 @@ export function createSourcesScreen(
       "button[data-action]",
     );
     const source = menuSource;
+    const device = menuDevice;
     const trigger = menuTrigger;
-    if (!button || !source || !trigger || button.disabled) return;
+    if (!button || !trigger || button.disabled) return;
     const action = button.dataset.action;
     closeMenu();
+    if (action === "safe-remove") {
+      if (device) void requestSafeRemoval(device, trigger);
+      return;
+    }
+    if (!source) return;
     if (action === "rename" || action === "remove") {
       openDialog(source, action, trigger);
       return;
@@ -524,6 +686,7 @@ export function createSourcesScreen(
   document.addEventListener("keydown", handleKeydown);
   document.addEventListener("pointerdown", handleDocumentPointer);
   dialog.inert = true;
+  renderRemovableDevices(options.removableDevices);
   void load();
   return {
     element: section,

@@ -754,6 +754,47 @@
     align-items: center;
     gap: var(--space-2);
   }
+  .usb-directory-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .usb-storage-screen .folders-directory-header {
+    gap: var(--space-3);
+  }
+  .usb-storage-screen .folders-directory-header__primary {
+    display: grid;
+    grid-template-areas: "back actions";
+    grid-template-columns: auto minmax(0, 1fr);
+    justify-items: start;
+  }
+  .usb-storage-screen .folders-directory-title {
+    display: none;
+  }
+  .usb-storage-screen .folders-back {
+    grid-area: back;
+  }
+  .usb-storage-screen .folders-directory-actions {
+    grid-area: actions;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-self: end;
+    justify-content: flex-end;
+  }
+  .usb-storage-screen .usb-directory-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .usb-directory-safe-remove {
+    display: inline-grid;
+    width: var(--touch-min);
+    min-width: var(--touch-min);
+    height: var(--touch-min);
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
   .folders-root-actions {
     margin-left: auto;
   }
@@ -804,6 +845,42 @@
     padding-inline: var(--space-2);
     border-radius: var(--radius-sm);
     color: inherit;
+    text-overflow: ellipsis;
+  }
+  .usb-storage-screen .folders-breadcrumbs {
+    width: fit-content;
+    max-width: 100%;
+    color: var(--color-text-muted);
+  }
+  .usb-storage-screen .folders-breadcrumbs ol {
+    gap: var(--space-1);
+  }
+  .usb-storage-screen .folders-breadcrumbs li {
+    gap: var(--space-1);
+  }
+  .usb-storage-screen .folders-breadcrumbs li + li::before {
+    margin-inline: var(--space-1);
+    content: "›";
+    color: var(--color-accent);
+    font-size: 1.25rem;
+  }
+  .usb-storage-screen .folders-breadcrumbs button,
+  .usb-storage-screen .folders-breadcrumbs__current {
+    display: inline-flex;
+    min-height: var(--touch-min);
+    align-items: center;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+  .usb-storage-screen .folders-breadcrumbs button {
+    color: var(--color-text-secondary);
+  }
+  .usb-storage-screen .folders-breadcrumbs__current {
+    max-width: min(24rem, 52vw);
+    overflow: hidden;
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+    font-weight: 600;
     text-overflow: ellipsis;
   }
   .folders-view-controls {

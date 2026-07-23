@@ -51,23 +51,35 @@ export class LinuxRemovableStorageProvider implements RemovableStorageProvider {
       device: LsblkDevice,
       inheritedUsb: boolean,
       inheritedIdentity: string,
+      inheritedPhysicalDevice: string,
     ): void => {
       const isUsb = inheritedUsb || device.tran === "usb";
+      const deviceName = typeof device.name === "string" ? device.name : "";
       const physicalIdentity =
         (typeof device.wwn === "string" && device.wwn) ||
         (typeof device.serial === "string" && device.serial) ||
         inheritedIdentity;
+      const physicalDevice =
+        device.tran === "usb" && deviceName
+          ? `/dev/${deviceName}`
+          : inheritedPhysicalDevice;
       const mountpoint =
         typeof device.mountpoint === "string" ? device.mountpoint : "";
       const type = typeof device.type === "string" ? device.type : "";
+      const children = Array.isArray(device.children)
+        ? (device.children as LsblkDevice[])
+        : [];
+      const hasFilesystem =
+        typeof device.fstype === "string" && device.fstype.length > 0;
       if (
         isUsb &&
-        mountpoint &&
         mountpoint !== "/" &&
-        (type === "part" || type === "disk")
+        (type === "part" || (type === "disk" && children.length === 0)) &&
+        hasFilesystem &&
+        deviceName &&
+        physicalDevice
       ) {
         const uuid = typeof device.uuid === "string" ? device.uuid : "";
-        const name = typeof device.name === "string" ? device.name : "";
         const sizeIdentity =
           typeof device.size === "string" || typeof device.size === "number"
             ? String(device.size)
@@ -75,18 +87,26 @@ export class LinuxRemovableStorageProvider implements RemovableStorageProvider {
         const stableIdentity = uuid
           ? `uuid:${uuid}`
           : physicalIdentity
-            ? `device:${physicalIdentity}:volume:${name}`
-            : `fallback:${name}:${sizeIdentity}`;
+            ? `device:${physicalIdentity}:volume:${deviceName}`
+            : `fallback:${deviceName}:${sizeIdentity}`;
         const label =
           typeof device.label === "string" ? device.label.trim() : "";
         const capacityBytes = numberValue(device.size);
         const availableBytes = numberValue(device.fsavail);
         result.push({
           stableIdentity,
-          nativeRoot: mountpoint,
+          physicalIdentity: physicalIdentity || physicalDevice,
+          ...(mountpoint ? { nativeRoot: mountpoint } : {}),
           displayName: label || "USB Storage",
-          readable: true,
+          readable: Boolean(mountpoint),
           readOnly: device.ro === true || device.ro === 1 || device.ro === "1",
+          mounted: Boolean(mountpoint),
+          system: false,
+          boot: false,
+          operationReference: {
+            physicalDevice,
+            volume: `/dev/${deviceName}`,
+          },
           ...(typeof device.fstype === "string" && device.fstype
             ? { filesystemType: device.fstype }
             : {}),
@@ -94,11 +114,10 @@ export class LinuxRemovableStorageProvider implements RemovableStorageProvider {
           ...(availableBytes === undefined ? {} : { availableBytes }),
         });
       }
-      if (Array.isArray(device.children))
-        for (const child of device.children as LsblkDevice[])
-          visit(child, isUsb, physicalIdentity);
+      for (const child of children)
+        visit(child, isUsb, physicalIdentity, physicalDevice);
     };
-    for (const root of roots) visit(root, false, "");
+    for (const root of roots) visit(root, false, "", "");
     return result;
   }
 

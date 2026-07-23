@@ -15,9 +15,35 @@ export type RemovableDeviceState =
   "connected" | "mounted" | "readable" | "unavailable" | "disconnected";
 
 export interface RemovableDeviceCapabilities {
-  readonly canMount: false;
-  readonly canUnmount: false;
-  readonly canEject: false;
+  readonly canMount: boolean;
+  readonly canUnmount: boolean;
+  readonly canEject: boolean;
+  readonly canSafelyRemove: boolean;
+}
+
+export type RemovableOperationState =
+  | "idle"
+  | "mounting"
+  | "preparing-removal"
+  | "unmounting"
+  | "ejecting"
+  | "safe-to-remove"
+  | "busy"
+  | "failed";
+
+export type RemovableOperationErrorCode =
+  | "device-busy"
+  | "authorization-required"
+  | "device-not-found"
+  | "unsupported"
+  | "timeout"
+  | "failed";
+
+export interface RemovableOperationStatus {
+  readonly state: RemovableOperationState;
+  readonly errorCode: RemovableOperationErrorCode | null;
+  readonly affectedVolumeCount: number;
+  readonly retryAvailable: boolean;
 }
 
 export interface RemovableDevice {
@@ -31,11 +57,29 @@ export interface RemovableDevice {
   readonly availableBytes?: number;
   readonly connectedAt: string;
   readonly capabilities: RemovableDeviceCapabilities;
+  readonly operation: RemovableOperationStatus;
 }
 
 export interface RemovableDeviceListResponse {
   readonly revision: number;
   readonly devices: readonly RemovableDevice[];
+}
+
+export interface RemovableDeviceUsage {
+  readonly inUse: boolean;
+  readonly playbackWillStop: boolean;
+  readonly queueContainsItems: boolean;
+  readonly scanWillCancel: boolean;
+  readonly mountedVolumeCount: number;
+}
+
+export interface RemovableOperationRequest {
+  readonly confirmed?: boolean;
+}
+
+export interface RemovableOperationResponse {
+  readonly deviceId: string;
+  readonly operation: RemovableOperationStatus;
 }
 
 export interface DirectoryLocation {

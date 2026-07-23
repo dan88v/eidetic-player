@@ -15,6 +15,16 @@ Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_Disk
   $_.BusType -eq 7 -and -not $_.IsSystem -and -not $_.IsBoot
 } | ForEach-Object {
   $disk = $_
+  $physical = Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue |
+    Where-Object { $_.Index -eq $disk.Number } |
+    Select-Object -First 1
+  $physicalIdentity = if ($disk.UniqueId) {
+    "disk:$($disk.UniqueId.Trim())"
+  } elseif ($physical.PNPDeviceID) {
+    "pnp:$($physical.PNPDeviceID)"
+  } else {
+    "disk-number:$($disk.Number):$($disk.FriendlyName)"
+  }
   Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object {
     $_.DriveLetter
   } | ForEach-Object {
@@ -44,10 +54,16 @@ Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_Disk
       $name = if ($volume.FileSystemLabel) { $volume.FileSystemLabel } else { "USB Storage" }
       $result += [pscustomobject]@{
         stableIdentity = $stable
+        physicalIdentity = $physicalIdentity
         nativeRoot = $root
         displayName = $name
         readable = $readable
         readOnly = [bool]($disk.IsReadOnly -or $partition.IsReadOnly)
+        mounted = $true
+        system = [bool]$disk.IsSystem
+        boot = [bool]$disk.IsBoot
+        physicalDevice = $physical.PNPDeviceID
+        volumeReference = "disk:$($disk.Number):partition:$($partition.PartitionNumber)"
         filesystemType = $volume.FileSystem
         capacityBytes = $volume.Size
         availableBytes = $volume.SizeRemaining
@@ -60,6 +76,7 @@ Get-CimInstance -Namespace 'root/Microsoft/Windows/Storage' -ClassName MSFT_Disk
 
 interface WindowsVolumeJson {
   readonly stableIdentity?: unknown;
+  readonly physicalIdentity?: unknown;
   readonly nativeRoot?: unknown;
   readonly displayName?: unknown;
   readonly readable?: unknown;
@@ -67,6 +84,11 @@ interface WindowsVolumeJson {
   readonly filesystemType?: unknown;
   readonly capacityBytes?: unknown;
   readonly availableBytes?: unknown;
+  readonly mounted?: unknown;
+  readonly system?: unknown;
+  readonly boot?: unknown;
+  readonly physicalDevice?: unknown;
+  readonly volumeReference?: unknown;
 }
 
 function optionalNumber(value: unknown): number | undefined {
@@ -113,10 +135,26 @@ export class WindowsRemovableStorageProvider implements RemovableStorageProvider
       return [
         {
           stableIdentity: value.stableIdentity,
+          ...(typeof value.physicalIdentity === "string"
+            ? { physicalIdentity: value.physicalIdentity }
+            : {}),
           nativeRoot: value.nativeRoot,
           displayName: value.displayName.trim() || "USB Storage",
           readable: value.readable === true,
           readOnly: value.readOnly === true,
+          mounted: value.mounted === true,
+          system: value.system === true,
+          boot: value.boot === true,
+          ...(typeof value.physicalDevice === "string" &&
+          value.physicalDevice.length > 0 &&
+          typeof value.volumeReference === "string"
+            ? {
+                operationReference: {
+                  physicalDevice: value.physicalDevice,
+                  volume: value.volumeReference,
+                },
+              }
+            : {}),
           ...(typeof value.filesystemType === "string" &&
           value.filesystemType.trim()
             ? { filesystemType: value.filesystemType }

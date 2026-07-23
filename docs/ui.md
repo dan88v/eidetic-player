@@ -90,6 +90,16 @@ USB Storage reuses the same Folders directory header, breadcrumb, cards, rows,
 lazy metadata/artwork, Play Folder, and Add-to-Queue mechanics with a separate
 per-device logical-path/scroll session. Disconnect keeps Back available,
 disables stale actions, and shows a persistent dark empty state.
+Mounted live-device cards expose Browse plus a compact Safely remove menu;
+unmounted volumes expose Mount only when the platform reports support. The USB
+Browser header reuses its compact menu for Safely remove. In-use removal uses
+the shared confirmation dialog, while progress, busy/Retry, and persistent Safe
+to remove states keep geometry stable and Back usable. No removal action is
+added to Main Player, mini-player, or Queue.
+The app header identifies this surface as `USB / <device name>`. Inside the
+browser, Back remains left-aligned while Play, Add this folder to Library, and
+the overflow menu form one right-aligned group. Nested paths use a compact
+Root-to-current breadcrumb with a chevron and restrained current-folder accent.
 The header also offers a fixed-width Add this folder to Library action at the
 volume root and in subfolders. It becomes In Library after success, stays
 disabled with an accessible explanation for overlap, and leaves the Quick

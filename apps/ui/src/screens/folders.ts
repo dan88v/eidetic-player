@@ -66,6 +66,8 @@ export interface FoldersScreenOptions {
   readonly session?: FoldersBrowserSession;
   readonly rootBack?: () => void;
   readonly hideRootTitle?: boolean;
+  readonly includeCurrentBreadcrumb?: boolean;
+  readonly breadcrumbRootLabel?: string;
   readonly createDirectoryHeaderAction?: (
     response: DirectoryBrowseResponse,
   ) => HTMLElement | null;
@@ -118,7 +120,9 @@ function rememberPreview(key: string, preview: FolderArtworkPreview): void {
 
 export function createFoldersScreen(
   options: FoldersScreenOptions,
-): ComponentView & { setSourceAvailable(available: boolean): void } {
+): ComponentView & {
+  setSourceAvailable(available: boolean, message?: string): void;
+} {
   const session = options.session ?? foldersSession;
   const section = document.createElement("section");
   section.className = "screen folders-screen";
@@ -747,21 +751,38 @@ export function createFoldersScreen(
 
   const renderBreadcrumbs = (response: DirectoryBrowseResponse): void => {
     const list = document.createElement("ol");
-    for (const segment of response.breadcrumbs.filter(
-      (candidate) => !candidate.current,
-    )) {
+    const segments = options.includeCurrentBreadcrumb
+      ? response.breadcrumbs
+      : response.breadcrumbs.filter((candidate) => !candidate.current);
+    for (const [index, segment] of segments.entries()) {
       const item = document.createElement("li");
-      const crumb = document.createElement("button");
-      crumb.type = "button";
-      crumb.textContent = segment.name;
-      crumb.addEventListener("click", () => {
-        navigateDirectory(response.source.id, segment.relativePath);
-      });
+      const label =
+        index === 0 && options.breadcrumbRootLabel
+          ? options.breadcrumbRootLabel
+          : segment.name;
+      const crumb = segment.current
+        ? document.createElement("span")
+        : document.createElement("button");
+      crumb.textContent = label;
+      if (crumb instanceof HTMLButtonElement) {
+        crumb.type = "button";
+        crumb.addEventListener("click", () => {
+          navigateDirectory(response.source.id, segment.relativePath);
+        });
+      } else {
+        crumb.className = "folders-breadcrumbs__current";
+        crumb.setAttribute("aria-current", "page");
+      }
       item.append(crumb);
       list.append(item);
     }
     breadcrumbs.replaceChildren(list);
     breadcrumbs.hidden = list.childElementCount === 0;
+    if (
+      options.includeCurrentBreadcrumb === true &&
+      response.current.relativePath === ""
+    )
+      breadcrumbs.hidden = true;
   };
 
   const renderDirectory = (
@@ -1010,7 +1031,7 @@ export function createFoldersScreen(
       playerState = state;
       updateCurrentRows();
     },
-    setSourceAvailable(available) {
+    setSourceAvailable(available, message) {
       if (!available) {
         generation += 1;
         metadataController?.abort();
@@ -1031,8 +1052,10 @@ export function createFoldersScreen(
       if (!available && !notice) {
         notice = document.createElement("p");
         notice.className = "folders-source-unavailable";
-        notice.textContent = "USB storage disconnected.";
+        notice.textContent = message ?? "USB storage disconnected.";
         content.after(notice);
+      } else if (!available && notice) {
+        notice.textContent = message ?? "USB storage disconnected.";
       } else if (available && notice) {
         notice.remove();
         const location = session.getLocation();

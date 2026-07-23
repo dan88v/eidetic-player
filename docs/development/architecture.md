@@ -51,7 +51,12 @@ future Raspberry shell.
   bounded cache; `FolderArtworkPreviewService` owns bounded direct-child folder
   previews; `PathService` is the only logical/native path authority.
 - `RemovableStorageService` owns the single mounted-USB monitor, opaque volume
-  identity, current native-root mapping, and connect/disconnect lifecycle.
+  identity, current native-root mapping, connect/disconnect lifecycle, and the
+  one serialized mutating operation per physical device. Platform media
+  adapters expose Mount and Safely remove capabilities; safe removal blocks
+  new device I/O, releases app work, stops only affected playback while
+  preserving Queue/current, unmounts every volume, and then ejects/powers off
+  the physical device. A partial or vetoed operation is never reported safe.
   Windows and Linux enumeration stay behind separate providers. Removable
   volumes join the same provider-neutral `DirectoryBrowserService`. An
   explicitly selected root or subfolder may also become a persistent
@@ -82,7 +87,9 @@ Do not introduce a second owner for any of these concerns.
 - Removable Storage REST/SSE exposes only opaque `usb-*` device IDs, logical
   paths, capacity/status data, and opaque entry/artwork IDs. Queue origins keep
   `deviceId`, logical relative path, and entry identity; the backend resolves
-  the device's current root immediately before playback.
+  the device's current root immediately before playback. Mount/removal commands
+  also accept only the opaque ID; native PnP IDs, device nodes, partitions, and
+  mount points remain private to the provider/controller boundary.
 - Persistent removable Source APIs expose only normal opaque Source identity
   and logical coverage state. Stable volume identity, drive letters, mount
   points, and native roots remain backend-only. Existing Quick Browse Queue
@@ -184,6 +191,14 @@ serial is preferred; provider device identity plus partition is the fallback,
 and a final model/name/size-style fallback is session-stable only where the OS
 supplies no durable identifier. Raw identity and mount roots never cross the
 backend boundary.
+
+Windows safe removal calls Configuration Manager on the parent physical USB
+device, with a bounded non-interactive helper and structured veto/error mapping;
+it never simulates eject by deleting a drive letter. Windows manual Mount stays
+unsupported. Linux uses bounded, non-interactive `udisksctl` argument arrays
+for per-volume mount/unmount and physical-drive power-off, without a shell,
+sudo, force, or hidden password prompt. UDisks2/polkit deployment policy is not
+owned by this layer.
 
 MPV, FFmpeg, and native-shell absence must degrade independently:
 

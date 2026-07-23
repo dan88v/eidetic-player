@@ -100,6 +100,16 @@ QA Source afterward and verify that the live device and its media were not
 modified. Record physical unplug/reconnect as NOT TESTED unless it was actually
 performed.
 
+For USB mount/safe-removal controls, cover capability-driven actions,
+single-volume Mount, whole-device multi-partition removal order, duplicate
+requests, busy/veto, permission, timeout, partial failure, and shutdown
+cancellation with platform fixtures. In the real Windows app verify the shared
+conditional confirmation, Stop with unchanged Queue IDs/order/revision/current,
+persistent Safe to remove, physical eject, and reconnect without autoplay or
+rescan. Verify Sources and the USB Browser header menu at 1280x800, 1280x720,
+and 1024x600; Main Player and Queue must gain no removal action. Do not label
+physical unplug/reconnect or Linux hardware as passed unless actually exercised.
+
 For Step 2.4.1 also verify sidecar-over-embedded preview priority, no recursive
 sampling, the 8-file/4-cover bounds, List/Grid persistence without requests or
 scroll loss, direct-folder Play ordering, and Add to Queue in both playing and
