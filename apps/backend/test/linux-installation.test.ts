@@ -35,6 +35,31 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
   assert.doesNotMatch(source, /(?:full-upgrade|dist-upgrade|curl[^\\n]*\|)/);
 });
 
+void test("Linux build synchronizes and selects the correct Neutralino binary", async () => {
+  const [packageJson, installer] = await Promise.all([
+    read("package.json"),
+    read("deploy/linux/install-eidetic-player.sh"),
+  ]);
+
+  assert.match(packageJson, /"neutralino:sync":\s*"neu update"/);
+  assert.match(
+    packageJson,
+    /"build:linux":\s*"[^"]*npm run neutralino:sync[^"]*neu build --release"/,
+  );
+
+  assert.match(installer, /neutralino_arch=x64/);
+  assert.match(installer, /neutralino_arch=arm64/);
+  assert.match(
+    installer,
+    /eidetic-player-linux_\$\{neutralino_arch\}/,
+  );
+
+  assert.doesNotMatch(
+    installer,
+    /find "\$build_source\/dist".*-name '\*linux\*'.*-perm \/111/,
+  );
+});
+
 void test("Linux repository lifecycle runs as the non-root runtime identity", async () => {
   const [installer, common, update, fixture] = await Promise.all([
     read("deploy/linux/install-eidetic-player.sh"),

@@ -218,8 +218,28 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   done
   [[ -d "$build_source/dist/backend" ]] ||
     eidetic_die "build phase failed: backend artifact was not produced"
-  shell_binary="$(find "$build_source/dist" -type f -name '*linux*' -perm /111 -print -quit)"
-  [[ -n "$shell_binary" ]] || eidetic_die "Neutralino Linux binary was not produced"
+
+  case "$EIDETIC_ARCH" in
+    amd64)
+      neutralino_arch=x64
+      ;;
+    arm64)
+      neutralino_arch=arm64
+      ;;
+    *)
+      eidetic_die "unsupported Neutralino Linux architecture: $EIDETIC_ARCH"
+      ;;
+  esac
+
+  shell_binary="$build_source/dist/eidetic-player/eidetic-player-linux_${neutralino_arch}"
+
+  if [[ ! -f "$shell_binary" ]]; then
+    eidetic_log "Neutralino distribution contents:"
+    find "$build_source/dist" -maxdepth 3 -type f -printf '  %m %p\n' >&2 || true
+    eidetic_die "Neutralino Linux ${neutralino_arch} binary was not produced"
+  fi
+
+
   mapfile -d '' neu_files < <(
     find "$build_source/dist" -maxdepth 3 -type f \
       \( -name '*.neu' -o -name 'neutralino.config.json' \) -print0

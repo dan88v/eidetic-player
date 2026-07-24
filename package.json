@@ -26,12 +26,13 @@
     "test:linux": "npm run test:case-sensitive && npm run test:posix && npm test",
     "test:posix": "tsx --test apps/backend/test/linux-platform.test.ts",
     "test:case-sensitive": "tsx scripts/test-case-sensitive.ts",
-    "build:linux": "npm run build && neu build --release",
+    "build:linux": "npm run build && npm run neutralino:sync && neu build --release",
     "smoke:linux": "tsx scripts/linux-smoke.ts",
     "verify:arm": "tsx scripts/verify-arm.ts",
     "benchmark:library-search": "tsx scripts/library-search-benchmark.ts",
     "shell:config:dev": "tsx scripts/generate-neutralino-config.ts development",
     "shell:config:prod": "tsx scripts/generate-neutralino-config.ts production",
+    "neutralino:sync": "neu update",
     "neutralino:update": "neu update --latest"
   },
   "dependencies": {
