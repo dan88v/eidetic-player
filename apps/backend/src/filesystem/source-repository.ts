@@ -22,13 +22,21 @@ function isStoredSource(value: unknown): value is StoredSource {
       typeof record.canonicalRoot === "string" &&
       record.canonicalRoot.length > 0
     );
+  if (
+    typeof record.logicalRelativeRoot !== "string" ||
+    record.logicalRelativeRoot.includes("\0")
+  )
+    return false;
+  if (record.type === "removable")
+    return (
+      typeof record.stableIdentity === "string" &&
+      record.stableIdentity.length > 0 &&
+      !record.stableIdentity.includes("\0")
+    );
   return (
-    record.type === "removable" &&
-    typeof record.stableIdentity === "string" &&
-    record.stableIdentity.length > 0 &&
-    !record.stableIdentity.includes("\0") &&
-    typeof record.logicalRelativeRoot === "string" &&
-    !record.logicalRelativeRoot.includes("\0")
+    record.type === "smb" &&
+    typeof record.connectionId === "string" &&
+    /^smb-[0-9a-f]{32}$/u.test(record.connectionId)
   );
 }
 
@@ -56,7 +64,7 @@ export class SourceRepository {
 
   async replace(records: readonly StoredSource[]): Promise<void> {
     const next = [...records];
-    await this.writeAtomic({ version: 2, sources: next });
+    await this.writeAtomic({ version: 3, sources: next });
     this.records = next;
   }
 

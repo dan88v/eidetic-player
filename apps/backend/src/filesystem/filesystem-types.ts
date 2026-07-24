@@ -40,7 +40,14 @@ export interface StoredRemovableSource extends StoredSourceBase {
   readonly logicalRelativeRoot: string;
 }
 
-export type StoredSource = StoredLocalSource | StoredRemovableSource;
+export interface StoredSmbSource extends StoredSourceBase {
+  readonly type: "smb";
+  readonly connectionId: string;
+  readonly logicalRelativeRoot: string;
+}
+
+export type StoredSource =
+  StoredLocalSource | StoredRemovableSource | StoredSmbSource;
 
 export interface ResolvedSource<
   T extends "local" | "removable" | "smb" = "local" | "removable" | "smb",
@@ -56,7 +63,7 @@ export interface DirectorySourceCatalog {
 }
 
 export interface SourceConfig {
-  readonly version: 2;
+  readonly version: 3;
   readonly sources: readonly StoredSource[];
 }
 
@@ -82,7 +89,9 @@ export interface SourceServiceDiagnostics {
 }
 
 export function toPublicSource(
-  source: StoredSourceBase & { readonly type: "local" | "removable" },
+  source: StoredSourceBase & {
+    readonly type: "local" | "removable" | "smb";
+  },
   availability: SourceAvailability,
 ): LibrarySource;
 export function toPublicSource(

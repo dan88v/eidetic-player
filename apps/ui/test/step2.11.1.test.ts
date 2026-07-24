@@ -31,7 +31,8 @@ void test("Sources and Folders distinguish persistent removable Sources", () => 
   assert.match(sources, /sources-list--library/);
   assert.doesNotMatch(sources, /USB Library Folders/);
   assert.match(sources, /source\.type === "removable"/);
-  assert.match(sources, /icon\(source\.type === "removable"/);
+  assert.match(sources, /iconName: "usbStorage"/);
+  assert.match(sources, /icon\(sourcePresentation\.iconName\)/);
   assert.match(folders, /source\.type === "removable"/);
   assert.match(folders, /iconName:\s*source\.type === "removable"/);
   assert.match(api, /logicalRelativePath/);

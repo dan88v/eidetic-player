@@ -110,11 +110,13 @@ export function createSourcesScreen(
     </section>
     <div class="source-dialog-backdrop smb-dialog-backdrop" aria-hidden="true"></div>
     <section class="source-dialog smb-dialog" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="smb-dialog-title">
-      <header class="smb-dialog__header"><h2 id="smb-dialog-title">Add Network Share</h2></header>
-      <fieldset class="smb-dialog__auth"><legend>Authentication</legend><div class="segmented-control">
-          <button class="segmented-control__option segmented-control__option--selected" type="button" data-smb-auth="account" aria-pressed="true">Account</button>
-          <button class="segmented-control__option" type="button" data-smb-auth="guest" aria-pressed="false">Guest</button>
+      <header class="smb-dialog__header">
+        <h2 id="smb-dialog-title">Add Network Share</h2>
+        <fieldset class="smb-dialog__auth"><legend>Authentication</legend><div class="smb-dialog__auth-choices">
+          <button class="smb-dialog__auth-choice smb-dialog__auth-choice--selected" type="button" data-smb-auth="account" aria-pressed="true">Account</button>
+          <button class="smb-dialog__auth-choice" type="button" data-smb-auth="guest" aria-pressed="false">Guest</button>
         </div></fieldset>
+      </header>
       <div class="smb-dialog__body">
         <p class="source-dialog__description smb-dialog__error" role="alert"></p>
         <div class="smb-dialog__fields">
@@ -265,10 +267,7 @@ export function createSourcesScreen(
       .forEach((button) => {
         const selected = button.dataset.smbAuth === mode;
         button.setAttribute("aria-pressed", String(selected));
-        button.classList.toggle(
-          "segmented-control__option--selected",
-          selected,
-        );
+        button.classList.toggle("smb-dialog__auth-choice--selected", selected);
       });
     section
       .querySelectorAll<HTMLElement>("[data-account-field]")
@@ -604,6 +603,15 @@ export function createSourcesScreen(
         } else if (source?.scanStatus === "failed") {
           status.textContent = "Failed";
           status.dataset.availability = "unavailable";
+        } else {
+          const availability =
+            source?.availability === "available" ? "available" : "unavailable";
+          status.textContent = t(
+            availability === "available"
+              ? "sources.available"
+              : "sources.unavailable",
+          );
+          status.dataset.availability = availability;
         }
       });
   };
@@ -747,6 +755,24 @@ export function createSourcesScreen(
       fragment.append(empty);
     }
     for (const source of sources) {
+      const sourcePresentation =
+        source.type === "removable"
+          ? {
+              iconName: "usbStorage" as const,
+              typeLabel: "USB",
+              description: "Indexed folder on removable storage",
+            }
+          : source.type === "smb"
+            ? {
+                iconName: "ethernet" as const,
+                typeLabel: "SMB",
+                description: "Indexed folder on a network share",
+              }
+            : {
+                iconName: "folder" as const,
+                typeLabel: "Local",
+                description: "Indexed folder on this device",
+              };
       const indexedSource = librarySnapshot?.sources.find(
         (candidate) => candidate.sourceId === source.id,
       );
@@ -758,21 +784,17 @@ export function createSourcesScreen(
       card.className = "source-card source-card--library";
       card.dataset.sourceId = source.id;
       card.innerHTML = `
-        <span class="source-card__icon">${icon(source.type === "removable" ? "usbStorage" : "folder")}</span>
-        <div class="source-card__copy"><div class="source-card__identity"><span class="source-card__type">${source.type === "removable" ? "USB" : "Local"}</span><h3></h3></div><p>${source.type === "removable" ? "Indexed folder on removable storage" : "Indexed folder on this device"}</p><span class="source-card__status"></span></div>
+        <span class="source-card__icon">${icon(sourcePresentation.iconName)}</span>
+        <div class="source-card__copy"><div class="source-card__identity"><span class="source-card__type">${sourcePresentation.typeLabel}</span><h3></h3></div><p>${sourcePresentation.description}</p><span class="source-card__status"></span></div>
         <div class="source-card__actions">
-          <button type="button" data-source-action="open">${t("sources.open")}</button>
           <button class="source-card__more" type="button" data-source-action="more" aria-label="${t("sources.actions")}" aria-haspopup="menu">${icon("more")}</button>
         </div>`;
       const heading = card.querySelector<HTMLElement>("h3");
       const status = card.querySelector<HTMLElement>(".source-card__status");
-      const open = card.querySelector<HTMLButtonElement>(
-        '[data-source-action="open"]',
-      );
       const more = card.querySelector<HTMLButtonElement>(
         '[data-source-action="more"]',
       );
-      if (!heading || !status || !open || !more) continue;
+      if (!heading || !status || !more) continue;
       heading.textContent = source.displayName;
       status.textContent = scanning
         ? "Scanning"
@@ -790,19 +812,20 @@ export function createSourcesScreen(
         : failed
           ? "unavailable"
           : source.availability;
-      open.disabled = source.availability !== "available";
-      open.addEventListener("click", () => {
-        options.openSource(source.id);
-      });
       more.addEventListener("click", () => {
         closeMenu();
         menuSource = source;
         menuTrigger = more;
         const actions: {
-          readonly action: "rescan" | "retry" | "rename" | "remove";
+          readonly action: "open" | "rescan" | "retry" | "rename" | "remove";
           readonly label: string;
           readonly disabled?: boolean;
         }[] = [
+          {
+            action: "open",
+            label: t("sources.open"),
+            disabled: source.availability !== "available",
+          },
           {
             action: "rescan",
             label: t("sources.rescanLibrary"),
@@ -1085,6 +1108,10 @@ export function createSourcesScreen(
       return;
     }
     if (!source) return;
+    if (action === "open") {
+      options.openSource(source.id);
+      return;
+    }
     if (action === "rename" || action === "remove") {
       openDialog(source, action, trigger);
       return;

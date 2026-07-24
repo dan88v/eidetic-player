@@ -89,7 +89,7 @@ interface FolderTarget {
   readonly relativePath: string;
   readonly name: string;
   readonly available: boolean;
-  readonly iconName?: "folder" | "usbStorage";
+  readonly iconName?: "ethernet" | "folder" | "usbStorage";
 }
 
 interface AudioTarget {
@@ -634,7 +634,9 @@ export function createFoldersScreen(
     detail.textContent = target.available
       ? target.iconName === "usbStorage"
         ? "USB Library folder"
-        : t("folders.countingFiles")
+        : target.iconName === "ethernet"
+          ? "SMB Library folder"
+          : t("folders.countingFiles")
       : t("folders.unavailable");
     body.append(name, detail);
     body.addEventListener("click", () => {
@@ -653,7 +655,11 @@ export function createFoldersScreen(
     });
     actions.append(more);
     card.append(artButton, body, actions);
-    if (target.available && target.iconName !== "usbStorage") {
+    if (
+      target.available &&
+      target.iconName !== "usbStorage" &&
+      target.iconName !== "ethernet"
+    ) {
       if (observer) observer.observe(art);
       else void loadFolderPreview(art);
     }
@@ -981,7 +987,12 @@ export function createFoldersScreen(
             relativePath: "",
             name: source.displayName,
             available: source.availability === "available",
-            iconName: source.type === "removable" ? "usbStorage" : "folder",
+            iconName:
+              source.type === "removable"
+                ? "usbStorage"
+                : source.type === "smb"
+                  ? "ethernet"
+                  : "folder",
           }),
         );
       if (!response.sources.length) {

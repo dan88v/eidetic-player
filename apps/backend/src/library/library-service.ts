@@ -167,6 +167,15 @@ export class IndexedLibraryService {
     this.publish();
   }
 
+  libraryTrackIdForSourcePath(
+    sourceId: string,
+    relativePath: string,
+  ): string | null {
+    this.ensureOpen();
+    const track = this.repository.findTrack(sourceId, relativePath);
+    return track?.available ? track.id : null;
+  }
+
   setSourceAvailability(sourceId: string, available: boolean): void {
     this.ensureOpen();
     if (!available) this.scheduler.sourceUnavailable(sourceId);
@@ -1131,7 +1140,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
-      readonly sourceType: "local" | "removable";
+      readonly sourceType: "local" | "removable" | "smb";
       readonly contextId?: string;
     }[]
   > {
@@ -1157,7 +1166,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
-      readonly sourceType: "local" | "removable";
+      readonly sourceType: "local" | "removable" | "smb";
       readonly contextId?: string;
     } | null>(records.length).fill(null);
     let next = 0;
@@ -1196,7 +1205,7 @@ export class IndexedLibraryService {
       readonly sourceId: string;
       readonly relativePath: string;
       readonly path: string;
-      readonly sourceType: "local" | "removable";
+      readonly sourceType: "local" | "removable" | "smb";
     }[],
     selectedIndex: number,
   ): ResolvedLibraryContext {
@@ -1209,7 +1218,9 @@ export class IndexedLibraryService {
         libraryTrackId: record.id,
         ...(record.sourceType === "removable"
           ? { removable: true as const }
-          : {}),
+          : record.sourceType === "smb"
+            ? { smb: true as const }
+            : {}),
       })),
       selectedIndex,
       trackIds: records.map((record) => record.id),

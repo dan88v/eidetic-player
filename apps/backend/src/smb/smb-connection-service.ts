@@ -70,6 +70,8 @@ export class SmbConnectionService {
   private signature = "";
   private initialized = false;
   private closing = false;
+  private hasDependentLibrarySources:
+    ((connectionId: string) => Promise<boolean>) | null = null;
 
   constructor(
     private readonly provider: FilesystemProvider,
@@ -96,6 +98,12 @@ export class SmbConnectionService {
     await Promise.allSettled(
       this.records.map((record) => this.connect(record)),
     );
+  }
+
+  configureLibraryDependencies(
+    hasDependentLibrarySources: (connectionId: string) => Promise<boolean>,
+  ): void {
+    this.hasDependentLibrarySources = hasDependentLibrarySources;
   }
 
   snapshot(): SmbSnapshot {
@@ -329,6 +337,12 @@ export class SmbConnectionService {
   async remove(id: string): Promise<void> {
     await this.ensureReady();
     const record = this.requireRecord(id);
+    if (await this.hasDependentLibrarySources?.(id))
+      throw new SmbError(
+        "invalid-request",
+        "Remove the related Library sources first.",
+        409,
+      );
     await this.serial(id, async () => {
       const root = this.states.get(id)?.root;
       await this.adapter.disconnect(record, root).catch(() => undefined);
@@ -412,6 +426,61 @@ export class SmbConnectionService {
   async resolveLogicalPath(id: string, relativePath: string): Promise<string> {
     const source = await this.getInternal(id);
     return this.paths.resolveWithinSource(source.canonicalRoot, relativePath);
+  }
+
+  async describeDirectory(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<{
+    readonly connectionId: string;
+    readonly logicalRelativeRoot: string;
+    readonly displayName: string;
+    readonly nativeRoot: string;
+    readonly canonicalRoot: string;
+  }> {
+    const record = this.requireRecord(connectionId);
+    const logicalRoot =
+      this.paths.validateLogicalRelativePath(logicalRelativeRoot);
+    const resolved = await this.resolvePersistentDirectory(
+      connectionId,
+      logicalRoot,
+    );
+    return {
+      connectionId,
+      logicalRelativeRoot: logicalRoot,
+      displayName: logicalRoot
+        ? (logicalRoot.split("/").at(-1) ?? record.displayName)
+        : record.displayName,
+      ...resolved,
+    };
+  }
+
+  async resolvePersistentDirectory(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<{
+    readonly nativeRoot: string;
+    readonly canonicalRoot: string;
+  }> {
+    const connection = await this.getInternal(connectionId);
+    const logicalRoot =
+      this.paths.validateLogicalRelativePath(logicalRelativeRoot);
+    const canonicalRoot = await this.paths.resolveWithinSource(
+      connection.canonicalRoot,
+      logicalRoot,
+    );
+    try {
+      const details = await this.provider.lstat(canonicalRoot);
+      if (details.isSymbolicLink() || !details.isDirectory())
+        throw new Error("not a directory");
+      await this.provider.access(canonicalRoot);
+    } catch {
+      throw new SmbError(
+        "network-unavailable",
+        "This network folder is unavailable.",
+      );
+    }
+    return { nativeRoot: canonicalRoot, canonicalRoot };
   }
 
   async close(): Promise<void> {

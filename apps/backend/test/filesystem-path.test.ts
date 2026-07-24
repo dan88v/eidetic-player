@@ -141,7 +141,7 @@ void test("source repository persists atomically and recovers corrupt JSON", asy
     const parsed = JSON.parse(await readFile(configPath, "utf8")) as {
       version: number;
     };
-    assert.equal(parsed.version, 2);
+    assert.equal(parsed.version, 3);
 
     await writeFile(configPath, "{not-json", "utf8");
     assert.deepEqual(await new SourceRepository(configPath).list(), []);

@@ -5,6 +5,7 @@ export type PersistedQueueOrigin =
       readonly relativePath: string;
       readonly libraryTrackId?: string;
       readonly removable?: boolean;
+      readonly smb?: boolean;
     }
   | {
       readonly kind: "direct";

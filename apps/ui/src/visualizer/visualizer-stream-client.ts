@@ -1,11 +1,13 @@
 import type { VisualizerFrame } from "../../../../packages/shared/src/visualizer";
 import { config } from "../config";
+import { alternateLoopbackUrl } from "../api/loopback-origin";
 import type { VisualizerMode } from "../state/types";
 import { VisualizerFrameBuffer } from "./visualizer-frame-buffer";
 
-const baseUrl = config.development
-  ? ""
-  : `http://${config.backendHost}:${String(config.backendPort)}`;
+// Keep the high-frequency stream on the alternate loopback origin. Five
+// long-lived state streams otherwise consume the WebView HTTP/1.1 connection
+// budget and can indefinitely queue artwork and player commands.
+const baseUrl = alternateLoopbackUrl(config.backendHost, config.backendPort);
 
 export class VisualizerStreamClient {
   private source: EventSource | null = null;

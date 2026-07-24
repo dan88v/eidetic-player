@@ -88,6 +88,11 @@ case-sensitive WSL/Debian clone for Linux diagnosis and platform-sensitive
 checks, and Raspberry Pi hardware for touch, audio, performance, and shutdown
 validation.
 
+When a step adds an app-lifetime SSE stream, cold-start Now Playing with an
+active visualizer and a restored Queue. Confirm artwork loads and Play,
+Previous, Next, and Shuffle remain responsive; a route-only check can miss
+WebView2 HTTP/1.1 connection-budget starvation.
+
 ## Real media
 
 Real-media tests use user-provided local folders read-only.
@@ -123,6 +128,20 @@ Folders UI at 1280x800, 1280x720, and 1024x600. Use a safe read-only NAS share
 when available. Otherwise use `EIDETIC_SMB_FIXTURE=1`, state clearly that real
 Windows SMB/Credential Manager and Linux CIFS runtime are NOT TESTED, and never
 turn fixture coverage into a native SMB PASS.
+
+For SMB Library integration, add both a share root and a nested folder and
+confirm exact/parent/child segment coverage, sibling allowance, and
+`Music`/`MusicBackup` separation per connection. Verify one targeted first
+scan, full Library surfaces, the SMB card in Library Sources and Folders, and
+unchanged existing Quick Browse Queue identity. During a safe offline test,
+confirm an active scan ends as `source-unavailable` without mark-missing,
+catalog features remain durable, current SMB playback stops with Queue/current
+preserved, and reconnect performs neither rescan nor autoplay. Connection
+Remove must be blocked until its Library Sources are removed; Source Remove
+must leave Quick Browse and remote files untouched. Run the real Windows app
+with exactly `npm.cmd run dev` and inspect 1280x800, 1280x720, and 1024x600.
+When only `FixtureSmbAdapter` is available, report native SMB Library
+integration as NOT TESTED.
 
 For the Step 2.13-R Sources regression, launch the actual Windows application
 with exactly `npm.cmd run dev`. Confirm Library Sources precedes Available

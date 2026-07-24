@@ -9,17 +9,19 @@ snapshot. `SmbConnectionRepository` stores only non-secret records.
 system connection. One global SSE stream is consumed by `AppShell`; there is
 no stream, timer, or frontend poll per share.
 
-Step 2.13 is deliberately browse-only. SMB records are not Library Sources,
-are not scanned or indexed, and do not appear in the Folders root. Sources is
-the only configuration surface. Quick Browse is reached from a connected
-Sources card and reuses the canonical Folders browser.
+An SMB connection remains a live Quick Browse resource. Independently, its
+current share root or a readable nested folder may become a persistent
+`smb` Library Source. Quick Browse is still reached from the connected
+Sources card and reuses the canonical Folders browser; adding a Library Source
+does not hide, replace, or convert that path.
 
 Sources separates persistent indexed folders from live/configured access
-points. `Library Sources` is the single list for local and removable indexed
-folders and owns global Rescan/Cancel. `Available Resources` contains Local
-Storage/Add Folder, currently connected USB devices, and configured Network
-Shares/Add Share. A folder or device is never duplicated between those groups,
-and native paths, volume identities, mount points, and UNC roots stay absent.
+points. `Library Sources` is the single list for local, removable, and SMB
+indexed folders and owns global Rescan/Cancel. `Available Resources` contains
+Local Storage/Add Folder, currently connected USB devices, and configured
+Network Shares/Add Share. The connection and an indexed folder are distinct
+objects, and native paths, volume identities, mount points, and UNC roots stay
+absent.
 
 ## Records and credentials
 
@@ -53,11 +55,14 @@ Server/share duplicates are rejected. On Windows, shares on one server must
 use the same account/Guest identity; Eidetic never removes another
 application's mapping to resolve a conflict.
 
-The first Add is persisted only after the operating-system connection and root
+The first connection Add is persisted only after the operating-system connection and root
 readability check succeed. Any failed attempt removes its temporary secret and
 managed connection. Edit tests the proposed identity first and preserves the
-old record on failure. Remove disconnects the managed session, removes the
-record and Eidetic secret, and never changes files on the server.
+old record on failure. Connection Remove is blocked while one or more SMB
+Library Sources depend on it and returns `Remove the related Library sources
+first.` Removing a Library Source is non-destructive and leaves the connection,
+secret, managed session, Quick Browse, Queue, and remote files unchanged. Once
+no Source depends on it, connection Remove retains the Step 2.13 behavior.
 
 Configured shares auto-connect during bootstrap. Transient errors use one
 bounded scheduler with delays of 2, 5, 15, 30, and 60 seconds, then at most one
@@ -80,19 +85,42 @@ USB and SMB apply the same provider-neutral resource-browser shell: the
 provider/display name stays only in the top bar, Back is left-aligned,
 Play Folder and the provider menu are right-aligned, and both use the same
 breadcrumb, cards, track rows, empty/unavailable states, and responsive rules.
-Only USB exposes Add this folder to Library and safe removal. SMB exposes
-neither Library integration nor scanning.
+USB and SMB expose the same fixed-width Add this folder to Library action.
+SMB coverage is segment-aware within one connection: exact roots, ancestors,
+and descendants are blocked, while siblings, similar prefixes such as
+`Music`/`MusicBackup`, and folders on different connections are allowed. A
+successful Add stays in Quick Browse, changes the action to `In Library`, and
+queues only the new Source through the single Library scheduler. The share
+display name is the root default; nested folders use their logical basename.
+Only USB exposes safe removal.
 
 Queue origins contain only connection ID, logical relative path, and opaque
 entry identity. Public paths use `smb://<connection-id>/...`; UNC roots and
 Linux mount points remain backend-only and are resolved and contained again
-before playback.
+before playback. Existing Quick Browse Queue items are never converted after a
+matching folder is indexed. Indexed playback uses the normal Folders/Library
+origin, opaque `library-source://` public path, and `libraryTrackId`.
 
 When a share becomes unavailable, its browser work is invalidated and its
 Queue rows are updated in place without a structural Queue revision. If the
 current item belongs to that share, playback stops with the playlist kept.
 The current item and Queue remain, no skip occurs, and reconnect never
 autoplays. Local and USB playback continue when an unrelated SMB share fails.
+
+An SMB Source record stores only stable Source ID, display name, opaque
+connection ID, logical relative root, and timestamps. Resolution always passes
+through `SmbConnectionService` to the current readable backend root and then
+revalidates containment, directory/file type, symlinks, and access. Server,
+share, credentials, UNC paths, mount points, and current native roots are not
+duplicated in `SourceRepository`.
+
+Disconnect marks dependent Sources and catalog tracks unavailable without
+deleting metadata, identities, Favorites, Playlists, History, or Stats. If a
+scan is active, the existing scheduler aborts it cooperatively as
+`source-unavailable`; valid batches remain and mark-missing finalization does
+not run. Reconnect restores resolution and availability but never queues a
+scan, autoplays, rebuilds Queue, or changes Library identity. Only a manual
+Rescan refreshes content changed while offline.
 
 ## Status UI
 
@@ -102,6 +130,5 @@ unavailable, and neutral while connections are still in progress without an
 error. Its anchored popover contains at most a summary and one display-name
 detail line, has no actions, and closes on outside pointer input or Escape.
 
-Step 2.13.1 will add explicit SMB Library integration. Step 2.13.2 will add the
-production Linux/Raspberry Pi mount authorization and real hardware
-validation.
+Step 2.13.2 will add production Linux/Raspberry Pi mount authorization and real
+hardware validation.

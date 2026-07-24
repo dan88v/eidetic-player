@@ -110,6 +110,10 @@ const sources = new SourceService(
   pathService,
   sourceRepository,
   removableStorage,
+  smb,
+);
+smb.configureLibraryDependencies((connectionId) =>
+  sources.hasSmbSources(connectionId),
 );
 const directorySources = {
   getInternal: (sourceId: string) =>
@@ -140,6 +144,32 @@ const indexedLibraryPromise = IndexedLibraryService.create(
   sources,
   player,
 );
+async function persistentFolderOrigins(
+  sourceId: string,
+  relativePaths: readonly string[],
+) {
+  const [source, indexedLibrary] = await Promise.all([
+    sources.getInternal(sourceId),
+    indexedLibraryPromise,
+  ]);
+  return relativePaths.map((relativePath) => {
+    const libraryTrackId = indexedLibrary.libraryTrackIdForSourcePath(
+      sourceId,
+      relativePath,
+    );
+    return {
+      kind: "folders" as const,
+      sourceId,
+      relativePath,
+      ...(libraryTrackId ? { libraryTrackId } : {}),
+      ...(source.type === "removable"
+        ? { removable: true as const }
+        : source.type === "smb"
+          ? { smb: true as const }
+          : {}),
+    };
+  });
+}
 removableStorage.configureOperations({
   async usage(deviceIds, stableVolumeIdentities) {
     const sourceIds = await sources.removableSourceIdsForIdentities(
@@ -218,6 +248,8 @@ const removableEvents = new RemovableStorageSseHub(removableStorage);
 const networkEvents = new NetworkSseHub(network);
 const smbEvents = new SmbSseHub(smb);
 let previousSmbStates = new Map<string, boolean>();
+let previousSmbConnectionVersions = new Map<string, string>();
+let smbLibraryRefresh: Promise<void> = Promise.resolve();
 const unsubscribeSmbPlayer = smb.subscribe((snapshot) => {
   const next = new Map(
     snapshot.connections.map((connection) => [
@@ -225,11 +257,21 @@ const unsubscribeSmbPlayer = smb.subscribe((snapshot) => {
       connection.readable,
     ]),
   );
+  const nextVersions = new Map(
+    snapshot.connections.map((connection) => [
+      connection.id,
+      `${String(connection.readable)}:${connection.connectedAt ?? ""}`,
+    ]),
+  );
   for (const connection of snapshot.connections) {
     const previous = previousSmbStates.get(connection.id);
-    if (previous === connection.readable) continue;
-    smbFolders.invalidateSource(connection.id);
-    void player.setSmbConnectionAvailable(connection.id, connection.readable);
+    if (
+      previousSmbConnectionVersions.get(connection.id) !==
+      nextVersions.get(connection.id)
+    )
+      smbFolders.invalidateSource(connection.id);
+    if (previous !== connection.readable)
+      void player.setSmbConnectionAvailable(connection.id, connection.readable);
   }
   for (const [id] of previousSmbStates) {
     if (!next.has(id)) {
@@ -237,7 +279,39 @@ const unsubscribeSmbPlayer = smb.subscribe((snapshot) => {
       void player.setSmbConnectionAvailable(id, false);
     }
   }
+  const affectedConnectionIds = [
+    ...new Set([...previousSmbStates.keys(), ...next.keys()]),
+  ].filter(
+    (id) =>
+      previousSmbStates.get(id) !== next.get(id) ||
+      previousSmbConnectionVersions.get(id) !== nextVersions.get(id),
+  );
+  if (affectedConnectionIds.length > 0) {
+    smbLibraryRefresh = smbLibraryRefresh
+      .catch(() => undefined)
+      .then(async () => {
+        const sourceChanges = await sources.refreshSmbAvailability(
+          affectedConnectionIds,
+        );
+        const indexedLibrary = await indexedLibraryPromise;
+        for (const sourceChange of sourceChanges) {
+          folders.invalidateSource(sourceChange.sourceId);
+          indexedLibrary.setSourceAvailability(
+            sourceChange.sourceId,
+            sourceChange.available,
+          );
+          await player.setFolderSourceAvailable(
+            sourceChange.sourceId,
+            sourceChange.available,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("[smb-library] availability refresh failed", error);
+      });
+  }
   previousSmbStates = next;
+  previousSmbConnectionVersions = nextVersions;
 });
 let networkWasAvailable = false;
 const unsubscribeNetworkSmb = network.subscribe((snapshot) => {
@@ -886,6 +960,43 @@ async function handleRequest(
         ok: true,
         data: await smb.retry(smbRetryMatch[1] ?? ""),
       });
+      return;
+    }
+    const smbLibraryCoverageMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/library-coverage$/u.exec(
+        url.pathname,
+      );
+    if (smbLibraryCoverageMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await sources.smbCoverage(
+          smbLibraryCoverageMatch[1] ?? "",
+          url.searchParams.get("logicalRelativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    const smbLibrarySourceMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/library-sources$/u.exec(
+        url.pathname,
+      );
+    if (smbLibrarySourceMatch && request.method === "POST") {
+      const body = objectBody(await readBody(request));
+      const logicalRelativePath =
+        typeof body.logicalRelativePath === "string"
+          ? body.logicalRelativePath
+          : "";
+      const result = await sources.addSmb(
+        smbLibrarySourceMatch[1] ?? "",
+        logicalRelativePath,
+      );
+      try {
+        await (await indexedLibraryPromise).sourceAdded(result.source.id);
+      } catch (error) {
+        await sources.remove(result.source.id).catch(() => undefined);
+        throw error;
+      }
+      sendJson(response, 201, { ok: true, data: result });
       return;
     }
     const smbBrowseMatch =
@@ -2326,11 +2437,10 @@ async function handleRequest(
         sourceId,
         relativePath,
       );
-      const origins = queue.relativePaths.map((entryRelativePath) => ({
-        kind: "folders" as const,
+      const origins = await persistentFolderOrigins(
         sourceId,
-        relativePath: entryRelativePath,
-      }));
+        queue.relativePaths,
+      );
       if (action === "play") {
         if (queue.paths.length > 0)
           await player.openResolvedQueue(
@@ -2401,11 +2511,7 @@ async function handleRequest(
         await player.openResolvedQueue(
           queue.paths,
           queue.selectedIndex,
-          queue.relativePaths.map((relativePath) => ({
-            kind: "folders" as const,
-            sourceId,
-            relativePath,
-          })),
+          await persistentFolderOrigins(sourceId, queue.relativePaths),
           openRequestGeneration,
         );
         sendJson(response, 200, {
@@ -2422,13 +2528,9 @@ async function handleRequest(
         const path = await folders.pathForEntry(sourceId, entryId);
         const appendedCount = await player.append(
           [path],
-          [
-            {
-              kind: "folders",
-              sourceId,
-              relativePath: folders.relativePathForEntry(sourceId, entryId),
-            },
-          ],
+          await persistentFolderOrigins(sourceId, [
+            folders.relativePathForEntry(sourceId, entryId),
+          ]),
         );
         sendJson(response, 200, {
           ok: true,

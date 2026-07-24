@@ -4,7 +4,7 @@ export type SourceAvailability = "available" | "unavailable" | "checking";
 
 export interface LibrarySource {
   readonly id: string;
-  readonly type: "local" | "removable";
+  readonly type: "local" | "removable" | "smb";
   readonly displayName: string;
   readonly availability: SourceAvailability;
   readonly createdAt: string;
@@ -161,13 +161,16 @@ export interface AddLocalSourceResponse {
   readonly duplicate: boolean;
 }
 
-export type RemovableLibraryCoverageState =
+export type LibrarySourceCoverageState =
   "none" | "exact" | "covered-by-parent" | "overlaps-child";
 
-export interface RemovableLibraryCoverage {
-  readonly state: RemovableLibraryCoverageState;
+export interface LibrarySourceCoverage {
+  readonly state: LibrarySourceCoverageState;
   readonly source: LibrarySource | null;
 }
+
+export type RemovableLibraryCoverageState = LibrarySourceCoverageState;
+export type RemovableLibraryCoverage = LibrarySourceCoverage;
 
 export interface AddRemovableLibrarySourceResponse {
   readonly source: LibrarySource;
@@ -176,6 +179,18 @@ export interface AddRemovableLibrarySourceResponse {
 }
 
 export interface AddRemovableLibrarySourceRequest {
+  readonly logicalRelativePath: string;
+}
+
+export type SmbLibraryCoverage = LibrarySourceCoverage;
+
+export interface AddSmbLibrarySourceResponse {
+  readonly source: LibrarySource;
+  readonly scanQueued: boolean;
+  readonly coverage: SmbLibraryCoverage;
+}
+
+export interface AddSmbLibrarySourceRequest {
   readonly logicalRelativePath: string;
 }
 

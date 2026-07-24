@@ -70,11 +70,13 @@ future Raspberry shell.
   and opaque keyset cursors; `IndexedLibraryService` resolves Play/Add contexts
   and revalidates their paths before delegating to `PlayerService`. Folders
   browsing remains an independent on-demand path.
-- `SmbConnectionService` owns persistent non-Library share identity, one
-  bounded reconnect scheduler, availability, and current backend roots.
-  Platform SMB sessions and credentials remain behind their adapters/stores.
-  Connected shares reuse a separate `DirectoryBrowserService` catalog and the
-  canonical Folders UI without joining `SourceService` or the indexed Library.
+- `SmbConnectionService` owns persistent share identity, one bounded reconnect
+  scheduler, availability, and current backend roots. Platform SMB sessions
+  and credentials remain behind their adapters/stores. Quick Browse uses its
+  separate `DirectoryBrowserService`. An optional persistent `smb` Source
+  stores only connection ID and logical relative root; `SourceService` resolves
+  it through the current connection root for Folders, scanner, and Library
+  playback.
 
 Do not introduce a second owner for any of these concerns.
 
@@ -99,6 +101,11 @@ Do not introduce a second owner for any of these concerns.
   and logical coverage state. Stable volume identity, drive letters, mount
   points, and native roots remain backend-only. Existing Quick Browse Queue
   origins are never converted when the same folder is indexed.
+- Persistent SMB Source APIs expose only opaque connection/Source identity,
+  logical paths, and coverage state. Connection records and credential storage
+  remain separate; native UNC/mount roots are reconstructed only in the
+  backend. Quick Browse Queue origins are never converted when a folder is
+  indexed.
 - Network REST/SSE exposes opaque adapter and session-network IDs, safe link,
   radio, connectivity, scan and read-only IP state. One AppShell subscription
   feeds Settings and the top bar. Passwords, BSSID/MAC, native GUID/UUID,

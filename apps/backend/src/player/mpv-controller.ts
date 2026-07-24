@@ -80,6 +80,36 @@ export class MpvController {
     return this.command(["set_property", name, value]);
   }
 
+  async seekWhenReady(
+    positionSeconds: number,
+    timeoutMilliseconds = 2_000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    let lastError: Error | null = null;
+    do {
+      try {
+        const seekable = await this.getProperty("seekable");
+        const duration = await this.getProperty("duration");
+        if (
+          seekable === true &&
+          typeof duration === "number" &&
+          Number.isFinite(duration) &&
+          duration > 0
+        ) {
+          await this.command(["seek", positionSeconds, "absolute+exact"]);
+          return;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } while (Date.now() < deadline);
+    throw (
+      lastError ??
+      new Error("MPV did not become ready to restore the playback position")
+    );
+  }
+
   async loadPlaylist(
     paths: readonly string[],
     selectedIndex = 0,

@@ -94,7 +94,7 @@ void test("removable Sources persist logical identity, enforce segment coverage,
     );
 
     const persisted = await readFile(configPath, "utf8");
-    assert.match(persisted, /"version": 2/);
+    assert.match(persisted, /"version": 3/);
     assert.match(persisted, /"stableIdentity": "volume:stable-fixture"/);
     assert.match(persisted, /"logicalRelativeRoot": "Music"/);
     assert.doesNotMatch(persisted, /nativeRoot|canonicalRoot/);
@@ -189,7 +189,7 @@ void test("removable root Source uses the volume label and v1 local records rema
       records.some((record) => record.type === "removable"),
       true,
     );
-    assert.match(await readFile(configPath, "utf8"), /"version": 2/);
+    assert.match(await readFile(configPath, "utf8"), /"version": 3/);
   } finally {
     await removable.close();
     await rm(temporary, { recursive: true, force: true });

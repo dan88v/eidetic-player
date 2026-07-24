@@ -30,11 +30,21 @@ function isOrigin(value: unknown): value is PersistedQueueOrigin {
       typeof origin.entryId === "string" &&
       /^entry-[0-9a-f]{32}$/.test(origin.entryId)
     );
+  if (origin.kind === "smb")
+    return (
+      typeof origin.connectionId === "string" &&
+      /^smb-[0-9a-f]{32}$/.test(origin.connectionId) &&
+      typeof origin.relativePath === "string" &&
+      typeof origin.entryId === "string" &&
+      /^entry-[0-9a-f]{32}$/.test(origin.entryId)
+    );
   return (
     origin.kind === "folders" &&
     typeof origin.sourceId === "string" &&
     /^[0-9a-f-]{36}$/i.test(origin.sourceId) &&
     typeof origin.relativePath === "string" &&
+    (origin.removable === undefined || typeof origin.removable === "boolean") &&
+    (origin.smb === undefined || typeof origin.smb === "boolean") &&
     (origin.libraryTrackId === undefined ||
       (typeof origin.libraryTrackId === "string" &&
         /^track-[0-9a-f]{32}$/.test(origin.libraryTrackId)))

@@ -60,6 +60,10 @@ subscriber exists, and cancel rendering.
 
 - Maintain one player-state subscription per application.
 - Maintain at most one visualizer EventSource for active Now Playing.
+- Keep the visualizer EventSource on the alternate loopback origin. The
+  app-lifetime player, Library, Network, SMB, and Removable Storage streams
+  otherwise exhaust WebView2's HTTP/1.1 per-origin connection budget and can
+  indefinitely queue artwork and ordinary player REST commands.
 - A single backend analyzer is shared by all visualizer clients.
 - Meter, spectrum, and Technical modes consume the same analyzer PCM. The
   LUFS-S path uses a preallocated 3-second stereo energy ring and fixed filter

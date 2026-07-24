@@ -33,7 +33,63 @@ export function createSmbBrowseScreen(options: {
     breadcrumbRootLabel: "Root",
     createDirectoryHeaderAction: (response) => {
       const group = document.createElement("div");
-      group.className = "resource-directory-header-actions";
+      group.className =
+        "resource-directory-header-actions smb-directory-header-actions";
+      const library = document.createElement("button");
+      library.type = "button";
+      library.className = "folders-directory-library";
+      library.textContent = "Add this folder to Library";
+      library.disabled = true;
+      const applyCoverage = (
+        state: "none" | "exact" | "covered-by-parent" | "overlaps-child",
+      ): void => {
+        if (state === "none") {
+          library.textContent = "Add this folder to Library";
+          library.disabled = false;
+          library.removeAttribute("title");
+          return;
+        }
+        library.disabled = true;
+        library.textContent = state === "exact" ? "In Library" : "Covered";
+        library.title =
+          state === "exact"
+            ? "This folder is already in Library."
+            : "This folder overlaps an existing SMB Library folder.";
+      };
+      void options.api
+        .libraryCoverage(response.source.id, response.current.relativePath)
+        .then((coverage) => {
+          if (library.isConnected) applyCoverage(coverage.state);
+        })
+        .catch((error: unknown) => {
+          if (!library.isConnected) return;
+          library.disabled = true;
+          options.showToast(
+            error instanceof Error
+              ? error.message
+              : "Unable to check this network folder.",
+            "error",
+          );
+        });
+      library.addEventListener("click", () => {
+        if (library.disabled) return;
+        library.disabled = true;
+        void options.api
+          .addLibrarySource(response.source.id, response.current.relativePath)
+          .then(() => {
+            if (library.isConnected) applyCoverage("exact");
+          })
+          .catch((error: unknown) => {
+            if (!library.isConnected) return;
+            library.disabled = false;
+            options.showToast(
+              error instanceof Error
+                ? error.message
+                : "Unable to add this network folder to Library.",
+              "error",
+            );
+          });
+      });
       const more = document.createElement("button");
       more.type = "button";
       more.className = "resource-directory-more";
@@ -79,7 +135,7 @@ export function createSmbBrowseScreen(options: {
         if (!menu.hidden) addToQueue.focus();
       });
       menu.append(addToQueue);
-      group.append(more, menu);
+      group.append(library, more, menu);
       return group;
     },
     openSources: options.back,

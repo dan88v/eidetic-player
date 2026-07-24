@@ -14,6 +14,7 @@ interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
+  readonly commandName: string;
 }
 
 export type MpvMessageListener = (message: MpvResponse) => void;
@@ -81,12 +82,18 @@ export class MpvTransport {
     if (this.disconnected)
       return Promise.reject(new Error("MPV IPC is not connected"));
     const requestId = ++this.requestId;
+    const commandName = typeof command[0] === "string" ? command[0] : "unknown";
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         reject(new Error(`MPV request ${String(requestId)} timed out`));
       }, timeoutMilliseconds);
-      this.pending.set(requestId, { resolve, reject, timer });
+      this.pending.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        commandName,
+      });
       this.socket.write(
         `${JSON.stringify({ command, request_id: requestId })}\n`,
       );
@@ -107,7 +114,9 @@ export class MpvTransport {
         clearTimeout(pending.timer);
         this.pending.delete(response.request_id);
         if (response.error && response.error !== "success") {
-          pending.reject(new Error(`MPV: ${response.error}`));
+          pending.reject(
+            new Error(`MPV ${pending.commandName}: ${response.error}`),
+          );
         } else pending.resolve(response.data);
       }
     }

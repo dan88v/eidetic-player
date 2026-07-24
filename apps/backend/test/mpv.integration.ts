@@ -79,7 +79,7 @@ void test("MPV headless IPC integration", async (context) => {
     );
     await controller.setProperty("pause", true);
     assert.equal(await controller.getProperty("pause"), true);
-    await controller.command(["seek", 0.5, "absolute+exact"]);
+    await controller.seekWhenReady(0.5);
     await controller.command(["playlist-next", "force"]);
     assert.equal(
       await waitFor(
@@ -165,6 +165,71 @@ void test("MPV loads the selected fifth item without flashing the first", async 
     await controller.stop().catch(() => {
       // Cleanup continues with the temporary directory.
     });
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+void test("PlayerService disables Shuffle without losing current identity or position", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-mpv-unshuffle-"));
+  const player = new PlayerService();
+  try {
+    const paths = await Promise.all(
+      ["01 First.wav", "02 Current.wav", "03 Last.wav"].map(
+        async (filename) => {
+          const path = join(folder, filename);
+          await writeFile(path, silentWav(20));
+          return path;
+        },
+      ),
+    );
+    await player.initialize();
+    await player.openResolvedQueue(paths, 1);
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) =>
+        state.currentTrack?.path === paths[1] && state.durationSeconds > 3,
+      5_000,
+    );
+    await player.setShuffle(true);
+    await player.setShuffle(false);
+    assert.equal(player.getState().shuffleEnabled, false);
+
+    await player.setShuffle(true);
+    await player.seek(3);
+    const before = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.positionSeconds > 2.5,
+      5_000,
+    );
+    await player.pause();
+    await waitFor(
+      () => Promise.resolve(player.getState().paused),
+      (paused) => paused,
+    );
+    const currentPath = before.currentTrack?.path;
+    const currentId = before.queue[before.currentQueueIndex]?.id;
+
+    await player.setShuffle(false);
+    const restored = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) =>
+        !state.shuffleEnabled &&
+        state.currentTrack?.path === currentPath &&
+        state.positionSeconds > 2.5,
+      5_000,
+    );
+    assert.equal(restored.queue[restored.currentQueueIndex]?.id, currentId);
+    assert.ok(
+      Math.abs(restored.positionSeconds - before.positionSeconds) < 0.5,
+    );
+    assert.equal(restored.paused, true);
+  } finally {
+    await player.shutdown();
     await rm(folder, { recursive: true, force: true });
   }
 });

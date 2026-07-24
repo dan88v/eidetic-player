@@ -139,6 +139,15 @@ void test("Step 2.10 follow-up headers and Album grid keep compact geometry", ()
     styles,
     /\.library-screen:not\(\[data-album-view="list"\]\)[\s\S]*\.library-album-card[\s\S]*> \.favorite-track-button\s*\{[^}]*display: none;/,
   );
+  assert.match(
+    styles,
+    /:is\(\.library-screen, \.favorites-screen\):not\(\[data-album-view="list"\]\)[\s\S]*\.library-album-art\s*\{[^}]*width: calc\(100% - var\(--space-3\) - var\(--space-3\)\);[^}]*margin: var\(--space-3\) var\(--space-3\) 0;[^}]*aspect-ratio: 1 \/ 1;/,
+  );
+  assert.match(styles, /\.library-album-card__open\s*\{[^}]*padding: 0;/);
+  assert.match(
+    styles,
+    /span:last-child[\s\S]*> small:last-child\s*\{[^}]*padding-right: calc\(var\(--touch-min\) \+ var\(--space-2\)\);/,
+  );
 });
 
 void test("playlist picker shows three rows and uses the shared create dialog", () => {

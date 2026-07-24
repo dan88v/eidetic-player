@@ -1,9 +1,11 @@
 import type {
+  AddSmbLibrarySourceResponse,
   DirectoryBrowseResponse,
   DirectoryQueueResponse,
   FolderArtworkPreview,
   LibraryMetadataSummary,
   OpenLibraryEntryResponse,
+  SmbLibraryCoverage,
 } from "../../../../packages/shared/src/library";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
 import type {
@@ -70,6 +72,29 @@ export class SmbApiClient {
     const query = new URLSearchParams({ relativePath });
     return this.request(
       `/api/smb/connections/${encodeURIComponent(id)}/browse?${query.toString()}`,
+    );
+  }
+
+  libraryCoverage(
+    id: string,
+    logicalRelativePath: string,
+  ): Promise<SmbLibraryCoverage> {
+    const query = new URLSearchParams({ logicalRelativePath });
+    return this.request(
+      `/api/smb/connections/${encodeURIComponent(id)}/library-coverage?${query.toString()}`,
+    );
+  }
+
+  addLibrarySource(
+    id: string,
+    logicalRelativePath: string,
+  ): Promise<AddSmbLibrarySourceResponse> {
+    return this.request(
+      `/api/smb/connections/${encodeURIComponent(id)}/library-sources`,
+      {
+        method: "POST",
+        body: JSON.stringify({ logicalRelativePath }),
+      },
     );
   }
 

@@ -134,7 +134,7 @@ export class PlayerService {
       if (
         origin?.kind !== "removable" &&
         origin?.kind !== "smb" &&
-        !(origin?.kind === "folders" && origin.removable)
+        !(origin?.kind === "folders" && (origin.removable || origin.smb))
       )
         return nativePath;
       const logicalPath = origin.relativePath
@@ -340,6 +340,10 @@ export class PlayerService {
     this.playlistItemIds = queue.map(
       (_, index) => options.itemIds?.[index] ?? `queue-${randomUUID()}`,
     );
+    const playlistIdentities = this.capturePlaylistIdentities(
+      queue,
+      this.playlistItemIds,
+    );
     this.queueOrigins.clear();
     for (const path of queue) {
       const inputIndex = paths.findIndex(
@@ -363,8 +367,12 @@ export class PlayerService {
     this.preparingPlaylist = true;
     try {
       await controller.loadPlaylist(queue, selectedIndex);
-      if (this.state.shuffleEnabled)
+      if (this.state.shuffleEnabled) {
         await controller.command(["playlist-shuffle"]);
+        const playlist = await controller.getProperty("playlist");
+        this.properties.set("playlist", playlist);
+        this.alignPlaylistItemIds(playlist, playlistIdentities);
+      }
       await controller.setProperty("pause", !options.autoplay);
       this.preparingPlaylist = false;
       await this.refreshProperties();
@@ -692,7 +700,7 @@ export class PlayerService {
       Math.min(this.state.durationSeconds, positionSeconds),
     );
     for (const listener of this.seekListeners) listener(this.state);
-    await this.requireController().command(["seek", target, "absolute+exact"]);
+    await this.requireController().seekWhenReady(target);
   }
 
   async setVolume(volume: number): Promise<void> {
@@ -721,21 +729,32 @@ export class PlayerService {
       return;
     }
     if (this.state.queue.length > 1) {
-      if (enabled) {
-        await controller.command(["playlist-shuffle"]);
-      } else {
-        const currentPath = this.state.currentTrack?.path;
-        const position = this.state.positionSeconds;
-        const paused = this.state.paused;
-        await controller.loadPlaylist(this.originalQueue);
-        const index = currentPath
-          ? this.originalQueue.findIndex(
-              (path) => this.pathKey(path) === this.pathKey(currentPath),
-            )
-          : 0;
-        await controller.setProperty("playlist-pos", Math.max(0, index));
-        await controller.command(["seek", position, "absolute+exact"]);
-        await controller.setProperty("pause", paused);
+      const identities = this.capturePlaylistIdentities(
+        this.state.queue.map((item) => item.path),
+        this.state.queue.map((item) => item.id),
+      );
+      this.preparingPlaylist = true;
+      try {
+        if (enabled) {
+          await controller.command(["playlist-shuffle"]);
+        } else {
+          const currentPath = this.state.currentTrack?.path;
+          const position = this.state.positionSeconds;
+          const paused = this.state.paused;
+          const index = currentPath
+            ? this.originalQueue.findIndex(
+                (path) => this.pathKey(path) === this.pathKey(currentPath),
+              )
+            : 0;
+          await controller.loadPlaylist(this.originalQueue, Math.max(0, index));
+          if (position > 0.05) await controller.seekWhenReady(position);
+          await controller.setProperty("pause", paused);
+        }
+        const playlist = await controller.getProperty("playlist");
+        this.properties.set("playlist", playlist);
+        this.alignPlaylistItemIds(playlist, identities);
+      } finally {
+        this.preparingPlaylist = false;
       }
       await this.refreshProperties();
     }
@@ -1340,7 +1359,7 @@ export class PlayerService {
               ? (this.removableAvailability.get(origin.deviceId) ?? true)
               : origin?.kind === "smb"
                 ? (this.smbAvailability.get(origin.connectionId) ?? true)
-                : origin?.kind === "folders" && origin.removable
+                : origin?.kind === "folders"
                   ? (this.folderSourceAvailability.get(origin.sourceId) ?? true)
                   : true,
           ...(origin?.kind === "folders" && origin.libraryTrackId
@@ -1369,6 +1388,39 @@ export class PlayerService {
     )
       return this.state.queue as QueueItem[];
     return next;
+  }
+
+  private capturePlaylistIdentities(
+    paths: readonly string[],
+    ids: readonly string[],
+  ): Map<string, string[]> {
+    const identities = new Map<string, string[]>();
+    paths.forEach((path, index) => {
+      const id = ids[index];
+      if (!id) return;
+      const key = this.pathKey(path);
+      const matches = identities.get(key);
+      if (matches) matches.push(id);
+      else identities.set(key, [id]);
+    });
+    return identities;
+  }
+
+  private alignPlaylistItemIds(
+    value: unknown,
+    identities: ReadonlyMap<string, readonly string[]>,
+  ): void {
+    if (!Array.isArray(value)) return;
+    const occurrences = new Map<string, number>();
+    this.playlistItemIds = value.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const path = this.asString((entry as MpvPlaylistEntry).filename);
+      if (!path) return [];
+      const key = this.pathKey(path);
+      const occurrence = occurrences.get(key) ?? 0;
+      occurrences.set(key, occurrence + 1);
+      return [identities.get(key)?.[occurrence] ?? `queue-${randomUUID()}`];
+    });
   }
 
   private createTrack(path: string, durationSeconds: number): PlayerTrack {
@@ -1432,10 +1484,12 @@ export class PlayerService {
       source:
         origin?.kind === "smb"
           ? "Network Share"
-          : origin?.kind === "removable" ||
-              (origin?.kind === "folders" && origin.removable)
-            ? "USB Storage"
-            : "Local File",
+          : origin?.kind === "folders" && origin.smb
+            ? "Network Share"
+            : origin?.kind === "removable" ||
+                (origin?.kind === "folders" && origin.removable)
+              ? "USB Storage"
+              : "Local File",
     };
     return this.currentEnrichment?.pathKey === this.pathKey(path)
       ? mergeTrackMetadata(

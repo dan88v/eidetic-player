@@ -72,7 +72,7 @@ void test("top bar hides zero SMB state and exposes green/red/neutral summaries"
   assert.doesNotMatch(text, /Retry|Browse|Settings/u);
 });
 
-void test("SMB Quick Browse reuses Folders without Library actions", async () => {
+void test("SMB Quick Browse reuses Folders with the canonical Library action", async () => {
   const [text, usb, styles] = await Promise.all([
     source("screens/smb-browse.ts"),
     source("screens/usb-storage.ts"),
@@ -85,14 +85,33 @@ void test("SMB Quick Browse reuses Folders without Library actions", async () =>
   assert.match(usb, /resource-browser-screen/u);
   assert.match(styles, /\.resource-browser-screen \.folders-directory-title/u);
   assert.match(text, /Network share folder actions/u);
+  assert.match(text, /Add this folder to Library/u);
+  assert.match(text, /In Library/u);
+  assert.match(text, /Covered/u);
+  assert.match(text, /libraryCoverage/u);
+  assert.match(text, /addLibrarySource/u);
   assert.match(
     styles,
     /\.folders-folder-card__art-button[\s\S]*padding: var\(--space-2\) var\(--space-2\) 0/u,
   );
-  assert.doesNotMatch(
-    text,
-    /Favorite|Playlist|History|Most Played|Add this folder to Library/u,
-  );
+  assert.doesNotMatch(text, /Favorite|Playlist|History|Most Played/u);
+});
+
+void test("SMB Library Sources remain distinct from live Network Shares", async () => {
+  const [sources, folders, api] = await Promise.all([
+    source("screens/sources.ts"),
+    source("screens/folders.ts"),
+    source("api/smb-api-client.ts"),
+  ]);
+  assert.match(sources, /typeLabel: "SMB"/u);
+  assert.match(sources, /Indexed folder on a network share/u);
+  assert.match(sources, /iconName: "ethernet"/u);
+  assert.match(folders, /SMB Library folder/u);
+  assert.match(folders, /source\.type === "smb"/u);
+  assert.match(folders, /target\.iconName !== "ethernet"/u);
+  assert.match(api, /library-coverage/u);
+  assert.match(api, /library-sources/u);
+  assert.doesNotMatch(api, /nativeRoot|canonicalRoot|credentialReference/u);
 });
 
 void test("SMB dialog uses canonical visible auth and keyboard-aware regions", async () => {
@@ -104,14 +123,24 @@ void test("SMB dialog uses canonical visible auth and keyboard-aware regions", a
   assert.match(text, /smb-dialog__header/u);
   assert.match(text, /smb-dialog__body/u);
   assert.match(text, /smb-dialog__footer/u);
-  assert.match(text, /segmented-control__option--selected/u);
+  assert.match(text, /smb-dialog__auth-choice--selected/u);
   assert.match(
     text,
-    /button\.classList\.toggle\([\s\S]*"segmented-control__option--selected"/u,
+    /button\.classList\.toggle\([\s\S]*"smb-dialog__auth-choice--selected"/u,
   );
   assert.match(text, /field\.hidden = mode === "guest"/u);
   assert.match(text, /smbPassword\.value = ""/u);
-  assert.match(styles, /\.smb-dialog__body[\s\S]*overflow-y: auto/u);
+  assert.match(styles, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/u);
+  assert.match(styles, /\.smb-dialog__body[\s\S]*overflow-y: visible/u);
+  assert.match(styles, /\.smb-dialog__auth-choices[\s\S]*justify-self: end/u);
+  assert.match(
+    styles,
+    /\.smb-dialog__footer[\s\S]*margin-top: var\(--space-3\)/u,
+  );
+  assert.match(
+    styles,
+    /data-keyboard-open="true"\] \.smb-dialog__body[\s\S]*overflow-y: auto/u,
+  );
   assert.match(styles, /\.app-root\[data-keyboard-open="true"\] \.smb-dialog/u);
   assert.match(styles, /--eidetic-keyboard-height/u);
   assert.match(adapter, /--eidetic-keyboard-height/u);
@@ -126,6 +155,17 @@ void test("SMB is absent from Main Player and drawer navigation", async () => {
   assert.doesNotMatch(main, /smb/i);
   assert.doesNotMatch(cassette, /smb/i);
   assert.doesNotMatch(menu, /smb/i);
+});
+
+void test("Library Source cards keep Open in overflow and settle after scans", async () => {
+  const text = await source("screens/sources.ts");
+  assert.doesNotMatch(text, /data-source-action="open"/u);
+  assert.match(text, /action: "open"[\s\S]*label: t\("sources\.open"\)/u);
+  assert.match(text, /if \(action === "open"\)[\s\S]*options\.openSource/u);
+  assert.match(
+    text,
+    /const availability =[\s\S]*source\?\.availability === "available"[\s\S]*status\.dataset\.availability = availability/u,
+  );
 });
 
 void test("app shell owns one SMB EventSource and disconnect toast", async () => {

@@ -107,18 +107,37 @@ Browse screen open. Indexed USB folders also appear in Folders root with the
 dedicated USB storage icon; unavailable cards remain visible with playback
 actions disabled.
 
+The SMB browser uses the same action geometry: Play Folder, Add this folder to
+Library, then the overflow menu. Exact coverage becomes `In Library`; parent or
+child overlap becomes a disabled `Covered` action. SMB Library Sources use the
+Network Share icon and `SMB` badge in Sources, and the same icon plus an
+availability-aware card in Folders. The live connection remains separately
+visible under Available Resources / Network Shares. Library Source cards keep
+Open inside the three-dot menu. Their availability label follows Library
+snapshot changes in place, including the transition from Scanning back to
+Available.
+
+The Add/Edit Network Share dialog uses a compact three-column form at the
+touchscreen viewport. Authentication is a light Account/Guest selector aligned
+to the right of its own row, not a full-width segmented control. The dialog
+keeps content height when the on-screen keyboard opens and scrolls only when a
+smaller viewport genuinely cannot contain the form.
+
 Library root is dedicated to Albums, Artists, and Tracks browsing. A single
 compact toolbar places the segmented control on the left and Search, Manage,
 then the Albums-only Grid/List mode on the right; Rescan/Cancel exist only
 inside Manage Library. Search replaces that toolbar with its focused compact
 field.
 The selected segment and Album presentation persist independently. Album cards
-reserve cover geometry before lazy artwork decode; album and artist details
-replace the top-bar title, open at the top, and restore the prior list position
-on Back. Rows use sibling semantic controls for their primary action and
-three-dot menu. Track taps play the complete ordered context directly from that
-row; Play and Add actions are disabled for unavailable entities. Lists use
-keyset pagination and retain at most 192 rendered items.
+reserve square cover geometry before lazy artwork decode and use equal top,
+left, and right insets in Grid mode. The album title uses the full copy width;
+only the final metadata row reserves room for the unchanged bottom-right
+three-dot menu. Album and artist details replace the top-bar title, open at the
+top, and restore the prior list position on Back. Rows use sibling semantic
+controls for their primary action and three-dot menu. Track taps play the
+complete ordered context directly from that row; Play and Add actions are
+disabled for unavailable entities. Lists use keyset pagination and retain at
+most 192 rendered items.
 
 Search replaces the Library header and browsing region without adding a
 persistent row. It requires two characters, debounces for 250 ms, groups

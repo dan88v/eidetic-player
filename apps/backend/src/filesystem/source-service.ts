@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import type {
   AddLocalSourceResponse,
   AddRemovableLibrarySourceResponse,
+  AddSmbLibrarySourceResponse,
   LibrarySource,
   RemovableLibraryCoverage,
+  SmbLibraryCoverage,
 } from "../../../../packages/shared/src/library.js";
 import type { FilesystemProvider } from "./filesystem-provider.js";
 import { FilesystemError } from "./filesystem-errors.js";
@@ -12,6 +14,7 @@ import { SourceRepository } from "./source-repository.js";
 import {
   type ResolvedSource,
   type StoredRemovableSource,
+  type StoredSmbSource,
   type StoredSource,
   toPublicSource,
 } from "./filesystem-types.js";
@@ -42,18 +45,40 @@ export interface SourceAvailabilityChange {
   readonly available: boolean;
 }
 
+export interface SmbSourceResolver {
+  describeDirectory(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<{
+    readonly connectionId: string;
+    readonly logicalRelativeRoot: string;
+    readonly displayName: string;
+    readonly nativeRoot: string;
+    readonly canonicalRoot: string;
+  }>;
+  resolvePersistentDirectory(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<{
+    readonly nativeRoot: string;
+    readonly canonicalRoot: string;
+  }>;
+}
+
 export class SourceService {
   private readonly availability = new Map<
     string,
     "available" | "unavailable" | "checking"
   >();
   private removableMutation: Promise<void> = Promise.resolve();
+  private smbMutation: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly provider: FilesystemProvider,
     private readonly paths: PathService,
     private readonly repository: SourceRepository,
     private readonly removable?: RemovableSourceResolver,
+    private readonly smb?: SmbSourceResolver,
   ) {}
 
   async list(): Promise<readonly LibrarySource[]> {
@@ -230,6 +255,96 @@ export class SourceService {
     };
   }
 
+  async smbCoverage(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<SmbLibraryCoverage> {
+    const smb = this.requireSmb();
+    const descriptor = await smb.describeDirectory(
+      connectionId,
+      logicalRelativeRoot,
+    );
+    const records = (await this.repository.list()).filter(
+      (record): record is StoredSmbSource =>
+        record.type === "smb" &&
+        record.connectionId === descriptor.connectionId,
+    );
+    return this.coverageForRecords(
+      records,
+      descriptor.logicalRelativeRoot,
+      (record) => record.logicalRelativeRoot,
+    );
+  }
+
+  async addSmb(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<AddSmbLibrarySourceResponse> {
+    const operation = this.smbMutation.then(() =>
+      this.addSmbNow(connectionId, logicalRelativeRoot),
+    );
+    this.smbMutation = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private async addSmbNow(
+    connectionId: string,
+    logicalRelativeRoot: string,
+  ): Promise<AddSmbLibrarySourceResponse> {
+    const resolver = this.requireSmb();
+    const descriptor = await resolver.describeDirectory(
+      connectionId,
+      logicalRelativeRoot,
+    );
+    const coverage = await this.smbCoverage(
+      descriptor.connectionId,
+      descriptor.logicalRelativeRoot,
+    );
+    if (coverage.state !== "none")
+      throw new FilesystemError(
+        coverage.state === "exact" ? "SMB_SOURCE_EXISTS" : "SMB_SOURCE_OVERLAP",
+        coverage.state === "exact"
+          ? "This network folder is already in Library."
+          : "This network folder overlaps an existing Library source.",
+        409,
+      );
+    const records = await this.repository.list();
+    await resolver.describeDirectory(
+      descriptor.connectionId,
+      descriptor.logicalRelativeRoot,
+    );
+    const now = new Date().toISOString();
+    const record: StoredSmbSource = {
+      id: randomUUID(),
+      type: "smb",
+      displayName: descriptor.displayName.trim() || "Network Share",
+      connectionId: descriptor.connectionId,
+      logicalRelativeRoot: descriptor.logicalRelativeRoot,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.repository.replace([...records, record]);
+    try {
+      await resolver.resolvePersistentDirectory(
+        record.connectionId,
+        record.logicalRelativeRoot,
+      );
+    } catch (error) {
+      await this.repository.replace(records);
+      throw error;
+    }
+    this.availability.set(record.id, "available");
+    const source = toPublicSource(record, "available");
+    return {
+      source,
+      scanQueued: true,
+      coverage: { state: "exact", source },
+    };
+  }
+
   async rename(sourceId: string, displayName: string): Promise<LibrarySource> {
     const normalized = displayName.trim();
     if (!normalized || normalized.length > 80)
@@ -273,18 +388,22 @@ export class SourceService {
     return toPublicSource(record, availability);
   }
 
-  async getInternal(
-    sourceId: string,
-  ): Promise<ResolvedSource<"local" | "removable">> {
+  async getInternal(sourceId: string): Promise<ResolvedSource> {
     const record = await this.getRecord(sourceId);
     if (record.type === "local") return record;
-    const resolved = await this.requireRemovable().resolvePersistentDirectory(
-      record.stableIdentity,
-      record.logicalRelativeRoot,
-    );
+    const resolved =
+      record.type === "removable"
+        ? await this.requireRemovable().resolvePersistentDirectory(
+            record.stableIdentity,
+            record.logicalRelativeRoot,
+          )
+        : await this.requireSmb().resolvePersistentDirectory(
+            record.connectionId,
+            record.logicalRelativeRoot,
+          );
     return {
       id: record.id,
-      type: "removable",
+      type: record.type,
       displayName: record.displayName,
       nativeRoot: resolved.nativeRoot,
       canonicalRoot: resolved.canonicalRoot,
@@ -345,6 +464,45 @@ export class SourceService {
       .map((record) => record.id);
   }
 
+  async smbSourceIdsForConnections(
+    connectionIds: readonly string[],
+  ): Promise<readonly string[]> {
+    const ids = new Set(connectionIds);
+    return (await this.repository.list())
+      .filter(
+        (record): record is StoredSmbSource =>
+          record.type === "smb" && ids.has(record.connectionId),
+      )
+      .map((record) => record.id);
+  }
+
+  async hasSmbSources(connectionId: string): Promise<boolean> {
+    return (await this.repository.list()).some(
+      (record) => record.type === "smb" && record.connectionId === connectionId,
+    );
+  }
+
+  async refreshSmbAvailability(
+    connectionIds?: readonly string[],
+  ): Promise<readonly SourceAvailabilityChange[]> {
+    if (!this.smb) return [];
+    const filter = connectionIds ? new Set(connectionIds) : null;
+    const records = await this.repository.list();
+    const changes: SourceAvailabilityChange[] = [];
+    for (const record of records) {
+      if (record.type !== "smb" || (filter && !filter.has(record.connectionId)))
+        continue;
+      const next = await this.resolveSmbAvailability(record);
+      if (this.availability.get(record.id) !== next)
+        changes.push({
+          sourceId: record.id,
+          available: next === "available",
+        });
+      this.availability.set(record.id, next);
+    }
+    return changes;
+  }
+
   private async check(
     record: StoredSource,
   ): Promise<"available" | "unavailable"> {
@@ -353,6 +511,11 @@ export class SourceService {
         this.removable?.isIdentityAvailable(record.stableIdentity) === true;
       this.availability.set(record.id, available ? "available" : "unavailable");
       return available ? "available" : "unavailable";
+    }
+    if (record.type === "smb") {
+      const availability = await this.resolveSmbAvailability(record);
+      this.availability.set(record.id, availability);
+      return availability;
     }
     try {
       const details = await this.provider.lstat(record.canonicalRoot);
@@ -376,6 +539,53 @@ export class SourceService {
         503,
       );
     return this.removable;
+  }
+
+  private requireSmb(): SmbSourceResolver {
+    if (!this.smb)
+      throw new FilesystemError(
+        "SMB_UNAVAILABLE",
+        "Network share integration is unavailable.",
+        503,
+      );
+    return this.smb;
+  }
+
+  private async resolveSmbAvailability(
+    record: StoredSmbSource,
+  ): Promise<"available" | "unavailable"> {
+    try {
+      await this.requireSmb().resolvePersistentDirectory(
+        record.connectionId,
+        record.logicalRelativeRoot,
+      );
+      return "available";
+    } catch {
+      return "unavailable";
+    }
+  }
+
+  private async coverageForRecords<T>(
+    records: readonly T[],
+    requestedRoot: string,
+    rootOf: (record: T) => string,
+  ): Promise<SmbLibraryCoverage> {
+    const requested = this.logicalSegments(requestedRoot);
+    for (const record of records) {
+      const existing = this.logicalSegments(rootOf(record));
+      const sourceRecord = record as StoredSource;
+      const source = toPublicSource(
+        sourceRecord,
+        await this.check(sourceRecord),
+      );
+      if (this.sameSegments(existing, requested))
+        return { state: "exact", source };
+      if (this.isSegmentAncestor(existing, requested))
+        return { state: "covered-by-parent", source };
+      if (this.isSegmentAncestor(requested, existing))
+        return { state: "overlaps-child", source };
+    }
+    return { state: "none", source: null };
   }
 
   private logicalSegments(value: string): readonly string[] {
