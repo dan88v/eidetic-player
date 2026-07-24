@@ -11,6 +11,9 @@ mode=standard
 dry_run=0
 unattended=0
 EIDETIC_ROOT=/
+rpi_keyboard=keep
+rpi_keyboard_explicit=0
+SOURCE_REMOTE=https://github.com/dan88v/eidetic-player.git
 declare -A choice=()
 
 usage() {
@@ -28,6 +31,7 @@ Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
   --hide-pointer yes|no       Appliance choice
   --splash yes|no             Appliance choice
   --autologin yes|no          Appliance choice
+  --rpi-onscreen-keyboard keep|disable
   --help
 EOF
 }
@@ -50,11 +54,19 @@ while (($#)); do
     --hide-pointer) set_choice pointer "${2:-}"; shift 2;;
     --splash) set_choice splash "${2:-}"; shift 2;;
     --autologin) set_choice autologin "${2:-}"; shift 2;;
+    --rpi-onscreen-keyboard)
+      [[ $# -ge 2 ]] || eidetic_die "--rpi-onscreen-keyboard needs a value"
+      rpi_keyboard="$2"
+      rpi_keyboard_explicit=1
+      shift 2
+      ;;
     --help) usage; exit 0;;
     *) eidetic_die "unknown option: $1";;
   esac
 done
 [[ "$mode" == "standard" || "$mode" == "appliance" ]] || eidetic_die "--mode must be standard or appliance"
+[[ "$rpi_keyboard" == keep || "$rpi_keyboard" == disable ]] ||
+  eidetic_die "--rpi-onscreen-keyboard must be keep or disable"
 [[ -n "$runtime_user" ]] || eidetic_die "--user is required when SUDO_USER is unavailable"
 eidetic_validate_user "$runtime_user"
 eidetic_load_runtime_identity "$runtime_user"
@@ -62,6 +74,11 @@ eidetic_validate_ref "$git_ref"
 if [[ "$EIDETIC_ROOT" != "/" ]]; then eidetic_validate_root "$EIDETIC_ROOT"; fi
 export EIDETIC_ROOT
 eidetic_require_root
+checkout="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
+preflight_world_write=yes
+[[ "$EIDETIC_ROOT" == "/" ]] || preflight_world_write=no
+eidetic_preflight_checkout \
+  "$runtime_user" "$checkout" "$preflight_world_write"
 eidetic_detect_platform
 
 questions=(autostart fullscreen blanking pointer splash autologin)
@@ -77,6 +94,19 @@ else
     fi
   done
 fi
+if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
+  "$rpi_keyboard_explicit" == 0 ]]; then
+  [[ -t 0 ]] ||
+    eidetic_die "Raspberry Pi OS keyboard choice requires a terminal or --rpi-onscreen-keyboard"
+  read -r -p "Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead? [y/N] " answer
+  [[ "$answer" =~ ^[Yy]$ ]] && rpi_keyboard=disable || rpi_keyboard=keep
+fi
+if [[ "$EIDETIC_DISTRO" != raspios && "$rpi_keyboard" == disable ]]; then
+  eidetic_die "--rpi-onscreen-keyboard disable is supported only on Raspberry Pi OS"
+fi
+if [[ "$rpi_keyboard" == disable ]]; then
+  eidetic_require_rpi_keyboard_support
+fi
 
 packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg
   network-manager dbus polkitd udisks2 cifs-utils xterm)
@@ -88,6 +118,7 @@ fi
 [[ "${choice[splash]}" == yes ]] && packages+=(plymouth)
 eidetic_log "Target: $EIDETIC_DISTRO $EIDETIC_ARCH; user=$runtime_user; mode=$mode; ref=$git_ref"
 eidetic_log "APT plan: ${packages[*]}"
+eidetic_log "Raspberry Pi OS on-screen keyboard: $rpi_keyboard"
 for key in "${questions[@]}"; do eidetic_log "  $key=${choice[$key]}"; done
 if ((dry_run)); then
   eidetic_log "Dry-run complete: no files, packages, services, boot settings, mounts, or network profiles changed."
@@ -96,10 +127,22 @@ fi
 
 tmp="$(mktemp -d)"
 build_workspace=
+build_runtime=
 release_stage=
+keyboard_changed=0
+install_committed=0
+keyboard_attempt_state=
 cleanup() {
+  if [[ "$keyboard_changed" == 1 && "$install_committed" == 0 &&
+    -n "$keyboard_attempt_state" ]]; then
+    eidetic_log "Restoring Raspberry Pi OS on-screen keyboard after failed installation."
+    eidetic_set_rpi_keyboard_state "$keyboard_attempt_state" ||
+      eidetic_log "Warning: automatic on-screen keyboard rollback failed; use raspi-config Display Options > D6."
+  fi
   [[ -z "$release_stage" || ! -e "$release_stage" ]] ||
     rm -rf -- "$release_stage"
+  [[ -z "$build_runtime" || ! -e "$build_runtime" ]] ||
+    rm -rf -- "$build_runtime"
   [[ -z "$build_workspace" || ! -e "$build_workspace" ]] ||
     rm -rf -- "$build_workspace"
   rm -rf -- "$tmp"
@@ -139,59 +182,53 @@ opt="$(eidetic_target /opt/eidetic-player)"
 install -d -m 0755 "$releases"
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   build_workspace="$(eidetic_prepare_build_workspace "$runtime_user")"
+  build_runtime="$(eidetic_prepare_build_runtime "$runtime_user")"
+  eidetic_validate_mpv_runtime_budget "$build_runtime"
+  build_source="$build_workspace/source"
   EIDETIC_INSTALLATION_MODE="$mode"
   EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
   export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN
-  eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): fetch $git_ref"
-  if ! eidetic_run_as_runtime_user \
-    "$runtime_user" "$build_workspace" "$node_release/bin" \
-    git -C "$SCRIPT_DIR/../.." fetch --depth 1 origin "$git_ref"; then
-    eidetic_die "source phase failed: Git fetch"
+  eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
+  if ! eidetic_fetch_isolated_source \
+    "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+    "$git_ref" "$SOURCE_REMOTE"; then
+    eidetic_die "source phase failed: isolated Git fetch"
   fi
-  if ! eidetic_run_as_runtime_user \
-    "$runtime_user" "$build_workspace" "$node_release/bin" \
-    git -C "$SCRIPT_DIR/../.." archive --format=tar \
-      --output="$build_workspace/source.tar" FETCH_HEAD; then
-    eidetic_die "source phase failed: Git archive"
-  fi
-  tar -xf "$build_workspace/source.tar" -C "$build_workspace"
-  rm -f -- "$build_workspace/source.tar"
-  chown -R "$runtime_user:$EIDETIC_RUNTIME_GID" "$build_workspace"
   for phase in ci typecheck test build:linux; do
     eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"
     if ! case "$phase" in
         ci)
           eidetic_run_as_runtime_user \
-            "$runtime_user" "$build_workspace" "$node_release/bin" \
-            "$node_release/bin/npm" ci
+            "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+            "$node_release/bin/npm" --prefix "$build_source" ci
           ;;
         test)
           eidetic_run_as_runtime_user \
-            "$runtime_user" "$build_workspace" "$node_release/bin" \
-            "$node_release/bin/npm" test
+            "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+            "$node_release/bin/npm" --prefix "$build_source" test
           ;;
         *)
           eidetic_run_as_runtime_user \
-            "$runtime_user" "$build_workspace" "$node_release/bin" \
-            "$node_release/bin/npm" run "$phase"
+            "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+            "$node_release/bin/npm" --prefix "$build_source" run "$phase"
           ;;
       esac; then
       eidetic_die "build phase failed: npm $phase"
     fi
   done
-  [[ -d "$build_workspace/dist/backend" ]] ||
+  [[ -d "$build_source/dist/backend" ]] ||
     eidetic_die "build phase failed: backend artifact was not produced"
-  shell_binary="$(find "$build_workspace/dist" -type f -name '*linux*' -perm /111 -print -quit)"
+  shell_binary="$(find "$build_source/dist" -type f -name '*linux*' -perm /111 -print -quit)"
   [[ -n "$shell_binary" ]] || eidetic_die "Neutralino Linux binary was not produced"
   mapfile -d '' neu_files < <(
-    find "$build_workspace/dist" -maxdepth 3 -type f \
+    find "$build_source/dist" -maxdepth 3 -type f \
       \( -name '*.neu' -o -name 'neutralino.config.json' \) -print0
   )
   ((${#neu_files[@]} > 0)) ||
     eidetic_die "Neutralino resources were not produced"
   release_commit="$(eidetic_run_as_runtime_user \
-    "$runtime_user" "$build_workspace" "$node_release/bin" \
-    git -C "$SCRIPT_DIR/../.." rev-parse --short=12 FETCH_HEAD)"
+    "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+    git -C "$build_source" rev-parse --short=12 HEAD)"
 else
   release_commit=staging
 fi
@@ -206,7 +243,7 @@ done
 release_stage="$(mktemp -d -p "$releases" ".incoming-${release_id}.XXXXXX")"
 install -d -m 0755 "$release_stage/bin"
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
-  cp -a "$build_workspace/dist/backend" "$release_stage/backend"
+  cp -a "$build_source/dist/backend" "$release_stage/backend"
   install -m 0755 "$shell_binary" "$release_stage/eidetic-player"
   cp -- "${neu_files[@]}" "$release_stage/"
 else
@@ -236,6 +273,7 @@ EIDETIC_SPLASH=$([[ "${choice[splash]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_AUTOLOGIN=$([[ "${choice[autologin]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_RUNTIME_USER=$runtime_user
 EIDETIC_GIT_REF=$git_ref
+EIDETIC_RPI_ONSCREEN_KEYBOARD=$rpi_keyboard
 EIDETIC_TERMINAL=x-terminal-emulator
 EOF
 eidetic_install_managed "$conf" /etc/eidetic-player/install.conf 0644
@@ -321,7 +359,24 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   systemctl daemon-reload
   loginctl enable-linger "$runtime_user" >/dev/null
 fi
+if [[ "$rpi_keyboard" == disable ]]; then
+  keyboard_attempt_state="$(eidetic_get_rpi_keyboard_state)"
+  keyboard_state_file="$(eidetic_target /var/lib/eidetic-player/rpi-onscreen-keyboard-v1)"
+  if [[ ! -e "$keyboard_state_file" ]]; then
+    install -d -m 0750 "$(dirname "$keyboard_state_file")"
+    printf '%s\n' "$keyboard_attempt_state" >"$tmp/rpi-onscreen-keyboard-v1"
+    install -m 0600 "$tmp/rpi-onscreen-keyboard-v1" "$keyboard_state_file"
+  fi
+  if [[ "$keyboard_attempt_state" != always-off ]]; then
+    keyboard_changed=1
+  fi
+  eidetic_set_rpi_keyboard_state always-off ||
+    eidetic_die "failed to disable the Raspberry Pi OS on-screen keyboard; use raspi-config Display Options > D6 manually"
+  [[ "$(eidetic_get_rpi_keyboard_state)" == always-off ]] ||
+    eidetic_die "Raspberry Pi OS on-screen keyboard verification failed"
+fi
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=
+install_committed=1
 eidetic_log "Installed release $release_id atomically. No reboot was performed."
 eidetic_log "Application data under the runtime user's XDG directories was not modified."

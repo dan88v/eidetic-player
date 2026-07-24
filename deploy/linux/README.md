@@ -66,6 +66,8 @@ hardware serial, MAC address, user home or credentials.
 5. Clone the repository and inspect at least:
 
    ```bash
+   git clone --depth 1 https://github.com/dan88v/eidetic-player.git
+   cd eidetic-player
    less deploy/linux/install-eidetic-player.sh
    less deploy/linux/restore-system-ui.sh
    ```
@@ -81,6 +83,25 @@ hardware serial, MAC address, user home or credentials.
 
 Do not use `curl | bash`, `wget | sh`, or a remotely hosted script that has not
 been inspected.
+
+Clone and update the checkout as the normal desktop user, never with sudo. The
+installer needs only traversable directories, readable bootstrap files and an
+executable installer script. It treats the checkout and its `.git` directory
+as read-only: dependency installation, tests and build never create
+`node_modules`, `dist`, caches or temporary files there. `chmod 777` and
+world-writable repository permissions are neither required nor accepted.
+
+If the preflight reports that the checkout is not readable, repair ownership
+and private permissions instead of making it world-writable:
+
+```bash
+sudo chown -R "$(id -un):$(id -gn)" "$PWD"
+sudo chmod -R u+rwX,go-rwx "$PWD"
+```
+
+A root-owned checkout is accepted when the runtime user can safely traverse
+and read every required bootstrap file. The installer reports suspicious
+root ownership but does not change ownership or modes automatically.
 
 On a real Raspberry Pi, this read-only verification must reach `Target:
 raspios arm64` and the APT plan without installing packages or changing
@@ -133,26 +154,39 @@ The installer:
   archive and verifies `SHASUMS256.txt`;
 - uses root only for packages and managed paths under `/opt`, `/etc` and
   `/usr/local`;
-- runs source fetch/archive, `npm ci`, typecheck, the complete test suite and
-  the production Linux/Neutralino build as the existing non-root runtime user;
+- creates a separate temporary Git repository owned by the runtime user,
+  fetches the validated ref from the fixed official Eidetic remote, and checks
+  out `FETCH_HEAD` detached without modifying the original checkout;
+- runs `npm ci`, typecheck, the complete test suite and the production
+  Linux/Neutralino build as the existing non-root runtime user in that isolated
+  source tree;
 - installs immutable releases under `/opt/eidetic-player/releases`;
 - atomically updates `current` and retains `previous`;
 - keeps config, cache, database and credentials in the runtime user's XDG
   directories.
 
-The build runs in a temporary mode-0700 workspace owned by the runtime user's
-UID and primary group. It receives a clean environment with that user's
-`HOME`, `USER` and `LOGNAME`, the managed Node in `PATH`, a UTF-8 locale, and
-workspace-local npm cache and temporary directories. npm does not run as root
-and does not create a root-owned `.npm` directory or build configuration in
-the user's home.
+The build retains a deliberately long mode-0700 workspace name containing a
+space and Unicode, owned by the runtime UID and primary group. `TMPDIR`, npm
+cache and the isolated repository remain inside that workspace. A second,
+concurrency-unique `/tmp/ep-r.XXXXXX` directory is assigned to
+`XDG_RUNTIME_DIR`; it is short enough for MPV's portable Unix-socket budget,
+also mode 0700 and runtime-owned. The installer validates a representative
+socket path before npm starts.
+
+Both temporary roots receive cleanup on success or failure, including sockets,
+npm cache and a failed isolated fetch. The controlled environment supplies the
+runtime user's `HOME`, `USER` and `LOGNAME`, managed Node in `PATH`, UTF-8
+locale, disabled Git prompting and no global/system Git configuration. It does
+not use the real `/run/user/<uid>` desktop runtime. npm does not run as root or
+create a root-owned `.npm` directory in the user's home.
 
 No final release directory is created or activated until dependency
 installation, typecheck, tests, Linux build and artifact validation all
 succeed. A failed phase reports its name, removes the private workspace and
 incoming release, and leaves both `current` and `previous` unchanged. Package
 or managed Node installation already completed by an earlier attempt is
-reused safely on the next run.
+reused safely on the next run. A failed attempt does not require reinstalling
+Raspberry Pi OS, Node, the checkout or application data.
 
 No automatic reboot is performed.
 
@@ -171,6 +205,7 @@ No automatic reboot is performed.
 --hide-pointer yes|no
 --splash yes|no
 --autologin yes|no
+--rpi-onscreen-keyboard keep|disable
 --help
 ```
 
@@ -178,8 +213,40 @@ No automatic reboot is performed.
 yes/no flags are appliance choices. In `--unattended` appliance mode every
 choice must be supplied explicitly.
 
+`--rpi-onscreen-keyboard` defaults to `keep`. On Raspberry Pi OS, an
+interactive Standard or Appliance installation asks once whether to disable
+the OS keyboard in favour of Eidetic Player's internal keyboard; the default
+answer is No. Unattended installation never prompts and disables it only when
+`disable` is explicit. Ubuntu accepts `keep` and rejects `disable`.
+
 `--root` redirects administrative paths into an isolated staging tree. It is a
 deployment test facility, not an alternate production prefix.
+
+## Raspberry Pi OS on-screen keyboard
+
+Raspberry Pi OS Bookworm and Trixie use Squeekboard. Eidetic does not uninstall
+that package or change its own internal keyboard. When `disable` is selected,
+the installer verifies that the installed `raspi-config` exposes its supported
+non-interactive `get_squeekboard` and `do_squeekboard` functions, records the
+original Always On, Autodetect or Always Off state once, then applies the
+official `S3 Always Off` choice and verifies it before activating the release.
+
+Restore and uninstall map the saved state back exactly through the same
+official mechanism: `S1` for Always On, `S2` for Autodetect and `S3` for Always
+Off. Repeated install, restore and uninstall do not overwrite the original
+saved state.
+
+If the installed `raspi-config` lacks this support, the installer stops without
+activating a release or leaving a partial keyboard change. Configure it
+manually with:
+
+```bash
+sudo raspi-config
+```
+
+Then select **Display Options → D6 Onscreen Keyboard** and choose **S1 Always
+On**, **S2 Autodetect** or **S3 Always Off**. This option is Raspberry Pi OS
+only; no generic Ubuntu keyboard configuration is added.
 
 ## Appliance trial
 
@@ -312,7 +379,8 @@ sudo ./deploy/linux/restore-system-ui.sh
 
 Restore is idempotent, uses the installed manifest/backups rather than the
 original Git checkout, and does not alter application data, music, shares, USB
-content or user NetworkManager profiles.
+content or user NetworkManager profiles. If Eidetic disabled the Raspberry Pi
+OS on-screen keyboard, restore also reapplies its exact saved state.
 
 ## Uninstall
 
@@ -353,9 +421,13 @@ OS rejection, double install, a real staging update, rollback, doctor, double
 restore, double uninstall, shellcheck when available and systemd unit
 verification. When run as root it also changes from the administrative UID to
 the supplied runtime user in a private path containing spaces and Unicode,
-checks the real mode-000 permission denial, controlled environment, cache
-ownership, failure cleanup, retry, atomic activation and literal handling of
-an injection-shaped argument.
+checks the short private XDG runtime and real Unix socket creation/cleanup,
+mode-000 permission denial, read-only checkout invariance, isolated Git fetch,
+controlled environment, cache ownership, failure cleanup, retry, atomic
+activation and literal handling of an injection-shaped argument. Raspberry Pi
+fixtures cover keyboard keep/disable, all three saved states, dry-run,
+unsupported versions, transactional failure, update, repeated restore and
+uninstall without changing the WSL host keyboard.
 
 For the case-sensitive import gate, use a native Linux Node/npm installation
 and filesystem:

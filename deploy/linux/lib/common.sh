@@ -48,6 +48,76 @@ eidetic_load_runtime_identity() {
   export EIDETIC_RUNTIME_UID EIDETIC_RUNTIME_GID EIDETIC_RUNTIME_HOME
 }
 
+eidetic_checkout_permission_error() {
+  local user="$1" checkout="$2"
+  printf 'Error: The source checkout is not readable by the runtime user.\n' >&2
+  printf 'Recommended repair:\n\n' >&2
+  printf 'sudo chown -R %s:%s %q\n' \
+    "$user" "$EIDETIC_RUNTIME_GID" "$checkout" >&2
+  printf 'sudo chmod -R u+rwX,go-rwx %q\n' "$checkout" >&2
+  exit 1
+}
+
+eidetic_runtime_test_path() {
+  local user="$1" operation="$2" path="$3"
+  if [[ "${EUID}" -eq 0 ]]; then
+    runuser --user "$user" -- /usr/bin/test "$operation" "$path"
+  else
+    /usr/bin/test "$operation" "$path"
+  fi
+}
+
+eidetic_preflight_checkout() {
+  local user="$1" checkout="$2" enforce_world_write="${3:-yes}"
+  local mode origin head root_owned=no path
+  local -a bootstrap=(
+    "$checkout/.nvmrc"
+    "$checkout/.git/HEAD"
+    "$checkout/.git/config"
+    "$checkout/deploy/linux/install-eidetic-player.sh"
+    "$checkout/deploy/linux/lib/common.sh"
+    "$checkout/deploy/linux/runtime/eidetic-player-launch"
+    "$checkout/deploy/linux/network/install-network-integration.sh"
+  )
+  [[ "$checkout" == /* && -d "$checkout" && ! -L "$checkout" ]] ||
+    eidetic_die "invalid source checkout path"
+  [[ -d "$checkout/.git" && ! -L "$checkout/.git" ]] ||
+    eidetic_die "invalid Git metadata path in source checkout"
+  mode="$(stat -c %a "$checkout")"
+  if (((8#$mode & 2) != 0)); then
+    if [[ "$enforce_world_write" == yes ]]; then
+      eidetic_die "source checkout directory is world-writable; repair its ownership and permissions without chmod 777"
+    fi
+    eidetic_log "Staging note: checkout world-write check is not enforced on the host-mounted fixture."
+  fi
+  eidetic_runtime_test_path "$user" -x "$checkout" ||
+    eidetic_checkout_permission_error "$user" "$checkout"
+  for path in "${bootstrap[@]}"; do
+    [[ -e "$path" && ! -L "$path" ]] ||
+      eidetic_die "unsafe or missing bootstrap file: ${path#"$checkout"/}"
+    eidetic_runtime_test_path "$user" -r "$path" ||
+      eidetic_checkout_permission_error "$user" "$checkout"
+    [[ "$(stat -c %u "$path")" -ne 0 ]] || root_owned=yes
+  done
+  eidetic_runtime_test_path \
+    "$user" -x "$checkout/deploy/linux/install-eidetic-player.sh" ||
+    eidetic_checkout_permission_error "$user" "$checkout"
+  head="$(<"$checkout/.git/HEAD")"
+  [[ "$head" =~ ^ref:\ refs/[A-Za-z0-9._/-]+$ ||
+    "$head" =~ ^[0-9a-fA-F]{40,64}$ ]] ||
+    eidetic_die "invalid Git HEAD in source checkout"
+  command -v git >/dev/null ||
+    eidetic_die "Git is required to validate the source checkout"
+  origin="$(git config --file "$checkout/.git/config" --get remote.origin.url 2>/dev/null || true)"
+  case "$origin" in
+    https://github.com/dan88v/eidetic-player.git | git@github.com:dan88v/eidetic-player.git) ;;
+    *) eidetic_die "source checkout is not the official Eidetic Player repository" ;;
+  esac
+  [[ "$root_owned" == no ]] ||
+    eidetic_log "Checkout preflight: root-owned bootstrap files are accepted because the runtime user can read them."
+  eidetic_log "Checkout preflight: safe read-only bootstrap access confirmed."
+}
+
 eidetic_prepare_build_workspace() {
   local user="$1" parent="${2:-${TMPDIR:-/tmp}}" workspace
   workspace="$(mktemp -d -p "$parent" 'eidetic-player-build-Ü-space.XXXXXX')"
@@ -58,11 +128,29 @@ eidetic_prepare_build_workspace() {
   printf '%s\n' "$workspace"
 }
 
+eidetic_prepare_build_runtime() {
+  local user="$1" parent="${2:-/tmp}" runtime
+  runtime="$(mktemp -d -p "$parent" 'ep-r.XXXXXX')"
+  [[ "$runtime" == /* ]] || eidetic_die "build runtime path must be absolute"
+  chmod 0700 "$runtime"
+  chown "$user:$EIDETIC_RUNTIME_GID" "$runtime"
+  printf '%s\n' "$runtime"
+}
+
+eidetic_validate_mpv_runtime_budget() {
+  local runtime="$1" representative bytes
+  representative="$runtime/eidetic-player/mpv-9999999999-00000000-0000-4000-8000-000000000000.sock"
+  bytes="$(LC_ALL=C printf '%s' "$representative" | wc -c)"
+  ((bytes < 100)) ||
+    eidetic_die "build XDG runtime is too long for the portable MPV Unix socket limit"
+}
+
 eidetic_run_as_runtime_user() {
-  local user="$1" workspace="$2" node_bin="$3"
-  shift 3
+  local user="$1" workspace="$2" runtime="$3" node_bin="$4"
+  shift 4
   [[ "${EUID}" -eq 0 ]] || eidetic_die "runtime-user execution requires an administrative installer"
   [[ -d "$workspace" ]] || eidetic_die "runtime workspace is missing"
+  [[ -d "$runtime" ]] || eidetic_die "short build runtime is missing"
   runuser --user "$user" -- \
     env -i --chdir="$workspace" \
       HOME="$EIDETIC_RUNTIME_HOME" \
@@ -72,13 +160,70 @@ eidetic_run_as_runtime_user() {
       LANG=C.UTF-8 \
       LC_ALL=C.UTF-8 \
       TMPDIR="$workspace/.tmp" \
+      XDG_RUNTIME_DIR="$runtime" \
       npm_config_cache="$workspace/.npm-cache" \
       npm_config_userconfig=/dev/null \
       npm_config_update_notifier=false \
       npm_config_fund=false \
+      GIT_TERMINAL_PROMPT=0 \
+      GIT_CONFIG_GLOBAL=/dev/null \
+      GIT_CONFIG_NOSYSTEM=1 \
       EIDETIC_INSTALLATION_MODE="${EIDETIC_INSTALLATION_MODE:-standard}" \
       EIDETIC_FULLSCREEN="${EIDETIC_FULLSCREEN:-0}" \
       "$@"
+}
+
+eidetic_fetch_isolated_source() {
+  local user="$1" workspace="$2" runtime="$3" node_bin="$4"
+  local ref="$5" remote="$6" source="$workspace/source"
+  install -d -m 0700 -o "$user" -g "$EIDETIC_RUNTIME_GID" "$source"
+  eidetic_run_as_runtime_user "$user" "$workspace" "$runtime" "$node_bin" \
+    git -C "$source" init --quiet || return
+  eidetic_run_as_runtime_user "$user" "$workspace" "$runtime" "$node_bin" \
+    git -C "$source" remote add origin "$remote" || return
+  eidetic_run_as_runtime_user "$user" "$workspace" "$runtime" "$node_bin" \
+    git -C "$source" fetch --depth 1 --no-tags origin "$ref" || return
+  eidetic_run_as_runtime_user "$user" "$workspace" "$runtime" "$node_bin" \
+    git -C "$source" checkout --quiet --detach FETCH_HEAD
+}
+
+eidetic_rpi_keyboard_tool() {
+  printf '%s\n' "$(eidetic_target /usr/bin/raspi-config)"
+}
+
+eidetic_require_rpi_keyboard_support() {
+  local tool
+  tool="$(eidetic_rpi_keyboard_tool)"
+  [[ -x "$tool" ]] ||
+    eidetic_die "raspi-config is required to manage the Raspberry Pi OS on-screen keyboard; use Display Options > D6 Onscreen Keyboard manually"
+  grep -Eq '^get_squeekboard\(\)' "$tool" &&
+    grep -Eq '^do_squeekboard\(\)' "$tool" ||
+    eidetic_die "this raspi-config version cannot manage Squeekboard; use Display Options > D6 Onscreen Keyboard manually"
+}
+
+eidetic_get_rpi_keyboard_state() {
+  local tool value
+  tool="$(eidetic_rpi_keyboard_tool)"
+  value="$("$tool" nonint get_squeekboard)" ||
+    eidetic_die "could not determine the Raspberry Pi OS on-screen keyboard state"
+  case "$value" in
+    0) printf 'always-on\n' ;;
+    1) printf 'autodetect\n' ;;
+    2) printf 'always-off\n' ;;
+    *) eidetic_die "raspi-config returned an unknown on-screen keyboard state" ;;
+  esac
+}
+
+eidetic_set_rpi_keyboard_state() {
+  local state="$1" tool option
+  tool="$(eidetic_rpi_keyboard_tool)"
+  case "$state" in
+    always-on) option=S1 ;;
+    autodetect) option=S2 ;;
+    always-off) option=S3 ;;
+    *) eidetic_die "invalid saved Raspberry Pi OS on-screen keyboard state" ;;
+  esac
+  "$tool" nonint do_squeekboard "$option"
 }
 
 eidetic_activate_release() {

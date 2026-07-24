@@ -42,8 +42,9 @@ fixture() {
 "$SCRIPT_DIR/test-platform-detection.sh"
 if [[ "${EUID}" -eq 0 ]]; then
   "$SCRIPT_DIR/test-unprivileged-build.sh" "$runtime_user"
+  "$SCRIPT_DIR/test-rpi-keyboard.sh" "$runtime_user"
 else
-  printf 'Unprivileged-build fixture requires root; run this staging suite with sudo for that gate.\n'
+  printf 'Unprivileged-build and keyboard fixtures require root; run this staging suite with sudo for those gates.\n'
 fi
 
 fixture raspios \

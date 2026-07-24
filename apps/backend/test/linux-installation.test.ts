@@ -19,12 +19,19 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
     "--hide-pointer",
     "--splash",
     "--autologin",
+    "--rpi-onscreen-keyboard",
   ])
     assert.match(source, new RegExp(flag));
   assert.match(source, /SHASUMS256\.txt/);
   assert.match(source, /sha256sum --check --strict/);
-  assert.match(source, /"\$node_release\/bin\/npm" ci/);
-  assert.match(source, /"\$node_release\/bin\/npm" run "\$phase"/);
+  assert.match(
+    source,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" ci/,
+  );
+  assert.match(
+    source,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$phase"/,
+  );
   assert.doesNotMatch(source, /(?:full-upgrade|dist-upgrade|curl[^\\n]*\|)/);
 });
 
@@ -47,18 +54,30 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
     "LANG",
     "LC_ALL",
     "TMPDIR",
+    "XDG_RUNTIME_DIR",
     "npm_config_cache",
     "npm_config_userconfig",
   ])
     assert.match(common, new RegExp(`${variable}=`));
-  assert.doesNotMatch(common, /(?:su -c|eval|sudo)/);
+  assert.doesNotMatch(common, /(?:su -c|eval)/);
+  assert.doesNotMatch(common, /^\s*sudo\s/m);
 
   assert.match(installer, /eidetic_prepare_build_workspace/);
-  assert.match(installer, /chown -R "\$runtime_user:\$EIDETIC_RUNTIME_GID"/);
+  assert.match(installer, /eidetic_prepare_build_runtime/);
+  assert.match(installer, /eidetic_validate_mpv_runtime_budget/);
   assert.match(installer, /Build phase \(runtime user UID/);
-  assert.match(installer, /"\$node_release\/bin\/npm" ci/);
-  assert.match(installer, /"\$node_release\/bin\/npm" test/);
-  assert.match(installer, /"\$node_release\/bin\/npm" run "\$phase"/);
+  assert.match(
+    installer,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" ci/,
+  );
+  assert.match(
+    installer,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" test/,
+  );
+  assert.match(
+    installer,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$phase"/,
+  );
   assert.match(update, /install-eidetic-player\.sh" "\$\{args\[@\]\}"/);
 
   const lifecycle = installer.indexOf(
@@ -80,7 +99,76 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
   assert.match(fixture, /literal_payload="; touch/);
   assert.match(
     fixture,
-    /Root-to-runtime build, permission, injection and transaction fixtures passed/,
+    /Runtime, socket, read-only checkout, isolated Git and transaction fixtures passed/,
+  );
+});
+
+void test("Linux build uses a short private runtime and an isolated Git checkout", async () => {
+  const [installer, common, fixture] = await Promise.all([
+    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/lib/common.sh"),
+    read("deploy/linux/test-unprivileged-build.sh"),
+  ]);
+  assert.match(common, /mktemp -d -p "\$parent" 'ep-r\.XXXXXX'/);
+  assert.match(common, /XDG_RUNTIME_DIR="\$runtime"/);
+  assert.match(common, /TMPDIR="\$workspace\/\.tmp"/);
+  assert.match(common, /representative=.*mpv-9999999999-/);
+  assert.match(common, /\(\(bytes < 100\)\)/);
+  assert.match(common, /GIT_TERMINAL_PROMPT=0/);
+  assert.match(common, /GIT_CONFIG_GLOBAL=\/dev\/null/);
+  assert.match(common, /GIT_CONFIG_NOSYSTEM=1/);
+  assert.match(common, /git -C "\$source" init --quiet/);
+  assert.match(common, /fetch --depth 1 --no-tags origin "\$ref"/);
+  assert.match(common, /checkout --quiet --detach FETCH_HEAD/);
+  assert.match(
+    installer,
+    /SOURCE_REMOTE=https:\/\/github\.com\/dan88v\/eidetic-player\.git/,
+  );
+  assert.doesNotMatch(
+    installer,
+    /git -C "\$SCRIPT_DIR\/\.\.\/\.\." (?:fetch|archive|checkout|reset|pull)/,
+  );
+  assert.match(installer, /eidetic_preflight_checkout/);
+  assert.match(common, /source checkout directory is world-writable/);
+  assert.match(common, /source checkout is not readable by the runtime user/);
+  assert.doesNotMatch(common, /^\s*chmod(?: -R)? 777/m);
+  assert.match(fixture, /checkout_snapshot/);
+  assert.match(fixture, /FETCH_HEAD/);
+  assert.match(fixture, /checkout Ü space/);
+  assert.match(fixture, /remote Ü; literal\.git/);
+  assert.match(fixture, /python3 - <<'PY'/);
+});
+
+void test("Raspberry Pi OS keyboard choice is explicit, reversible and staged", async () => {
+  const [installer, common, update, restore, fixture] = await Promise.all([
+    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/lib/common.sh"),
+    read("deploy/linux/update-eidetic-player.sh"),
+    read("deploy/linux/restore-system-ui.sh"),
+    read("deploy/linux/test-rpi-keyboard.sh"),
+  ]);
+  assert.match(installer, /rpi_keyboard=keep/);
+  assert.match(
+    installer,
+    /Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead\? \[y\/N\]/,
+  );
+  assert.match(installer, /Raspberry Pi OS on-screen keyboard: \$rpi_keyboard/);
+  assert.match(installer, /EIDETIC_RPI_ONSCREEN_KEYBOARD=\$rpi_keyboard/);
+  assert.match(common, /nonint get_squeekboard/);
+  assert.match(common, /nonint do_squeekboard "\$option"/);
+  assert.match(common, /always-on\) option=S1/);
+  assert.match(common, /autodetect\) option=S2/);
+  assert.match(common, /always-off\) option=S3/);
+  assert.match(update, /EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep/);
+  assert.match(restore, /rpi-onscreen-keyboard-v1/);
+  assert.match(restore, /eidetic_set_rpi_keyboard_state/);
+  assert.match(fixture, /fixture-keyboard-fail/);
+  assert.match(fixture, /install_disable/);
+  assert.match(fixture, /restore-system-ui\.sh.*--dry-run/);
+  assert.match(fixture, /uninstall-eidetic-player\.sh.*update_root/);
+  assert.doesNotMatch(
+    `${installer}\n${common}\n${restore}`,
+    /(?:apt(?:-get)? remove|apt(?:-get)? purge|pkill squeekboard)/,
   );
 });
 

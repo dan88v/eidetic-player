@@ -17,6 +17,23 @@ done
 [[ "$EIDETIC_ROOT" == "/" ]] || eidetic_validate_root "$EIDETIC_ROOT"
 export EIDETIC_ROOT
 eidetic_require_root
+keyboard_state_file="$(eidetic_target /var/lib/eidetic-player/rpi-onscreen-keyboard-v1)"
+if [[ -f "$keyboard_state_file" ]]; then
+  keyboard_state="$(<"$keyboard_state_file")"
+  case "$keyboard_state" in
+    always-on | autodetect | always-off) ;;
+    *) eidetic_die "invalid saved Raspberry Pi OS on-screen keyboard state" ;;
+  esac
+  if ((dry_run)); then
+    eidetic_log "Would restore Raspberry Pi OS on-screen keyboard: $keyboard_state"
+  else
+    eidetic_require_rpi_keyboard_support
+    eidetic_set_rpi_keyboard_state "$keyboard_state" ||
+      eidetic_die "failed to restore the Raspberry Pi OS on-screen keyboard"
+    [[ "$(eidetic_get_rpi_keyboard_state)" == "$keyboard_state" ]] ||
+      eidetic_die "Raspberry Pi OS on-screen keyboard restore verification failed"
+  fi
+fi
 manifest="$(eidetic_target /var/lib/eidetic-player/system-ui-manifest-v1.tsv)"
 backups="$(eidetic_target /var/lib/eidetic-player/backups)"
 [[ -e "$manifest" ]] || { eidetic_log "No Eidetic system UI manifest is present."; exit 0; }

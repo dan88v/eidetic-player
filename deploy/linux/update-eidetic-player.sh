@@ -44,7 +44,8 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$EIDETIC_INSTALLAT
   --autostart "$([[ "${EIDETIC_AUTOSTART:-0}" == 1 ]] && printf yes || printf no)" --fullscreen "$([[ "${EIDETIC_FULLSCREEN:-0}" == 1 ]] && printf yes || printf no)"
   --disable-blanking "$([[ "${EIDETIC_DISABLE_BLANKING:-0}" == 1 ]] && printf yes || printf no)"
   --hide-pointer "$([[ "${EIDETIC_HIDE_POINTER:-0}" == 1 ]] && printf yes || printf no)"
-  --splash "$([[ "${EIDETIC_SPLASH:-0}" == 1 ]] && printf yes || printf no)" --autologin "$([[ "${EIDETIC_AUTOLOGIN:-0}" == 1 ]] && printf yes || printf no)")
+  --splash "$([[ "${EIDETIC_SPLASH:-0}" == 1 ]] && printf yes || printf no)" --autologin "$([[ "${EIDETIC_AUTOLOGIN:-0}" == 1 ]] && printf yes || printf no)"
+  --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && args+=(--dry-run)
 "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
