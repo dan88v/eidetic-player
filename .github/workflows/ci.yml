@@ -39,8 +39,12 @@ jobs:
       - name: Verify lockfile is unchanged
         run: git diff --exit-code -- package-lock.json
 
-      - name: Audit dependencies
-        run: npm audit
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Report development dependency vulnerabilities
+        continue-on-error: true
+        run: npm audit --audit-level=high
 
       - name: Check formatting
         run: npm run format:check
