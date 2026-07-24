@@ -10,6 +10,8 @@ These documents expand the mandatory rules in the repository
   touch-only policy, editing, layout, and lifecycle ownership.
 - [Network](network.md) — global status, platform Wi-Fi adapters, security,
   Settings behavior, and lifecycle ownership.
+- [SMB](smb.md) — persistent network shares, credential boundaries, bounded
+  reconnect, Sources status, and read-only Quick Browse.
 - [Performance](performance.md) — Raspberry Pi 3B budgets, Canvas, SSE, MPV,
   and FFmpeg.
 - [Cassette main player](cassette-player.md) — Queue tape progress, mechanics,

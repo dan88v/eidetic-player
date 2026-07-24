@@ -70,6 +70,11 @@ future Raspberry shell.
   and opaque keyset cursors; `IndexedLibraryService` resolves Play/Add contexts
   and revalidates their paths before delegating to `PlayerService`. Folders
   browsing remains an independent on-demand path.
+- `SmbConnectionService` owns persistent non-Library share identity, one
+  bounded reconnect scheduler, availability, and current backend roots.
+  Platform SMB sessions and credentials remain behind their adapters/stores.
+  Connected shares reuse a separate `DirectoryBrowserService` catalog and the
+  canonical Folders UI without joining `SourceService` or the indexed Library.
 
 Do not introduce a second owner for any of these concerns.
 
@@ -98,6 +103,10 @@ Do not introduce a second owner for any of these concerns.
   radio, connectivity, scan and read-only IP state. One AppShell subscription
   feeds Settings and the top bar. Passwords, BSSID/MAC, native GUID/UUID,
   profile material, helper commands, and native errors remain backend-only.
+- SMB REST/SSE exposes non-secret connection records and safe status only.
+  Passwords, Credential Manager blobs, credential-file paths, UNC roots, mount
+  points, and helper output remain backend-only. One AppShell subscription
+  feeds Sources, Quick Browse, and the top bar.
 - Library REST/SSE carries only opaque Source/Album/Artist/Track identity,
   catalog metadata, aggregate counts, progress, and safe error codes. Database
   paths and native roots remain backend-only. Native paths are reconstructed

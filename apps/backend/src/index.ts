@@ -70,6 +70,18 @@ import { NetworkSseHub } from "./api/network-sse-hub.js";
 import { NetworkService } from "./network/network-service.js";
 import { createPlatformNetworkAdapter } from "./network/platform-network-adapter.js";
 import { NetworkAdapterError } from "./network/network-adapter.js";
+import type {
+  AddSmbConnectionRequest,
+  EditSmbConnectionRequest,
+} from "../../../packages/shared/src/smb.js";
+import { SmbSseHub } from "./api/smb-sse-hub.js";
+import {
+  createPlatformSmbCredentialStore,
+  SmbConnectionService,
+} from "./smb/smb-connection-service.js";
+import { createPlatformSmbAdapter } from "./smb/smb-platform-adapter.js";
+import { SmbConnectionRepository } from "./smb/smb-connection-repository.js";
+import { SmbError } from "./smb/smb-types.js";
 
 const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
@@ -85,6 +97,13 @@ const removableStorage = new RemovableStorageService(
 const network = new NetworkService(
   createPlatformNetworkAdapter(),
   process.platform === "win32" ? 15_000 : 5_000,
+);
+const smb = new SmbConnectionService(
+  filesystemProvider,
+  pathService,
+  new SmbConnectionRepository(),
+  createPlatformSmbCredentialStore(),
+  createPlatformSmbAdapter(),
 );
 const sources = new SourceService(
   filesystemProvider,
@@ -106,6 +125,12 @@ const folders = new DirectoryBrowserService(
   filesystemProvider,
   pathService,
   directorySources,
+  () => player.getCurrentPath(),
+);
+const smbFolders = new DirectoryBrowserService(
+  filesystemProvider,
+  pathService,
+  smb,
   () => player.getCurrentPath(),
 );
 const indexedLibraryPromise = IndexedLibraryService.create(
@@ -186,10 +211,43 @@ const playerSession = new PlayerSessionService(
   sources,
   player,
   removableStorage,
+  smb,
 );
 const events = new SseHub(player);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
 const networkEvents = new NetworkSseHub(network);
+const smbEvents = new SmbSseHub(smb);
+let previousSmbStates = new Map<string, boolean>();
+const unsubscribeSmbPlayer = smb.subscribe((snapshot) => {
+  const next = new Map(
+    snapshot.connections.map((connection) => [
+      connection.id,
+      connection.readable,
+    ]),
+  );
+  for (const connection of snapshot.connections) {
+    const previous = previousSmbStates.get(connection.id);
+    if (previous === connection.readable) continue;
+    smbFolders.invalidateSource(connection.id);
+    void player.setSmbConnectionAvailable(connection.id, connection.readable);
+  }
+  for (const [id] of previousSmbStates) {
+    if (!next.has(id)) {
+      smbFolders.invalidateSource(id);
+      void player.setSmbConnectionAvailable(id, false);
+    }
+  }
+  previousSmbStates = next;
+});
+let networkWasAvailable = false;
+const unsubscribeNetworkSmb = network.subscribe((snapshot) => {
+  const available = [...snapshot.wiredAdapters, ...snapshot.wifiAdapters].some(
+    (adapter) => adapter.connected,
+  );
+  if (available && !networkWasAvailable)
+    void smb.networkAvailable().catch(() => undefined);
+  networkWasAvailable = available;
+});
 const unsubscribeRemovablePlayer = removableStorage.subscribe((change) => {
   for (const deviceId of change.disconnectedIds) {
     folders.invalidateSource(deviceId);
@@ -261,6 +319,7 @@ const unsubscribeAnalyzerState = player.subscribe((state) => {
 const bootstrapPromise = Promise.all([
   player.initialize(),
   removableStorage.start(),
+  smb.initialize(),
 ])
   .then(async () => {
     const restore = await playerSession.restore();
@@ -386,6 +445,11 @@ async function execute(command: PlayerCommand): Promise<void> {
         if (origin.kind === "removable")
           return removableStorage.resolveLogicalPath(
             origin.deviceId,
+            origin.relativePath,
+          );
+        if (origin.kind === "smb")
+          return smb.resolveLogicalPath(
+            origin.connectionId,
             origin.relativePath,
           );
         if (origin.kind === "folders") {
@@ -776,6 +840,229 @@ async function handleRequest(
     if (request.method === "GET" && url.pathname === "/api/network/events") {
       networkEvents.add(response);
       return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/smb/connections") {
+      sendJson(response, 200, { ok: true, data: smb.snapshot() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/smb/events") {
+      smbEvents.add(response);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/smb/connections") {
+      const body = objectBody(await readBody(request));
+      const connection = await smb.add(
+        body as unknown as AddSmbConnectionRequest,
+      );
+      sendJson(response, 201, { ok: true, data: connection });
+      return;
+    }
+    const smbConnectionMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})$/u.exec(url.pathname);
+    if (smbConnectionMatch && request.method === "PATCH") {
+      const body = objectBody(await readBody(request));
+      sendJson(response, 200, {
+        ok: true,
+        data: await smb.edit(
+          smbConnectionMatch[1] ?? "",
+          body as unknown as EditSmbConnectionRequest,
+        ),
+      });
+      return;
+    }
+    if (smbConnectionMatch && request.method === "DELETE") {
+      await readBody(request);
+      await smb.remove(smbConnectionMatch[1] ?? "");
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+    const smbRetryMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/retry$/u.exec(
+        url.pathname,
+      );
+    if (smbRetryMatch && request.method === "POST") {
+      await readBody(request);
+      sendJson(response, 200, {
+        ok: true,
+        data: await smb.retry(smbRetryMatch[1] ?? ""),
+      });
+      return;
+    }
+    const smbBrowseMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/browse$/u.exec(
+        url.pathname,
+      );
+    if (smbBrowseMatch && request.method === "GET") {
+      const connectionId = smbBrowseMatch[1] ?? "";
+      try {
+        sendJson(response, 200, {
+          ok: true,
+          data: await smbFolders.browse(
+            connectionId,
+            url.searchParams.get("relativePath") ?? "",
+          ),
+        });
+      } catch (error) {
+        await smb.reportUnavailable(connectionId).catch(() => undefined);
+        throw error;
+      }
+      return;
+    }
+    const smbFolderArtworkMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/folder-artwork$/u.exec(
+        url.pathname,
+      );
+    if (smbFolderArtworkMatch && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        data: await smbFolders.folderArtworkFor(
+          smbFolderArtworkMatch[1] ?? "",
+          url.searchParams.get("relativePath") ?? "",
+        ),
+      });
+      return;
+    }
+    const smbDirectoryActionMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/directory\/(play|queue)$/u.exec(
+        url.pathname,
+      );
+    if (smbDirectoryActionMatch && request.method === "POST") {
+      const connectionId = smbDirectoryActionMatch[1] ?? "";
+      const action = smbDirectoryActionMatch[2] ?? "";
+      const body = objectBody(await readBody(request));
+      const relativePath =
+        typeof body.relativePath === "string" ? body.relativePath : "";
+      const requestGeneration =
+        action === "play" ? player.reserveOpenRequest() : undefined;
+      const queue = await smbFolders.queueForDirectoryWithOrigins(
+        connectionId,
+        relativePath,
+      );
+      const origins = queue.relativePaths.map((entryRelativePath) => ({
+        kind: "smb" as const,
+        connectionId,
+        relativePath: entryRelativePath,
+        entryId: smbFolders.entryIdForRelativePath(
+          connectionId,
+          entryRelativePath,
+        ),
+      }));
+      if (action === "play") {
+        if (queue.paths.length > 0)
+          await player.openResolvedQueue(
+            queue.paths,
+            0,
+            origins,
+            requestGeneration,
+          );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: queue.paths.length,
+            appendedCount: queue.paths.length,
+          },
+        });
+      } else {
+        const appendedCount =
+          queue.paths.length > 0
+            ? await player.append(queue.paths, origins)
+            : 0;
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            appendedCount,
+          },
+        });
+      }
+      return;
+    }
+    const smbEntryMatch =
+      /^\/api\/smb\/connections\/(smb-[0-9a-f]{32})\/entries\/(entry-[0-9a-f]{32})\/(metadata|artwork|open|queue)$/u.exec(
+        url.pathname,
+      );
+    if (smbEntryMatch) {
+      const connectionId = smbEntryMatch[1] ?? "";
+      const entryId = smbEntryMatch[2] ?? "";
+      const action = smbEntryMatch[3] ?? "";
+      if (request.method === "GET" && action === "metadata") {
+        sendJson(response, 200, {
+          ok: true,
+          data: await smbFolders.metadataFor(connectionId, entryId),
+        });
+        return;
+      }
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        action === "artwork"
+      ) {
+        const resource = await smbFolders.artworkFor(connectionId, entryId);
+        if (!resource) {
+          sendJson(response, 404, {
+            ok: false,
+            error: {
+              code: "SMB_ARTWORK_NOT_FOUND",
+              message: "Artwork not found.",
+            },
+          });
+          return;
+        }
+        await sendArtworkResource(request, response, resource);
+        return;
+      }
+      if (request.method === "POST" && action === "open") {
+        await readBody(request);
+        const requestGeneration = player.reserveOpenRequest();
+        const queue = await smbFolders.queueForEntry(connectionId, entryId);
+        await player.openResolvedQueue(
+          queue.paths,
+          queue.selectedIndex,
+          queue.relativePaths.map((relativePath) => ({
+            kind: "smb" as const,
+            connectionId,
+            relativePath,
+            entryId: smbFolders.entryIdForRelativePath(
+              connectionId,
+              relativePath,
+            ),
+          })),
+          requestGeneration,
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            selectedIndex: queue.selectedIndex,
+            queueLength: queue.paths.length,
+          },
+        });
+        return;
+      }
+      if (request.method === "POST" && action === "queue") {
+        await readBody(request);
+        const path = await smbFolders.pathForEntry(connectionId, entryId);
+        const appendedCount = await player.append(
+          [path],
+          [
+            {
+              kind: "smb",
+              connectionId,
+              relativePath: smbFolders.relativePathForEntry(
+                connectionId,
+                entryId,
+              ),
+              entryId,
+            },
+          ],
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            queueLength: player.getState().queue.length,
+            appendedCount,
+          },
+        });
+        return;
+      }
     }
     if (
       request.method === "GET" &&
@@ -2261,6 +2548,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof SmbError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof NetworkAdapterError) {
       sendJson(response, error.code === "operation-conflict" ? 409 : 400, {
         ok: false,
@@ -2310,7 +2604,10 @@ function shutdown(signal: NodeJS.Signals): void {
   events.close();
   removableEvents.close();
   networkEvents.close();
+  smbEvents.close();
   unsubscribeRemovablePlayer();
+  unsubscribeSmbPlayer();
+  unsubscribeNetworkSmb();
   unsubscribeHistoryState();
   unsubscribeNaturalEnd();
   unsubscribeHistorySeek();
@@ -2326,8 +2623,10 @@ function shutdown(signal: NodeJS.Signals): void {
         visualizerEvents.close(),
         waveform.close(),
         folders.close(),
+        smbFolders.close(),
         removableStorage.close(),
         network.close(),
+        smb.close(),
         libraryEventsPromise
           .then((libraryEvents) => {
             libraryEvents.close();

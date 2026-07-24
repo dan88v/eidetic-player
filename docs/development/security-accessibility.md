@@ -41,6 +41,12 @@ the input.
 - Linux deployment installers must validate user/group and traversal-free
   absolute paths, reject symlink targets, quote values with spaces/Unicode,
   support an isolated staging root, and never edit system connection profiles.
+- SMB uses only operating-system clients: deviceless UNC on Windows and
+  read-only CIFS mounts on Linux. Never put a password in argv/logs or use
+  SMB1, automatic Guest fallback, sudo, force unmount, drive letters, or a
+  command shell. Revalidate connection state, root containment, entry type,
+  extension, readability, traversal, mixed separators, null bytes, and
+  symlink/junction exclusion for every browse/play operation.
 
 ## Secrets and private data
 
@@ -60,6 +66,12 @@ The Linux network environment file contains only the authorization group and
 installation directory. Wi-Fi SSIDs, passwords, PSKs, profile contents, and
 pending transaction contents must not appear in deployment reports or doctor
 output.
+
+SMB connection JSON contains no password. Windows secrets live in the current
+user's Credential Manager. Linux secrets use an atomic backend-only mode-0600
+credential file in a private directory and are removed when their Eidetic
+connection is removed. Reports and screenshots use fixtures or redact real
+identities.
 
 ## Failure behavior
 

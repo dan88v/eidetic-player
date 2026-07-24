@@ -39,7 +39,7 @@ export interface PlayerTrack {
   readonly lossless: boolean | null;
   readonly container: string | null;
   readonly artwork: ArtworkRef | null;
-  readonly source: "Local File" | "USB Storage";
+  readonly source: "Local File" | "USB Storage" | "Network Share";
 }
 
 export interface QueueItem {

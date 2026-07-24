@@ -70,6 +70,14 @@ export const navigationItems: readonly NavigationItem[] = [
 ] as const;
 
 export function getNavigationItem(screen: ScreenId): NavigationItem {
+  if (screen === "smbBrowse")
+    return {
+      id: "smbBrowse",
+      titleKey: "sources.networkShares",
+      descriptionKey: "screen.sources.description",
+      icon: "ethernet",
+      screenGroup: "main",
+    };
   if (screen === "usbStorage")
     return {
       id: "usbStorage",

@@ -10,10 +10,16 @@ import { FoldersApiClient } from "../api/folders-api-client";
 import { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
 import { NetworkApiClient } from "../api/network-api-client";
+import { SmbApiClient } from "../api/smb-api-client";
 import {
   emptyNetworkSnapshot,
   type NetworkSnapshot,
 } from "../../../../packages/shared/src/network";
+import {
+  emptySmbSnapshot,
+  type SmbConnection,
+  type SmbSnapshot,
+} from "../../../../packages/shared/src/smb";
 import { t } from "../i18n";
 import { getNavigationItem, isSettingsRoute } from "../navigation/routes";
 import type { PlatformBridge } from "../platform";
@@ -69,6 +75,7 @@ export function mountApp(
   const removableApi = new RemovableStorageApiClient();
   const libraryApi = new LibraryApiClient();
   const networkApi = new NetworkApiClient();
+  const smbApi = new SmbApiClient();
   const favorites = new FavoriteTrackStore(libraryApi);
   const favoriteAlbums = new FavoriteAlbumStore(libraryApi);
   const favoriteArtists = new FavoriteArtistStore(libraryApi);
@@ -248,6 +255,9 @@ export function mountApp(
   };
   let selectedRemovableDevice: RemovableDevice | null = null;
   let networkSnapshot: NetworkSnapshot = emptyNetworkSnapshot;
+  let smbSnapshot: SmbSnapshot = emptySmbSnapshot;
+  let selectedSmbConnection: SmbConnection | null = null;
+  let smbReturnScreen: ScreenId = "sources";
   let usbReturnScreen: ScreenId = "nowPlaying";
   const actions = {
     openFiles,
@@ -303,6 +313,18 @@ export function mountApp(
       trigger,
     );
   };
+  const openSmbConnection = (
+    connection: SmbConnection,
+    returnScreen: ScreenId = store.getState().activeScreen,
+  ): void => {
+    if (!connection.readable) {
+      showMessage("Network share is unavailable.", "neutral");
+      return;
+    }
+    selectedSmbConnection = connection;
+    if (returnScreen !== "smbBrowse") smbReturnScreen = returnScreen;
+    navigate("smbBrowse");
+  };
   function renderScreen(screen: ScreenId): void {
     keyboardAdapter.hide();
     currentScreen?.destroy();
@@ -317,6 +339,15 @@ export function mountApp(
       removableApi,
       networkApi,
       networkSnapshot,
+      smbApi,
+      smbSnapshot,
+      selectedSmbConnection,
+      openSmbConnection: (connection) => {
+        openSmbConnection(connection, "sources");
+      },
+      backFromSmb: () => {
+        navigate(smbReturnScreen);
+      },
       openSystemNetworkSettings: () =>
         platform.openNetworkSettings
           ? platform.openNetworkSettings()
@@ -668,6 +699,48 @@ export function mountApp(
         // EventSource reconnects automatically; the last snapshot remains.
       });
     });
+  const receiveSmbSnapshot = (snapshot: SmbSnapshot): void => {
+    if (appDestroyed || snapshot.revision < smbSnapshot.revision) return;
+    const previouslyReadable = new Set(
+      smbSnapshot.connections
+        .filter((connection) => connection.readable)
+        .map((connection) => connection.id),
+    );
+    const disconnected = snapshot.connections.filter(
+      (connection) =>
+        previouslyReadable.has(connection.id) && !connection.readable,
+    );
+    const current =
+      playerStore.getState().queue[playerStore.getState().currentQueueIndex];
+    smbSnapshot = snapshot;
+    if (selectedSmbConnection) {
+      selectedSmbConnection =
+        snapshot.connections.find(
+          (connection) => connection.id === selectedSmbConnection?.id,
+        ) ?? selectedSmbConnection;
+    }
+    topBar.updateSmb(snapshot);
+    currentScreen?.updateSmbSnapshot?.(snapshot);
+    if (
+      disconnected.some((connection) =>
+        current?.path.startsWith(`smb://${connection.id}/`),
+      )
+    )
+      showMessage("Network share disconnected.", "neutral");
+  };
+  let unsubscribeSmb = (): void => undefined;
+  void smbApi
+    .connections()
+    .then(receiveSmbSnapshot)
+    .catch((error: unknown) => {
+      console.warn("[smb] initial snapshot unavailable", error);
+    })
+    .finally(() => {
+      if (appDestroyed) return;
+      unsubscribeSmb = smbApi.subscribe(receiveSmbSnapshot, () => {
+        // EventSource reconnects automatically; the last snapshot remains.
+      });
+    });
   const receiveLibrarySnapshot = (snapshot: IndexedLibrarySnapshot): void => {
     if (appDestroyed) return;
     currentLibrarySnapshot = snapshot;
@@ -861,6 +934,7 @@ export function mountApp(
       unsubscribeLibrary();
       unsubscribeRemovable();
       unsubscribeNetwork();
+      unsubscribeSmb();
       unsubscribeDrops();
       unsubscribePlayer();
       unsubscribeApp();

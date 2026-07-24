@@ -117,6 +117,7 @@ export class PlayerService {
   private readonly seekListeners = new Set<(state: PlayerState) => void>();
   private readonly removableAvailability = new Map<string, boolean>();
   private readonly folderSourceAvailability = new Map<string, boolean>();
+  private readonly smbAvailability = new Map<string, boolean>();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -132,6 +133,7 @@ export class PlayerService {
       const origin = this.queueOrigins.get(this.pathKey(nativePath));
       if (
         origin?.kind !== "removable" &&
+        origin?.kind !== "smb" &&
         !(origin?.kind === "folders" && origin.removable)
       )
         return nativePath;
@@ -140,9 +142,11 @@ export class PlayerService {
         .filter(Boolean)
         .map(encodeURIComponent)
         .join("/");
-      return origin.kind === "removable"
-        ? `removable://${origin.deviceId}/${logicalPath}`
-        : `library-source://${origin.sourceId}/${logicalPath}`;
+      if (origin.kind === "removable")
+        return `removable://${origin.deviceId}/${logicalPath}`;
+      if (origin.kind === "smb")
+        return `smb://${origin.connectionId}/${logicalPath}`;
+      return `library-source://${origin.sourceId}/${logicalPath}`;
     };
     return {
       ...this.state,
@@ -884,6 +888,41 @@ export class PlayerService {
     return stoppedCurrent;
   }
 
+  async setSmbConnectionAvailable(
+    connectionId: string,
+    available: boolean,
+  ): Promise<boolean> {
+    this.smbAvailability.set(connectionId, available);
+    const current = this.state.queue[this.state.currentQueueIndex];
+    const currentOrigin = current
+      ? this.queueOrigins.get(this.pathKey(current.path))
+      : undefined;
+    const stoppedCurrent =
+      !available &&
+      currentOrigin?.kind === "smb" &&
+      currentOrigin.connectionId === connectionId;
+    if (stoppedCurrent)
+      await this.controller
+        ?.command(["stop", "keep-playlist"])
+        .catch(() => undefined);
+    const queue = this.state.queue.map((item) => {
+      const origin = this.queueOrigins.get(this.pathKey(item.path));
+      return origin?.kind === "smb" && origin.connectionId === connectionId
+        ? { ...item, available }
+        : item;
+    });
+    if (
+      stoppedCurrent ||
+      queue.some((item, index) => item !== this.state.queue[index])
+    )
+      this.update({
+        ...(stoppedCurrent ? { status: "stopped" as const, paused: true } : {}),
+        queue,
+        queueRevision: this.state.queueRevision,
+      });
+    return stoppedCurrent;
+  }
+
   removableUsage(
     deviceIds: readonly string[],
     sourceIds: readonly string[],
@@ -1299,9 +1338,11 @@ export class PlayerService {
           available:
             origin?.kind === "removable"
               ? (this.removableAvailability.get(origin.deviceId) ?? true)
-              : origin?.kind === "folders" && origin.removable
-                ? (this.folderSourceAvailability.get(origin.sourceId) ?? true)
-                : true,
+              : origin?.kind === "smb"
+                ? (this.smbAvailability.get(origin.connectionId) ?? true)
+                : origin?.kind === "folders" && origin.removable
+                  ? (this.folderSourceAvailability.get(origin.sourceId) ?? true)
+                  : true,
           ...(origin?.kind === "folders" && origin.libraryTrackId
             ? { libraryTrackId: origin.libraryTrackId }
             : {}),
@@ -1389,10 +1430,12 @@ export class PlayerService {
       container: null,
       artwork: null,
       source:
-        origin?.kind === "removable" ||
-        (origin?.kind === "folders" && origin.removable)
-          ? "USB Storage"
-          : "Local File",
+        origin?.kind === "smb"
+          ? "Network Share"
+          : origin?.kind === "removable" ||
+              (origin?.kind === "folders" && origin.removable)
+            ? "USB Storage"
+            : "Local File",
     };
     return this.currentEnrichment?.pathKey === this.pathKey(path)
       ? mergeTrackMetadata(

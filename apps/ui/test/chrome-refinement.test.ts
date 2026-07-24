@@ -53,7 +53,10 @@ void test("6. Hamburger is the first top-bar control", async () => {
   assert.ok(
     template.indexOf("top-bar__menu") < template.indexOf("top-bar__title"),
   );
-  assert.equal((template.match(/<button/g) ?? []).length, 1);
+  assert.equal(
+    template.indexOf("<button"),
+    template.indexOf('<button class="top-bar__menu'),
+  );
 });
 
 void test("7. Hamburger target and SVG are enlarged", async () => {

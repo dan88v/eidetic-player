@@ -115,6 +115,15 @@ autoplay, and manual rematerialization. Inspect Sources, Default, Cassette,
 picker, USB browser, Queue, and Back at 1280x800, 1280x720, and 1024x600.
 Never count a fixture pass as physical USB detection.
 
+For SMB Quick Browse, exercise Add/Edit/Remove, explicit Account or Guest,
+top-bar states/popover, Sources actions, a non-first direct track, natural
+Queue order, Add Track/Folder, disconnect Stop with unchanged Queue
+IDs/order/revision, and reconnect without autoplay. Inspect the canonical
+Folders UI at 1280x800, 1280x720, and 1024x600. Use a safe read-only NAS share
+when available. Otherwise use `EIDETIC_SMB_FIXTURE=1`, state clearly that real
+Windows SMB/Credential Manager and Linux CIFS runtime are NOT TESTED, and never
+turn fixture coverage into a native SMB PASS.
+
 For USB Library integration, add both a volume root and a nested folder,
 confirm segment-aware same/parent/child overlap rejection, and verify that only
 the new Source receives its first scan. Disconnect during scanning must end as

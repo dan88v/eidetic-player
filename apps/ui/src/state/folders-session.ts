@@ -62,7 +62,7 @@ export const foldersSession: FoldersBrowserSession = {
   },
 };
 
-function createUsbSession(): FoldersBrowserSession {
+function createProviderSession(): FoldersBrowserSession {
   const locations = new Map<string, string>();
   const selected = new Map<string, string | null>();
   const scroll = new Map<string, number>();
@@ -109,4 +109,5 @@ function createUsbSession(): FoldersBrowserSession {
   };
 }
 
-export const usbStorageSession = createUsbSession();
+export const usbStorageSession = createProviderSession();
+export const smbSession = createProviderSession();

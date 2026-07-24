@@ -8,6 +8,11 @@ import type { RemovableStorageApiClient } from "../api/removable-storage-api-cli
 import type { NetworkApiClient } from "../api/network-api-client";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type {
+  SmbConnection,
+  SmbSnapshot,
+} from "../../../../packages/shared/src/smb";
+import type { SmbApiClient } from "../api/smb-api-client";
+import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
   IndexedLibrarySnapshot,
@@ -37,6 +42,7 @@ import { createSettingsScreen } from "./settings";
 import { createSourcesScreen } from "./sources";
 import { createPlaylistsScreen } from "./playlists";
 import { createUsbStorageScreen } from "./usb-storage";
+import { createSmbBrowseScreen } from "./smb-browse";
 
 export interface ScreenContext {
   readonly state: AppState;
@@ -70,6 +76,11 @@ export interface ScreenContext {
   readonly removableApi: RemovableStorageApiClient;
   readonly networkApi: NetworkApiClient;
   readonly networkSnapshot: NetworkSnapshot;
+  readonly smbApi: SmbApiClient;
+  readonly smbSnapshot: SmbSnapshot;
+  readonly selectedSmbConnection: SmbConnection | null;
+  readonly openSmbConnection: (connection: SmbConnection) => void;
+  readonly backFromSmb: () => void;
   readonly openSystemNetworkSettings: () => Promise<void>;
   readonly removableDevices: RemovableDeviceListResponse;
   readonly selectedRemovableDevice: RemovableDevice | null;
@@ -168,6 +179,19 @@ export function createScreen(
         noteTrackCommand: context.noteTrackCommand,
         showToast: context.showToast,
       });
+    case "smbBrowse":
+      if (!context.selectedSmbConnection)
+        throw new Error("SMB Browse requires a selected connection");
+      return createSmbBrowseScreen({
+        api: context.smbApi,
+        connection: context.selectedSmbConnection,
+        snapshot: context.smbSnapshot,
+        initialPlayerState: context.playerState,
+        back: context.backFromSmb,
+        setTitle: context.setScreenTitle,
+        noteTrackCommand: context.noteTrackCommand,
+        showToast: context.showToast,
+      });
     case "library":
       return createLibraryScreen({
         api: context.libraryApi,
@@ -218,6 +242,8 @@ export function createScreen(
       return createSourcesScreen({
         api: context.foldersApi,
         removableApi: context.removableApi,
+        smbApi: context.smbApi,
+        smbSnapshot: context.smbSnapshot,
         libraryApi: context.libraryApi,
         initialLibrarySnapshot: context.librarySnapshot,
         addFolder: context.addLocalFolder,
@@ -226,6 +252,7 @@ export function createScreen(
         showToast: context.showToast,
         removableDevices: context.removableDevices,
         openRemovableDevice: context.openUsbStorageForDevice,
+        openSmbConnection: context.openSmbConnection,
       });
     case "queue":
       return staticView(createQueueScreen());

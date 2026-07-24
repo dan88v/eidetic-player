@@ -273,7 +273,9 @@ export class SourceService {
     return toPublicSource(record, availability);
   }
 
-  async getInternal(sourceId: string): Promise<ResolvedSource> {
+  async getInternal(
+    sourceId: string,
+  ): Promise<ResolvedSource<"local" | "removable">> {
     const record = await this.getRecord(sourceId);
     if (record.type === "local") return record;
     const resolved = await this.requireRemovable().resolvePersistentDirectory(

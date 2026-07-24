@@ -5,6 +5,7 @@ import { SourceService } from "../filesystem/source-service.js";
 import type { PlayerService } from "../player/player-service.js";
 import { PlayerSessionRepository } from "./player-session-repository.js";
 import type { RemovableStorageService } from "../removable-storage/removable-storage-service.js";
+import type { SmbConnectionService } from "../smb/smb-connection-service.js";
 import type {
   PersistedPlayerSession,
   PersistedQueueItem,
@@ -30,6 +31,7 @@ export class PlayerSessionService {
     private readonly sources: SourceService,
     private readonly player: PlayerService,
     private readonly removableStorage?: RemovableStorageService,
+    private readonly smb?: SmbConnectionService,
   ) {}
 
   async restore(): Promise<PlayerRestoreResult> {
@@ -165,6 +167,8 @@ export class PlayerSessionService {
     if (origin.kind === "direct") return `direct:${origin.nativePath}`;
     if (origin.kind === "removable")
       return `removable:${origin.deviceId}:${origin.relativePath}:${origin.entryId}`;
+    if (origin.kind === "smb")
+      return `smb:${origin.connectionId}:${origin.relativePath}:${origin.entryId}`;
     return `folders:${origin.sourceId}:${origin.relativePath}:${origin.libraryTrackId ?? ""}`;
   }
 
@@ -177,7 +181,9 @@ export class PlayerSessionService {
           ? this.paths.normalizeNativePath(item.origin.nativePath)
           : item.origin.kind === "removable"
             ? await this.resolveRemovableOrigin(item.origin)
-            : await this.resolveFoldersOrigin(item.origin);
+            : item.origin.kind === "smb"
+              ? await this.resolveSmbOrigin(item.origin)
+              : await this.resolveFoldersOrigin(item.origin);
       const details = await this.provider.lstat(nativePath);
       if (
         details.isSymbolicLink() ||
@@ -214,6 +220,16 @@ export class PlayerSessionService {
     if (!this.removableStorage) throw new Error("removable unavailable");
     return this.removableStorage.resolveLogicalPath(
       origin.deviceId,
+      origin.relativePath,
+    );
+  }
+
+  private async resolveSmbOrigin(
+    origin: Extract<PersistedQueueOrigin, { kind: "smb" }>,
+  ): Promise<string> {
+    if (!this.smb) throw new Error("SMB unavailable");
+    return this.smb.resolveLogicalPath(
+      origin.connectionId,
       origin.relativePath,
     );
   }

@@ -53,11 +53,18 @@ void test("Eidetic mounts one themed adapter and tears every listener down", () 
 });
 
 void test("Library Search and safe rename are explicit opt-in fields", () => {
+  const localSourceDialog = sources.slice(
+    sources.indexOf('<section class="source-dialog"'),
+    sources.indexOf('<div class="source-dialog-backdrop smb-dialog-backdrop"'),
+  );
   assert.match(library, /data-onscreen-keyboard="text"/);
   assert.match(library, /data-onscreen-keyboard-enter="search"/);
   assert.match(sources, /data-onscreen-keyboard="text"/);
   assert.equal((library.match(/data-onscreen-keyboard=/g) ?? []).length, 1);
-  assert.equal((sources.match(/data-onscreen-keyboard=/g) ?? []).length, 1);
+  assert.equal(
+    (localSourceDialog.match(/data-onscreen-keyboard=/g) ?? []).length,
+    1,
+  );
   assert.match(controller, /profile\.enterAction !== "search"/);
   assert.match(controller, /new KeyboardEvent\("keydown"/);
   assert.equal(

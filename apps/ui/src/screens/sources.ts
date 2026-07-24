@@ -8,6 +8,12 @@ import type {
 import type { FoldersApiClient } from "../api/folders-api-client";
 import type { LibraryApiClient } from "../api/library-api-client";
 import type { RemovableStorageApiClient } from "../api/removable-storage-api-client";
+import type { SmbApiClient } from "../api/smb-api-client";
+import type {
+  AddSmbConnectionRequest,
+  SmbConnection,
+  SmbSnapshot,
+} from "../../../../packages/shared/src/smb";
 import { icon } from "../components/icons";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
@@ -15,6 +21,8 @@ import { t } from "../i18n";
 export interface SourcesScreenOptions {
   readonly api: FoldersApiClient;
   readonly removableApi: RemovableStorageApiClient;
+  readonly smbApi: SmbApiClient;
+  readonly smbSnapshot: SmbSnapshot;
   readonly libraryApi: LibraryApiClient;
   readonly initialLibrarySnapshot: IndexedLibrarySnapshot | null;
   readonly addFolder: () => Promise<AddLocalSourceResponse | null>;
@@ -26,6 +34,7 @@ export interface SourcesScreenOptions {
   ) => void;
   readonly removableDevices: RemovableDeviceListResponse;
   readonly openRemovableDevice: (device: RemovableDevice) => void;
+  readonly openSmbConnection: (connection: SmbConnection) => void;
 }
 
 export function createSourcesScreen(
@@ -54,14 +63,12 @@ export function createSourcesScreen(
       <h2 id="usb-library-folders-heading">USB Library Folders</h2>
       <div class="sources-list sources-list--removable-library" aria-live="polite"></div>
     </section>
-    <section class="sources-section" aria-labelledby="future-sources-heading">
-      <h2 id="future-sources-heading" class="visually-hidden">${t("sources.comingLater")}</h2>
-      <div class="sources-list sources-list--placeholders">
-        <article class="source-card source-card--placeholder">
-          <span class="source-card__icon">${icon("ethernet")}</span>
-          <div class="source-card__copy"><h3>${t("sources.networkShares")}</h3><p>${t("sources.notConfigured")} · ${t("sources.comingLater")}</p></div>
-        </article>
+    <section class="sources-section sources-section--smb" aria-labelledby="network-shares-heading">
+      <div class="sources-section__heading">
+        <h2 id="network-shares-heading">${t("sources.networkShares")}</h2>
+        <button class="sources-smb-add" type="button">${icon("plus")}<span>Add Share</span></button>
       </div>
+      <div class="sources-list sources-list--smb" aria-live="polite"></div>
     </section>
     <div class="folders-action-menu" role="menu" hidden></div>
     <div class="source-dialog-backdrop" aria-hidden="true"></div>
@@ -70,12 +77,32 @@ export function createSourcesScreen(
       <p class="source-dialog__description"></p>
       <label class="source-dialog__field"><span>${t("sources.nameLabel")}</span><input type="text" maxlength="80" autocomplete="off" data-onscreen-keyboard="text"></label>
       <div class="source-dialog__actions"><button type="button" data-action="cancel">${t("sources.cancel")}</button><button class="source-dialog__confirm" type="button" data-action="confirm"></button></div>
+    </section>
+    <div class="source-dialog-backdrop smb-dialog-backdrop" aria-hidden="true"></div>
+    <section class="source-dialog smb-dialog" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="smb-dialog-title">
+      <h2 id="smb-dialog-title">Add Network Share</h2>
+      <p class="source-dialog__description smb-dialog__error" role="alert"></p>
+      <div class="smb-dialog__fields">
+        <label><span>Name</span><input name="displayName" type="text" maxlength="80" autocomplete="off" data-onscreen-keyboard="text"></label>
+        <label><span>Server</span><input name="server" type="text" maxlength="253" autocomplete="off" data-onscreen-keyboard="text"></label>
+        <label><span>Share</span><input name="share" type="text" maxlength="255" autocomplete="off" data-onscreen-keyboard="text"></label>
+        <fieldset class="smb-dialog__auth"><legend>Authentication</legend><div class="segmented-control">
+          <button type="button" data-smb-auth="account" aria-pressed="true">Account</button>
+          <button type="button" data-smb-auth="guest" aria-pressed="false">Guest</button>
+        </div></fieldset>
+        <label data-account-field><span>Username</span><input name="username" type="text" maxlength="255" autocomplete="username" data-onscreen-keyboard="text"></label>
+        <label data-account-field><span>Password</span><span class="smb-password-field"><input name="password" type="password" maxlength="1024" autocomplete="current-password" data-onscreen-keyboard="password"><button type="button" data-smb-action="toggle-password">Show</button></span></label>
+        <label data-account-field><span>Domain / Workgroup <small>Optional</small></span><input name="domain" type="text" maxlength="255" autocomplete="off" data-onscreen-keyboard="text"></label>
+      </div>
+      <div class="source-dialog__actions"><button type="button" data-smb-action="cancel">Cancel</button><button class="source-dialog__confirm" type="button" data-smb-action="confirm">Connect</button></div>
     </section>`;
   const localList = section.querySelector<HTMLElement>(".sources-list--local");
   const usbList = section.querySelector<HTMLElement>(".sources-list--usb");
   const removableLibraryList = section.querySelector<HTMLElement>(
     ".sources-list--removable-library",
   );
+  const smbList = section.querySelector<HTMLElement>(".sources-list--smb");
+  const smbAdd = section.querySelector<HTMLButtonElement>(".sources-smb-add");
   const addButton = section.querySelector<HTMLButtonElement>(
     ".sources-header__add",
   );
@@ -108,10 +135,46 @@ export function createSourcesScreen(
     '[data-action="confirm"]',
   );
   const actionMenu = section.querySelector<HTMLElement>(".folders-action-menu");
+  const smbDialog = section.querySelector<HTMLElement>(".smb-dialog");
+  const smbBackdrop = section.querySelector<HTMLElement>(
+    ".smb-dialog-backdrop",
+  );
+  const smbDialogTitle =
+    section.querySelector<HTMLElement>("#smb-dialog-title");
+  const smbError = section.querySelector<HTMLElement>(".smb-dialog__error");
+  const smbConfirm = section.querySelector<HTMLButtonElement>(
+    '[data-smb-action="confirm"]',
+  );
+  const smbCancel = section.querySelector<HTMLButtonElement>(
+    '[data-smb-action="cancel"]',
+  );
+  const smbTogglePassword = section.querySelector<HTMLButtonElement>(
+    '[data-smb-action="toggle-password"]',
+  );
+  const smbName = section.querySelector<HTMLInputElement>(
+    '.smb-dialog input[name="displayName"]',
+  );
+  const smbServer = section.querySelector<HTMLInputElement>(
+    '.smb-dialog input[name="server"]',
+  );
+  const smbShare = section.querySelector<HTMLInputElement>(
+    '.smb-dialog input[name="share"]',
+  );
+  const smbUsername = section.querySelector<HTMLInputElement>(
+    '.smb-dialog input[name="username"]',
+  );
+  const smbPassword = section.querySelector<HTMLInputElement>(
+    '.smb-dialog input[name="password"]',
+  );
+  const smbDomain = section.querySelector<HTMLInputElement>(
+    '.smb-dialog input[name="domain"]',
+  );
   if (
     !localList ||
     !usbList ||
     !removableLibraryList ||
+    !smbList ||
+    !smbAdd ||
     !addButton ||
     !scanButton ||
     !dialog ||
@@ -123,7 +186,20 @@ export function createSourcesScreen(
     !dialogActions ||
     !cancelButton ||
     !confirmButton ||
-    !actionMenu
+    !actionMenu ||
+    !smbDialog ||
+    !smbBackdrop ||
+    !smbDialogTitle ||
+    !smbError ||
+    !smbConfirm ||
+    !smbCancel ||
+    !smbTogglePassword ||
+    !smbName ||
+    !smbServer ||
+    !smbShare ||
+    !smbUsername ||
+    !smbPassword ||
+    !smbDomain
   )
     throw new Error("Sources screen is incomplete");
 
@@ -135,11 +211,200 @@ export function createSourcesScreen(
   let returnFocus: HTMLElement | null = null;
   let menuSource: LibrarySource | null = null;
   let menuDevice: RemovableDevice | null = null;
+  let menuSmb: SmbConnection | null = null;
   let menuTrigger: HTMLButtonElement | null = null;
   let libraryScanBusy = false;
   let activeScanId: string | null = null;
   let scanPending = false;
   let librarySnapshot = options.initialLibrarySnapshot;
+  let currentSmbSnapshot = options.smbSnapshot;
+  let smbDialogMode: "add" | "edit" | "remove" | null = null;
+  let smbDialogConnection: SmbConnection | null = null;
+  let smbAuthMode: "account" | "guest" = "account";
+  let smbReturnFocus: HTMLElement | null = null;
+
+  const setSmbAuthMode = (mode: "account" | "guest"): void => {
+    smbAuthMode = mode;
+    section
+      .querySelectorAll<HTMLButtonElement>("[data-smb-auth]")
+      .forEach((button) => {
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.smbAuth === mode),
+        );
+      });
+    section
+      .querySelectorAll<HTMLElement>("[data-account-field]")
+      .forEach((field) => {
+        field.hidden = mode === "guest";
+      });
+  };
+
+  const closeSmbDialog = (): void => {
+    smbDialog.classList.remove("source-dialog--open");
+    smbBackdrop.classList.remove("source-dialog-backdrop--open");
+    smbDialog.setAttribute("aria-hidden", "true");
+    smbBackdrop.setAttribute("aria-hidden", "true");
+    smbDialog.inert = true;
+    smbDialogMode = null;
+    smbDialogConnection = null;
+    smbPassword.value = "";
+    smbError.textContent = "";
+    smbReturnFocus?.focus();
+    smbReturnFocus = null;
+  };
+
+  const openSmbDialog = (
+    mode: "add" | "edit" | "remove",
+    connection: SmbConnection | null,
+    trigger: HTMLElement,
+  ): void => {
+    smbDialogMode = mode;
+    smbDialogConnection = connection;
+    smbReturnFocus = trigger;
+    smbError.textContent = "";
+    smbName.value = connection?.displayName ?? "";
+    smbServer.value = connection?.server ?? "";
+    smbShare.value = connection?.share ?? "";
+    smbUsername.value = connection?.username ?? "";
+    smbPassword.value = "";
+    smbDomain.value = connection?.domain ?? "";
+    smbServer.readOnly = mode === "edit";
+    smbShare.readOnly = mode === "edit";
+    setSmbAuthMode(connection?.authMode ?? "account");
+    const fields = smbDialog.querySelector<HTMLElement>(".smb-dialog__fields");
+    if (fields) fields.hidden = mode === "remove";
+    smbDialogTitle.textContent =
+      mode === "add"
+        ? "Add Network Share"
+        : mode === "edit"
+          ? "Edit Network Share"
+          : `Remove “${connection?.displayName ?? ""}”?`;
+    smbError.textContent =
+      mode === "remove"
+        ? "The saved connection and its Eidetic credential will be removed. Files on the NAS are not changed."
+        : "";
+    smbConfirm.textContent =
+      mode === "add" ? "Connect" : mode === "edit" ? "Save" : "Remove";
+    smbConfirm.classList.toggle(
+      "source-dialog__confirm--danger",
+      mode === "remove",
+    );
+    smbDialog.inert = false;
+    smbDialog.setAttribute("aria-hidden", "false");
+    smbBackdrop.setAttribute("aria-hidden", "false");
+    smbDialog.classList.add("source-dialog--open");
+    smbBackdrop.classList.add("source-dialog-backdrop--open");
+    queueMicrotask(() => {
+      (mode === "remove" ? smbCancel : smbName).focus();
+      if (mode !== "remove") smbName.select();
+    });
+  };
+
+  const smbRequest = (): AddSmbConnectionRequest => ({
+    displayName: smbName.value,
+    server: smbServer.value,
+    share: smbShare.value,
+    authMode: smbAuthMode,
+    ...(smbAuthMode === "account"
+      ? {
+          username: smbUsername.value,
+          password: smbPassword.value,
+          domain: smbDomain.value,
+        }
+      : {}),
+  });
+
+  const positionActionMenu = (trigger: HTMLElement): void => {
+    const rect = trigger.getBoundingClientRect();
+    const contentBottom =
+      document
+        .querySelector<HTMLElement>(".mini-player")
+        ?.getBoundingClientRect().top ?? window.innerHeight;
+    const below = rect.bottom + 6;
+    const top =
+      below + actionMenu.offsetHeight <= contentBottom - 8
+        ? below
+        : Math.max(8, rect.top - actionMenu.offsetHeight - 6);
+    actionMenu.style.top = `${String(top)}px`;
+    actionMenu.style.left = `${String(Math.max(8, rect.right - 180))}px`;
+  };
+
+  const renderSmb = (snapshot: SmbSnapshot): void => {
+    currentSmbSnapshot = snapshot;
+    const fragment = document.createDocumentFragment();
+    if (snapshot.connections.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "sources-empty";
+      empty.textContent = "No network shares configured.";
+      fragment.append(empty);
+    }
+    for (const connection of snapshot.connections) {
+      const card = document.createElement("article");
+      card.className = "source-card source-card--smb";
+      card.dataset.smbId = connection.id;
+      card.innerHTML = `
+        <span class="source-card__icon">${icon("ethernet")}</span>
+        <div class="source-card__copy"><h3></h3><p></p><span class="source-card__status"></span></div>
+        <div class="source-card__actions">
+          <button type="button" data-smb-card-action="browse">Browse</button>
+          <button class="source-card__more" type="button" data-smb-card-action="more" aria-label="Network share actions" aria-haspopup="menu">${icon("more")}</button>
+        </div>`;
+      const heading = card.querySelector<HTMLElement>("h3");
+      const details = card.querySelector<HTMLElement>("p");
+      const status = card.querySelector<HTMLElement>(".source-card__status");
+      const browse = card.querySelector<HTMLButtonElement>(
+        '[data-smb-card-action="browse"]',
+      );
+      const more = card.querySelector<HTMLButtonElement>(
+        '[data-smb-card-action="more"]',
+      );
+      if (!heading || !details || !status || !browse || !more) continue;
+      heading.textContent = connection.displayName;
+      details.textContent = `${connection.server} / ${connection.share}`;
+      status.textContent = connection.state.replaceAll("-", " ");
+      status.dataset.availability = connection.readable
+        ? "available"
+        : connection.state === "connecting"
+          ? "checking"
+          : "unavailable";
+      browse.disabled = !connection.readable;
+      browse.addEventListener("click", () => {
+        options.openSmbConnection(connection);
+      });
+      more.addEventListener("click", () => {
+        closeMenu();
+        menuSmb = connection;
+        menuTrigger = more;
+        const actions = [
+          ...(connection.readable
+            ? [{ action: "smb-browse", label: "Browse" }]
+            : []),
+          ...(connection.retryable
+            ? [{ action: "smb-retry", label: "Retry" }]
+            : []),
+          { action: "smb-edit", label: "Edit" },
+          { action: "smb-remove", label: "Remove" },
+        ];
+        actionMenu.replaceChildren(
+          ...actions.map((item) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.role = "menuitem";
+            button.dataset.action = item.action;
+            button.textContent = item.label;
+            return button;
+          }),
+        );
+        actionMenu.hidden = false;
+        positionActionMenu(more);
+        actionMenu.querySelector<HTMLButtonElement>("button")?.focus();
+      });
+      fragment.append(card);
+    }
+    smbList.replaceChildren(fragment);
+  };
+  renderSmb(currentSmbSnapshot);
 
   const renderRemovableDevices = (
     snapshot: RemovableDeviceListResponse,
@@ -247,9 +512,7 @@ export function createSourcesScreen(
               : "Safely remove";
             actionMenu.replaceChildren(safeRemove);
             actionMenu.hidden = false;
-            const rect = more.getBoundingClientRect();
-            actionMenu.style.top = `${String(rect.bottom + 6)}px`;
-            actionMenu.style.left = `${String(Math.max(8, rect.right - 180))}px`;
+            positionActionMenu(more);
             safeRemove.focus();
           });
           actions.append(more);
@@ -287,6 +550,7 @@ export function createSourcesScreen(
     actionMenu.hidden = true;
     menuSource = null;
     menuDevice = null;
+    menuSmb = null;
     if (restoreFocus) menuTrigger?.focus();
     menuTrigger = null;
   };
@@ -494,9 +758,7 @@ export function createSourcesScreen(
           }),
         );
         actionMenu.hidden = false;
-        const rect = more.getBoundingClientRect();
-        actionMenu.style.top = `${String(rect.bottom + 6)}px`;
-        actionMenu.style.left = `${String(Math.max(8, rect.right - 180))}px`;
+        positionActionMenu(more);
         actionMenu
           .querySelector<HTMLButtonElement>(
             'button[role="menuitem"]:not([disabled])',
@@ -613,18 +875,143 @@ export function createSourcesScreen(
         confirmButton.disabled = false;
       });
   });
+  smbAdd.addEventListener("click", () => {
+    openSmbDialog("add", null, smbAdd);
+  });
+  smbCancel.addEventListener("click", closeSmbDialog);
+  smbBackdrop.addEventListener("pointerup", closeSmbDialog);
+  section
+    .querySelectorAll<HTMLButtonElement>("[data-smb-auth]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        setSmbAuthMode(
+          button.dataset.smbAuth === "guest" ? "guest" : "account",
+        );
+      });
+    });
+  smbTogglePassword.addEventListener("click", () => {
+    const showing = smbPassword.type === "text";
+    smbPassword.type = showing ? "password" : "text";
+    smbTogglePassword.textContent = showing ? "Show" : "Hide";
+    smbPassword.focus();
+  });
+  smbConfirm.addEventListener("click", () => {
+    const mode = smbDialogMode;
+    const connection = smbDialogConnection;
+    if (!mode) return;
+    smbError.textContent = "";
+    if (mode !== "remove") {
+      if (!smbName.value.trim()) {
+        smbError.textContent = "Name is required.";
+        smbName.focus();
+        return;
+      }
+      if (
+        mode === "add" &&
+        (!smbServer.value.trim() || !smbShare.value.trim())
+      ) {
+        smbError.textContent = "Server and Share are required.";
+        (!smbServer.value.trim() ? smbServer : smbShare).focus();
+        return;
+      }
+      if (
+        mode === "add" &&
+        (/[\\/]/u.test(smbServer.value) ||
+          /[\\/:\0]/u.test(smbShare.value) ||
+          ["", ".", ".."].includes(smbShare.value.trim()))
+      ) {
+        smbError.textContent =
+          "Enter a server without slashes and only the share name.";
+        (/[\\/]/u.test(smbServer.value) ? smbServer : smbShare).focus();
+        return;
+      }
+      if (
+        smbAuthMode === "account" &&
+        (!smbUsername.value.trim() || (mode === "add" && !smbPassword.value))
+      ) {
+        smbError.textContent =
+          "Username and Password are required for Account authentication.";
+        (!smbUsername.value.trim() ? smbUsername : smbPassword).focus();
+        return;
+      }
+    }
+    smbConfirm.disabled = true;
+    const operation =
+      mode === "add"
+        ? options.smbApi.add(smbRequest())
+        : mode === "edit" && connection
+          ? options.smbApi.edit(connection.id, {
+              displayName: smbName.value,
+              authMode: smbAuthMode,
+              ...(smbAuthMode === "account"
+                ? {
+                    username: smbUsername.value,
+                    ...(smbPassword.value
+                      ? { password: smbPassword.value }
+                      : {}),
+                    domain: smbDomain.value,
+                  }
+                : {}),
+            })
+          : connection
+            ? options.smbApi.remove(connection.id)
+            : Promise.reject(new Error("Network share not found."));
+    void operation
+      .then(() => {
+        closeSmbDialog();
+        options.showToast(
+          mode === "add"
+            ? "Network share connected."
+            : mode === "edit"
+              ? "Network share updated."
+              : "Network share removed.",
+          "success",
+        );
+      })
+      .catch((error: unknown) => {
+        smbError.textContent =
+          error instanceof Error
+            ? error.message
+            : "Unable to update this network share.";
+      })
+      .finally(() => {
+        if (!destroyed) smbConfirm.disabled = false;
+      });
+  });
   actionMenu.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
       "button[data-action]",
     );
     const source = menuSource;
     const device = menuDevice;
+    const smbConnection = menuSmb;
     const trigger = menuTrigger;
     if (!button || !trigger || button.disabled) return;
     const action = button.dataset.action;
     closeMenu();
     if (action === "safe-remove") {
       if (device) void requestSafeRemoval(device, trigger);
+      return;
+    }
+    if (action === "smb-browse" && smbConnection) {
+      options.openSmbConnection(smbConnection);
+      return;
+    }
+    if (action === "smb-retry" && smbConnection) {
+      void options.smbApi.retry(smbConnection.id).catch((error: unknown) => {
+        options.showToast(
+          error instanceof Error ? error.message : "Retry failed.",
+          "error",
+        );
+      });
+      return;
+    }
+    if ((action === "smb-edit" || action === "smb-remove") && smbConnection) {
+      openSmbDialog(
+        action === "smb-edit" ? "edit" : "remove",
+        smbConnection,
+        trigger,
+      );
       return;
     }
     if (!source) return;
@@ -660,15 +1047,21 @@ export function createSourcesScreen(
       closeMenu(true);
       return;
     }
-    if (!dialog.classList.contains("source-dialog--open")) return;
+    const activeDialog = smbDialog.classList.contains("source-dialog--open")
+      ? smbDialog
+      : dialog.classList.contains("source-dialog--open")
+        ? dialog
+        : null;
+    if (!activeDialog) return;
     if (event.key === "Escape") {
       event.preventDefault();
-      closeDialog();
+      if (activeDialog === smbDialog) closeSmbDialog();
+      else closeDialog();
       return;
     }
     if (event.key !== "Tab") return;
     const controls = [
-      ...dialog.querySelectorAll<HTMLElement>(
+      ...activeDialog.querySelectorAll<HTMLElement>(
         "button:not([disabled]), input:not([disabled]):not([hidden])",
       ),
     ].filter((control) => !control.closest("[hidden]"));
@@ -686,16 +1079,19 @@ export function createSourcesScreen(
   document.addEventListener("keydown", handleKeydown);
   document.addEventListener("pointerdown", handleDocumentPointer);
   dialog.inert = true;
+  smbDialog.inert = true;
   renderRemovableDevices(options.removableDevices);
   void load();
   return {
     element: section,
     updateRemovableDevices: renderRemovableDevices,
+    updateSmbSnapshot: renderSmb,
     updateLibrarySnapshot,
     destroy() {
       destroyed = true;
       requestGeneration += 1;
       closeMenu();
+      closeSmbDialog();
       document.removeEventListener("keydown", handleKeydown);
       document.removeEventListener("pointerdown", handleDocumentPointer);
     },

@@ -1,6 +1,7 @@
 import { icon } from "./icons";
 import { t } from "../i18n";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
+import type { SmbSnapshot } from "../../../../packages/shared/src/smb";
 
 export interface TopBar {
   readonly element: HTMLElement;
@@ -11,6 +12,7 @@ export interface TopBar {
     more: ((trigger: HTMLButtonElement) => void) | null,
   ): void;
   updateNetwork(snapshot: NetworkSnapshot): void;
+  updateSmb(snapshot: SmbSnapshot): void;
   destroy(): void;
 }
 
@@ -34,6 +36,8 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
         <span class="top-bar__system-icon" data-network-indicator="wifi">${icon("wifi")}</span>
         <span class="top-bar__system-icon">${icon("usb")}</span>
       </span>
+      <button class="top-bar__smb" type="button" aria-label="SMB connection status" aria-expanded="false" hidden>${icon("sources")}</button>
+      <div class="top-bar__smb-popover" role="status" hidden><strong></strong><span></span></div>
       <time class="top-bar__clock" aria-label="${t("topBar.clockLabel")}"></time>
     </div>`;
   const menuButton = element.querySelector<HTMLButtonElement>(".top-bar__menu");
@@ -46,13 +50,23 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
   const wifiIndicator = element.querySelector<HTMLElement>(
     '[data-network-indicator="wifi"]',
   );
+  const smbButton = element.querySelector<HTMLButtonElement>(".top-bar__smb");
+  const smbPopover = element.querySelector<HTMLElement>(
+    ".top-bar__smb-popover",
+  );
+  const smbSummary = smbPopover?.querySelector<HTMLElement>("strong");
+  const smbDetail = smbPopover?.querySelector<HTMLElement>("span");
   if (
     !menuButton ||
     !title ||
     !clock ||
     !info ||
     !wiredIndicator ||
-    !wifiIndicator
+    !wifiIndicator ||
+    !smbButton ||
+    !smbPopover ||
+    !smbSummary ||
+    !smbDetail
   )
     throw new Error("Top bar is incomplete");
   const moreButton = document.createElement("button");
@@ -76,6 +90,31 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
     else onMenuToggle();
   });
   moreButton.addEventListener("click", () => moreAction?.(moreButton));
+  const closeSmbPopover = (): void => {
+    smbPopover.hidden = true;
+    smbButton.setAttribute("aria-expanded", "false");
+  };
+  smbButton.addEventListener("click", () => {
+    smbPopover.hidden = !smbPopover.hidden;
+    smbButton.setAttribute("aria-expanded", String(!smbPopover.hidden));
+  });
+  const closeSmbOutside = (event: PointerEvent): void => {
+    if (
+      !smbPopover.hidden &&
+      !smbPopover.contains(event.target as Node) &&
+      !smbButton.contains(event.target as Node)
+    )
+      closeSmbPopover();
+  };
+  const closeSmbEscape = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && !smbPopover.hidden) {
+      event.preventDefault();
+      closeSmbPopover();
+      smbButton.focus();
+    }
+  };
+  document.addEventListener("pointerdown", closeSmbOutside);
+  document.addEventListener("keydown", closeSmbEscape);
   return {
     element,
     menuButton,
@@ -104,8 +143,50 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
         snapshot.operationState === "connecting",
       );
     },
+    updateSmb(snapshot) {
+      smbButton.hidden = snapshot.configuredCount === 0;
+      if (smbButton.hidden) {
+        closeSmbPopover();
+        return;
+      }
+      const hasError = snapshot.unavailableCount > 0;
+      const allConnected =
+        snapshot.configuredCount > 0 &&
+        snapshot.connectedCount === snapshot.configuredCount;
+      smbButton.dataset.state = hasError
+        ? "error"
+        : allConnected
+          ? "connected"
+          : "connecting";
+      const unavailable = snapshot.connections.filter(
+        (connection) =>
+          !connection.readable && connection.state !== "connecting",
+      );
+      const authentication = unavailable.find(
+        (connection) => connection.state === "authentication-required",
+      );
+      if (authentication) {
+        smbSummary.textContent = "SMB · Authentication required";
+        smbDetail.textContent = authentication.displayName;
+      } else if (snapshot.unavailableCount > 0) {
+        smbSummary.textContent = `SMB · ${String(snapshot.unavailableCount)} of ${String(snapshot.configuredCount)} unavailable`;
+        smbDetail.textContent =
+          snapshot.unavailableCount === 1
+            ? `${unavailable[0]?.displayName ?? "Network share"} is offline`
+            : "";
+      } else if (snapshot.connectingCount > 0) {
+        smbSummary.textContent = "SMB · Connecting…";
+        smbDetail.textContent = "";
+      } else {
+        smbSummary.textContent = `SMB · ${String(snapshot.connectedCount)} connected`;
+        smbDetail.textContent = "";
+      }
+      smbDetail.hidden = smbDetail.textContent === "";
+    },
     destroy() {
       window.clearInterval(clockTimer);
+      document.removeEventListener("pointerdown", closeSmbOutside);
+      document.removeEventListener("keydown", closeSmbEscape);
     },
   };
 }

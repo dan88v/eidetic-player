@@ -15,6 +15,12 @@ export type PersistedQueueOrigin =
       readonly deviceId: string;
       readonly relativePath: string;
       readonly entryId: string;
+    }
+  | {
+      readonly kind: "smb";
+      readonly connectionId: string;
+      readonly relativePath: string;
+      readonly entryId: string;
     };
 
 export interface PersistedQueueItem {

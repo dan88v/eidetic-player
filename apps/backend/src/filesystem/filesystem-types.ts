@@ -1,6 +1,7 @@
 import type {
   DirectoryBrowseResponse,
   DirectoryEntry,
+  BrowseSource,
   LibrarySource,
   SourceAvailability,
 } from "../../../../packages/shared/src/library.js";
@@ -41,8 +42,10 @@ export interface StoredRemovableSource extends StoredSourceBase {
 
 export type StoredSource = StoredLocalSource | StoredRemovableSource;
 
-export interface ResolvedSource extends StoredSourceBase {
-  readonly type: "local" | "removable";
+export interface ResolvedSource<
+  T extends "local" | "removable" | "smb" = "local" | "removable" | "smb",
+> extends StoredSourceBase {
+  readonly type: T;
   readonly nativeRoot: string;
   readonly canonicalRoot: string;
 }
@@ -81,7 +84,17 @@ export interface SourceServiceDiagnostics {
 export function toPublicSource(
   source: StoredSourceBase & { readonly type: "local" | "removable" },
   availability: SourceAvailability,
-): LibrarySource {
+): LibrarySource;
+export function toPublicSource(
+  source: StoredSourceBase & {
+    readonly type: "local" | "removable" | "smb";
+  },
+  availability: SourceAvailability,
+): BrowseSource;
+export function toPublicSource(
+  source: StoredSourceBase & { readonly type: "local" | "removable" | "smb" },
+  availability: SourceAvailability,
+): BrowseSource {
   return {
     id: source.id,
     type: source.type,

@@ -11,6 +11,15 @@ export interface LibrarySource {
   readonly updatedAt: string;
 }
 
+export interface BrowseSource {
+  readonly id: string;
+  readonly type: "local" | "removable" | "smb";
+  readonly displayName: string;
+  readonly availability: SourceAvailability;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export type RemovableDeviceState =
   "connected" | "mounted" | "readable" | "unavailable" | "disconnected";
 
@@ -133,7 +142,7 @@ export interface DirectoryEntry {
 }
 
 export interface DirectoryBrowseResponse {
-  readonly source: LibrarySource;
+  readonly source: BrowseSource;
   readonly current: DirectoryLocation;
   readonly parent: DirectoryLocation | null;
   readonly breadcrumbs: readonly BreadcrumbSegment[];

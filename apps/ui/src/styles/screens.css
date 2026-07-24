@@ -391,6 +391,32 @@
   .sources-section > h2 {
     font-size: var(--font-size-lg);
   }
+
+  .sources-section__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .sources-section__heading h2 {
+    font-size: var(--font-size-lg);
+  }
+
+  .sources-smb-add {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+  }
+
+  .sources-smb-add .icon {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
   .sources-list {
     display: grid;
     gap: var(--space-3);
@@ -533,6 +559,78 @@
   }
   .source-dialog__confirm--danger {
     background: #b72f38 !important;
+  }
+
+  .smb-dialog {
+    top: calc(
+      var(--top-bar-height) +
+        (100vh - var(--top-bar-height) - var(--mini-player-height)) / 2
+    );
+    width: min(38rem, calc(100vw - var(--space-6)));
+    max-height: calc(
+      100vh - var(--top-bar-height) - var(--mini-player-height) - var(--space-4)
+    );
+    overflow-y: auto;
+  }
+
+  .smb-dialog__fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3) var(--space-4);
+  }
+
+  .smb-dialog__fields > label,
+  .smb-dialog__auth {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .smb-dialog__fields input {
+    width: 100%;
+    min-height: 3rem;
+    padding-inline: var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-elevated);
+    color: var(--color-text);
+  }
+
+  .smb-dialog__fields input[readonly] {
+    color: var(--color-text-secondary);
+    opacity: 0.78;
+  }
+
+  .smb-dialog__auth {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .smb-dialog__auth .segmented-control {
+    justify-self: start;
+  }
+
+  .smb-password-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+  }
+
+  .smb-password-field button {
+    min-width: 4rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  .smb-dialog__error:empty {
+    display: none;
+  }
+
+  @media (max-width: 64rem), (max-height: 42rem) {
+    .smb-dialog__fields {
+      grid-template-columns: 1fr;
+    }
   }
 
   .library-screen {
