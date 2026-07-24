@@ -5,6 +5,7 @@ import {
 } from "node:http";
 import { createReadStream } from "node:fs";
 import { performance } from "node:perf_hooks";
+import { spawn } from "node:child_process";
 import type { ApiResponse } from "../../../packages/shared/src/player.js";
 import type { HealthResponse } from "../../../packages/shared/src/health.js";
 import type { WaveformResponse } from "../../../packages/shared/src/visualizer.js";
@@ -82,6 +83,24 @@ import {
 import { createPlatformSmbAdapter } from "./smb/smb-platform-adapter.js";
 import { SmbConnectionRepository } from "./smb/smb-connection-repository.js";
 import { SmbError } from "./smb/smb-types.js";
+import type { SystemCapabilities } from "../../../packages/shared/src/system.js";
+
+const applianceFixture =
+  process.env.NODE_ENV !== "production" &&
+  process.env.EIDETIC_APPLIANCE_FIXTURE === "1";
+const applianceInstallation =
+  process.platform === "linux" &&
+  process.env.EIDETIC_INSTALLATION_MODE === "appliance";
+const systemCapabilities: SystemCapabilities = {
+  installationMode: applianceInstallation
+    ? "appliance"
+    : process.env.EIDETIC_INSTALLATION_MODE === "standard"
+      ? "standard"
+      : "development",
+  maintenanceMode: applianceInstallation || applianceFixture,
+  fullscreen: process.env.EIDETIC_FULLSCREEN === "1",
+  hidePointerWhenInactive: process.env.EIDETIC_HIDE_POINTER === "1",
+};
 
 const player = new PlayerService();
 const filesystemProvider = new LocalFilesystemProvider();
@@ -1352,6 +1371,7 @@ async function handleRequest(
         ok: true,
         data: {
           playerState: player.getPublicState(),
+          system: systemCapabilities,
           restore: {
             status: restore.status,
             restoredCount: restore.restoredCount,
@@ -1359,6 +1379,33 @@ async function handleRequest(
           },
         },
       });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/system/maintenance"
+    ) {
+      if (!systemCapabilities.maintenanceMode) {
+        sendJson(response, 404, {
+          ok: false,
+          error: {
+            code: "NOT_AVAILABLE",
+            message: "Maintenance mode is unavailable.",
+          },
+        });
+        return;
+      }
+      await readBody(request);
+      sendJson(response, 202, { ok: true });
+      if (!applianceFixture)
+        setTimeout(() => {
+          const child = spawn("/usr/local/bin/eidetic-player-maintenance", [], {
+            detached: true,
+            stdio: "ignore",
+          });
+          child.unref();
+          shutdown("SIGTERM");
+        }, 100).unref();
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/sources") {

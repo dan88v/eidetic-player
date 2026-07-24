@@ -1,5 +1,9 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
+import {
+  defaultSystemCapabilities,
+  type SystemCapabilities,
+} from "../../../../packages/shared/src/system";
 import type {
   IndexedLibrarySnapshot,
   RemovableDevice,
@@ -11,6 +15,7 @@ import { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
 import { NetworkApiClient } from "../api/network-api-client";
 import { SmbApiClient } from "../api/smb-api-client";
+import { SystemApiClient } from "../api/system-api-client";
 import {
   emptyNetworkSnapshot,
   type NetworkSnapshot,
@@ -69,6 +74,7 @@ export function mountApp(
   store: AppStore,
   platform: PlatformBridge,
   initialPlayerState: PlayerState = disconnectedPlayerState,
+  systemCapabilities: SystemCapabilities = defaultSystemCapabilities,
 ): MountedApp {
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
@@ -76,6 +82,9 @@ export function mountApp(
   const libraryApi = new LibraryApiClient();
   const networkApi = new NetworkApiClient();
   const smbApi = new SmbApiClient();
+  const systemApi = new SystemApiClient();
+  if (systemCapabilities.hidePointerWhenInactive)
+    root.dataset.pointerPolicy = "hide-when-inactive";
   const favorites = new FavoriteTrackStore(libraryApi);
   const favoriteAlbums = new FavoriteAlbumStore(libraryApi);
   const favoriteArtists = new FavoriteArtistStore(libraryApi);
@@ -501,6 +510,12 @@ export function mountApp(
         }
         return true;
       },
+      systemCapabilities,
+      enterMaintenanceMode: async () => {
+        closeOverlays();
+        await api.pause().catch(() => undefined);
+        await systemApi.enterMaintenanceMode();
+      },
       showToast: (message, tone = "neutral") => {
         showMessage(message, tone);
       },
@@ -617,6 +632,17 @@ export function mountApp(
   };
   for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
     document.addEventListener(eventName, noteActivity, { passive: true });
+  let pointerTimer = 0;
+  const revealPointer = (): void => {
+    if (!systemCapabilities.hidePointerWhenInactive) return;
+    root.classList.remove("app-root--pointer-hidden");
+    window.clearTimeout(pointerTimer);
+    pointerTimer = window.setTimeout(() => {
+      root.classList.add("app-root--pointer-hidden");
+    }, 2_500);
+  };
+  document.addEventListener("pointermove", revealPointer, { passive: true });
+  revealPointer();
   scheduleInactivity();
 
   let recoveryNoticeHandled = false;
@@ -948,9 +974,11 @@ export function mountApp(
       toastHost.destroy();
       keyboardAdapter.destroy();
       window.clearTimeout(inactivityTimer);
+      window.clearTimeout(pointerTimer);
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
         document.removeEventListener(eventName, noteActivity);
       document.removeEventListener("keydown", handleKeydown);
+      document.removeEventListener("pointermove", revealPointer);
       window.removeEventListener("dragenter", showDrop);
       window.removeEventListener("dragover", showDrop);
       window.removeEventListener("dragleave", hideDrop);

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+runtime="${XDG_RUNTIME_DIR:?}/eidetic-player"
+[[ ! -e "$runtime/maintenance" ]] || exit 0
+node_bin="/opt/eidetic-player/node/current/bin/node"
+release="/opt/eidetic-player/current"
+"$node_bin" "$release/backend/index.js" &
+backend_pid=$!
+gui_pid=
+cleanup() {
+  [[ -z "${gui_pid:-}" ]] || kill "$gui_pid" 2>/dev/null || true
+  kill "$backend_pid" 2>/dev/null || true
+  wait "$backend_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+for _ in {1..50}; do
+  curl --fail --silent http://127.0.0.1:43789/api/health >/dev/null && break
+  kill -0 "$backend_pid" 2>/dev/null || exit 1
+  sleep 0.1
+done
+"$release/eidetic-player" &
+gui_pid=$!
+wait "$gui_pid"

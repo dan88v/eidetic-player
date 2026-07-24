@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# -ge 2 ]] || exit 64
+caller_uid="${PKEXEC_UID:-}"
+[[ "$caller_uid" =~ ^[0-9]+$ && "$caller_uid" -ne 0 ]] || exit 77
+runtime="/run/user/$caller_uid/eidetic-player/smb"
+target="$2"
+case "$target" in "$runtime"/smb-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) exit 65;; esac
+[[ ! -L "$target" ]] || exit 65
+case "$1" in
+  mount)
+    [[ $# -eq 4 && "$3" =~ ^//[A-Za-z0-9._-]+/[A-Za-z0-9._$[:space:]-]+$ ]] || exit 64
+    IFS=, read -r -a options <<<"$4"
+    required=(ro nosuid nodev noexec)
+    for option in "${options[@]}"; do
+      case "$option" in
+        ro|nosuid|nodev|noexec|guest) ;;
+        credentials=*)
+          credential="${option#credentials=}"
+          [[ -f "$credential" && ! -L "$credential" ]] || exit 65
+          [[ "$(stat -c %u "$credential")" == "$caller_uid" && "$(stat -c %a "$credential")" == 600 ]] || exit 65
+          ;;
+        *) exit 65;;
+      esac
+    done
+    for item in "${required[@]}"; do [[ ",$4," == *",$item,"* ]] || exit 65; done
+    install -d -o "$caller_uid" -g "$caller_uid" -m 0700 "$target"
+    exec mount -t cifs "$3" "$target" -o "$4"
+    ;;
+  unmount)
+    [[ $# -eq 2 ]] || exit 64
+    exec umount "$target"
+    ;;
+  *) exit 64;;
+esac

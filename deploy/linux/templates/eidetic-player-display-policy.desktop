@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Eidetic Player display policy
+Exec=/usr/local/bin/eidetic-player-display-policy
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Return to Eidetic Player
+Comment=Leave maintenance mode
+Exec=/usr/local/bin/eidetic-player-resume
+Terminal=false
+Categories=System;

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+runtime="${XDG_RUNTIME_DIR:?}/eidetic-player"
+install -d -m 0700 "$runtime"
+: >"$runtime/maintenance"
+systemctl --user stop eidetic-player.service || true
+terminal="${EIDETIC_TERMINAL:-x-terminal-emulator}"
+exec "$terminal" --title="Eidetic Player Maintenance"

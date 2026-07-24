@@ -17,6 +17,7 @@ import {
 import { correctInitialViewportOnce } from "./utils/viewport";
 import { PlayerApiClient } from "./api/player-api-client";
 import { disconnectedPlayerState } from "./state/player-store";
+import { defaultSystemCapabilities } from "../../../packages/shared/src/system";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -71,8 +72,11 @@ async function bootstrap(): Promise<void> {
     controller.abort();
   }, 5_000);
   let playerState = disconnectedPlayerState;
+  let systemCapabilities = defaultSystemCapabilities;
   try {
-    playerState = await new PlayerApiClient().bootstrap(controller.signal);
+    const initial = await new PlayerApiClient().bootstrap(controller.signal);
+    playerState = initial.playerState;
+    systemCapabilities = initial.system;
   } catch (error) {
     console.error("[bootstrap] backend initialization failed", error);
   } finally {
@@ -98,7 +102,13 @@ async function bootstrap(): Promise<void> {
     returnToNowPlayingSeconds: loadReturnToNowPlayingSeconds(),
     onScreenKeyboardMode: loadOnScreenKeyboardMode(),
   });
-  const app = mountApp(root, store, platform.bridge, playerState);
+  const app = mountApp(
+    root,
+    store,
+    platform.bridge,
+    playerState,
+    systemCapabilities,
+  );
   const splash = document.querySelector<HTMLElement>("#app-splash");
   if (splash) {
     if (!animationsEnabled || reducedMotion) {

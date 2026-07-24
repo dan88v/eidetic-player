@@ -12,6 +12,7 @@ import type {
 } from "../state/types";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { NetworkApiClient } from "../api/network-api-client";
+import type { SystemCapabilities } from "../../../../packages/shared/src/system";
 import {
   createNetworkSettingsPanel,
   networkSummary,
@@ -26,6 +27,8 @@ export interface SettingsScreenOptions {
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
   readonly onScreenKeyboardMode: OnScreenKeyboardMode;
+  readonly systemCapabilities: SystemCapabilities;
+  readonly enterMaintenanceMode: () => Promise<void>;
   readonly networkApi: NetworkApiClient;
   readonly networkSnapshot: NetworkSnapshot;
   readonly showToast: (
@@ -55,7 +58,8 @@ type SettingsPage =
   | "keyboard"
   | "browsing"
   | "visualizer"
-  | "inactivity";
+  | "inactivity"
+  | "system";
 
 export function createSettingsScreen(
   options: SettingsScreenOptions,
@@ -84,7 +88,10 @@ export function createSettingsScreen(
       })
     )
       return;
-    page = page === "interface" || page === "network" ? "root" : "interface";
+    page =
+      page === "interface" || page === "network" || page === "system"
+        ? "root"
+        : "interface";
     render();
   };
 
@@ -144,25 +151,29 @@ export function createSettingsScreen(
         ? t("screen.settings.title")
         : page === "interface"
           ? t("settings.interface")
-          : page === "keyboard"
-            ? t("settings.onScreenKeyboard")
-            : page === "browsing"
-              ? t("settings.musicBrowsing")
-              : page === "visualizer"
-                ? t("settings.visualizer")
-                : t("settings.returnToNowPlaying");
+          : page === "system"
+            ? "System"
+            : page === "keyboard"
+              ? t("settings.onScreenKeyboard")
+              : page === "browsing"
+                ? t("settings.musicBrowsing")
+                : page === "visualizer"
+                  ? t("settings.visualizer")
+                  : t("settings.returnToNowPlaying");
     const description =
       page === "root"
         ? t("screen.settings.description")
         : page === "interface"
           ? t("settings.interfaceDescription")
-          : page === "keyboard"
-            ? t("settings.onScreenKeyboardDescription")
-            : page === "browsing"
-              ? t("settings.musicBrowsingDescription")
-              : page === "visualizer"
-                ? t("settings.visualizerDescription")
-                : t("settings.returnToNowPlayingDescription");
+          : page === "system"
+            ? "Appliance maintenance and local recovery."
+            : page === "keyboard"
+              ? t("settings.onScreenKeyboardDescription")
+              : page === "browsing"
+                ? t("settings.musicBrowsingDescription")
+                : page === "visualizer"
+                  ? t("settings.visualizerDescription")
+                  : t("settings.returnToNowPlayingDescription");
     header.setAttribute("aria-label", title);
     header.innerHTML = `<p class="screen-header__description">${description}</p>`;
     if (page !== "root") {
@@ -198,6 +209,58 @@ export function createSettingsScreen(
         render();
       });
       panel.append(interfaceButton, networkButton);
+      if (options.systemCapabilities.maintenanceMode) {
+        const systemButton = document.createElement("button");
+        systemButton.className = "settings-row-base setting-navigation";
+        systemButton.type = "button";
+        systemButton.innerHTML = `<span><strong>System</strong><small>Appliance maintenance and recovery</small></span>${chevron()}`;
+        systemButton.addEventListener("click", () => {
+          page = "system";
+          render();
+        });
+        panel.append(systemButton);
+      }
+      return;
+    }
+
+    if (page === "system") {
+      const row = document.createElement("div");
+      row.className = "settings-row-base setting-row";
+      row.innerHTML =
+        '<div class="setting-row__copy"><span class="setting-row__label">Maintenance mode</span><span class="setting-row__description">Stop playback and return to a local terminal for system maintenance.</span></div>';
+      const action = document.createElement("button");
+      action.className = "button button--secondary";
+      action.type = "button";
+      action.textContent = "Enter maintenance";
+      action.addEventListener("click", () => {
+        const dialog = document.createElement("dialog");
+        dialog.className = "confirmation-dialog";
+        dialog.innerHTML =
+          '<form method="dialog"><h2>Enter maintenance mode?</h2><p>Playback will stop and Eidetic Player will close. Use “Return to Eidetic Player” from the desktop when finished.</p><div class="confirmation-dialog__actions"><button class="button button--secondary" value="cancel">Cancel</button><button class="button button--primary" value="confirm">Continue</button></div></form>';
+        dialog.addEventListener(
+          "close",
+          () => {
+            if (dialog.returnValue === "confirm") {
+              action.disabled = true;
+              void options.enterMaintenanceMode().catch((error: unknown) => {
+                action.disabled = false;
+                options.showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "Maintenance mode is unavailable.",
+                  "error",
+                );
+              });
+            }
+            dialog.remove();
+          },
+          { once: true },
+        );
+        section.append(dialog);
+        dialog.showModal();
+      });
+      row.append(action);
+      panel.append(row);
       return;
     }
 

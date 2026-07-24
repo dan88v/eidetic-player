@@ -20,6 +20,7 @@
     "ffmpeg:doctor": "tsx scripts/ffmpeg-doctor.ts",
     "test:ffmpeg": "tsx --test apps/backend/test/ffmpeg.integration.ts",
     "doctor:linux": "tsx scripts/doctor-linux.ts",
+    "doctor:install:linux": "bash deploy/linux/doctor-installation.sh",
     "doctor:network:linux": "tsx scripts/doctor-network-linux.ts",
     "verify:network:deployment": "tsx scripts/verify-network-deployment.ts",
     "test:linux": "npm run test:case-sensitive && npm run test:posix && npm test",

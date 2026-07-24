@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Eidetic Player
+Comment=Touch-first network audio player
+Exec=/usr/local/bin/eidetic-player
+Terminal=false
+Categories=Audio;AudioVideo;Player;
+StartupNotify=true

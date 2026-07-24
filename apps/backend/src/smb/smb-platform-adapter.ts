@@ -201,13 +201,12 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
       options.push(`credentials=${credential.filePath}`);
     }
     const result = await runBoundedProcess(
-      "mount",
+      "pkexec",
       [
-        "-t",
-        "cifs",
-        `//${record.server}/${record.share}`,
+        "/usr/libexec/eidetic-player-smb-helper",
+        "mount",
         root,
-        "-o",
+        `//${record.server}/${record.share}`,
         options.join(","),
       ],
       { timeoutMs: 15_000 },
@@ -249,9 +248,11 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
   async disconnect(record: SmbConnectionRecord, root?: string): Promise<void> {
     const mountPoint = root ?? this.mounted.get(record.id);
     if (!mountPoint) return;
-    await runBoundedProcess("umount", [mountPoint], {
-      timeoutMs: 10_000,
-    }).catch(() => undefined);
+    await runBoundedProcess(
+      "pkexec",
+      ["/usr/libexec/eidetic-player-smb-helper", "unmount", mountPoint],
+      { timeoutMs: 10_000 },
+    ).catch(() => undefined);
     this.mounted.delete(record.id);
     await rm(mountPoint, { recursive: false, force: true }).catch(
       () => undefined,

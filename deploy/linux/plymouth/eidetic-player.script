@@ -1,0 +1,10 @@
+Window.SetBackgroundTopColor(0.035, 0.043, 0.055);
+Window.SetBackgroundBottomColor(0.035, 0.043, 0.055);
+title = Image.Text("Eidetic Player", 0.92, 0.94, 0.98);
+line = Image("line.ppm");
+title_sprite = Sprite(title);
+title_sprite.SetX(Window.GetWidth() / 2 - title.GetWidth() / 2);
+title_sprite.SetY(Window.GetHeight() / 2 - title.GetHeight());
+line_sprite = Sprite(line);
+line_sprite.SetX(Window.GetWidth() / 2 - line.GetWidth() / 2);
+line_sprite.SetY(Window.GetHeight() / 2 + 12);

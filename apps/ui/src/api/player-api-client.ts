@@ -6,6 +6,12 @@ import type {
   ArtworkRef,
 } from "../../../../packages/shared/src/player";
 import { config } from "../config";
+import type { SystemCapabilities } from "../../../../packages/shared/src/system";
+
+export interface AppBootstrap {
+  readonly playerState: PlayerState;
+  readonly system: SystemCapabilities;
+}
 
 const apiBaseUrl = config.development
   ? ""
@@ -35,20 +41,18 @@ export class PlayerApiClient {
     return payload.data;
   }
 
-  async bootstrap(signal?: AbortSignal): Promise<PlayerState> {
+  async bootstrap(signal?: AbortSignal): Promise<AppBootstrap> {
     const response = await fetch(
       `${this.baseUrl}/api/bootstrap`,
       signal ? { signal } : undefined,
     );
-    const payload = await this.parse<{ readonly playerState: PlayerState }>(
-      response,
-    );
+    const payload = await this.parse<AppBootstrap>(response);
     if (!payload.data)
       throw new PlayerApiError(
         "EMPTY_RESPONSE",
         "The player returned no bootstrap state.",
       );
-    return payload.data.playerState;
+    return payload.data;
   }
 
   subscribe(

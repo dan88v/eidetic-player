@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]] && command -v gsettings >/dev/null; then
+  exec gsettings set org.gnome.desktop.session idle-delay 0
+fi
+if [[ -n "${DISPLAY:-}" ]] && command -v xset >/dev/null; then
+  xset s off
+  exec xset -dpms
+fi
+exit 0

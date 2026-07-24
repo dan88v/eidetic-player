@@ -36,7 +36,8 @@ const config = {
       minWidth: 480,
       minHeight: 320,
       center: true,
-      fullScreen: APP_DEFAULTS.fullscreen,
+      fullScreen:
+        process.env.EIDETIC_FULLSCREEN === "1" || APP_DEFAULTS.fullscreen,
       alwaysOnTop: false,
       enableInspector: environment === "development",
       borderless: false,

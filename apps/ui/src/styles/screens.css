@@ -1802,6 +1802,11 @@
   }
 }
 
+.app-root--pointer-hidden,
+.app-root--pointer-hidden * {
+  cursor: none !important;
+}
+
 @layer screens {
   .playlists-screen {
     max-width: 76rem;

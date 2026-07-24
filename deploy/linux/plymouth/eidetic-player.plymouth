@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Eidetic Player
+Description=Minimal Eidetic Player appliance splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/eidetic-player
+ScriptFile=/usr/share/plymouth/themes/eidetic-player/eidetic-player.script

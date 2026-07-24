@@ -1,0 +1,6 @@
+polkit.addRule(function(action, subject) {
+  if (action.id !== "org.freedesktop.policykit.exec") return;
+  if (action.lookup("program") !== "/usr/libexec/eidetic-player-smb-helper") return;
+  if (!subject.active || !subject.local || !subject.isInGroup("eidetic-player-network")) return;
+  return polkit.Result.YES;
+});

@@ -12,6 +12,7 @@ import type {
   SmbSnapshot,
 } from "../../../../packages/shared/src/smb";
 import type { SmbApiClient } from "../api/smb-api-client";
+import type { SystemCapabilities } from "../../../../packages/shared/src/system";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -119,6 +120,8 @@ export interface ScreenContext {
     back: (() => void) | null,
     more: ((trigger: HTMLButtonElement) => void) | null,
   ) => void;
+  readonly systemCapabilities: SystemCapabilities;
+  readonly enterMaintenanceMode: () => Promise<void>;
 }
 
 function staticView(element: HTMLElement): ComponentView {
@@ -265,6 +268,8 @@ export function createScreen(
         musicBrowsingVisibility: context.state.musicBrowsingVisibility,
         returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
         onScreenKeyboardMode: context.state.onScreenKeyboardMode,
+        systemCapabilities: context.systemCapabilities,
+        enterMaintenanceMode: context.enterMaintenanceMode,
         networkApi: context.networkApi,
         networkSnapshot: context.networkSnapshot,
         showToast: context.showToast,
