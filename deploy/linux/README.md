@@ -22,6 +22,36 @@ WSL is useful only for `--dry-run` and isolated `--root` staging. Those checks
 do not validate Raspberry Pi hardware, a graphical login, audio, USB, CIFS,
 NetworkManager, Plymouth or boot behavior.
 
+## Raspberry Pi OS detection
+
+Current Raspberry Pi OS 64-bit Trixie images may identify themselves as
+`ID=debian`, `VERSION_ID=13` and `VERSION_CODENAME=trixie` in
+`/etc/os-release`. Eidetic Player does not require a branding string in that
+file.
+
+For `ID=debian`, the installer requires all of the following:
+
+- arm64 and Trixie;
+- a supported graphical Desktop;
+- a NUL-separated Device Tree entry beginning exactly with `raspberrypi,`,
+  read from `/proc/device-tree/compatible` or the
+  `/sys/firmware/devicetree/base/compatible` fallback;
+- at least one Raspberry Pi OS marker from this allowlist:
+  - `/etc/rpi-issue`;
+  - the installed `raspberrypi-ui-mods` package;
+  - the official Raspberry Pi repository in
+    `/etc/apt/sources.list.d/raspi.list`.
+
+Hardware detection and Desktop detection are separate. A Broadcom-compatible
+entry alone is insufficient, and generic Debian remains unsupported even when
+a Raspberry Pi OS marker is copied onto it. `ID=raspbian` Trixie arm64 remains
+recognized directly.
+
+Before accepting or rejecting the platform, the installer prints a sanitized
+summary of OS release, architecture, Desktop, Raspberry Pi-compatible Device
+Tree entry and matched OS marker. It does not print hostname, IP address,
+hardware serial, MAC address, user home or credentials.
+
 ## Before installing
 
 1. Start from an up-to-date supported Desktop image. The Eidetic installer runs
@@ -51,6 +81,21 @@ NetworkManager, Plymouth or boot behavior.
 
 Do not use `curl | bash`, `wget | sh`, or a remotely hosted script that has not
 been inspected.
+
+On a real Raspberry Pi, this read-only verification must reach `Target:
+raspios arm64` and the APT plan without installing packages or changing
+services, network, boot files or administrative paths:
+
+```bash
+runtime_user="${SUDO_USER:-$(id -un)}"
+sudo ./deploy/linux/install-eidetic-player.sh \
+  --user "$runtime_user" \
+  --mode standard \
+  --dry-run
+```
+
+A successful dry-run proves platform detection and planning only. It is not a
+Raspberry Pi hardware PASS.
 
 ## Standard trial installation
 

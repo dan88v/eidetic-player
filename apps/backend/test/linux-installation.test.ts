@@ -28,6 +28,25 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
   assert.doesNotMatch(source, /(?:full-upgrade|dist-upgrade|curl[^\\n]*\|)/);
 });
 
+void test("Raspberry Pi OS detection uses Device Tree plus narrow OS markers", async () => {
+  const [common, fixtures] = await Promise.all([
+    read("deploy/linux/lib/common.sh"),
+    read("deploy/linux/test-platform-detection.sh"),
+  ]);
+  assert.match(common, /eidetic_detect_raspberry_pi_hardware/);
+  assert.match(common, /\/proc\/device-tree\/compatible/);
+  assert.match(common, /\/sys\/firmware\/devicetree\/base\/compatible/);
+  assert.match(common, /tr '\\0' '\\n'/);
+  assert.match(common, /raspberrypi,\*/);
+  assert.match(common, /rpi-issue/);
+  assert.match(common, /raspberrypi-ui-mods/);
+  assert.match(common, /archive\\\.raspberrypi/);
+  assert.doesNotMatch(common, /grep -qi 'Raspberry Pi' "\$os_release"/);
+  assert.match(fixtures, /raspberrypi,3-model-b/);
+  assert.match(fixtures, /raspberrypi,3-model-b-plus/);
+  assert.match(fixtures, /staging root without Device Tree/);
+});
+
 void test("maintenance API has a fixed command and no frontend arguments", async () => {
   const [backend, client, settings] = await Promise.all([
     read("apps/backend/src/index.ts"),

@@ -8,11 +8,21 @@ trap 'rm -rf -- "$work"' EXIT
 
 fixture() {
   local name="$1" os="$2" arch="$3" desktop="$4"
+  local compatible="${5:-none}" marker="${6:-none}"
   local root="$work/$name"
   install -d "$root/etc/eidetic-player"
   printf '%s\n' "$os" >"$root/etc/os-release"
   printf '%s\n' "$arch" >"$root/etc/eidetic-player/architecture"
   printf '%s\n' "$desktop" >"$root/etc/eidetic-player/desktop-session"
+  if [[ "$compatible" != none ]]; then
+    install -d "$root/proc/device-tree"
+    printf 'brcm,bcm2837\0%s\0' "$compatible" >"$root/proc/device-tree/compatible"
+  fi
+  if [[ "$marker" == package ]]; then
+    install -d "$root/var/lib/dpkg"
+    printf 'Package: raspberrypi-ui-mods\nStatus: install ok installed\nArchitecture: arm64\n' \
+      >"$root/var/lib/dpkg/status"
+  fi
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart yes --fullscreen yes \
     --disable-blanking yes --hide-pointer yes --splash no --autologin no
@@ -28,9 +38,11 @@ fixture() {
   "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
 }
 
+"$SCRIPT_DIR/test-platform-detection.sh"
+
 fixture raspios \
-  $'PRETTY_NAME="Raspberry Pi OS (64-bit)"\nNAME="Raspberry Pi OS"\nID=raspbian\nVERSION_ID="13"\nVERSION_CODENAME=trixie' \
-  arm64 RaspberryPi
+  $'PRETTY_NAME="Raspberry Pi OS (64-bit)"\nNAME="Raspberry Pi OS"\nID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie' \
+  arm64 RaspberryPi raspberrypi,3-model-b package
 fixture ubuntu-amd64 \
   $'PRETTY_NAME="Ubuntu 26.04 LTS"\nNAME=Ubuntu\nID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute' \
   amd64 GNOME

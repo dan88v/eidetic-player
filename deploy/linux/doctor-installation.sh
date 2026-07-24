@@ -13,6 +13,8 @@ export EIDETIC_ROOT
 status=pass
 checks=()
 check() { local name="$1" result="$2"; checks+=("$name:$result"); [[ "$result" == pass ]] || status=fail; }
+((json)) && EIDETIC_PLATFORM_DIAGNOSTICS=quiet
+export EIDETIC_PLATFORM_DIAGNOSTICS
 if eidetic_detect_platform 2>/dev/null; then check platform pass; else check platform fail; fi
 check current "$([[ -L "$(eidetic_target /opt/eidetic-player/current)" ]] && printf pass || printf fail)"
 check node "$([[ -x "$(eidetic_target /opt/eidetic-player/node/current/bin/node)" ]] && printf pass || printf fail)"

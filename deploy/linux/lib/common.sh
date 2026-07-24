@@ -77,33 +77,133 @@ eidetic_install_managed() {
   mv -f -- "${target}.eidetic-new" "$target"
 }
 
+eidetic_detect_raspberry_pi_hardware() {
+  local logical compatible_file entry normalized
+  EIDETIC_RPI_COMPATIBLE=none
+  for logical in \
+    /proc/device-tree/compatible \
+    /sys/firmware/devicetree/base/compatible; do
+    compatible_file="$(eidetic_target "$logical")"
+    [[ -r "$compatible_file" ]] || continue
+    while IFS= read -r entry; do
+      normalized="${entry,,}"
+      normalized="${normalized//$'\r'/}"
+      [[ -n "$normalized" ]] || continue
+      if [[ "$EIDETIC_RPI_COMPATIBLE" == none &&
+            "$normalized" =~ ^[a-z0-9][a-z0-9,._+-]*$ ]]; then
+        EIDETIC_RPI_COMPATIBLE="$normalized"
+      fi
+      if [[ "$normalized" == raspberrypi,* ]]; then
+        EIDETIC_RPI_COMPATIBLE="$normalized"
+        export EIDETIC_RPI_COMPATIBLE
+        return 0
+      fi
+    done < <(tr '\0' '\n' <"$compatible_file"; printf '\n')
+  done
+  export EIDETIC_RPI_COMPATIBLE
+  return 1
+}
+
+eidetic_detect_raspios_marker() {
+  local rpi_issue package_status raspi_repository
+  EIDETIC_RPI_MARKER=none
+  rpi_issue="$(eidetic_target /etc/rpi-issue)"
+  package_status="$(eidetic_target /var/lib/dpkg/status)"
+  raspi_repository="$(eidetic_target /etc/apt/sources.list.d/raspi.list)"
+  if [[ -f "$rpi_issue" && ! -L "$rpi_issue" ]]; then
+    EIDETIC_RPI_MARKER=rpi-issue
+  elif [[ -r "$package_status" ]] &&
+       awk 'BEGIN { RS=""; FS="\n" }
+         $0 ~ /(^|\n)Package: raspberrypi-ui-mods(\n|$)/ &&
+         $0 ~ /(^|\n)Status: install ok installed(\n|$)/ { found=1 }
+         END { exit(found ? 0 : 1) }' "$package_status"; then
+    EIDETIC_RPI_MARKER=raspberrypi-ui-mods
+  elif [[ "${EIDETIC_ROOT:-/}" == "/" ]] &&
+       dpkg-query -W -f='${Status}\n' raspberrypi-ui-mods 2>/dev/null |
+         grep -qx 'install ok installed'; then
+    EIDETIC_RPI_MARKER=raspberrypi-ui-mods
+  elif [[ -f "$raspi_repository" && ! -L "$raspi_repository" ]] &&
+       grep -Eq 'https?://archive\.raspberrypi\.(com|org)/' "$raspi_repository"; then
+    EIDETIC_RPI_MARKER=raspi-repository
+  fi
+  export EIDETIC_RPI_MARKER
+  [[ "$EIDETIC_RPI_MARKER" != none ]]
+}
+
+eidetic_platform_diagnostics() {
+  local hardware="$1"
+  eidetic_log "Detected platform:"
+  eidetic_log "  OS: ${ID:-unknown} ${VERSION_ID:-unknown} (${VERSION_CODENAME:-unknown})"
+  eidetic_log "  Architecture: ${EIDETIC_ARCH:-unknown}"
+  eidetic_log "  Desktop: ${EIDETIC_DESKTOP:-none}"
+  eidetic_log "  Raspberry Pi hardware: $hardware"
+  eidetic_log "  Raspberry Pi compatible: ${EIDETIC_RPI_COMPATIBLE:-none}"
+  eidetic_log "  Raspberry Pi OS marker: ${EIDETIC_RPI_MARKER:-none}"
+}
+
 eidetic_detect_platform() {
-  local os_release arch desktop
+  local os_release arch desktop hardware=no wsl=no
   os_release="$(eidetic_target /etc/os-release)"
   [[ -r "$os_release" ]] || eidetic_die "cannot read /etc/os-release"
   # shellcheck disable=SC1090
   . "$os_release"
   if [[ "${EIDETIC_ROOT:-/}" != "/" ]]; then
-    arch="$(<"$(eidetic_target /etc/eidetic-player/architecture)")"
-    desktop="$(<"$(eidetic_target /etc/eidetic-player/desktop-session)")"
+    [[ -r "$(eidetic_target /etc/eidetic-player/architecture)" ]] &&
+      arch="$(<"$(eidetic_target /etc/eidetic-player/architecture)")" ||
+      arch=unknown
+    [[ -r "$(eidetic_target /etc/eidetic-player/desktop-session)" ]] &&
+      desktop="$(<"$(eidetic_target /etc/eidetic-player/desktop-session)")" ||
+      desktop=none
   else
-    grep -qi microsoft /proc/version 2>/dev/null && eidetic_die "real installation under WSL is unsupported; use --dry-run or --root"
+    grep -qi microsoft /proc/version 2>/dev/null && wsl=yes
     arch="$(dpkg --print-architecture)"
     desktop="${XDG_CURRENT_DESKTOP:-}"
     [[ -n "$desktop" ]] || {
       dpkg-query -W ubuntu-desktop >/dev/null 2>&1 && desktop=GNOME
       dpkg-query -W raspberrypi-ui-mods >/dev/null 2>&1 && desktop=RaspberryPi
     }
-  fi
-  [[ -n "$desktop" && "$desktop" != "headless" ]] || eidetic_die "a supported Desktop installation is required"
-  if [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "26.04" && ("$arch" == "amd64" || "$arch" == "arm64") ]]; then
-    EIDETIC_DISTRO=ubuntu
-  elif [[ ("${ID:-}" == "raspbian" || "${ID:-}" == "debian") && "${VERSION_CODENAME:-}" == "trixie" && "$arch" == "arm64" ]] &&
-       { [[ "${ID:-}" == "raspbian" ]] || grep -qi 'Raspberry Pi' "$os_release"; }; then
-    EIDETIC_DISTRO=raspios
-  else
-    eidetic_die "unsupported OS/version/architecture (${ID:-unknown} ${VERSION_ID:-unknown} $arch)"
+    desktop="${desktop:-none}"
   fi
   EIDETIC_ARCH="$arch"
-  export EIDETIC_DISTRO EIDETIC_ARCH
+  EIDETIC_DESKTOP="$desktop"
+  eidetic_detect_raspberry_pi_hardware && hardware=yes || true
+  eidetic_detect_raspios_marker || true
+  export EIDETIC_ARCH EIDETIC_DESKTOP
+  [[ "${EIDETIC_PLATFORM_DIAGNOSTICS:-show}" == quiet ]] ||
+    eidetic_platform_diagnostics "$hardware"
+
+  [[ "$wsl" == no ]] ||
+    eidetic_die "real installation under WSL is unsupported; use --dry-run or --root"
+
+  case "${ID:-}" in
+    ubuntu)
+      [[ "${VERSION_ID:-}" == "26.04" ]] ||
+        eidetic_die "unsupported OS release: Ubuntu ${VERSION_ID:-unknown}; expected 26.04 LTS Desktop"
+      [[ "$arch" == "amd64" || "$arch" == "arm64" ]] ||
+        eidetic_die "unsupported architecture: $arch; Ubuntu requires amd64 or arm64"
+      [[ "$desktop" != none && "$desktop" != headless ]] ||
+        eidetic_die "Desktop installation required: Ubuntu Server/headless is unsupported"
+      EIDETIC_DISTRO=ubuntu
+      ;;
+    raspbian|debian)
+      [[ "${VERSION_ID:-}" == "13" &&
+        "${VERSION_CODENAME:-}" == "trixie" ]] ||
+        eidetic_die "unsupported OS release: ${ID:-unknown} ${VERSION_ID:-unknown} (${VERSION_CODENAME:-unknown}); expected Raspberry Pi OS Trixie"
+      [[ "$arch" == "arm64" ]] ||
+        eidetic_die "unsupported architecture: $arch; Raspberry Pi OS requires arm64"
+      if [[ "${ID:-}" == "debian" ]]; then
+        [[ "$hardware" == yes ]] ||
+          eidetic_die "unsupported OS release: generic Debian is not supported"
+        [[ "$EIDETIC_RPI_MARKER" != none ]] ||
+          eidetic_die "Raspberry Pi OS marker missing: Debian on Raspberry Pi hardware is not sufficient"
+      fi
+      [[ "$desktop" != none && "$desktop" != headless ]] ||
+        eidetic_die "Desktop installation required: Raspberry Pi OS Lite/headless is unsupported"
+      EIDETIC_DISTRO=raspios
+      ;;
+    *)
+      eidetic_die "unsupported OS release: ${ID:-unknown} ${VERSION_ID:-unknown} (${VERSION_CODENAME:-unknown})"
+      ;;
+  esac
+  export EIDETIC_DISTRO
 }
