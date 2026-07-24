@@ -56,7 +56,8 @@ void test(
   "MPV Unix endpoints are private, unique, stale-safe, and cleaned",
   { skip: process.platform === "win32" },
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "eidetic endpoint Ü "));
+    const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? "/tmp";
+    const root = await mkdtemp(join(runtimeRoot, "ep-mpv-"));
     try {
       const runtime = join(root, "run");
       const first = await createMpvEndpoint("linux", {}, runtime);
