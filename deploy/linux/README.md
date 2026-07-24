@@ -131,12 +131,28 @@ The installer:
   polkit, UDisks2, CIFS support and a fallback terminal;
 - reads Node from `.nvmrc`, downloads the official linux-x64 or linux-arm64
   archive and verifies `SHASUMS256.txt`;
-- runs `npm ci`, typecheck, essential tests and the production
-  Linux/Neutralino build;
+- uses root only for packages and managed paths under `/opt`, `/etc` and
+  `/usr/local`;
+- runs source fetch/archive, `npm ci`, typecheck, the complete test suite and
+  the production Linux/Neutralino build as the existing non-root runtime user;
 - installs immutable releases under `/opt/eidetic-player/releases`;
 - atomically updates `current` and retains `previous`;
 - keeps config, cache, database and credentials in the runtime user's XDG
   directories.
+
+The build runs in a temporary mode-0700 workspace owned by the runtime user's
+UID and primary group. It receives a clean environment with that user's
+`HOME`, `USER` and `LOGNAME`, the managed Node in `PATH`, a UTF-8 locale, and
+workspace-local npm cache and temporary directories. npm does not run as root
+and does not create a root-owned `.npm` directory or build configuration in
+the user's home.
+
+No final release directory is created or activated until dependency
+installation, typecheck, tests, Linux build and artifact validation all
+succeed. A failed phase reports its name, removes the private workspace and
+incoming release, and leaves both `current` and `previous` unchanged. Package
+or managed Node installation already completed by an earlier attempt is
+reused safely on the next run.
 
 No automatic reboot is performed.
 
@@ -276,8 +292,9 @@ sudo ./deploy/linux/update-eidetic-player.sh --rollback
 ```
 
 `--no-restart` prevents the update command from restarting the app. Update
-builds and verifies before switching `current`, preserves XDG data and keeps
-`previous` available.
+uses the same non-root build/test environment and transactional release switch
+as installation. It builds and verifies before switching `current`, preserves
+XDG data and keeps `previous` available.
 
 ## Restore system UI
 
@@ -328,12 +345,17 @@ shared packages, users or groups.
 On a Linux shell or WSL, the isolated fixture exercise is:
 
 ```bash
-bash deploy/linux/test-staging.sh
+sudo bash deploy/linux/test-staging.sh "$(id -un)"
 ```
 
 It covers Raspberry Pi OS Trixie arm64, Ubuntu 26.04 amd64/arm64, unsupported
-OS rejection, double install, update dry-run, rollback, doctor, double restore,
-double uninstall, shellcheck when available and systemd unit verification.
+OS rejection, double install, a real staging update, rollback, doctor, double
+restore, double uninstall, shellcheck when available and systemd unit
+verification. When run as root it also changes from the administrative UID to
+the supplied runtime user in a private path containing spaces and Unicode,
+checks the real mode-000 permission denial, controlled environment, cache
+ownership, failure cleanup, retry, atomic activation and literal handling of
+an injection-shaped argument.
 
 For the case-sensitive import gate, use a native Linux Node/npm installation
 and filesystem:

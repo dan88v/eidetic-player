@@ -23,9 +23,65 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
     assert.match(source, new RegExp(flag));
   assert.match(source, /SHASUMS256\.txt/);
   assert.match(source, /sha256sum --check --strict/);
-  assert.match(source, /npm ci/);
-  assert.match(source, /npm run build:linux/);
+  assert.match(source, /"\$node_release\/bin\/npm" ci/);
+  assert.match(source, /"\$node_release\/bin\/npm" run "\$phase"/);
   assert.doesNotMatch(source, /(?:full-upgrade|dist-upgrade|curl[^\\n]*\|)/);
+});
+
+void test("Linux repository lifecycle runs as the non-root runtime identity", async () => {
+  const [installer, common, update, fixture] = await Promise.all([
+    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/lib/common.sh"),
+    read("deploy/linux/update-eidetic-player.sh"),
+    read("deploy/linux/test-unprivileged-build.sh"),
+  ]);
+
+  assert.match(common, /runtime user must not be root/);
+  assert.match(common, /runuser --user "\$user" --/);
+  assert.match(common, /env -i --chdir="\$workspace"/);
+  for (const variable of [
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "npm_config_cache",
+    "npm_config_userconfig",
+  ])
+    assert.match(common, new RegExp(`${variable}=`));
+  assert.doesNotMatch(common, /(?:su -c|eval|sudo)/);
+
+  assert.match(installer, /eidetic_prepare_build_workspace/);
+  assert.match(installer, /chown -R "\$runtime_user:\$EIDETIC_RUNTIME_GID"/);
+  assert.match(installer, /Build phase \(runtime user UID/);
+  assert.match(installer, /"\$node_release\/bin\/npm" ci/);
+  assert.match(installer, /"\$node_release\/bin\/npm" test/);
+  assert.match(installer, /"\$node_release\/bin\/npm" run "\$phase"/);
+  assert.match(update, /install-eidetic-player\.sh" "\$\{args\[@\]\}"/);
+
+  const lifecycle = installer.indexOf(
+    "for phase in ci typecheck test build:linux",
+  );
+  const verification = installer.indexOf("backend artifact was not produced");
+  const releaseStage = installer.indexOf('release_stage="$(mktemp');
+  const activation = installer.indexOf("eidetic_activate_release");
+  assert.ok(lifecycle >= 0 && lifecycle < verification);
+  assert.ok(verification < releaseStage && releaseStage < activation);
+
+  assert.match(fixture, /\[\[ "\$\(id -u\)" -ne 0 \]\]/);
+  assert.match(fixture, /chmod 000 locked/);
+  assert.match(fixture, /mode-000 directory was readable/);
+  assert.match(fixture, /current_before=.*readlink/);
+  assert.match(fixture, /previous_before=.*readlink/);
+  assert.match(fixture, /failing lifecycle fixture unexpectedly succeeded/);
+  assert.match(fixture, /\.incoming-/);
+  assert.match(fixture, /literal_payload="; touch/);
+  assert.match(
+    fixture,
+    /Root-to-runtime build, permission, injection and transaction fixtures passed/,
+  );
 });
 
 void test("Raspberry Pi OS detection uses Device Tree plus narrow OS markers", async () => {

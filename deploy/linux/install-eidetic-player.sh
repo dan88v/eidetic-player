@@ -57,6 +57,7 @@ done
 [[ "$mode" == "standard" || "$mode" == "appliance" ]] || eidetic_die "--mode must be standard or appliance"
 [[ -n "$runtime_user" ]] || eidetic_die "--user is required when SUDO_USER is unavailable"
 eidetic_validate_user "$runtime_user"
+eidetic_load_runtime_identity "$runtime_user"
 eidetic_validate_ref "$git_ref"
 if [[ "$EIDETIC_ROOT" != "/" ]]; then eidetic_validate_root "$EIDETIC_ROOT"; fi
 export EIDETIC_ROOT
@@ -94,7 +95,16 @@ if ((dry_run)); then
 fi
 
 tmp="$(mktemp -d)"
-trap 'rm -rf -- "$tmp"' EXIT
+build_workspace=
+release_stage=
+cleanup() {
+  [[ -z "$release_stage" || ! -e "$release_stage" ]] ||
+    rm -rf -- "$release_stage"
+  [[ -z "$build_workspace" || ! -e "$build_workspace" ]] ||
+    rm -rf -- "$build_workspace"
+  rm -rf -- "$tmp"
+}
+trap cleanup EXIT
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   export DEBIAN_FRONTEND=$([[ "$unattended" == 1 ]] && printf noninteractive || printf dialog)
   apt-get update
@@ -124,41 +134,96 @@ fi
 ln -sfn "v$node_version" "$node_root/current.new"
 mv -Tf "$node_root/current.new" "$node_root/current"
 
-release_id="$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$SCRIPT_DIR/../.." rev-parse --short=12 "$git_ref" 2>/dev/null || printf staging)"
 releases="$(eidetic_target /opt/eidetic-player/releases)"
-release="$releases/$release_id"
-install -d -m 0755 "$release/bin"
-if [[ "$EIDETIC_ROOT" == "/" ]]; then
-  git -C "$SCRIPT_DIR/../.." fetch --depth 1 origin "$git_ref"
-  git -C "$SCRIPT_DIR/../.." archive FETCH_HEAD | tar -xf - -C "$tmp"
-  (
-    cd "$tmp"
-    export PATH="$node_release/bin:$PATH"
-    export EIDETIC_INSTALLATION_MODE="$mode"
-    export EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
-    npm ci
-    npm run typecheck
-    npm test
-    npm run build:linux
-  )
-  cp -a "$tmp/dist/backend" "$release/backend"
-  shell_binary="$(find "$tmp/dist" -type f -name '*linux*' -perm /111 | head -n 1)"
-  [[ -n "$shell_binary" ]] || eidetic_die "Neutralino Linux binary was not produced"
-  install -m 0755 "$shell_binary" "$release/eidetic-player"
-  find "$tmp/dist" -maxdepth 3 -type f \( -name '*.neu' -o -name 'neutralino.config.json' \) \
-    -exec cp -t "$release" {} +
-else
-  install -d -m 0755 "$release/backend"
-  printf 'staging fixture\n' >"$release/backend/index.js"
-  printf '#!/bin/sh\nexit 0\n' >"$release/eidetic-player"
-  chmod 0755 "$release/eidetic-player"
-fi
-install -m 0755 "$SCRIPT_DIR/runtime/eidetic-player-launch" "$release/bin/eidetic-player-launch"
-
 opt="$(eidetic_target /opt/eidetic-player)"
-if [[ -L "$opt/current" ]]; then ln -sfn "$(readlink "$opt/current")" "$opt/previous.new"; mv -Tf "$opt/previous.new" "$opt/previous"; fi
-ln -sfn "releases/$release_id" "$opt/current.new"
-mv -Tf "$opt/current.new" "$opt/current"
+install -d -m 0755 "$releases"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  build_workspace="$(eidetic_prepare_build_workspace "$runtime_user")"
+  EIDETIC_INSTALLATION_MODE="$mode"
+  EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
+  export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN
+  eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): fetch $git_ref"
+  if ! eidetic_run_as_runtime_user \
+    "$runtime_user" "$build_workspace" "$node_release/bin" \
+    git -C "$SCRIPT_DIR/../.." fetch --depth 1 origin "$git_ref"; then
+    eidetic_die "source phase failed: Git fetch"
+  fi
+  if ! eidetic_run_as_runtime_user \
+    "$runtime_user" "$build_workspace" "$node_release/bin" \
+    git -C "$SCRIPT_DIR/../.." archive --format=tar \
+      --output="$build_workspace/source.tar" FETCH_HEAD; then
+    eidetic_die "source phase failed: Git archive"
+  fi
+  tar -xf "$build_workspace/source.tar" -C "$build_workspace"
+  rm -f -- "$build_workspace/source.tar"
+  chown -R "$runtime_user:$EIDETIC_RUNTIME_GID" "$build_workspace"
+  for phase in ci typecheck test build:linux; do
+    eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"
+    if ! case "$phase" in
+        ci)
+          eidetic_run_as_runtime_user \
+            "$runtime_user" "$build_workspace" "$node_release/bin" \
+            "$node_release/bin/npm" ci
+          ;;
+        test)
+          eidetic_run_as_runtime_user \
+            "$runtime_user" "$build_workspace" "$node_release/bin" \
+            "$node_release/bin/npm" test
+          ;;
+        *)
+          eidetic_run_as_runtime_user \
+            "$runtime_user" "$build_workspace" "$node_release/bin" \
+            "$node_release/bin/npm" run "$phase"
+          ;;
+      esac; then
+      eidetic_die "build phase failed: npm $phase"
+    fi
+  done
+  [[ -d "$build_workspace/dist/backend" ]] ||
+    eidetic_die "build phase failed: backend artifact was not produced"
+  shell_binary="$(find "$build_workspace/dist" -type f -name '*linux*' -perm /111 -print -quit)"
+  [[ -n "$shell_binary" ]] || eidetic_die "Neutralino Linux binary was not produced"
+  mapfile -d '' neu_files < <(
+    find "$build_workspace/dist" -maxdepth 3 -type f \
+      \( -name '*.neu' -o -name 'neutralino.config.json' \) -print0
+  )
+  ((${#neu_files[@]} > 0)) ||
+    eidetic_die "Neutralino resources were not produced"
+  release_commit="$(eidetic_run_as_runtime_user \
+    "$runtime_user" "$build_workspace" "$node_release/bin" \
+    git -C "$SCRIPT_DIR/../.." rev-parse --short=12 FETCH_HEAD)"
+else
+  release_commit=staging
+fi
+
+release_base="$(date -u +%Y%m%dT%H%M%SZ)-$release_commit"
+release_id="$release_base"
+release_counter=0
+while [[ -e "$releases/$release_id" ]]; do
+  release_counter=$((release_counter + 1))
+  release_id="${release_base}-${release_counter}"
+done
+release_stage="$(mktemp -d -p "$releases" ".incoming-${release_id}.XXXXXX")"
+install -d -m 0755 "$release_stage/bin"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  cp -a "$build_workspace/dist/backend" "$release_stage/backend"
+  install -m 0755 "$shell_binary" "$release_stage/eidetic-player"
+  cp -- "${neu_files[@]}" "$release_stage/"
+else
+  install -d -m 0755 "$release_stage/backend"
+  printf 'staging fixture\n' >"$release_stage/backend/index.js"
+  printf '#!/bin/sh\nexit 0\n' >"$release_stage/eidetic-player"
+  chmod 0755 "$release_stage/eidetic-player"
+fi
+install -m 0755 "$SCRIPT_DIR/runtime/eidetic-player-launch" \
+  "$release_stage/bin/eidetic-player-launch"
+[[ -f "$release_stage/backend/index.js" && -x "$release_stage/eidetic-player" &&
+  -x "$release_stage/bin/eidetic-player-launch" ]] ||
+  eidetic_die "release verification failed"
+if [[ "${EUID}" -eq 0 ]]; then
+  chown -R root:root "$release_stage"
+fi
+chmod 0755 "$release_stage"
 
 conf="$tmp/install.conf"
 cat >"$conf" <<EOF
@@ -185,15 +250,25 @@ eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-smb-helper" /usr/lib
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-smb.polkit.rules" /etc/polkit-1/rules.d/49-eidetic-player-smb.rules 0644
 
 if [[ "${choice[autostart]}" == yes ]]; then
-  runtime_home="$(getent passwd "$runtime_user" | cut -d: -f6)"
+  runtime_home="$EIDETIC_RUNTIME_HOME"
   autostart="$tmp/autostart.desktop"
   cp "$SCRIPT_DIR/templates/eidetic-player.desktop" "$autostart"
+  install -d -m 0755 -o "$runtime_user" -g "$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config")" \
+    "$(eidetic_target "$runtime_home/.config/autostart")"
   eidetic_install_managed "$autostart" "$runtime_home/.config/autostart/eidetic-player.desktop" 0644
+  chown "$runtime_user:$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config/autostart/eidetic-player.desktop")"
 fi
 if [[ "${choice[blanking]}" == yes ]]; then
-  runtime_home="$(getent passwd "$runtime_user" | cut -d: -f6)"
+  runtime_home="$EIDETIC_RUNTIME_HOME"
+  install -d -m 0755 -o "$runtime_user" -g "$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config")" \
+    "$(eidetic_target "$runtime_home/.config/autostart")"
   eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-display-policy.desktop" \
     "$runtime_home/.config/autostart/eidetic-player-display-policy.desktop" 0644
+  chown "$runtime_user:$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config/autostart/eidetic-player-display-policy.desktop")"
 fi
 if [[ "${choice[autologin]}" == yes ]]; then
   if [[ "$EIDETIC_DISTRO" == "ubuntu" ]]; then
@@ -246,5 +321,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   systemctl daemon-reload
   loginctl enable-linger "$runtime_user" >/dev/null
 fi
+eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
+release_stage=
 eidetic_log "Installed release $release_id atomically. No reboot was performed."
 eidetic_log "Application data under the runtime user's XDG directories was not modified."

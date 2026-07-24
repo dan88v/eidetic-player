@@ -30,6 +30,7 @@ fixture() {
     --mode appliance --unattended --autostart yes --fullscreen yes \
     --disable-blanking yes --hide-pointer yes --splash no --autologin no
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --dry-run
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --rollback
   "$SCRIPT_DIR/doctor-installation.sh" --root "$root" --json
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
@@ -39,6 +40,11 @@ fixture() {
 }
 
 "$SCRIPT_DIR/test-platform-detection.sh"
+if [[ "${EUID}" -eq 0 ]]; then
+  "$SCRIPT_DIR/test-unprivileged-build.sh" "$runtime_user"
+else
+  printf 'Unprivileged-build fixture requires root; run this staging suite with sudo for that gate.\n'
+fi
 
 fixture raspios \
   $'PRETTY_NAME="Raspberry Pi OS (64-bit)"\nNAME="Raspberry Pi OS"\nID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie' \

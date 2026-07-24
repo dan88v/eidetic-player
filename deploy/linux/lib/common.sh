@@ -24,11 +24,75 @@ eidetic_require_root() {
 eidetic_validate_user() {
   [[ "$1" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || eidetic_die "invalid runtime user"
   id "$1" >/dev/null 2>&1 || eidetic_die "runtime user does not exist: $1"
+  [[ "$(id -u "$1")" -ne 0 ]] || eidetic_die "runtime user must not be root"
 }
 
 eidetic_validate_ref() {
   [[ -n "$1" && "$1" =~ ^[A-Za-z0-9._/-]+$ ]] || eidetic_die "invalid Git ref"
   [[ "$1" != *".."* && "$1" != /* && "$1" != */ ]] || eidetic_die "unsafe Git ref"
+}
+
+eidetic_load_runtime_identity() {
+  local user="$1" passwd_record
+  passwd_record="$(getent passwd "$user")" ||
+    eidetic_die "cannot resolve runtime user: $user"
+  EIDETIC_RUNTIME_UID="$(printf '%s\n' "$passwd_record" | cut -d: -f3)"
+  EIDETIC_RUNTIME_GID="$(printf '%s\n' "$passwd_record" | cut -d: -f4)"
+  EIDETIC_RUNTIME_HOME="$(printf '%s\n' "$passwd_record" | cut -d: -f6)"
+  [[ "$EIDETIC_RUNTIME_UID" =~ ^[0-9]+$ && "$EIDETIC_RUNTIME_UID" -ne 0 ]] ||
+    eidetic_die "runtime user must have a non-root UID"
+  [[ "$EIDETIC_RUNTIME_GID" =~ ^[0-9]+$ ]] ||
+    eidetic_die "runtime user has an invalid primary group"
+  [[ "$EIDETIC_RUNTIME_HOME" == /* ]] ||
+    eidetic_die "runtime user has an invalid home directory"
+  export EIDETIC_RUNTIME_UID EIDETIC_RUNTIME_GID EIDETIC_RUNTIME_HOME
+}
+
+eidetic_prepare_build_workspace() {
+  local user="$1" parent="${2:-${TMPDIR:-/tmp}}" workspace
+  workspace="$(mktemp -d -p "$parent" 'eidetic-player-build-Ü-space.XXXXXX')"
+  chmod 0700 "$workspace"
+  chown "$user:$EIDETIC_RUNTIME_GID" "$workspace"
+  install -d -m 0700 -o "$user" -g "$EIDETIC_RUNTIME_GID" \
+    "$workspace/.npm-cache" "$workspace/.tmp"
+  printf '%s\n' "$workspace"
+}
+
+eidetic_run_as_runtime_user() {
+  local user="$1" workspace="$2" node_bin="$3"
+  shift 3
+  [[ "${EUID}" -eq 0 ]] || eidetic_die "runtime-user execution requires an administrative installer"
+  [[ -d "$workspace" ]] || eidetic_die "runtime workspace is missing"
+  runuser --user "$user" -- \
+    env -i --chdir="$workspace" \
+      HOME="$EIDETIC_RUNTIME_HOME" \
+      USER="$user" \
+      LOGNAME="$user" \
+      PATH="$node_bin:/usr/local/bin:/usr/bin:/bin" \
+      LANG=C.UTF-8 \
+      LC_ALL=C.UTF-8 \
+      TMPDIR="$workspace/.tmp" \
+      npm_config_cache="$workspace/.npm-cache" \
+      npm_config_userconfig=/dev/null \
+      npm_config_update_notifier=false \
+      npm_config_fund=false \
+      EIDETIC_INSTALLATION_MODE="${EIDETIC_INSTALLATION_MODE:-standard}" \
+      EIDETIC_FULLSCREEN="${EIDETIC_FULLSCREEN:-0}" \
+      "$@"
+}
+
+eidetic_activate_release() {
+  local staged="$1" releases="$2" release_id="$3" opt="$4"
+  local final="$releases/$release_id"
+  [[ -d "$staged" ]] || eidetic_die "validated staged release is missing"
+  [[ ! -e "$final" ]] || eidetic_die "release already exists: $release_id"
+  mv -T -- "$staged" "$final"
+  if [[ -L "$opt/current" ]]; then
+    ln -sfn "$(readlink "$opt/current")" "$opt/previous.new"
+    mv -Tf "$opt/previous.new" "$opt/previous"
+  fi
+  ln -sfn "releases/$release_id" "$opt/current.new"
+  mv -Tf "$opt/current.new" "$opt/current"
 }
 
 eidetic_sha256() {
