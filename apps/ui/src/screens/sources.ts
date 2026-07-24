@@ -44,31 +44,61 @@ export function createSourcesScreen(
   section.className = "screen sources-screen";
   section.setAttribute("aria-label", t("screen.sources.title"));
   section.innerHTML = `
-    <header class="screen-header sources-header">
-      <p class="screen-header__description">${t("screen.sources.description")}</p>
-      <div class="sources-header__actions">
+    <section class="sources-section sources-section--library" aria-labelledby="library-sources-heading">
+      <div class="sources-section__intro">
+        <div class="sources-section__label">
+          <span class="sources-section__icon">${icon("library")}</span>
+          <div>
+          <h2 id="library-sources-heading">Library Sources</h2>
+          <p>Folders indexed in your music library.</p>
+          </div>
+        </div>
         <button class="sources-header__scan" type="button">${t("sources.rescanLibrary")}</button>
-        <button class="primary-action sources-header__add" type="button">${icon("plus")}<span>${t("sources.addFolder")}</span></button>
       </div>
-    </header>
-    <section class="sources-section" aria-labelledby="local-folders-heading">
-      <h2 id="local-folders-heading">${t("sources.localFolders")}</h2>
-      <div class="sources-list sources-list--local" aria-live="polite"></div>
+      <div class="sources-list sources-list--library" aria-live="polite"></div>
     </section>
-    <section class="sources-section" aria-labelledby="usb-storage-heading">
-      <h2 id="usb-storage-heading">${t("sources.usbStorage")}</h2>
-      <div class="sources-list sources-list--usb" aria-live="polite"></div>
-    </section>
-    <section class="sources-section" aria-labelledby="usb-library-folders-heading">
-      <h2 id="usb-library-folders-heading">USB Library Folders</h2>
-      <div class="sources-list sources-list--removable-library" aria-live="polite"></div>
-    </section>
-    <section class="sources-section sources-section--smb" aria-labelledby="network-shares-heading">
-      <div class="sources-section__heading">
-        <h2 id="network-shares-heading">${t("sources.networkShares")}</h2>
-        <button class="sources-smb-add" type="button">${icon("plus")}<span>Add Share</span></button>
-      </div>
-      <div class="sources-list sources-list--smb" aria-live="polite"></div>
+    <section class="sources-resources" aria-labelledby="available-resources-heading">
+      <header class="sources-resources__header">
+        <h2 id="available-resources-heading">Available Resources</h2>
+        <p>Storage you can browse now or add to your music library.</p>
+      </header>
+      <section class="sources-section sources-resource-section" aria-labelledby="local-storage-heading">
+        <div class="sources-section__intro">
+          <div class="sources-section__label">
+            <span class="sources-section__icon">${icon("folder")}</span>
+            <div>
+            <h3 id="local-storage-heading">Local Storage</h3>
+            <p>Choose a folder from this device to add to the Library.</p>
+            </div>
+          </div>
+          <button class="primary-action sources-local-add" type="button">${icon("plus")}<span>${t("sources.addFolder")}</span></button>
+        </div>
+      </section>
+      <section class="sources-section sources-resource-section" aria-labelledby="usb-storage-heading">
+        <div class="sources-section__intro">
+          <div class="sources-section__label">
+            <span class="sources-section__icon">${icon("usbStorage")}</span>
+            <div>
+            <h3 id="usb-storage-heading">${t("sources.usbStorage")}</h3>
+            <p>Browse USB storage currently connected to this player.</p>
+            </div>
+          </div>
+        </div>
+        <div class="sources-list sources-list--usb" aria-live="polite"></div>
+      </section>
+      <section class="sources-section sources-resource-section sources-section--smb" aria-labelledby="network-shares-heading">
+        <div class="sources-section__intro">
+          <div class="sources-section__label">
+            <span class="sources-section__icon">${icon("ethernet")}</span>
+            <div>
+            <h3 id="network-shares-heading">${t("sources.networkShares")}</h3>
+            <p>Connect to a shared folder on your local network.</p>
+            </div>
+          </div>
+          <button class="sources-smb-add" type="button">${icon("plus")}<span>Add Share</span></button>
+        </div>
+        <div class="sources-list sources-list--smb" aria-live="polite"></div>
+      </section>
     </section>
     <div class="folders-action-menu" role="menu" hidden></div>
     <div class="source-dialog-backdrop" aria-hidden="true"></div>
@@ -80,32 +110,32 @@ export function createSourcesScreen(
     </section>
     <div class="source-dialog-backdrop smb-dialog-backdrop" aria-hidden="true"></div>
     <section class="source-dialog smb-dialog" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="smb-dialog-title">
-      <h2 id="smb-dialog-title">Add Network Share</h2>
-      <p class="source-dialog__description smb-dialog__error" role="alert"></p>
-      <div class="smb-dialog__fields">
-        <label><span>Name</span><input name="displayName" type="text" maxlength="80" autocomplete="off" data-onscreen-keyboard="text"></label>
-        <label><span>Server</span><input name="server" type="text" maxlength="253" autocomplete="off" data-onscreen-keyboard="text"></label>
-        <label><span>Share</span><input name="share" type="text" maxlength="255" autocomplete="off" data-onscreen-keyboard="text"></label>
-        <fieldset class="smb-dialog__auth"><legend>Authentication</legend><div class="segmented-control">
-          <button type="button" data-smb-auth="account" aria-pressed="true">Account</button>
-          <button type="button" data-smb-auth="guest" aria-pressed="false">Guest</button>
+      <header class="smb-dialog__header"><h2 id="smb-dialog-title">Add Network Share</h2></header>
+      <fieldset class="smb-dialog__auth"><legend>Authentication</legend><div class="segmented-control">
+          <button class="segmented-control__option segmented-control__option--selected" type="button" data-smb-auth="account" aria-pressed="true">Account</button>
+          <button class="segmented-control__option" type="button" data-smb-auth="guest" aria-pressed="false">Guest</button>
         </div></fieldset>
-        <label data-account-field><span>Username</span><input name="username" type="text" maxlength="255" autocomplete="username" data-onscreen-keyboard="text"></label>
-        <label data-account-field><span>Password</span><span class="smb-password-field"><input name="password" type="password" maxlength="1024" autocomplete="current-password" data-onscreen-keyboard="password"><button type="button" data-smb-action="toggle-password">Show</button></span></label>
-        <label data-account-field><span>Domain / Workgroup <small>Optional</small></span><input name="domain" type="text" maxlength="255" autocomplete="off" data-onscreen-keyboard="text"></label>
+      <div class="smb-dialog__body">
+        <p class="source-dialog__description smb-dialog__error" role="alert"></p>
+        <div class="smb-dialog__fields">
+          <label><span>Name</span><input name="displayName" type="text" maxlength="80" autocomplete="off" data-onscreen-keyboard="text"></label>
+          <label><span>Server</span><input name="server" type="text" maxlength="253" autocomplete="off" data-onscreen-keyboard="text"></label>
+          <label><span>Share</span><input name="share" type="text" maxlength="255" autocomplete="off" data-onscreen-keyboard="text"></label>
+          <label data-account-field><span>Username</span><input name="username" type="text" maxlength="255" autocomplete="username" data-onscreen-keyboard="text"></label>
+          <label data-account-field><span>Password</span><span class="smb-password-field"><input name="password" type="password" maxlength="1024" autocomplete="current-password" data-onscreen-keyboard="password"><button type="button" data-smb-action="toggle-password">Show</button></span></label>
+          <label data-account-field><span>Domain / Workgroup <small>Optional</small></span><input name="domain" type="text" maxlength="255" autocomplete="off" data-onscreen-keyboard="text"></label>
+        </div>
       </div>
-      <div class="source-dialog__actions"><button type="button" data-smb-action="cancel">Cancel</button><button class="source-dialog__confirm" type="button" data-smb-action="confirm">Connect</button></div>
+      <footer class="source-dialog__actions smb-dialog__footer"><button type="button" data-smb-action="cancel">Cancel</button><button class="source-dialog__confirm" type="button" data-smb-action="confirm">Connect</button></footer>
     </section>`;
-  const localList = section.querySelector<HTMLElement>(".sources-list--local");
-  const usbList = section.querySelector<HTMLElement>(".sources-list--usb");
-  const removableLibraryList = section.querySelector<HTMLElement>(
-    ".sources-list--removable-library",
+  const libraryList = section.querySelector<HTMLElement>(
+    ".sources-list--library",
   );
+  const usbList = section.querySelector<HTMLElement>(".sources-list--usb");
   const smbList = section.querySelector<HTMLElement>(".sources-list--smb");
   const smbAdd = section.querySelector<HTMLButtonElement>(".sources-smb-add");
-  const addButton = section.querySelector<HTMLButtonElement>(
-    ".sources-header__add",
-  );
+  const addButton =
+    section.querySelector<HTMLButtonElement>(".sources-local-add");
   const scanButton = section.querySelector<HTMLButtonElement>(
     ".sources-header__scan",
   );
@@ -142,6 +172,9 @@ export function createSourcesScreen(
   const smbDialogTitle =
     section.querySelector<HTMLElement>("#smb-dialog-title");
   const smbError = section.querySelector<HTMLElement>(".smb-dialog__error");
+  const smbAuth = section.querySelector<HTMLElement>(".smb-dialog__auth");
+  const smbBody = section.querySelector<HTMLElement>(".smb-dialog__body");
+  const smbFields = section.querySelector<HTMLElement>(".smb-dialog__fields");
   const smbConfirm = section.querySelector<HTMLButtonElement>(
     '[data-smb-action="confirm"]',
   );
@@ -170,9 +203,8 @@ export function createSourcesScreen(
     '.smb-dialog input[name="domain"]',
   );
   if (
-    !localList ||
+    !libraryList ||
     !usbList ||
-    !removableLibraryList ||
     !smbList ||
     !smbAdd ||
     !addButton ||
@@ -191,6 +223,9 @@ export function createSourcesScreen(
     !smbBackdrop ||
     !smbDialogTitle ||
     !smbError ||
+    !smbAuth ||
+    !smbBody ||
+    !smbFields ||
     !smbConfirm ||
     !smbCancel ||
     !smbTogglePassword ||
@@ -228,9 +263,11 @@ export function createSourcesScreen(
     section
       .querySelectorAll<HTMLButtonElement>("[data-smb-auth]")
       .forEach((button) => {
-        button.setAttribute(
-          "aria-pressed",
-          String(button.dataset.smbAuth === mode),
+        const selected = button.dataset.smbAuth === mode;
+        button.setAttribute("aria-pressed", String(selected));
+        button.classList.toggle(
+          "segmented-control__option--selected",
+          selected,
         );
       });
     section
@@ -238,6 +275,11 @@ export function createSourcesScreen(
       .forEach((field) => {
         field.hidden = mode === "guest";
       });
+    if (mode === "guest") {
+      smbPassword.value = "";
+      smbPassword.type = "password";
+      smbTogglePassword.textContent = "Show";
+    }
   };
 
   const closeSmbDialog = (): void => {
@@ -249,6 +291,8 @@ export function createSourcesScreen(
     smbDialogMode = null;
     smbDialogConnection = null;
     smbPassword.value = "";
+    smbPassword.type = "password";
+    smbTogglePassword.textContent = "Show";
     smbError.textContent = "";
     smbReturnFocus?.focus();
     smbReturnFocus = null;
@@ -272,8 +316,8 @@ export function createSourcesScreen(
     smbServer.readOnly = mode === "edit";
     smbShare.readOnly = mode === "edit";
     setSmbAuthMode(connection?.authMode ?? "account");
-    const fields = smbDialog.querySelector<HTMLElement>(".smb-dialog__fields");
-    if (fields) fields.hidden = mode === "remove";
+    smbFields.hidden = mode === "remove";
+    smbAuth.hidden = mode === "remove";
     smbDialogTitle.textContent =
       mode === "add"
         ? "Add Network Share"
@@ -542,6 +586,26 @@ export function createSourcesScreen(
       '[data-action="rescan"]',
     );
     if (rescan && menuSource) rescan.disabled = libraryScanBusy;
+    section
+      .querySelectorAll<HTMLElement>(".source-card--library")
+      .forEach((card) => {
+        const sourceId = card.dataset.sourceId;
+        const status = card.querySelector<HTMLElement>(".source-card__status");
+        if (!sourceId || !status) return;
+        const source = snapshot.sources.find(
+          (candidate) => candidate.sourceId === sourceId,
+        );
+        const scanning =
+          snapshot.status.activeScan?.sourceId === sourceId ||
+          snapshot.status.queuedSourceIds.includes(sourceId);
+        if (scanning) {
+          status.textContent = "Scanning";
+          status.dataset.availability = "checking";
+        } else if (source?.scanStatus === "failed") {
+          status.textContent = "Failed";
+          status.dataset.availability = "unavailable";
+        }
+      });
   };
   if (options.initialLibrarySnapshot)
     updateLibrarySnapshot(options.initialLibrarySnapshot);
@@ -675,31 +739,27 @@ export function createSourcesScreen(
   };
 
   const render = (sources: readonly LibrarySource[]): void => {
-    const localFragment = document.createDocumentFragment();
-    const removableFragment = document.createDocumentFragment();
-    const localSources = sources.filter((source) => source.type === "local");
-    const removableSources = sources.filter(
-      (source) => source.type === "removable",
-    );
-    if (localSources.length === 0) {
+    const fragment = document.createDocumentFragment();
+    if (sources.length === 0) {
       const empty = document.createElement("p");
       empty.className = "sources-empty";
-      empty.textContent = t("sources.noLocalFolders");
-      localFragment.append(empty);
-    }
-    if (removableSources.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "sources-empty";
-      empty.textContent = "No USB Library folders.";
-      removableFragment.append(empty);
+      empty.textContent = "No Library sources configured.";
+      fragment.append(empty);
     }
     for (const source of sources) {
+      const indexedSource = librarySnapshot?.sources.find(
+        (candidate) => candidate.sourceId === source.id,
+      );
+      const scanning =
+        librarySnapshot?.status.activeScan?.sourceId === source.id ||
+        librarySnapshot?.status.queuedSourceIds.includes(source.id) === true;
+      const failed = indexedSource?.scanStatus === "failed";
       const card = document.createElement("article");
-      card.className = "source-card";
+      card.className = "source-card source-card--library";
       card.dataset.sourceId = source.id;
       card.innerHTML = `
         <span class="source-card__icon">${icon(source.type === "removable" ? "usbStorage" : "folder")}</span>
-        <div class="source-card__copy"><h3></h3><p>${source.type === "removable" ? "USB Library folder" : t("sources.localFolder")}</p><span class="source-card__status"></span></div>
+        <div class="source-card__copy"><div class="source-card__identity"><span class="source-card__type">${source.type === "removable" ? "USB" : "Local"}</span><h3></h3></div><p>${source.type === "removable" ? "Indexed folder on removable storage" : "Indexed folder on this device"}</p><span class="source-card__status"></span></div>
         <div class="source-card__actions">
           <button type="button" data-source-action="open">${t("sources.open")}</button>
           <button class="source-card__more" type="button" data-source-action="more" aria-label="${t("sources.actions")}" aria-haspopup="menu">${icon("more")}</button>
@@ -714,14 +774,22 @@ export function createSourcesScreen(
       );
       if (!heading || !status || !open || !more) continue;
       heading.textContent = source.displayName;
-      status.textContent = t(
-        source.availability === "available"
-          ? "sources.available"
-          : source.availability === "checking"
-            ? "sources.checking"
-            : "sources.unavailable",
-      );
-      status.dataset.availability = source.availability;
+      status.textContent = scanning
+        ? "Scanning"
+        : failed
+          ? "Failed"
+          : t(
+              source.availability === "available"
+                ? "sources.available"
+                : source.availability === "checking"
+                  ? "sources.checking"
+                  : "sources.unavailable",
+            );
+      status.dataset.availability = scanning
+        ? "checking"
+        : failed
+          ? "unavailable"
+          : source.availability;
       open.disabled = source.availability !== "available";
       open.addEventListener("click", () => {
         options.openSource(source.id);
@@ -765,18 +833,14 @@ export function createSourcesScreen(
           )
           ?.focus();
       });
-      (source.type === "removable" ? removableFragment : localFragment).append(
-        card,
-      );
+      fragment.append(card);
     }
-    localList.replaceChildren(localFragment);
-    removableLibraryList.replaceChildren(removableFragment);
+    libraryList.replaceChildren(fragment);
   };
 
   const load = async (): Promise<void> => {
     const generation = ++requestGeneration;
-    localList.setAttribute("aria-busy", "true");
-    removableLibraryList.setAttribute("aria-busy", "true");
+    libraryList.setAttribute("aria-busy", "true");
     try {
       const response = await options.api.listSources();
       if (destroyed || generation !== requestGeneration) return;
@@ -785,9 +849,7 @@ export function createSourcesScreen(
       if (!destroyed) options.showToast(t("sources.unableToRead"), "error");
     } finally {
       if (!destroyed && generation === requestGeneration)
-        localList.removeAttribute("aria-busy");
-      if (!destroyed && generation === requestGeneration)
-        removableLibraryList.removeAttribute("aria-busy");
+        libraryList.removeAttribute("aria-busy");
     }
   };
 
@@ -894,6 +956,14 @@ export function createSourcesScreen(
     smbPassword.type = showing ? "password" : "text";
     smbTogglePassword.textContent = showing ? "Show" : "Hide";
     smbPassword.focus();
+  });
+  smbDialog.addEventListener("focusin", (event) => {
+    if (!(event.target instanceof HTMLInputElement)) return;
+    const target = event.target;
+    requestAnimationFrame(() => {
+      if (!destroyed && smbDialog.classList.contains("source-dialog--open"))
+        target.scrollIntoView({ block: "nearest" });
+    });
   });
   smbConfirm.addEventListener("click", () => {
     const mode = smbDialogMode;

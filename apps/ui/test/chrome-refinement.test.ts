@@ -273,12 +273,13 @@ void test("35. section headers retain only descriptions and actions", async () =
   ]);
   for (const source of [sources, placeholder, settings]) {
     assert.doesNotMatch(source, /screen-header__eyebrow/);
-    assert.match(source, /screen-header__description/);
   }
+  assert.match(placeholder, /screen-header__description/);
+  assert.match(settings, /screen-header__description/);
   assert.doesNotMatch(sources, /<h1/);
   assert.doesNotMatch(placeholder, /<h1/);
   assert.doesNotMatch(settings, /<h1/);
-  assert.match(sources, /sources-header__add/);
+  assert.match(sources, /sources-local-add/);
 });
 
 void test("36. seamless transition machinery remains wired", async () => {

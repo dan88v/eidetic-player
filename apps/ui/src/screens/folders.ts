@@ -805,7 +805,7 @@ export function createFoldersScreen(
     const play = document.createElement("button");
     play.type = "button";
     play.className = "folders-directory-play";
-    play.innerHTML = `${icon("play")}<span>Play</span>`;
+    play.innerHTML = `${icon("play")}<span>Play Folder</span>`;
     play.disabled = !response.entries.some((entry) => entry.type === "audio");
     play.addEventListener("click", () => {
       void runFolderAction(

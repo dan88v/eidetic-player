@@ -27,8 +27,9 @@ void test("USB Library action stays in the canonical browser header", () => {
 });
 
 void test("Sources and Folders distinguish persistent removable Sources", () => {
-  assert.match(sources, /USB Library Folders/);
-  assert.match(sources, /sources-list--removable-library/);
+  assert.match(sources, /Library Sources/);
+  assert.match(sources, /sources-list--library/);
+  assert.doesNotMatch(sources, /USB Library Folders/);
   assert.match(sources, /source\.type === "removable"/);
   assert.match(sources, /icon\(source\.type === "removable"/);
   assert.match(folders, /source\.type === "removable"/);

@@ -65,6 +65,18 @@ export function createEideticKeyboardAdapter(
     },
     onVisibilityChange(visible) {
       mount.dataset.keyboardOpen = String(visible);
+      if (visible) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            mount.style.setProperty(
+              "--eidetic-keyboard-height",
+              `${String(keyboard.element.getBoundingClientRect().height)}px`,
+            );
+          });
+        });
+      } else {
+        mount.style.removeProperty("--eidetic-keyboard-height");
+      }
     },
   });
   keyboard.element.style.setProperty(
@@ -95,6 +107,14 @@ export function createEideticKeyboardAdapter(
     "--osk-font-family",
     '"Open Sans Bundled", ui-sans-serif, system-ui, sans-serif',
   );
+  const keyboardResizeObserver = new ResizeObserver(() => {
+    if (mount.dataset.keyboardOpen !== "true") return;
+    mount.style.setProperty(
+      "--eidetic-keyboard-height",
+      `${String(keyboard.element.getBoundingClientRect().height)}px`,
+    );
+  });
+  keyboardResizeObserver.observe(keyboard.element);
 
   const register = (event: Event): void => {
     const input = keyboardInput(event.target);
@@ -128,8 +148,10 @@ export function createEideticKeyboardAdapter(
     destroy() {
       document.removeEventListener("pointerdown", register, true);
       document.removeEventListener("focusin", register, true);
+      keyboardResizeObserver.disconnect();
       keyboard.destroy();
       delete mount.dataset.keyboardOpen;
+      mount.style.removeProperty("--eidetic-keyboard-height");
     },
   };
 }

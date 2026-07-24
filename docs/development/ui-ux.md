@@ -195,6 +195,27 @@ viewports.
   enter DOM attributes, labels, breadcrumbs, URLs, or session keys.
 - Back, breadcrumb, source actions, dialogs, and rows remain semantic
   keyboard/touch controls with visible focus.
+- Provider browsers add only the shared `resource-browser-screen` shell class.
+  USB and SMB must not fork directory header, breadcrumb, card, track-row, or
+  responsive CSS. Grid artwork has the same top and lateral inset; List resets
+  that inset and retains its established row geometry.
+
+## Sources information architecture
+
+Sources has no content H1 because the top bar owns the page title. Its first
+surface is `Library Sources`: one list of all persistent indexed Local and USB
+folders, with global Rescan/Cancel in that section. `Available Resources`
+follows with consistent Local Storage, USB Storage, and Network Shares
+surfaces. Add Folder belongs only to Local Storage; live USB devices belong
+only to USB Storage; Add Share and configured SMB connections belong only to
+Network Shares. Empty states are text within their owning surface, never hero
+or placeholder cards.
+
+Use the same page width, typography, surface, border, radius, icon treatment,
+touch target, and action alignment already used by Library and Settings.
+Descriptions identify whether an item is indexed or merely available. Never
+show a native path, drive letter, volume identity, mount point, UNC root, or
+credential reference.
 
 Sorting and List/Grid belong only to the Folders root. A directory keeps its
 Back/title/Play controls and omits sorting and view controls. Sorting uses an

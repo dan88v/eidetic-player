@@ -28,15 +28,20 @@ const [
   readFile("apps/ui/src/i18n/en.ts", "utf8"),
 ]);
 
-void test("Sources toolbar reuses global scan/cancel and keeps Add Folder available", () => {
-  const toolbar = sources.slice(
-    sources.indexOf('<header class="screen-header sources-header">'),
-    sources.indexOf('<section class="sources-section"'),
+void test("Sources places scan with Library Sources and Add Folder with Local Storage", () => {
+  const librarySection = sources.slice(
+    sources.indexOf("sources-section--library"),
+    sources.indexOf("sources-resources"),
+  );
+  const localSection = sources.slice(
+    sources.indexOf('id="local-storage-heading"'),
+    sources.indexOf('id="usb-storage-heading"'),
   );
   assert.ok(
-    toolbar.indexOf("sources-header__scan") <
-      toolbar.indexOf("sources-header__add"),
+    librarySection.includes("sources-header__scan") &&
+      !librarySection.includes("sources-local-add"),
   );
+  assert.match(localSection, /sources-local-add/);
   assert.match(
     sources,
     /libraryScanBusy[\s\S]*activeScan[\s\S]*queuedSourceIds/,
@@ -51,7 +56,7 @@ void test("Sources toolbar reuses global scan/cancel and keeps Add Folder availa
     /libraryApi\.cancel\([\s\S]*activeScanId \? \{ scanId: activeScanId \} : \{\}/,
   );
   assert.doesNotMatch(sources, /addButton\.disabled\s*=\s*libraryScanBusy/);
-  assert.match(css, /\.sources-header__actions[\s\S]*display: flex/);
+  assert.match(css, /\.sources-section__intro[\s\S]*display: flex/);
 });
 
 void test("new Sources use the one automatic scheduler and removable deduplicated pending", () => {

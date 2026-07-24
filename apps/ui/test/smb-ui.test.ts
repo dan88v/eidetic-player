@@ -19,6 +19,45 @@ void test("Sources owns SMB Add/Edit/Remove and Browse actions", async () => {
   assert.match(text, /smb-remove/u);
 });
 
+void test("Sources separates indexed Library Sources from live resources", async () => {
+  const [text, styles] = await Promise.all([
+    source("screens/sources.ts"),
+    source("styles/screens.css"),
+  ]);
+  const library = text.indexOf("Library Sources");
+  const resources = text.indexOf("Available Resources");
+  const local = text.indexOf("Local Storage");
+  const usb = text.indexOf('id="usb-storage-heading"');
+  const smb = text.indexOf('id="network-shares-heading"');
+  assert.ok(
+    library >= 0 &&
+      library < resources &&
+      resources < local &&
+      local < usb &&
+      usb < smb,
+  );
+  assert.match(text, /sources-list--library/u);
+  assert.match(text, /No Library sources configured\./u);
+  assert.match(text, /No USB storage connected\./u);
+  assert.match(text, /sources-local-add/u);
+  assert.match(text, /sources-smb-add/u);
+  assert.doesNotMatch(
+    text,
+    /USB Library Folders|sources-list--removable-library/u,
+  );
+  assert.doesNotMatch(text, /<h1/u);
+  assert.match(styles, /--sources-icon-size: 5\.5rem/u);
+  assert.match(
+    styles,
+    /\.sources-section__intro h3[\s\S]*margin: 0;[\s\S]*line-height: 1\.9/u,
+  );
+  assert.match(
+    styles,
+    /\.source-card__copy h3[\s\S]*margin: 0;[\s\S]*line-height: 1\.9/u,
+  );
+  assert.match(styles, /\.source-card__copy p[\s\S]*line-height: 1\.9/u);
+});
+
 void test("top bar hides zero SMB state and exposes green/red/neutral summaries", async () => {
   const text = await source("components/top-bar.ts");
   assert.match(text, /smbButton\.hidden = snapshot\.configuredCount === 0/u);
@@ -34,14 +73,48 @@ void test("top bar hides zero SMB state and exposes green/red/neutral summaries"
 });
 
 void test("SMB Quick Browse reuses Folders without Library actions", async () => {
-  const text = await source("screens/smb-browse.ts");
+  const [text, usb, styles] = await Promise.all([
+    source("screens/smb-browse.ts"),
+    source("screens/usb-storage.ts"),
+    source("styles/screens.css"),
+  ]);
   assert.match(text, /createFoldersScreen/u);
   assert.match(text, /smbSession/u);
   assert.match(text, /SMB \/ \$\{options\.connection\.displayName\}/u);
+  assert.match(text, /resource-browser-screen/u);
+  assert.match(usb, /resource-browser-screen/u);
+  assert.match(styles, /\.resource-browser-screen \.folders-directory-title/u);
+  assert.match(text, /Network share folder actions/u);
+  assert.match(
+    styles,
+    /\.folders-folder-card__art-button[\s\S]*padding: var\(--space-2\) var\(--space-2\) 0/u,
+  );
   assert.doesNotMatch(
     text,
     /Favorite|Playlist|History|Most Played|Add this folder to Library/u,
   );
+});
+
+void test("SMB dialog uses canonical visible auth and keyboard-aware regions", async () => {
+  const [text, styles, adapter] = await Promise.all([
+    source("screens/sources.ts"),
+    source("styles/screens.css"),
+    source("components/eidetic-keyboard-adapter.ts"),
+  ]);
+  assert.match(text, /smb-dialog__header/u);
+  assert.match(text, /smb-dialog__body/u);
+  assert.match(text, /smb-dialog__footer/u);
+  assert.match(text, /segmented-control__option--selected/u);
+  assert.match(
+    text,
+    /button\.classList\.toggle\([\s\S]*"segmented-control__option--selected"/u,
+  );
+  assert.match(text, /field\.hidden = mode === "guest"/u);
+  assert.match(text, /smbPassword\.value = ""/u);
+  assert.match(styles, /\.smb-dialog__body[\s\S]*overflow-y: auto/u);
+  assert.match(styles, /\.app-root\[data-keyboard-open="true"\] \.smb-dialog/u);
+  assert.match(styles, /--eidetic-keyboard-height/u);
+  assert.match(adapter, /--eidetic-keyboard-height/u);
 });
 
 void test("SMB is absent from Main Player and drawer navigation", async () => {

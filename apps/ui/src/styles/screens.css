@@ -361,48 +361,102 @@
   }
 
   .sources-screen {
+    --sources-icon-size: 5.5rem;
+
     max-width: 76rem;
     margin-inline: auto;
   }
-  .sources-header {
-    max-width: none;
-  }
-  .sources-header__actions {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: var(--space-2);
-  }
   .sources-header__scan {
     min-height: var(--touch-min);
+    flex: 0 0 auto;
     padding-inline: var(--space-4);
     border-radius: var(--radius-md);
     background: var(--color-surface-raised);
+    white-space: nowrap;
   }
-  .sources-header__add {
+  .sources-local-add {
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
     gap: var(--space-2);
+    white-space: nowrap;
   }
-  .sources-section {
-    margin-top: var(--space-5);
+  .sources-resources {
+    margin-top: var(--space-6);
   }
-  .sources-section > h2 {
+  .sources-resources__header {
+    display: grid;
+    gap: var(--space-1);
+    padding-inline: var(--space-1);
+  }
+  .sources-resources__header h2 {
     font-size: var(--font-size-lg);
   }
-
-  .sources-section__heading {
+  .sources-resources__header p {
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .sources-section {
+    margin-top: var(--space-3);
+  }
+  .sources-section--library {
+    margin-top: 0;
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+  .sources-resource-section {
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--color-surface) 72%, var(--color-bg));
+  }
+  .sources-section__intro {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
   }
-
-  .sources-section__heading h2 {
-    font-size: var(--font-size-lg);
+  .sources-section__label {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
   }
-
+  .sources-section__label > div {
+    display: grid;
+    min-width: 0;
+    align-content: center;
+    gap: 0.125rem;
+  }
+  .sources-section__icon {
+    display: grid;
+    width: var(--sources-icon-size);
+    height: var(--sources-icon-size);
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: var(--radius-md);
+    color: var(--color-accent-strong);
+    background: var(--color-accent-soft);
+  }
+  .sources-section__icon .icon {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  .sources-section__intro h2 {
+    font-size: var(--font-size-lg);
+    line-height: 1.9;
+  }
+  .sources-section__intro h3 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    line-height: 1.9;
+  }
+  .sources-section__intro p {
+    color: var(--color-text-secondary);
+    line-height: 1.9;
+  }
   .sources-smb-add {
     display: inline-flex;
     min-height: 2.75rem;
@@ -411,6 +465,7 @@
     padding-inline: var(--space-3);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
+    white-space: nowrap;
   }
 
   .sources-smb-add .icon {
@@ -428,7 +483,7 @@
   .source-card {
     display: grid;
     min-height: 7.5rem;
-    grid-template-columns: var(--touch-large) minmax(0, 1fr) auto;
+    grid-template-columns: var(--sources-icon-size) minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-4);
     padding: var(--space-4) var(--space-5);
@@ -442,8 +497,8 @@
   }
   .source-card__icon {
     display: grid;
-    width: var(--touch-large);
-    height: var(--touch-large);
+    width: var(--sources-icon-size);
+    height: var(--sources-icon-size);
     place-items: center;
     border-radius: var(--radius-md);
     color: var(--color-accent-strong);
@@ -451,18 +506,38 @@
   }
   .source-card__copy {
     display: grid;
+    gap: 0.125rem;
+  }
+  .source-card__identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
     gap: var(--space-2);
+  }
+  .source-card__type {
+    flex: 0 0 auto;
+    padding: 0.2rem var(--space-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
   }
   .source-card__copy h3 {
     overflow: hidden;
+    margin: 0;
     font-size: var(--font-size-md);
-    line-height: 1.3;
+    line-height: 1.9;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .source-card__copy p,
   .source-card__status {
     color: var(--color-text-secondary);
+  }
+  .source-card__copy p {
+    margin: 0;
+    line-height: 1.9;
   }
   .source-card__status[data-availability="available"] {
     color: var(--color-accent-strong);
@@ -472,9 +547,12 @@
   }
   .source-card__actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     gap: var(--space-2);
+  }
+  .source-card__actions button {
+    white-space: nowrap;
   }
   .source-card__actions button,
   .source-dialog__actions button {
@@ -491,7 +569,7 @@
     place-items: center;
   }
   .sources-empty {
-    padding-block: var(--space-5);
+    padding: var(--space-3) var(--space-1) var(--space-1);
     color: var(--color-text-secondary);
   }
   .source-dialog-backdrop {
@@ -570,9 +648,20 @@
     max-height: calc(
       100vh - var(--top-bar-height) - var(--mini-player-height) - var(--space-4)
     );
-    overflow-y: auto;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
   }
 
+  .smb-dialog__header {
+    min-width: 0;
+  }
+  .smb-dialog__body {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
   .smb-dialog__fields {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -608,7 +697,16 @@
   }
 
   .smb-dialog__auth .segmented-control {
+    width: min(18rem, 100%);
     justify-self: start;
+  }
+  .smb-dialog__auth .segmented-control__option {
+    min-height: var(--touch-min);
+  }
+  .smb-dialog__auth .segmented-control__option[aria-pressed="true"] {
+    color: var(--color-text);
+    background: var(--color-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
   }
 
   .smb-password-field {
@@ -631,6 +729,19 @@
     .smb-dialog__fields {
       grid-template-columns: 1fr;
     }
+  }
+  .app-root[data-keyboard-open="true"] .smb-dialog {
+    top: calc(var(--top-bar-height) + var(--space-2));
+    bottom: calc(var(--eidetic-keyboard-height, 15rem) + var(--space-2));
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-4);
+    max-height: none;
+    transform: translate(-50%, 0);
+  }
+  .app-root[data-keyboard-open="true"]
+    .smb-dialog__auth
+    .segmented-control__option {
+    min-height: var(--touch-small);
   }
 
   .library-screen {
@@ -852,38 +963,39 @@
     align-items: center;
     gap: var(--space-2);
   }
-  .usb-directory-header-actions {
+  .resource-directory-header-actions {
     display: flex;
     align-items: center;
     gap: var(--space-2);
   }
-  .usb-storage-screen .folders-directory-header {
+  .resource-browser-screen .folders-directory-header {
     gap: var(--space-3);
   }
-  .usb-storage-screen .folders-directory-header__primary {
+  .resource-browser-screen .folders-directory-header__primary {
     display: grid;
     grid-template-areas: "back actions";
     grid-template-columns: auto minmax(0, 1fr);
     justify-items: start;
   }
-  .usb-storage-screen .folders-directory-title {
+  .resource-browser-screen .folders-directory-title {
     display: none;
   }
-  .usb-storage-screen .folders-back {
+  .resource-browser-screen .folders-back {
     grid-area: back;
   }
-  .usb-storage-screen .folders-directory-actions {
+  .resource-browser-screen .folders-directory-actions {
     grid-area: actions;
     min-width: 0;
     flex-wrap: wrap;
     justify-self: end;
     justify-content: flex-end;
   }
-  .usb-storage-screen .usb-directory-header-actions {
+  .resource-browser-screen .resource-directory-header-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
   }
-  .usb-directory-safe-remove {
+  .usb-directory-safe-remove,
+  .resource-directory-more {
     display: inline-grid;
     width: var(--touch-min);
     min-width: var(--touch-min);
@@ -945,35 +1057,35 @@
     color: inherit;
     text-overflow: ellipsis;
   }
-  .usb-storage-screen .folders-breadcrumbs {
+  .resource-browser-screen .folders-breadcrumbs {
     width: fit-content;
     max-width: 100%;
     color: var(--color-text-muted);
   }
-  .usb-storage-screen .folders-breadcrumbs ol {
+  .resource-browser-screen .folders-breadcrumbs ol {
     gap: var(--space-1);
   }
-  .usb-storage-screen .folders-breadcrumbs li {
+  .resource-browser-screen .folders-breadcrumbs li {
     gap: var(--space-1);
   }
-  .usb-storage-screen .folders-breadcrumbs li + li::before {
+  .resource-browser-screen .folders-breadcrumbs li + li::before {
     margin-inline: var(--space-1);
     content: "›";
     color: var(--color-accent);
     font-size: 1.25rem;
   }
-  .usb-storage-screen .folders-breadcrumbs button,
-  .usb-storage-screen .folders-breadcrumbs__current {
+  .resource-browser-screen .folders-breadcrumbs button,
+  .resource-browser-screen .folders-breadcrumbs__current {
     display: inline-flex;
     min-height: var(--touch-min);
     align-items: center;
     padding-inline: var(--space-2);
     border-radius: var(--radius-sm);
   }
-  .usb-storage-screen .folders-breadcrumbs button {
+  .resource-browser-screen .folders-breadcrumbs button {
     color: var(--color-text-secondary);
   }
-  .usb-storage-screen .folders-breadcrumbs__current {
+  .resource-browser-screen .folders-breadcrumbs__current {
     max-width: min(24rem, 52vw);
     overflow: hidden;
     background: var(--color-accent-soft);
@@ -1115,7 +1227,11 @@
   .folders-folder-card__art-button {
     display: block;
     width: 100%;
+    padding: var(--space-2) var(--space-2) 0;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .folders-folder-card__art-button .folders-folder-art {
+    border-radius: calc(var(--radius-lg) - var(--space-2));
   }
   .folders-folder-art > .icon {
     width: 28%;
@@ -1172,6 +1288,9 @@
     width: 5rem;
     height: 100%;
     aspect-ratio: auto;
+  }
+  .folders-screen[data-folder-view="list"] .folders-folder-card__art-button {
+    padding: 0;
   }
   .folders-screen[data-folder-view="list"] .folders-folder-card__body {
     align-content: center;

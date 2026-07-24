@@ -28,18 +28,21 @@ void test("USB safe removal controls stay scoped to Sources and browser header",
   assert.match(usb, /breadcrumbRootLabel: "Root"/);
   assert.match(
     styles,
-    /\.usb-storage-screen \.folders-directory-header__primary/,
+    /\.resource-browser-screen \.folders-directory-header__primary/,
   );
   assert.match(styles, /grid-template-areas: "back actions"/);
   assert.match(
     styles,
-    /\.usb-storage-screen \.folders-directory-title \{\s*display: none/,
+    /\.resource-browser-screen \.folders-directory-title \{\s*display: none/,
   );
   assert.match(
     styles,
-    /\.usb-storage-screen \.folders-directory-actions \{[\s\S]*justify-self: end;[\s\S]*justify-content: flex-end;/,
+    /\.resource-browser-screen \.folders-directory-actions \{[\s\S]*justify-self: end;[\s\S]*justify-content: flex-end;/,
   );
-  assert.match(styles, /\.usb-storage-screen \.folders-breadcrumbs__current/);
+  assert.match(
+    styles,
+    /\.resource-browser-screen \.folders-breadcrumbs__current/,
+  );
   assert.match(folders, /button:not\(\.folders-back\)/);
   assert.match(api, /\/safe-remove/);
   assert.match(api, /\/mount/);

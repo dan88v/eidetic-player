@@ -124,6 +124,17 @@ when available. Otherwise use `EIDETIC_SMB_FIXTURE=1`, state clearly that real
 Windows SMB/Credential Manager and Linux CIFS runtime are NOT TESTED, and never
 turn fixture coverage into a native SMB PASS.
 
+For the Step 2.13-R Sources regression, launch the actual Windows application
+with exactly `npm.cmd run dev`. Confirm Library Sources precedes Available
+Resources; Rescan/Cancel, Add Folder, live USB, and Add Share appear only in
+their owning sections; and Local/USB indexed folders are unified without
+native path disclosure. Compare USB and SMB root/nested browsers directly,
+including header, breadcrumb, Grid/List, equal artwork insets, track rows,
+menus, scrolling, and unavailable state. At 1280x800, 1280x720, and 1024x600,
+exercise Add/Edit Account and Guest with text/password keyboards and verify the
+dialog header, authentication selector, focused field, and footer remain
+usable. Browser-only screenshots do not replace this Neutralino/WebView2 QA.
+
 For USB Library integration, add both a volume root and a nested folder,
 confirm segment-aware same/parent/child overlap rejection, and verify that only
 the new Source receives its first scan. Disconnect during scanning must end as

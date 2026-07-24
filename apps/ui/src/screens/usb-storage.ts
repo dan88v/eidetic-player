@@ -121,7 +121,8 @@ export function createUsbStorageScreen(options: {
     breadcrumbRootLabel: "Root",
     createDirectoryHeaderAction: (response) => {
       const group = document.createElement("div");
-      group.className = "usb-directory-header-actions";
+      group.className =
+        "resource-directory-header-actions usb-directory-header-actions";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "folders-directory-library";
@@ -226,7 +227,10 @@ export function createUsbStorageScreen(options: {
     initialPlayerState: options.initialPlayerState,
     showToast: options.showToast,
   });
-  browser.element.classList.add("usb-storage-screen");
+  browser.element.classList.add(
+    "resource-browser-screen",
+    "usb-storage-screen",
+  );
   browser.element.append(backdrop, dialog);
   const updateDevices = (snapshot: RemovableDeviceListResponse): void => {
     const device = snapshot.devices.find(

@@ -14,6 +14,13 @@ are not scanned or indexed, and do not appear in the Folders root. Sources is
 the only configuration surface. Quick Browse is reached from a connected
 Sources card and reuses the canonical Folders browser.
 
+Sources separates persistent indexed folders from live/configured access
+points. `Library Sources` is the single list for local and removable indexed
+folders and owns global Rescan/Cancel. `Available Resources` contains Local
+Storage/Add Folder, currently connected USB devices, and configured Network
+Shares/Add Share. A folder or device is never duplicated between those groups,
+and native paths, volume identities, mount points, and UNC roots stay absent.
+
 ## Records and credentials
 
 The JSON record contains an opaque `smb-*` ID, display name, normalized
@@ -68,6 +75,13 @@ lazy metadata/artwork, hidden/system filtering, and symlink exclusion.
 Available actions are Play, Play Folder, Add Track to Queue, and Add Folder to
 Queue. Favorite, Playlist, History, Most Played, Stats, and Library identity
 are absent.
+
+USB and SMB apply the same provider-neutral resource-browser shell: the
+provider/display name stays only in the top bar, Back is left-aligned,
+Play Folder and the provider menu are right-aligned, and both use the same
+breadcrumb, cards, track rows, empty/unavailable states, and responsive rules.
+Only USB exposes Add this folder to Library and safe removal. SMB exposes
+neither Library integration nor scanning.
 
 Queue origins contain only connection ID, logical relative path, and opaque
 entry identity. Public paths use `smb://<connection-id>/...`; UNC roots and
