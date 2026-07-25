@@ -40,7 +40,7 @@ const config = {
         process.env.EIDETIC_FULLSCREEN === "1" || APP_DEFAULTS.fullscreen,
       alwaysOnTop: false,
       enableInspector: environment === "development",
-      borderless: false,
+      borderless: process.env.EIDETIC_BORDERLESS === "1",
       maximize: false,
       hidden: false,
       resizable: true,

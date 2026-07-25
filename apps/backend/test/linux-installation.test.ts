@@ -41,47 +41,29 @@ void test("Linux build synchronizes and selects the correct Neutralino binary", 
     read("deploy/linux/install-eidetic-player.sh"),
   ]);
 
-void test("Linux release packages and launches the compiled backend entrypoint", async () => {
-  const [installer, launcher] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
-    read("deploy/linux/runtime/eidetic-player-launch"),
-  ]);
+  void test("Linux release packages and launches the compiled backend entrypoint", async () => {
+    const [installer, launcher] = await Promise.all([
+      read("deploy/linux/install-eidetic-player.sh"),
+      read("deploy/linux/runtime/eidetic-player-launch"),
+    ]);
 
-  assert.match(
-    installer,
-    /backend_entry_rel="apps\/backend\/src\/index\.js"/,
-  );
+    assert.match(
+      installer,
+      /backend_entry_rel="apps\/backend\/src\/index\.js"/,
+    );
 
-  assert.match(
-    installer,
-    /package-lock\.json/,
-  );
+    assert.match(installer, /package-lock\.json/);
 
-  assert.match(
-    installer,
-    /--omit=dev/,
-  );
+    assert.match(installer, /--omit=dev/);
 
-  assert.match(
-    installer,
-    /node_modules\/music-metadata/,
-  );
+    assert.match(installer, /node_modules\/music-metadata/);
 
-  assert.match(
-    launcher,
-    /backend\/apps\/backend\/src\/index\.js/,
-  );
+    assert.match(launcher, /backend\/apps\/backend\/src\/index\.js/);
 
-  assert.doesNotMatch(
-    launcher,
-    /release\/backend\/index\.js/,
-  );
+    assert.doesNotMatch(launcher, /release\/backend\/index\.js/);
 
-  assert.doesNotMatch(
-    installer,
-    /release_stage\/backend\/index\.js/,
-  );
-});
+    assert.doesNotMatch(installer, /release_stage\/backend\/index\.js/);
+  });
 
   assert.match(packageJson, /"neutralino:sync":\s*"neu update"/);
   assert.match(
@@ -91,10 +73,7 @@ void test("Linux release packages and launches the compiled backend entrypoint",
 
   assert.match(installer, /neutralino_arch=x64/);
   assert.match(installer, /neutralino_arch=arm64/);
-  assert.match(
-    installer,
-    /eidetic-player-linux_\$\{neutralino_arch\}/,
-  );
+  assert.match(installer, /eidetic-player-linux_\$\{neutralino_arch\}/);
 
   assert.doesNotMatch(
     installer,

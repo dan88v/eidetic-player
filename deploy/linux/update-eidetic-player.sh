@@ -30,6 +30,8 @@ conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 git_ref="${git_ref:-${EIDETIC_GIT_REF:-main}}"
 eidetic_validate_ref "$git_ref"
 opt="$(eidetic_target /opt/eidetic-player)"
+EIDETIC_BORDERLESS="${EIDETIC_BORDERLESS:-1}"
+export EIDETIC_BORDERLESS
 if ((rollback)); then
   [[ -L "$opt/previous" ]] || eidetic_die "no previous release is available"
   eidetic_log "Rollback plan: current -> $(readlink "$opt/previous")"

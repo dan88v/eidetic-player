@@ -165,6 +165,7 @@ eidetic_run_as_runtime_user() {
       npm_config_userconfig=/dev/null \
       npm_config_update_notifier=false \
       npm_config_fund=false \
+      EIDETIC_BORDERLESS="${EIDETIC_BORDERLESS:-0}" \
       GIT_TERMINAL_PROMPT=0 \
       GIT_CONFIG_GLOBAL=/dev/null \
       GIT_CONFIG_NOSYSTEM=1 \

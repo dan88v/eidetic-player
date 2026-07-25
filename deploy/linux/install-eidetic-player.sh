@@ -199,7 +199,8 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   build_source="$build_workspace/source"
   EIDETIC_INSTALLATION_MODE="$mode"
   EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
-  export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN
+  EIDETIC_BORDERLESS=${EIDETIC_BORDERLESS:-1}
+  export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN EIDETIC_BORDERLESS
   eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
   if ! eidetic_fetch_isolated_source \
     "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
@@ -209,13 +210,6 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
 
   # Raspberry Pi kiosk presentation:
   # fullscreen, senza cornice e senza barra del titolo.
-  sed -i \
-    's/borderless: false,/borderless: true,/' \
-    "$build_source/scripts/generate-neutralino-config.ts"
-
-  grep -q 'borderless: true,' \
-    "$build_source/scripts/generate-neutralino-config.ts" ||
-    eidetic_die "failed to enable borderless Neutralino window"
 
   for phase in ci typecheck test build:linux; do
     eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"
@@ -362,6 +356,7 @@ conf="$tmp/install.conf"
 cat >"$conf" <<EOF
 EIDETIC_INSTALLATION_MODE=$mode
 EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
+EIDETIC_BORDERLESS=$EIDETIC_BORDERLESS
 EIDETIC_HIDE_POINTER=$([[ "${choice[pointer]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_DISABLE_BLANKING=$([[ "${choice[blanking]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_AUTOSTART=$([[ "${choice[autostart]}" == yes ]] && printf 1 || printf 0)
