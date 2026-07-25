@@ -26,8 +26,11 @@ npm ci
 npm run doctor:linux
 npm run doctor:network:linux
 npm run verify:network:deployment
+npm run verify:linux:executables
+npm run verify:linux:installer
 npm run test:linux
 npm run build:linux
+npm run verify:linux:release -- --root . --arch x64 --phase build
 npm run smoke:linux
 npm run verify:arm
 ```
@@ -146,12 +149,15 @@ RAM uncertainty; it is not implemented in this step.
 
 The `Eidetic Player CI` GitHub Actions workflow runs the core Linux amd64 gates
 on `ubuntu-latest`: reproducible install and audit, format, typecheck, lint,
-build, unit tests, `test:posix`, and `test:case-sensitive`. It reads Node from
-`.nvmrc` and uses the standard npm cache keyed by `package-lock.json`.
+Git executable modes, shell syntax, installer-safe verification, standard and
+Linux release builds, release-artifact verification, the full unit suite,
+`test:posix`, and `test:case-sensitive`. The focused deployment profile never
+replaces the full application regression suite. It reads Node from `.nvmrc`
+and uses the standard npm cache keyed by `package-lock.json`.
 
 The hosted job deliberately excludes GUI/runtime checks, MPV, FFmpeg,
-Neutralino, and ARM verification. Continue to run `doctor:linux`,
-`build:linux`, `smoke:linux`, and `verify:arm` manually in the native
+Neutralino GUI execution, and ARM verification. Continue to run `doctor:linux`,
+`smoke:linux`, and `verify:arm` manually in the native
 case-sensitive Debian/WSL workspace for platform-sensitive milestones. ARM
 remains an artifact/header audit until a real or emulated runtime job is
 deliberately provisioned, and Raspberry Pi validation still requires hardware.

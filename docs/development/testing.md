@@ -63,12 +63,14 @@ On systems that block the PowerShell npm shim, use `npm.cmd` with the same
 arguments. Do not change machine execution policy as part of the project.
 
 Linux adds `doctor:linux`, `doctor:network:linux`,
-`verify:network:deployment`, `test:linux`, `test:posix`,
-`test:case-sensitive`, `build:linux`, `smoke:linux`, and `verify:arm`. Run them
-from a native case-sensitive filesystem. The network doctor is read-only: it
-must not scan, connect, change radio/IP, or edit files. Deployment tests use
-`--root` with a temporary staging tree and never install host policy. Static
-ARM inspection and WSL staging are not Raspberry Pi runtime evidence.
+`verify:network:deployment`, `verify:linux:executables`,
+`test:install:linux`, `verify:linux:installer`, `verify:linux:release`,
+`test:linux`, `test:posix`, `test:case-sensitive`, `build:linux`,
+`smoke:linux`, and `verify:arm`. The installer-safe runner contains an explicit
+deployment allowlist and must not use a broad test glob or absorb unrelated
+application/UI suites. Deployment tests use `--root` with a temporary staging
+tree and never install host policy. Static ARM inspection and staging are not
+Raspberry Pi runtime evidence.
 
 ## GitHub Actions Linux CI
 
@@ -76,13 +78,15 @@ The `Eidetic Player CI` workflow runs on `ubuntu-latest` for pushes to `main`,
 pull requests targeting `main`, and manual dispatches. Node is read from
 `.nvmrc`; `actions/setup-node` uses its standard npm cache with
 `package-lock.json`. After one `npm ci`, separate fail-fast steps run
-`npm audit`, format, typecheck, lint, build, the standard test suite,
-`test:posix`, and `test:case-sensitive`. The granular steps intentionally avoid
-running the standard suite twice through `test:linux`.
+`npm audit`, format, typecheck, lint, the executable-mode guard, shell syntax,
+the installer-safe deployment profile, the standard build, a Linux release
+build plus artifact verification, the full standard test suite, `test:posix`,
+and `test:case-sensitive`. Installer-safe verification never replaces the
+full suite in CI.
 
 The hosted job is a core Linux gate, not native runtime certification. It does
 not run Neutralino/WebView2 or WebKitGTK, MPV, FFmpeg, native dialogs, audio
-hardware, `doctor:linux`, `build:linux`, `smoke:linux`, or `verify:arm`.
+hardware, `doctor:linux`, `smoke:linux`, or `verify:arm`.
 Continue to use `npm.cmd run dev` for real Windows QA, a native
 case-sensitive WSL/Debian clone for Linux diagnosis and platform-sensitive
 checks, and Raspberry Pi hardware for touch, audio, performance, and shutdown

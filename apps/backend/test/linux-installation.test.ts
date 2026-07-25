@@ -12,6 +12,7 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
     "--mode",
     "--dry-run",
     "--unattended",
+    "--full-verify",
     "--root",
     "--autostart",
     "--fullscreen",
@@ -128,7 +129,7 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
   assert.match(update, /install-eidetic-player\.sh" "\$\{args\[@\]\}"/);
 
   const lifecycle = installer.indexOf(
-    "for phase in ci typecheck test build:linux",
+    "verification_phases=(ci typecheck verify:linux:installer)",
   );
   const verification = installer.indexOf("backend artifact was not produced");
   const releaseStage = installer.indexOf('release_stage="$(mktemp');

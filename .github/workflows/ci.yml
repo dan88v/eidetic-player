@@ -55,8 +55,25 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Verify Linux executable modes
+        run: npm run verify:linux:executables
+
+      - name: Verify shell syntax
+        run: |
+          find deploy/linux -type f \( -name '*.sh' -o -path '*/runtime/*' \) -print0 |
+            xargs -0 -n1 bash -n
+
+      - name: Verify installer-safe deployment profile
+        run: npm run verify:linux:installer
+
       - name: Build
         run: npm run build
+
+      - name: Build Linux release artifact
+        run: npm run build:linux
+
+      - name: Verify Linux release artifact
+        run: npm run verify:linux:release -- --root . --arch x64 --phase build
 
       - name: Run standard test suite
         run: npm test

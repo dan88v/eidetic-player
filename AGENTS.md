@@ -144,6 +144,12 @@ See [security and accessibility](docs/development/security-accessibility.md).
 9. Save the final report to `prompts/step<number>_output.md`. Do not overwrite
    previous step reports. The saved file must match the final task summary.
 
+All directly executable files under `deploy/linux` must be committed with Git
+mode `100755`; new shell/runtime scripts are incomplete until
+`npm run verify:linux:executables` passes. Never use or recommend `chmod 777`.
+Do not add unrelated application tests to the installer-safe profile; the CI
+full suite remains authoritative for product regressions.
+
 See [workflow, testing, and non-regression rules](docs/development/workflow.md)
 and [real-system testing](docs/development/testing.md).
 

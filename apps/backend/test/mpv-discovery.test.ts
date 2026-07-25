@@ -292,8 +292,16 @@ void test(
 
 void test("isValidMpvVersionLine accepts real MPV banners", () => {
   assert.equal(isValidMpvVersionLine("mpv 0.37.0"), true);
-  assert.equal(isValidMpvVersionLine("mpv v0.40.0"), true);
-  assert.equal(isValidMpvVersionLine("mpv 0.40.0 Copyright ..."), true);
+  assert.equal(isValidMpvVersionLine("mpv v0.41.0"), true);
+  assert.equal(
+    isValidMpvVersionLine(
+      "mpv v0.41.0-744-g304426c39 Copyright © 2000-2026 mpv/MPlayer/mplayer2 projects",
+    ),
+    true,
+  );
+  assert.equal(isValidMpvVersionLine("mpv 0.41.0-git-20260726"), true);
+  assert.equal(isValidMpvVersionLine("mpv 0.41.0+build.7"), true);
+  assert.equal(isValidMpvVersionLine("mpv 0.40 Copyright ..."), true);
 });
 
 void test("isValidMpvVersionLine rejects non-banner output", () => {

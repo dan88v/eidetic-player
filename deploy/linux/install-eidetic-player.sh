@@ -10,6 +10,7 @@ git_ref=main
 mode=standard
 dry_run=0
 unattended=0
+full_verify=0
 EIDETIC_ROOT=/
 rpi_keyboard=keep
 rpi_keyboard_explicit=0
@@ -24,6 +25,7 @@ Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
   --mode standard|appliance   Installation mode
   --dry-run                   Validate and print the plan only
   --unattended                Never prompt
+  --full-verify               Also run the complete application verification suite
   --root PATH                 Use an isolated staging root
   --autostart yes|no          Appliance choice
   --fullscreen yes|no         Appliance choice
@@ -49,6 +51,7 @@ while (($#)); do
     --root) [[ $# -ge 2 ]] || eidetic_die "--root needs a value"; EIDETIC_ROOT="$2"; shift 2;;
     --dry-run) dry_run=1; shift;;
     --unattended) unattended=1; shift;;
+    --full-verify) full_verify=1; shift;;
     --autostart) set_choice autostart "${2:-}"; shift 2;;
     --fullscreen) set_choice fullscreen "${2:-}"; shift 2;;
     --borderless) set_choice borderless "${2:-}"; shift 2;;
@@ -143,6 +146,11 @@ fi
 [[ "${choice[splash]}" == yes ]] && packages+=(plymouth)
 eidetic_log "Target: $EIDETIC_DISTRO $EIDETIC_ARCH; user=$runtime_user; mode=$mode; ref=$git_ref"
 eidetic_log "APT plan: ${packages[*]}"
+if ((full_verify)); then
+  eidetic_log "Verification profile: full"
+else
+  eidetic_log "Verification profile: install-safe"
+fi
 eidetic_log "Raspberry Pi OS on-screen keyboard: $rpi_keyboard"
 for key in "${questions[@]}"; do eidetic_log "  $key=${choice[$key]}"; done
 if ((dry_run)); then
@@ -231,7 +239,12 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   # Raspberry Pi kiosk presentation:
   # fullscreen, borderless and window title bar behavior are controlled by installer choices.
 
-  for phase in ci typecheck test build:linux; do
+  verification_phases=(ci typecheck verify:linux:installer)
+  if ((full_verify)); then
+    verification_phases+=(format:check lint test test:posix test:case-sensitive)
+  fi
+  verification_phases+=(build:linux)
+  for phase in "${verification_phases[@]}"; do
     eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"
     if ! case "$phase" in
         ci)
@@ -250,7 +263,10 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
             "$node_release/bin/npm" --prefix "$build_source" run "$phase"
           ;;
       esac; then
-      eidetic_die "build phase failed: npm $phase"
+      if [[ "$phase" == build:linux ]]; then
+        eidetic_die "build phase failed: npm $phase. No release was activated."
+      fi
+      eidetic_die "Installation verification failed: npm $phase. No release was activated."
     fi
   done
   [[ -d "$build_source/dist/backend" ]] ||
@@ -283,6 +299,13 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   )
   ((${#neu_files[@]} > 0)) ||
     eidetic_die "Neutralino resources were not produced"
+  if ! eidetic_run_as_runtime_user \
+    "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+    "$node_release/bin/node" "$build_source/node_modules/tsx/dist/cli.mjs" \
+    "$build_source/scripts/verify-linux-release.ts" \
+    --root "$build_source" --arch "$neutralino_arch" --phase build; then
+    eidetic_die "Installation verification failed: Linux build artifact contract. No release was activated."
+  fi
   release_commit="$(eidetic_run_as_runtime_user \
     "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
     git -C "$build_source" rev-parse --short=12 HEAD)"
@@ -307,6 +330,8 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   cp -a "$build_source/dist/backend" "$release_stage/backend"
   install -m 0755 "$shell_binary" "$release_stage/eidetic-player"
   cp -- "${neu_files[@]}" "$release_stage/"
+  install -m 0644 "$build_source/neutralino.config.json" \
+    "$release_stage/neutralino.config.json"
 
   # package.json rende i file compilati .js moduli ESM.
   cp "$build_source/package.json" "$release_stage/package.json"
@@ -334,6 +359,15 @@ else
 
   printf '{"type":"module"}\n' \
     >"$release_stage/package.json"
+
+  printf '{"lockfileVersion":3}\n' \
+    >"$release_stage/package-lock.json"
+
+  printf '{}\n' \
+    >"$release_stage/neutralino.config.json"
+
+  printf 'staging fixture\n' \
+    >"$release_stage/resources.neu"
 
   install -d -m 0755 \
     "$release_stage/node_modules/music-metadata"
@@ -371,6 +405,24 @@ if [[ "${EUID}" -eq 0 ]]; then
   chown -R root:root "$release_stage"
 fi
 chmod 0755 "$release_stage"
+
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  release_verifier_node="$node_release/bin/node"
+  release_verifier_cli="$build_source/node_modules/tsx/dist/cli.mjs"
+  release_verifier_script="$build_source/scripts/verify-linux-release.ts"
+  release_verifier_args=(--root "$release_stage" --arch "$neutralino_arch"
+    --phase staged --source-root "$build_source" --expected-owner 0)
+else
+  release_verifier_node="$(command -v node)"
+  release_verifier_cli="$SCRIPT_DIR/../../node_modules/tsx/dist/cli.mjs"
+  release_verifier_script="$SCRIPT_DIR/../../scripts/verify-linux-release.ts"
+  release_verifier_args=(--root "$release_stage" --arch "$EIDETIC_ARCH"
+    --phase staged)
+fi
+if ! "$release_verifier_node" "$release_verifier_cli" \
+  "$release_verifier_script" "${release_verifier_args[@]}"; then
+  eidetic_die "Installation verification failed: Linux release contract. No release was activated."
+fi
 
 conf="$tmp/install.conf"
 cat >"$conf" <<EOF

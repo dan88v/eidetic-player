@@ -8,12 +8,13 @@ git_ref=
 dry_run=0
 no_restart=0
 rollback=0
+full_verify=0
 
 choice_to_flag() {
   [[ "$1" == 1 ]] && printf yes || printf no
 }
 
-usage() { printf 'Usage: %s [--ref REF] [--dry-run] [--root PATH] [--no-restart] [--rollback] [--help]\n' "$0"; }
+usage() { printf 'Usage: %s [--ref REF] [--dry-run] [--root PATH] [--no-restart] [--rollback] [--full-verify] [--help]\n' "$0"; }
 while (($#)); do
   case "$1" in
     --ref) git_ref="${2:-}"; shift 2;;
@@ -21,6 +22,7 @@ while (($#)); do
     --dry-run) dry_run=1; shift;;
     --no-restart) no_restart=1; shift;;
     --rollback) rollback=1; shift;;
+    --full-verify) full_verify=1; shift;;
     --help) usage; exit 0;;
     *) eidetic_die "unknown option: $1";;
   esac
@@ -98,6 +100,7 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$mode" --unattende
   --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && args+=(--dry-run)
+((full_verify)) && args+=(--full-verify)
 BACKEND_HOST="$backend_host" BACKEND_PORT="$backend_port" \
   "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
 ((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]] || runuser -u "$EIDETIC_RUNTIME_USER" -- systemctl --user try-restart eidetic-player.service

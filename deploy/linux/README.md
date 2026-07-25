@@ -194,9 +194,10 @@ The installer:
 - creates a separate temporary Git repository owned by the runtime user,
   fetches the validated ref from the fixed official Eidetic remote, and checks
   out `FETCH_HEAD` detached without modifying the original checkout;
-- runs `npm ci`, typecheck, the complete test suite and the production
-  Linux/Neutralino build as the existing non-root runtime user in that isolated
-  source tree;
+- runs `npm ci`, typecheck, the install-safe deployment verification profile
+  and the production Linux/Neutralino build as the existing non-root runtime
+  user in that isolated source tree;
+- verifies the build output and staged release contract before activation;
 - installs immutable releases under `/opt/eidetic-player/releases`;
 - atomically updates `current` and retains `previous`;
 - keeps config, cache, database and credentials in the runtime user's XDG
@@ -218,7 +219,7 @@ not use the real `/run/user/<uid>` desktop runtime. npm does not run as root or
 create a root-owned `.npm` directory in the user's home.
 
 No final release directory is created or activated until dependency
-installation, typecheck, tests, Linux build and artifact validation all
+installation, typecheck, install-safe tests, Linux build and artifact validation all
 succeed. A failed phase reports its name, removes the private workspace and
 incoming release, and leaves both `current` and `previous` unchanged. Package
 or managed Node installation already completed by an earlier attempt is
@@ -235,6 +236,7 @@ No automatic reboot is performed.
 --mode standard|appliance
 --dry-run
 --unattended
+--full-verify
 --root PATH
 --autostart yes|no
 --fullscreen yes|no
@@ -251,6 +253,20 @@ No automatic reboot is performed.
 yes/no flags are appliance choices. In `--unattended` appliance mode every
 choice must be supplied explicitly.
 
+The default verification profile is `install-safe`. It uses an explicit
+allowlist of real deployment tests for platform detection, installer/update
+transactions, Neutralino, backend/readiness launcher, MPV discovery, Network,
+SMB privilege and essential POSIX behavior. It deliberately excludes UI,
+Library, Favorites, History, Playlist and visualizer regressions.
+
+`--full-verify` is a one-operation choice that additionally runs formatting,
+lint, the complete `npm test` suite, POSIX tests and the case-sensitive import
+gate before build and activation. It is not stored in `install.conf`;
+`--unattended` does not enable it. `--dry-run` prints `Verification profile:
+install-safe` or `Verification profile: full` but runs neither profile nor the
+build. CI always runs the complete suite independently of this installer
+default.
+
 `--rpi-onscreen-keyboard` defaults to `keep`. On Raspberry Pi OS, an
 interactive Standard or Appliance installation asks once whether to disable
 the OS keyboard in favour of Eidetic Player's internal keyboard; the default
@@ -259,6 +275,18 @@ answer is No. Unattended installation never prompts and disables it only when
 
 `--root` redirects administrative paths into an isolated staging tree. It is a
 deployment test facility, not an alternate production prefix.
+
+Every directly executed shell/runtime file under `deploy/linux` is committed
+with Git mode `100755`; data, templates, service units and desktop entries use
+`100644`. Verify the index, including from Windows, with:
+
+```bash
+npm run verify:linux:executables
+```
+
+If a new script is reported as `100644`, repair only that index entry with
+`git update-index --chmod=+x -- path/to/script`. Never use `chmod 777` or a
+recursive world-writable workaround.
 
 ## Raspberry Pi OS on-screen keyboard
 
@@ -391,6 +419,12 @@ Use another safe Git ref:
 sudo ./deploy/linux/update-eidetic-player.sh --ref main
 ```
 
+Run the full application verification for one update only:
+
+```bash
+sudo ./deploy/linux/update-eidetic-player.sh --full-verify
+```
+
 Rollback atomically to the retained release:
 
 ```bash
@@ -400,7 +434,7 @@ sudo ./deploy/linux/update-eidetic-player.sh --rollback
 `--no-restart` prevents the update command from restarting the app. Update
 uses the same non-root build/test environment and transactional release switch
 as installation. It builds and verifies before switching `current`, preserves
-XDG data and keeps `previous` available.
+XDG data and keeps `previous` available. Rollback performs no build or tests.
 
 ## Restore system UI
 
@@ -478,6 +512,12 @@ bash deploy/linux/test-case-sensitive-wsl.sh
 These checks create and remove temporary staging roots. They must not install
 real policies, alter the host network, configure autologin, edit the real
 bootloader, mount media or reboot WSL.
+
+`npm run verify:linux:release -- --root PATH --arch arm64|x64 --phase
+build|staged` validates an explicit build or staged-release root. A failed
+install-safe test, build contract or staged-release contract removes the
+incoming release and temporary build roots; no release is activated and
+`current`/`previous` remain unchanged.
 
 ## Reporting problems
 

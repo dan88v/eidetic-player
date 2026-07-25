@@ -46,7 +46,11 @@ export interface MpvDiscoveryResult {
 
 export function isValidMpvVersionLine(line: string): boolean {
   const trimmedLine = line.trim();
-  return /^(?:mpv)\s+v?\d+\.\d+(?:\.\d+)?(?:\s|$)/i.test(trimmedLine);
+  // Official and packaged builds may append a Git/build identifier such as
+  // "-744-g304426c39" before the copyright text.
+  return /^mpv\s+v?\d+\.\d+(?:\.\d+)?(?:[-+][0-9a-z][0-9a-z._+-]*)?(?:\s|$)/i.test(
+    trimmedLine,
+  );
 }
 
 function sanitizeCandidate(candidate: MpvDiscoveryCandidate): string {

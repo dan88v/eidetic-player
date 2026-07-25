@@ -86,6 +86,11 @@ fixture() {
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
     --mode standard --unattended --rpi-onscreen-keyboard keep
   assert_standard_conf "$root"
+  ! grep -q '^EIDETIC_FULL_VERIFY=' "$root/etc/eidetic-player/install.conf"
+
+  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+    --mode standard --unattended --rpi-onscreen-keyboard keep \
+    --full-verify --dry-run
 
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart yes --fullscreen yes --borderless yes \
@@ -112,7 +117,9 @@ fixture() {
 
   # installation lifecycle
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --dry-run
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --full-verify --dry-run
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --full-verify --no-restart
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --rollback
   "$SCRIPT_DIR/doctor-installation.sh" --root "$root" --json
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
