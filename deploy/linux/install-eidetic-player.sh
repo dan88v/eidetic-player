@@ -83,7 +83,12 @@ eidetic_detect_platform
 
 questions=(autostart fullscreen blanking pointer splash autologin)
 if [[ "$mode" == "standard" ]]; then
-  for key in "${questions[@]}"; do choice["$key"]=no; done
+  for key in "${questions[@]}"; do
+    choice["$key"]=no
+  done
+
+  choice["fullscreen"]=yes
+  choice["blanking"]=yes
 else
   for key in "${questions[@]}"; do
     if [[ -z "${choice[$key]:-}" ]]; then
@@ -152,6 +157,13 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   export DEBIAN_FRONTEND=$([[ "$unattended" == 1 ]] && printf noninteractive || printf dialog)
   apt-get update
   apt-get install -y "${packages[@]}"
+
+  [[ -x /usr/bin/mpv ]] ||
+    eidetic_die "MPV was installed but /usr/bin/mpv is unavailable"
+
+  /usr/bin/mpv --version >/dev/null 2>&1 ||
+    eidetic_die "MPV executable verification failed"
+
 else
   install -d -m 0755 "$(eidetic_target /etc/eidetic-player)"
 fi
@@ -194,6 +206,17 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
     "$git_ref" "$SOURCE_REMOTE"; then
     eidetic_die "source phase failed: isolated Git fetch"
   fi
+
+  # Raspberry Pi kiosk presentation:
+  # fullscreen, senza cornice e senza barra del titolo.
+  sed -i \
+    's/borderless: false,/borderless: true,/' \
+    "$build_source/scripts/generate-neutralino-config.ts"
+
+  grep -q 'borderless: true,' \
+    "$build_source/scripts/generate-neutralino-config.ts" ||
+    eidetic_die "failed to enable borderless Neutralino window"
+
   for phase in ci typecheck test build:linux; do
     eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"
     if ! case "$phase" in
@@ -348,6 +371,8 @@ EIDETIC_RUNTIME_USER=$runtime_user
 EIDETIC_GIT_REF=$git_ref
 EIDETIC_RPI_ONSCREEN_KEYBOARD=$rpi_keyboard
 EIDETIC_TERMINAL=x-terminal-emulator
+EIDETIC_MPV_PATH=/usr/bin/mpv
+PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin
 EOF
 eidetic_install_managed "$conf" /etc/eidetic-player/install.conf 0644
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.service" /etc/systemd/user/eidetic-player.service 0644
@@ -451,5 +476,29 @@ fi
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=
 install_committed=1
-eidetic_log "Installed release $release_id atomically. No reboot was performed."
+
+eidetic_log "Installed release $release_id atomically."
 eidetic_log "Application data under the runtime user's XDG directories was not modified."
+
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  if ((unattended)); then
+    eidetic_log "Reboot was not performed because the installation is unattended."
+    eidetic_log "Reboot manually with: sudo reboot"
+  elif [[ -t 0 ]]; then
+    printf '\n'
+    read -r -p "Installation completed successfully. Reboot now? [y/N] " reboot_answer
+
+    if [[ "$reboot_answer" =~ ^[Yy]$ ]]; then
+      eidetic_log "Rebooting the system."
+      systemctl reboot
+    else
+      eidetic_log "Reboot was not performed."
+      eidetic_log "Reboot manually with: sudo reboot"
+    fi
+  else
+    eidetic_log "Reboot was not performed because no interactive terminal is available."
+    eidetic_log "Reboot manually with: sudo reboot"
+  fi
+else
+  eidetic_log "Staging installation completed; reboot is not applicable."
+fi
