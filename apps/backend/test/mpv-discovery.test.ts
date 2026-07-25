@@ -5,6 +5,7 @@ import { join, delimiter } from "node:path";
 import test from "node:test";
 import {
   discoverMpv,
+  isValidMpvVersionLine,
   resolveMpvCandidates,
 } from "../src/player/mpv-discovery.js";
 
@@ -99,11 +100,7 @@ void test(
   async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "eidetic-mpv-fallback-"));
     try {
-      const fallback = await createMockMpvBinary(
-        fixtureRoot,
-        "mpv",
-        "mpv 1.0.0",
-      );
+      await createMockMpvBinary(fixtureRoot, "mpv", "mpv 1.0.0");
       const result = await discoverMpv(
         {
           EIDETIC_MPV_PATH: "/does/not/exist",
@@ -115,7 +112,7 @@ void test(
       if (result === null) {
         throw new Error("discoverMpv should fall back to PATH candidate");
       }
-      assert.equal(result.executable, fallback);
+      assert.equal(result.executable, "mpv");
       assert.equal(result.version, "mpv 1.0.0");
       assert.equal(result.diagnostics.length, 2);
       const firstDiagnostic = result.diagnostics[0];
@@ -137,11 +134,7 @@ void test(
   async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "eidetic-mpv-system-"));
     try {
-      const fallback = await createMockMpvBinary(
-        fixtureRoot,
-        "mpv",
-        "mpv 1.1.0",
-      );
+      await createMockMpvBinary(fixtureRoot, "mpv", "mpv 1.1.0");
       const result = await discoverMpv(
         {
           EIDETIC_MPV_PATH: "/not-a-real-mpv-path",
@@ -176,8 +169,9 @@ void test(
       }
       assert.equal(result.diagnostics.length, 3);
       assert.equal(pathDiagnostic.type, "path");
+      assert.equal(pathDiagnostic.candidate, "mpv");
       assert.equal(pathDiagnostic.status, "success");
-      assert.equal(result.executable, fallback);
+      assert.equal(result.executable, "mpv");
       assert.equal(result.version, "mpv 1.1.0");
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
@@ -185,22 +179,47 @@ void test(
   },
 );
 
-void test("discoverMpv reports invalid version and continues fallback", async () => {
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "eidetic-mpv-invalid-"));
-  try {
-    await createMockMpvBinary(fixtureRoot, "mpv", "not-mpv");
-    const result = await discoverMpv(
-      {
-        PATH: `${fixtureRoot}${delimiter}${process.env.PATH ?? ""}`,
-        PATHEXT: process.env.PATHEXT,
-      },
-      "win32",
-    );
-    assert.equal(result, null);
-  } finally {
-    await rm(fixtureRoot, { recursive: true, force: true });
-  }
-});
+void test(
+  "discoverMpv reports invalid version and continues fallback",
+  { skip: process.platform === "win32" },
+  async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "eidetic-mpv-invalid-"));
+    try {
+      const configured = await createMockMpvBinary(
+        fixtureRoot,
+        "configured-mpv",
+        "not-mpv",
+      );
+      await createMockMpvBinary(fixtureRoot, "mpv", "mpv 2.1.0");
+      const result = await discoverMpv(
+        {
+          EIDETIC_MPV_PATH: configured,
+          PATH: `${fixtureRoot}${delimiter}${process.env.PATH ?? ""}`,
+          PATHEXT: process.env.PATHEXT,
+        },
+        "win32",
+      );
+      if (result === null) {
+        throw new Error(
+          "discoverMpv should continue after invalid configured output",
+        );
+      }
+      assert.equal(result.version, "mpv 2.1.0");
+      assert.equal(result.diagnostics.length, 2);
+      const configuredDiagnostic = result.diagnostics[0];
+      const fallbackDiagnostic = result.diagnostics[1];
+      if (!configuredDiagnostic || !fallbackDiagnostic) {
+        throw new Error(
+          "expected diagnostics for invalid output and PATH fallback",
+        );
+      }
+      assert.equal(configuredDiagnostic.status, "invalid-version");
+      assert.equal(fallbackDiagnostic.status, "success");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  },
+);
 
 void test("discoverMpv returns null when every candidate fails", async () => {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "eidetic-mpv-none-"));
@@ -222,6 +241,11 @@ void test(
   "discoverMpv diagnostics do not leak configured executable path",
   { skip: process.platform === "win32" },
   async () => {
+    const logs: string[] = [];
+    const previousLog = console.log;
+    console.log = (...values: unknown[]) => {
+      logs.push(values.join(" "));
+    };
     const fixtureRoot = await mkdtemp(join(tmpdir(), "eidetic-mpv-leak-"));
     try {
       const fallback = await createMockMpvBinary(
@@ -241,7 +265,7 @@ void test(
       if (result === null) {
         throw new Error("discoverMpv should return fallback executable result");
       }
-      assert.equal(result.executable, fallback);
+      assert.equal(result.executable, "mpv");
       const configuredDiagnostic = result.diagnostics[0];
       const pathDiagnostic = result.diagnostics[1];
       if (!configuredDiagnostic || !pathDiagnostic) {
@@ -253,8 +277,32 @@ void test(
       assert.equal(pathDiagnostic.candidate, "mpv");
       assert.equal(configuredDiagnostic.status, "not-found");
       assert.equal(pathDiagnostic.status, "success");
+      const diagnosticsText = JSON.stringify(result.diagnostics);
+      assert.equal(diagnosticsText.includes(candidatePath), false);
+      const serializedLogs = logs.join("\n");
+      assert.equal(serializedLogs.includes(candidatePath), false);
+      assert.equal(serializedLogs.includes(fixtureRoot), false);
+      assert.equal(serializedLogs.includes(fallback), false);
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
+      console.log = previousLog;
     }
   },
 );
+
+void test("isValidMpvVersionLine accepts real MPV banners", () => {
+  assert.equal(isValidMpvVersionLine("mpv 0.37.0"), true);
+  assert.equal(isValidMpvVersionLine("mpv v0.40.0"), true);
+  assert.equal(isValidMpvVersionLine("mpv 0.40.0 Copyright ..."), true);
+});
+
+void test("isValidMpvVersionLine rejects non-banner output", () => {
+  assert.equal(isValidMpvVersionLine("not-mpv"), false);
+  assert.equal(isValidMpvVersionLine("fake-mpv 1.0.0"), false);
+  assert.equal(isValidMpvVersionLine("this is mpv 1.0.0"), false);
+  assert.equal(isValidMpvVersionLine("mpv"), false);
+  assert.equal(isValidMpvVersionLine("mpv unknown"), false);
+  assert.equal(isValidMpvVersionLine("ffmpeg version mpv"), false);
+  assert.equal(isValidMpvVersionLine(""), false);
+  assert.equal(isValidMpvVersionLine("   "), false);
+});

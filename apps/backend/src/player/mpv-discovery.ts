@@ -44,6 +44,11 @@ export interface MpvDiscoveryResult {
   readonly diagnostics: readonly MpvDiscoveryDiagnostic[];
 }
 
+export function isValidMpvVersionLine(line: string): boolean {
+  const trimmedLine = line.trim();
+  return /^(?:mpv)\s+v?\d+\.\d+(?:\.\d+)?(?:\s|$)/i.test(trimmedLine);
+}
+
 function sanitizeCandidate(candidate: MpvDiscoveryCandidate): string {
   return candidate.type === "configured"
     ? "configured MPV path"
@@ -99,7 +104,7 @@ async function verifyCandidate(
       },
     );
     const firstLine = stdout.split(/\r?\n/, 1)[0]?.trim();
-    if (!firstLine?.toLowerCase().includes("mpv")) {
+    if (!firstLine || !isValidMpvVersionLine(firstLine)) {
       return {
         type: candidate.type,
         candidate: sanitizeCandidate(candidate),
