@@ -280,6 +280,26 @@ void test("restore, update, uninstall and doctor expose the required safe modes"
 
 void test("installer writes a shared MPV path for all install modes", async () => {
   const installer = await read("deploy/linux/install-eidetic-player.sh");
+  assert.ok(
+    installer.includes('backend_host="${BACKEND_HOST:-127.0.0.1}"'),
+    "expected backend host default contract in installer",
+  );
+  assert.ok(
+    installer.includes('backend_port="${BACKEND_PORT:-4310}"'),
+    "expected backend port default contract in installer",
+  );
+  assert.ok(
+    installer.includes("BACKEND_HOST=$backend_host"),
+    "expected install.conf BACKEND_HOST write",
+  );
+  assert.ok(
+    installer.includes("BACKEND_PORT=$backend_port"),
+    "expected install.conf BACKEND_PORT write",
+  );
+  assert.ok(
+    !installer.includes("BACKEND_HOST=localhost"),
+    "unexpected BACKEND_HOST default in installer",
+  );
   assert.match(installer, /EIDETIC_MPV_PATH=\/usr\/bin\/mpv/);
   assert.match(
     installer,
@@ -289,11 +309,25 @@ void test("installer writes a shared MPV path for all install modes", async () =
 
 void test("launcher waits on backend readiness endpoint with bounded attempts", async () => {
   const launcher = await read("deploy/linux/runtime/eidetic-player-launch");
+  assert.ok(
+    launcher.includes('backend_host="${BACKEND_HOST:-127.0.0.1}"'),
+    "expected BACKEND_HOST contract in launcher",
+  );
+  assert.ok(
+    launcher.includes('backend_port="${BACKEND_PORT:-4310}"'),
+    "expected BACKEND_PORT contract in launcher",
+  );
+  assert.ok(
+    launcher.includes(
+      'readiness_endpoint="http://${backend_host}:${backend_port}/api/readiness"',
+    ),
+    "expected readiness endpoint contract in launcher",
+  );
+  assert.doesNotMatch(launcher, /43789/);
   assert.match(
     launcher,
-    /readiness_endpoint="http:\/\/127\.0\.0\.1:43789\/api\/readiness"/,
+    /readiness_timeout_ms="\$\{EIDETIC_READINESS_TIMEOUT_MS:-30000\}"/,
   );
-  assert.match(launcher, /readiness_timeout_ms=30000/);
   assert.match(launcher, /readiness_poll_ms=250/);
   assert.match(
     launcher,
@@ -306,7 +340,10 @@ void test("launcher waits on backend readiness endpoint with bounded attempts", 
   assert.match(launcher, /if \[\[ "\$readiness_code" == "200" \]\]/);
   assert.match(launcher, /if ! kill -0 "\$backend_pid"/);
   assert.doesNotMatch(launcher, /\/api\/health/);
-  assert.match(launcher, /backend readiness timeout/);
+  assert.match(
+    launcher,
+    /Backend readiness was not reachable at %s:%s within %d ms/,
+  );
   assert.match(launcher, /backend process ended during readiness check/);
 });
 
