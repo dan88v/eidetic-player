@@ -15,6 +15,7 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
     "--root",
     "--autostart",
     "--fullscreen",
+    "--borderless",
     "--disable-blanking",
     "--hide-pointer",
     "--splash",

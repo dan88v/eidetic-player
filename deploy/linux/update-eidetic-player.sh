@@ -8,6 +8,11 @@ git_ref=
 dry_run=0
 no_restart=0
 rollback=0
+
+choice_to_flag() {
+  [[ "$1" == 1 ]] && printf yes || printf no
+}
+
 usage() { printf 'Usage: %s [--ref REF] [--dry-run] [--root PATH] [--no-restart] [--rollback] [--help]\n' "$0"; }
 while (($#)); do
   case "$1" in
@@ -30,8 +35,6 @@ conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 git_ref="${git_ref:-${EIDETIC_GIT_REF:-main}}"
 eidetic_validate_ref "$git_ref"
 opt="$(eidetic_target /opt/eidetic-player)"
-EIDETIC_BORDERLESS="${EIDETIC_BORDERLESS:-1}"
-export EIDETIC_BORDERLESS
 if ((rollback)); then
   [[ -L "$opt/previous" ]] || eidetic_die "no previous release is available"
   eidetic_log "Rollback plan: current -> $(readlink "$opt/previous")"
@@ -42,11 +45,40 @@ if ((rollback)); then
   ln -sfn "$old" "$opt/previous.new"; mv -Tf "$opt/previous.new" "$opt/previous"
   exit 0
 fi
-args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$EIDETIC_INSTALLATION_MODE" --unattended
-  --autostart "$([[ "${EIDETIC_AUTOSTART:-0}" == 1 ]] && printf yes || printf no)" --fullscreen "$([[ "${EIDETIC_FULLSCREEN:-0}" == 1 ]] && printf yes || printf no)"
-  --disable-blanking "$([[ "${EIDETIC_DISABLE_BLANKING:-0}" == 1 ]] && printf yes || printf no)"
-  --hide-pointer "$([[ "${EIDETIC_HIDE_POINTER:-0}" == 1 ]] && printf yes || printf no)"
-  --splash "$([[ "${EIDETIC_SPLASH:-0}" == 1 ]] && printf yes || printf no)" --autologin "$([[ "${EIDETIC_AUTOLOGIN:-0}" == 1 ]] && printf yes || printf no)"
+
+mode="${EIDETIC_INSTALLATION_MODE:-standard}"
+if [[ "$mode" != "appliance" ]]; then
+  mode=standard
+fi
+
+if [[ "$mode" == "standard" ]]; then
+  autostart=0
+  fullscreen=0
+  borderless=0
+  blanking=0
+  pointer=0
+  splash=0
+  autologin=0
+else
+  autostart="${EIDETIC_AUTOSTART:-0}"
+  fullscreen="${EIDETIC_FULLSCREEN:-0}"
+  if [[ "${EIDETIC_BORDERLESS+x}" == x ]]; then
+    borderless="${EIDETIC_BORDERLESS}"
+  else
+    borderless=1
+  fi
+  blanking="${EIDETIC_DISABLE_BLANKING:-0}"
+  pointer="${EIDETIC_HIDE_POINTER:-0}"
+  splash="${EIDETIC_SPLASH:-0}"
+  autologin="${EIDETIC_AUTOLOGIN:-0}"
+fi
+
+args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$mode" --unattended
+  --autostart "$(choice_to_flag "$autostart")" --fullscreen "$(choice_to_flag "$fullscreen")"
+  --borderless "$(choice_to_flag "$borderless")"
+  --disable-blanking "$(choice_to_flag "$blanking")"
+  --hide-pointer "$(choice_to_flag "$pointer")"
+  --splash "$(choice_to_flag "$splash")" --autologin "$(choice_to_flag "$autologin")"
   --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && args+=(--dry-run)

@@ -6,7 +6,15 @@ runtime_user="${1:-$(id -un)}"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 
-fixture() {
+assert_install_conf_value() {
+  local root="$1" key="$2" expected="$3"
+  grep -qx "$key=$expected" "$root/etc/eidetic-player/install.conf" || {
+    printf 'missing expected install.conf value: %s=%s\n' "$key" "$expected" >&2
+    exit 1
+  }
+}
+
+install_root() {
   local name="$1" os="$2" arch="$3" desktop="$4"
   local compatible="${5:-none}" marker="${6:-none}"
   local root="$work/$name"
@@ -23,12 +31,86 @@ fixture() {
     printf 'Package: raspberrypi-ui-mods\nStatus: install ok installed\nArchitecture: arm64\n' \
       >"$root/var/lib/dpkg/status"
   fi
+  printf '%s\n' "$root"
+}
+
+write_legacy_conf() {
+  local root="$1" mode="$2" fullscreen="$3" hide_pointer="$4" disable_blanking="$5" autostart="$6" splash="$7" autologin="$8"
+  local borderless="${9:-x-missing}"
+  cat >"$root/etc/eidetic-player/install.conf" <<EOF
+EIDETIC_INSTALLATION_MODE=$mode
+EIDETIC_FULLSCREEN=$fullscreen
+EIDETIC_HIDE_POINTER=$hide_pointer
+EIDETIC_DISABLE_BLANKING=$disable_blanking
+EIDETIC_AUTOSTART=$autostart
+EIDETIC_SPLASH=$splash
+EIDETIC_AUTOLOGIN=$autologin
+EIDETIC_RUNTIME_USER=$runtime_user
+EIDETIC_GIT_REF=main
+EIDETIC_RPI_ONSCREEN_KEYBOARD=keep
+PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin
+EOF
+  if [[ "$borderless" != x-missing ]]; then
+    printf 'EIDETIC_BORDERLESS=%s\n' "$borderless" >>"$root/etc/eidetic-player/install.conf"
+  fi
+}
+
+assert_standard_conf() {
+  local root="$1"
+  assert_install_conf_value "$root" EIDETIC_INSTALLATION_MODE standard
+  assert_install_conf_value "$root" EIDETIC_FULLSCREEN 0
+  assert_install_conf_value "$root" EIDETIC_BORDERLESS 0
+  assert_install_conf_value "$root" EIDETIC_HIDE_POINTER 0
+  assert_install_conf_value "$root" EIDETIC_DISABLE_BLANKING 0
+  assert_install_conf_value "$root" EIDETIC_AUTOSTART 0
+  assert_install_conf_value "$root" EIDETIC_SPLASH 0
+  assert_install_conf_value "$root" EIDETIC_AUTOLOGIN 0
+}
+
+assert_appliance_conf() {
+  local root="$1" fullscreen="$2" borderless="$3" blanking="$4" pointer="$5" splash="$6" autologin="$7" autostart="$8"
+  assert_install_conf_value "$root" EIDETIC_INSTALLATION_MODE appliance
+  assert_install_conf_value "$root" EIDETIC_FULLSCREEN "$fullscreen"
+  assert_install_conf_value "$root" EIDETIC_BORDERLESS "$borderless"
+  assert_install_conf_value "$root" EIDETIC_DISABLE_BLANKING "$blanking"
+  assert_install_conf_value "$root" EIDETIC_HIDE_POINTER "$pointer"
+  assert_install_conf_value "$root" EIDETIC_SPLASH "$splash"
+  assert_install_conf_value "$root" EIDETIC_AUTOLOGIN "$autologin"
+  assert_install_conf_value "$root" EIDETIC_AUTOSTART "$autostart"
+}
+
+fixture() {
+  local name="$1" root
+  root="$(install_root "$@")"
+
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
-    --mode appliance --unattended --autostart yes --fullscreen yes \
-    --disable-blanking yes --hide-pointer yes --splash no --autologin no
+    --mode standard --unattended --rpi-onscreen-keyboard keep
+  assert_standard_conf "$root"
+
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
-    --mode appliance --unattended --autostart yes --fullscreen yes \
-    --disable-blanking yes --hide-pointer yes --splash no --autologin no
+    --mode appliance --unattended --autostart yes --fullscreen yes --borderless yes \
+    --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
+  assert_appliance_conf "$root" 1 1 0 0 0 0 1
+
+  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+    --mode appliance --unattended --autostart no --fullscreen no --borderless yes \
+    --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
+  assert_appliance_conf "$root" 0 1 0 0 0 0 0
+
+  # validate legacy migration paths
+  write_legacy_conf "$root" standard 1 0 1 1 0 0
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  assert_standard_conf "$root"
+
+  write_legacy_conf "$root" appliance 1 1 1 1 1 0 0
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  assert_install_conf_value "$root" EIDETIC_BORDERLESS 0
+
+  write_legacy_conf "$root" appliance 1 1 1 1 1 0
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  assert_install_conf_value "$root" EIDETIC_BORDERLESS 1
+
+  # installation lifecycle
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --dry-run
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --rollback

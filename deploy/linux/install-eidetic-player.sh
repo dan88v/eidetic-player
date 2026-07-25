@@ -27,6 +27,7 @@ Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
   --root PATH                 Use an isolated staging root
   --autostart yes|no          Appliance choice
   --fullscreen yes|no         Appliance choice
+  --borderless yes|no         Appliance choice
   --disable-blanking yes|no   Appliance choice
   --hide-pointer yes|no       Appliance choice
   --splash yes|no             Appliance choice
@@ -50,6 +51,7 @@ while (($#)); do
     --unattended) unattended=1; shift;;
     --autostart) set_choice autostart "${2:-}"; shift 2;;
     --fullscreen) set_choice fullscreen "${2:-}"; shift 2;;
+    --borderless) set_choice borderless "${2:-}"; shift 2;;
     --disable-blanking) set_choice blanking "${2:-}"; shift 2;;
     --hide-pointer) set_choice pointer "${2:-}"; shift 2;;
     --splash) set_choice splash "${2:-}"; shift 2;;
@@ -64,6 +66,18 @@ while (($#)); do
     *) eidetic_die "unknown option: $1";;
   esac
 done
+
+install_question_prompt() {
+  case "$1" in
+    borderless)
+      printf '%s' 'Run Eidetic Player without window borders? [y/N] '
+      ;;
+    *)
+      printf '%s? [y/N] ' "$1"
+      ;;
+  esac
+}
+
 [[ "$mode" == "standard" || "$mode" == "appliance" ]] || eidetic_die "--mode must be standard or appliance"
 [[ "$rpi_keyboard" == keep || "$rpi_keyboard" == disable ]] ||
   eidetic_die "--rpi-onscreen-keyboard must be keep or disable"
@@ -81,20 +95,18 @@ eidetic_preflight_checkout \
   "$runtime_user" "$checkout" "$preflight_world_write"
 eidetic_detect_platform
 
-questions=(autostart fullscreen blanking pointer splash autologin)
+questions=(autostart fullscreen borderless blanking pointer splash autologin)
 if [[ "$mode" == "standard" ]]; then
   for key in "${questions[@]}"; do
     choice["$key"]=no
   done
 
-  choice["fullscreen"]=yes
-  choice["blanking"]=yes
 else
   for key in "${questions[@]}"; do
     if [[ -z "${choice[$key]:-}" ]]; then
       if ((unattended)); then eidetic_die "--unattended appliance installs require every appliance choice flag"; fi
       [[ -t 0 ]] || eidetic_die "appliance choices require a terminal or explicit flags"
-      read -r -p "$key? [y/N] " answer
+      read -r -p "$(install_question_prompt "$key")" answer
       [[ "$answer" =~ ^[Yy]$ ]] && choice["$key"]=yes || choice["$key"]=no
     fi
   done
@@ -199,7 +211,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   build_source="$build_workspace/source"
   EIDETIC_INSTALLATION_MODE="$mode"
   EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
-  EIDETIC_BORDERLESS=${EIDETIC_BORDERLESS:-1}
+  EIDETIC_BORDERLESS=$([[ "${choice[borderless]}" == yes ]] && printf 1 || printf 0)
   export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN EIDETIC_BORDERLESS
   eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
   if ! eidetic_fetch_isolated_source \
@@ -209,7 +221,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   fi
 
   # Raspberry Pi kiosk presentation:
-  # fullscreen, senza cornice e senza barra del titolo.
+  # fullscreen, borderless and window title bar behavior are controlled by installer choices.
 
   for phase in ci typecheck test build:linux; do
     eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"

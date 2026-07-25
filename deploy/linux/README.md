@@ -139,9 +139,9 @@ The runtime user must exist. Do not pass `root`.
 
 Standard mode is the recommended first trial. It installs the production
 application, required service integration and desktop launcher without
-automatically taking over the session. It does not enable autostart,
-fullscreen, autologin, splash replacement, display blanking changes or pointer
-hiding.
+automatically taking over the session. It does not enable autostart, fullscreen,
+borderless, display blanking changes, pointer hiding, splash replacement or
+autologin. Desktop panel hiding is not implemented.
 
 The installer:
 
@@ -201,6 +201,7 @@ No automatic reboot is performed.
 --root PATH
 --autostart yes|no
 --fullscreen yes|no
+--borderless yes|no
 --disable-blanking yes|no
 --hide-pointer yes|no
 --splash yes|no
@@ -209,7 +210,7 @@ No automatic reboot is performed.
 --help
 ```
 
-`--ref` defaults to `main`; `--mode` defaults to `standard`. The final six
+`--ref` defaults to `main`; `--mode` defaults to `standard`. The final seven
 yes/no flags are appliance choices. In `--unattended` appliance mode every
 choice must be supplied explicitly.
 
@@ -255,10 +256,11 @@ behavior independently:
 
 1. start Eidetic Player automatically;
 2. open the application fullscreen;
-3. disable display blanking for the graphical session;
-4. hide the pointer while inactive and reveal it on movement;
-5. install the minimal Eidetic Player Plymouth splash;
-6. enable graphical autologin for the runtime user.
+3. run without window borders (independent from fullscreen);
+4. disable display blanking for the graphical session;
+5. hide the pointer while inactive and reveal it on movement;
+6. install the minimal Eidetic Player Plymouth splash;
+7. enable graphical autologin for the runtime user.
 
 Interactive example:
 
