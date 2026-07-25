@@ -86,6 +86,7 @@ Necessarie conferme tecniche dal Raspberry Pi reale:
 ## Prove eseguite
 
 Per questa decisione:
+
 - Non sono stati eseguiti build/test del codice applicativo, poiché non è stato applicato alcun cambio funzionale.
 - Nessun test aggiuntivo da aggiornare per assenza di implementazione.
 - Nessun commit/push effettuato.
