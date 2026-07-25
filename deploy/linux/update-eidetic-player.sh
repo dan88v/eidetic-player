@@ -34,7 +34,23 @@ conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 . "$conf"
 git_ref="${git_ref:-${EIDETIC_GIT_REF:-main}}"
 eidetic_validate_ref "$git_ref"
+backend_host="${BACKEND_HOST:-127.0.0.1}"
+backend_port="${BACKEND_PORT:-4310}"
 opt="$(eidetic_target /opt/eidetic-player)"
+
+if [[ "${BACKEND_HOST+x}" == x ]] || [[ "${BACKEND_PORT+x}" == x ]]; then
+  if [[ "${BACKEND_HOST+x}" == x ]] &&
+    [[ "$backend_host" != "127.0.0.1" && "$backend_host" != "localhost" ]]; then
+    eidetic_die "DECISION REQUIRED: BACKEND_HOST=$backend_host is not supported in production"
+  fi
+  if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || ((backend_port < 1 || backend_port > 65535)); then
+    eidetic_die "DECISION REQUIRED: BACKEND_PORT=$backend_port is invalid in production"
+  fi
+  if [[ "${BACKEND_PORT+x}" == x && "$backend_port" != "4310" ]]; then
+    eidetic_die "DECISION REQUIRED: BACKEND_PORT=$backend_port is not supported in this release"
+  fi
+fi
+
 if ((rollback)); then
   [[ -L "$opt/previous" ]] || eidetic_die "no previous release is available"
   eidetic_log "Rollback plan: current -> $(readlink "$opt/previous")"
@@ -82,5 +98,6 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$mode" --unattende
   --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && args+=(--dry-run)
-"$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
+BACKEND_HOST="$backend_host" BACKEND_PORT="$backend_port" \
+  "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
 ((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]] || runuser -u "$EIDETIC_RUNTIME_USER" -- systemctl --user try-restart eidetic-player.service

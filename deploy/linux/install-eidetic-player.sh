@@ -94,6 +94,14 @@ preflight_world_write=yes
 eidetic_preflight_checkout \
   "$runtime_user" "$checkout" "$preflight_world_write"
 eidetic_detect_platform
+backend_host="${BACKEND_HOST:-127.0.0.1}"
+backend_port="${BACKEND_PORT:-4310}"
+if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || ((backend_port < 1 || backend_port > 65535)); then
+  eidetic_die "Invalid BACKEND_PORT=${backend_port}; must be an integer 1-65535."
+fi
+if [[ "$backend_host" != "127.0.0.1" && "$backend_host" != "localhost" ]]; then
+  eidetic_die "Invalid BACKEND_HOST=${backend_host}; only loopback is supported."
+fi
 
 questions=(autostart fullscreen borderless blanking pointer splash autologin)
 if [[ "$mode" == "standard" ]]; then
@@ -377,6 +385,8 @@ EIDETIC_AUTOLOGIN=$([[ "${choice[autologin]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_RUNTIME_USER=$runtime_user
 EIDETIC_GIT_REF=$git_ref
 EIDETIC_RPI_ONSCREEN_KEYBOARD=$rpi_keyboard
+BACKEND_HOST=$backend_host
+BACKEND_PORT=$backend_port
 EIDETIC_TERMINAL=x-terminal-emulator
 EIDETIC_MPV_PATH=/usr/bin/mpv
 PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin

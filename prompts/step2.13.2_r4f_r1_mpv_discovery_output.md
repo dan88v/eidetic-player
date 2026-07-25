@@ -1,4 +1,4 @@
-# Step 2.13.2-R4F-R1 � Fix MPV banner validation and discovery test contract
+# Step 2.13.2-R4F-R1 è Fix MPV banner validation and discovery test contract
 
 ## Problema Raspberry riportato
 
@@ -20,7 +20,7 @@
 
 - Nuova funzione: `isValidMpvVersionLine(line: string): boolean`.
 - Banner accettato solo se la linea inizia con token `mpv` (case insensitive) e segue un identificatore di versione reale `v?MAJOR.MINOR[.PATCH]`.
-- Non � pi� accettato `not-mpv`, `fake-mpv ...`, `this is mpv ...` o altre sottostringhe.
+- Non è più accettato `not-mpv`, `fake-mpv ...`, `this is mpv ...` o altre sottostringhe.
 - PATH candidate mantiene contratto logico: `executable: "mpv"` (nessuna risoluzione manuale PATH).
 
 ## Modifiche file
@@ -69,7 +69,7 @@
 
 - `result.executable` per PATH fallback resta logico e invariato (`"mpv"`).
 - `diagnostics`: primo tentativo invalid-version deve essere `invalid-version`, non success.
-- Nessun log path risolto; custom path � sanitizzato come `configured MPV path`.
+- Nessun log path risolto; custom path è sanitizzato come `configured MPV path`.
 
 ## Diagnostica privacy
 

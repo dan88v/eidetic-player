@@ -6,7 +6,7 @@
 
 - Working tree: clean before modifiche.
 - Baseline funzionante congelata: verificata da step precedenti (`main`, no file dirty, branch sincronizzato).
-- Nota: nel riepilogo iniziale era gi� registrato `npm.cmd run format:check` non pulito (`prompts/step2.13.2_r4b_output.md`); non ho rieseguito il full-suite nel presente passaggio.
+- Nota: nel riepilogo iniziale era già registrato `npm.cmd run format:check` non pulito (`prompts/step2.13.2_r4b_output.md`); non ho rieseguito il full-suite nel presente passaggio.
 
 ## Decisione Standard approvata
 
@@ -30,7 +30,7 @@
 
 ## Nuovo flag / install.conf
 
-- Aggiunto `--borderless yes|no` all�help, parser e lista scelte.
+- Aggiunto `--borderless yes|no` all'help, parser e lista scelte.
 - `EIDETIC_BORDERLESS` ora deriva solo da scelta installer:
   - `choice[borderless] == yes` -> `1`
   - `choice[borderless] == no` -> `0`
@@ -42,17 +42,17 @@
 ## Neutralino
 
 - Il generatore continua a leggere `borderless` da `process.env.EIDETIC_BORDERLESS === "1"`.
-- L�ambiente build dell�installer esporta `EIDETIC_BORDERLESS` esplicitamente prima di runtime/CI.
+- L'ambiente build dell'installer esporta `EIDETIC_BORDERLESS` esplicitamente prima di runtime/CI.
 
-## Update / compatibilit�
+## Update / compatibilità
 
-- `update-eidetic-player.sh` ora normalizza le opzioni prima di rilanciare l�installer:
-  - Modalit� non esplicitamente appliance -> trattata come `standard`.
+- `update-eidetic-player.sh` ora normalizza le opzioni prima di rilanciare l'installer:
+  - Modalità non esplicitamente appliance -> trattata come `standard`.
   - Standard normalizzato a takeover-off (`fullscreen=0`, `borderless=0`, `blanking=0`, `autostart=0`, `pointer=0`, `splash=0`, `autologin=0`).
   - Appliance preserva le scelte installazione (`autostart`, `fullscreen`, `blanking`, `pointer`, `splash`, `autologin`) quando presenti.
   - Appliance legacy con `EIDETIC_BORDERLESS` assente -> fallback `borderless=1`.
   - Appliance legacy con `EIDETIC_BORDERLESS=0` -> preservato.
-- L�update continua a delegare all�installer senza duplicare la logica applicativa.
+- L'update continua a delegare all'installer senza duplicare la logica applicativa.
 
 ## Test e verifica
 

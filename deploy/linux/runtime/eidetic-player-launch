@@ -3,18 +3,38 @@ set -euo pipefail
 
 runtime="${XDG_RUNTIME_DIR:?}/eidetic-player"
 [[ ! -e "$runtime/maintenance" ]] || exit 0
-node_bin="/opt/eidetic-player/node/current/bin/node"
-release="/opt/eidetic-player/current"
+node_bin="${EIDETIC_NODE_BIN:-/opt/eidetic-player/node/current/bin/node}"
+release="${EIDETIC_PLAYER_RELEASE:-/opt/eidetic-player/current}"
 backend_entry="$release/backend/apps/backend/src/index.js"
-readiness_endpoint="http://127.0.0.1:43789/api/readiness"
-readiness_timeout_ms=30000
+backend_host="${BACKEND_HOST:-127.0.0.1}"
+backend_port="${BACKEND_PORT:-4310}"
+readiness_timeout_ms="${EIDETIC_READINESS_TIMEOUT_MS:-30000}"
 readiness_poll_ms=250
 max_readiness_attempts=$((readiness_timeout_ms / readiness_poll_ms))
 readiness_json="$runtime/readiness.json"
+readiness_endpoint="http://${backend_host}:${backend_port}/api/readiness"
 
 if [[ ! -f "$backend_entry" ]]; then
   printf 'Eidetic Player backend entrypoint not found: %s\n' \
     "$backend_entry" >&2
+  exit 1
+fi
+
+if [[ "$backend_host" != "127.0.0.1" && "$backend_host" != "localhost" ]]; then
+  printf 'Invalid BACKEND_HOST=%s; only 127.0.0.1 or localhost are allowed in production.\n' \
+    "$backend_host" >&2
+  exit 1
+fi
+
+if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || ((backend_port < 1 || backend_port > 65535)); then
+  printf 'Invalid BACKEND_PORT=%s; must be an integer 1-65535.\n' \
+    "$backend_port" >&2
+  exit 1
+fi
+
+if ! [[ "$readiness_timeout_ms" =~ ^[0-9]+$ ]] || ((readiness_timeout_ms < 1)); then
+  printf 'Invalid readiness timeout=%s; must be a positive integer.\n' \
+    "$readiness_timeout_ms" >&2
   exit 1
 fi
 
@@ -31,7 +51,7 @@ trap cleanup EXIT INT TERM
 
 readiness_code=
 for attempt in $(seq 1 "$max_readiness_attempts"); do
-  readiness_code="$(curl --silent --show-error --max-time 1 \
+  readiness_code="$(curl --silent --max-time 1 \
     --write-out "%{http_code}" \
     --output "$readiness_json" \
     "$readiness_endpoint" || printf "000")"
@@ -43,14 +63,15 @@ for attempt in $(seq 1 "$max_readiness_attempts"); do
     exit 1
   fi
   if [[ "$attempt" -ge "$max_readiness_attempts" ]]; then
-    printf 'backend readiness timeout after %d ms\n' "$readiness_timeout_ms" >&2
+    # Keep final diagnostic outside the loop; see final block below.
     exit 1
   fi
   sleep "0.$((readiness_poll_ms / 10))"
 done
 
 if [[ "$readiness_code" != "200" ]]; then
-  printf 'backend readiness not available after %d ms\n' "$readiness_timeout_ms" >&2
+  printf 'Backend readiness was not reachable at %s:%s within %d ms\n' \
+    "$backend_host" "$backend_port" "$readiness_timeout_ms" >&2
   exit 1
 fi
 rm -f "$runtime/readiness.json"
