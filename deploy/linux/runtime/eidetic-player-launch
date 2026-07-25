@@ -4,7 +4,15 @@ runtime="${XDG_RUNTIME_DIR:?}/eidetic-player"
 [[ ! -e "$runtime/maintenance" ]] || exit 0
 node_bin="/opt/eidetic-player/node/current/bin/node"
 release="/opt/eidetic-player/current"
-"$node_bin" "$release/backend/index.js" &
+backend_entry="$release/backend/apps/backend/src/index.js"
+
+if [[ ! -f "$backend_entry" ]]; then
+  printf 'Eidetic Player backend entrypoint not found: %s\n' \
+    "$backend_entry" >&2
+  exit 1
+fi
+
+"$node_bin" "$backend_entry" &
 backend_pid=$!
 gui_pid=
 cleanup() {

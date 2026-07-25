@@ -260,23 +260,76 @@ while [[ -e "$releases/$release_id" ]]; do
   release_counter=$((release_counter + 1))
   release_id="${release_base}-${release_counter}"
 done
+
 release_stage="$(mktemp -d -p "$releases" ".incoming-${release_id}.XXXXXX")"
+backend_entry_rel="apps/backend/src/index.js"
+
 install -d -m 0755 "$release_stage/bin"
+
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   cp -a "$build_source/dist/backend" "$release_stage/backend"
   install -m 0755 "$shell_binary" "$release_stage/eidetic-player"
   cp -- "${neu_files[@]}" "$release_stage/"
+
+  # package.json rende i file compilati .js moduli ESM.
+  cp "$build_source/package.json" "$release_stage/package.json"
+  cp "$build_source/package-lock.json" "$release_stage/package-lock.json"
+
+  # Installa nella release solamente le dipendenze necessarie in produzione.
+  PATH="$node_release/bin:$PATH" "$node_release/bin/npm" ci \
+    --prefix "$release_stage" \
+    --omit=dev \
+    --ignore-scripts \
+    --no-audit \
+    --no-fund
 else
-  install -d -m 0755 "$release_stage/backend"
-  printf 'staging fixture\n' >"$release_stage/backend/index.js"
-  printf '#!/bin/sh\nexit 0\n' >"$release_stage/eidetic-player"
+  # Fixture usata dai test dell'installer con una root isolata.
+  install -d -m 0755 \
+    "$release_stage/backend/$(dirname "$backend_entry_rel")"
+
+  printf 'staging fixture\n' \
+    >"$release_stage/backend/$backend_entry_rel"
+
+  printf '#!/bin/sh\nexit 0\n' \
+    >"$release_stage/eidetic-player"
+
   chmod 0755 "$release_stage/eidetic-player"
+
+  printf '{"type":"module"}\n' \
+    >"$release_stage/package.json"
+
+  install -d -m 0755 \
+    "$release_stage/node_modules/music-metadata"
 fi
+
 install -m 0755 "$SCRIPT_DIR/runtime/eidetic-player-launch" \
   "$release_stage/bin/eidetic-player-launch"
-[[ -f "$release_stage/backend/index.js" && -x "$release_stage/eidetic-player" &&
-  -x "$release_stage/bin/eidetic-player-launch" ]] ||
-  eidetic_die "release verification failed"
+
+if [[ ! -f "$release_stage/backend/$backend_entry_rel" ]]; then
+  eidetic_log "Backend release contents:"
+  find "$release_stage/backend" -maxdepth 8 -type f \
+    -printf '  %m %p\n' >&2 || true
+
+  eidetic_die \
+    "release verification failed: backend entrypoint missing: backend/$backend_entry_rel"
+fi
+
+[[ -x "$release_stage/eidetic-player" ]] ||
+  eidetic_die \
+    "release verification failed: Neutralino executable is missing or not executable"
+
+[[ -x "$release_stage/bin/eidetic-player-launch" ]] ||
+  eidetic_die \
+    "release verification failed: launcher is missing or not executable"
+
+[[ -f "$release_stage/package.json" ]] ||
+  eidetic_die \
+    "release verification failed: package.json is missing"
+
+[[ -d "$release_stage/node_modules/music-metadata" ]] ||
+  eidetic_die \
+    "release verification failed: production dependency music-metadata is missing"
+
 if [[ "${EUID}" -eq 0 ]]; then
   chown -R root:root "$release_stage"
 fi
