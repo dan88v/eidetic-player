@@ -277,3 +277,54 @@ void test("restore, update, uninstall and doctor expose the required safe modes"
   assert.match(uninstall, /--yes-really-purge-data/);
   assert.match(doctor, /--json/);
 });
+
+void test("installer writes a shared MPV path for all install modes", async () => {
+  const installer = await read("deploy/linux/install-eidetic-player.sh");
+  assert.match(installer, /EIDETIC_MPV_PATH=\/usr\/bin\/mpv/);
+  assert.match(
+    installer,
+    /PATH=\/opt\/eidetic-player\/node\/current\/bin:\/usr\/local\/bin:\/usr\/bin:\/bin/,
+  );
+});
+
+void test("launcher waits on backend readiness endpoint with bounded attempts", async () => {
+  const launcher = await read("deploy/linux/runtime/eidetic-player-launch");
+  assert.match(
+    launcher,
+    /readiness_endpoint="http:\/\/127\.0\.0\.1:43789\/api\/readiness"/,
+  );
+  assert.match(launcher, /readiness_timeout_ms=30000/);
+  assert.match(launcher, /readiness_poll_ms=250/);
+  assert.match(
+    launcher,
+    /max_readiness_attempts=\$\(\(readiness_timeout_ms \/ readiness_poll_ms\)\)/,
+  );
+  assert.match(
+    launcher,
+    /for attempt in \$\(seq 1 "\$max_readiness_attempts"\)/,
+  );
+  assert.match(launcher, /if \[\[ "\$readiness_code" == "200" \]\]/);
+  assert.match(launcher, /if ! kill -0 "\$backend_pid"/);
+  assert.doesNotMatch(launcher, /\/api\/health/);
+  assert.match(launcher, /backend readiness timeout/);
+  assert.match(launcher, /backend process ended during readiness check/);
+});
+
+void test("system service and desktop path flow through launcher and single backend entrypoint", async () => {
+  const [service, launcher, desktop] = await Promise.all([
+    read("deploy/linux/templates/eidetic-player.service"),
+    read("deploy/linux/runtime/eidetic-player-launch"),
+    read("deploy/linux/templates/eidetic-player.desktop"),
+  ]);
+  assert.match(service, /EnvironmentFile=\/etc\/eidetic-player\/install.conf/);
+  assert.match(
+    service,
+    /ExecStart=\/opt\/eidetic-player\/current\/bin\/eidetic-player-launch/,
+  );
+  assert.match(
+    launcher,
+    /backend_entry="\$release\/backend\/apps\/backend\/src\/index\.js"/,
+  );
+  assert.match(launcher, /"\$release\/eidetic-player" &/);
+  assert.match(desktop, /Exec=\/usr\/local\/bin\/eidetic-player/);
+});

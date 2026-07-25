@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 runtime="${XDG_RUNTIME_DIR:?}/eidetic-player"
 [[ ! -e "$runtime/maintenance" ]] || exit 0
 node_bin="/opt/eidetic-player/node/current/bin/node"
 release="/opt/eidetic-player/current"
 backend_entry="$release/backend/apps/backend/src/index.js"
+readiness_endpoint="http://127.0.0.1:43789/api/readiness"
+readiness_timeout_ms=30000
+readiness_poll_ms=250
+max_readiness_attempts=$((readiness_timeout_ms / readiness_poll_ms))
+readiness_json="$runtime/readiness.json"
 
 if [[ ! -f "$backend_entry" ]]; then
   printf 'Eidetic Player backend entrypoint not found: %s\n' \
@@ -19,13 +25,36 @@ cleanup() {
   [[ -z "${gui_pid:-}" ]] || kill "$gui_pid" 2>/dev/null || true
   kill "$backend_pid" 2>/dev/null || true
   wait "$backend_pid" 2>/dev/null || true
+  rm -f "$readiness_json"
 }
 trap cleanup EXIT INT TERM
-for _ in {1..50}; do
-  curl --fail --silent http://127.0.0.1:43789/api/health >/dev/null && break
-  kill -0 "$backend_pid" 2>/dev/null || exit 1
-  sleep 0.1
+
+readiness_code=
+for attempt in $(seq 1 "$max_readiness_attempts"); do
+  readiness_code="$(curl --silent --show-error --max-time 1 \
+    --write-out "%{http_code}" \
+    --output "$readiness_json" \
+    "$readiness_endpoint" || printf "000")"
+  if [[ "$readiness_code" == "200" ]]; then
+    break
+  fi
+  if ! kill -0 "$backend_pid" 2>/dev/null; then
+    printf 'backend process ended during readiness check (attempt %d)\n' "$attempt" >&2
+    exit 1
+  fi
+  if [[ "$attempt" -ge "$max_readiness_attempts" ]]; then
+    printf 'backend readiness timeout after %d ms\n' "$readiness_timeout_ms" >&2
+    exit 1
+  fi
+  sleep "0.$((readiness_poll_ms / 10))"
 done
+
+if [[ "$readiness_code" != "200" ]]; then
+  printf 'backend readiness not available after %d ms\n' "$readiness_timeout_ms" >&2
+  exit 1
+fi
+rm -f "$runtime/readiness.json"
+
 "$release/eidetic-player" &
 gui_pid=$!
 wait "$gui_pid"

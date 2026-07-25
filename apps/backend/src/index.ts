@@ -7,7 +7,10 @@ import { createReadStream } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { spawn } from "node:child_process";
 import type { ApiResponse } from "../../../packages/shared/src/player.js";
-import type { HealthResponse } from "../../../packages/shared/src/health.js";
+import type {
+  HealthResponse,
+  ReadinessResponse,
+} from "../../../packages/shared/src/health.js";
 import type { WaveformResponse } from "../../../packages/shared/src/visualizer.js";
 import {
   validateCommandBody,
@@ -18,6 +21,10 @@ import { config } from "./config.js";
 import { PlayerError } from "./player/player-error.js";
 import { PlayerService } from "./player/player-service.js";
 import { AudioAnalyzerService } from "./analysis/audio-analyzer-service.js";
+import {
+  buildReadinessResponse,
+  type BootstrapReadiness,
+} from "./readiness.js";
 import { VisualizerHub } from "./analysis/visualizer-hub.js";
 import { WaveformService } from "./analysis/waveform-service.js";
 import { analysisConfig } from "./analysis/analysis-config.js";
@@ -409,6 +416,12 @@ const unsubscribeAnalyzerState = player.subscribe((state) => {
   analyzer.updatePlayerState(state);
   preloadWaveforms();
 });
+let bootstrapReadiness: BootstrapReadiness = "starting";
+let bootstrapFailureCode: string | null = null;
+function publicBootstrapErrorCode(error: unknown): string {
+  return error instanceof PlayerError ? error.code : "BOOTSTRAP_FAILED";
+}
+
 const bootstrapPromise = Promise.all([
   player.initialize(),
   removableStorage.start(),
@@ -418,10 +431,19 @@ const bootstrapPromise = Promise.all([
     const restore = await playerSession.restore();
     playerSession.start();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);
+    const bootstrapState = player.getState();
+    if (!bootstrapState.mpvAvailable) {
+      bootstrapReadiness = "degraded";
+      bootstrapFailureCode = bootstrapState.error?.code ?? "MPV_NOT_AVAILABLE";
+      return restore;
+    }
+    bootstrapReadiness = "ready";
     preloadWaveforms(true);
     return restore;
   })
   .catch((error: unknown) => {
+    bootstrapReadiness = "degraded";
+    bootstrapFailureCode = publicBootstrapErrorCode(error);
     console.error("[backend] bootstrap failed", error);
     playerSession.start();
     throw error;
@@ -920,6 +942,22 @@ async function handleRequest(
         environment: config.environment,
       };
       sendJson(response, 200, payload);
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/readiness") {
+      const state = player.getState();
+      const payload: ReadinessResponse = buildReadinessResponse({
+        bootstrapStatus: bootstrapReadiness,
+        playerStatus: state.status,
+        mpvAvailable: state.mpvAvailable,
+        bootstrapErrorCode: bootstrapFailureCode,
+        playerErrorCode: state.error?.code ?? null,
+      });
+      sendJson(
+        response,
+        bootstrapReadiness === "starting" ? 503 : 200,
+        payload,
+      );
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/player/state") {

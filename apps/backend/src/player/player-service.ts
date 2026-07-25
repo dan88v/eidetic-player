@@ -225,6 +225,11 @@ export class PlayerService {
       status: "loading",
       error: null,
     });
+    console.log(
+      `[player] MPV available: ${discovery.version} (${String(
+        discovery.diagnostics.length,
+      )} candidates checked)`,
+    );
     try {
       await this.startController();
       await this.resetQueue();

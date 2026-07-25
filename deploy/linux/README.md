@@ -47,6 +47,43 @@ entry alone is insufficient, and generic Debian remains unsupported even when
 a Raspberry Pi OS marker is copied onto it. `ID=raspbian` Trixie arm64 remains
 recognized directly.
 
+## Runtime bootstrap and readiness
+
+The backend exposes two separate endpoints:
+
+- `/health`: server liveness probe (HTTP 200 when the HTTP process is listening).
+- `/api/readiness`: bootstrap probe used only by the production launcher.
+
+`/api/readiness` behavior:
+
+- returns HTTP 503 while bootstrap is still running;
+- returns HTTP 200 once bootstrap is settled;
+- returns `status: "ready"` when startup succeeds;
+- returns `status: "degraded"` when startup completed with a recoverable startup
+  error.
+
+Production Linux launcher (`deploy/linux/runtime/eidetic-player-launch`) now waits
+only on `/api/readiness`, with these constants:
+
+- timeout: `30_000` ms
+- poll interval: `250` ms
+
+The GUI is started only after HTTP 200 is observed. If the backend exits before
+readiness is reached, or the timeout is reached first, the launcher exits
+non-zero and does not open the GUI.
+
+## Linux MPV discovery
+
+Linux MPV resolution order is:
+
+1. configured `EIDETIC_MPV_PATH` (if set)
+2. `/usr/bin/mpv`
+3. PATH `mpv`
+
+Candidates are deduplicated, validated with bounded `--version` checks, and
+`invalid-version`, `permission-denied`, `timeout`, `not-found`, `spawn-failed`,
+and `success` results are tracked for diagnostics.
+
 Before accepting or rejecting the platform, the installer prints a sanitized
 summary of OS release, architecture, Desktop, Raspberry Pi-compatible Device
 Tree entry and matched OS marker. It does not print hostname, IP address,
