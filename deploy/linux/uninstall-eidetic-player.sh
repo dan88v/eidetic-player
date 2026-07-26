@@ -31,6 +31,7 @@ fi
 restore_args=()
 [[ "$EIDETIC_ROOT" == "/" ]] || restore_args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && restore_args+=(--dry-run)
+restore_args+=(--include-power-integration)
 "$SCRIPT_DIR/restore-system-ui.sh" "${restore_args[@]}"
 opt="$(eidetic_target /opt/eidetic-player)"
 if ((dry_run)); then eidetic_log "Would remove $opt; application data would be preserved."; exit 0; fi

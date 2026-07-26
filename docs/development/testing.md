@@ -92,6 +92,15 @@ case-sensitive WSL/Debian clone for Linux diagnosis and platform-sensitive
 checks, and Raspberry Pi hardware for touch, audio, performance, and shutdown
 validation.
 
+Power integration tests must never invoke real restart, reboot, poweroff, or
+Maintenance actions. Exercise the closed helper parser with invalid arguments,
+inspect destructive mappings statically, and inject fake exec/spawn/scheduler
+dependencies into the backend adapter. A safe pkexec `probe` must complete
+before acceptance; tests assert that only a delayed callback contains the
+fixed host action. Linux staging verifies helper/policy modes, rendered user,
+repeat install/update/rollback, restore retention, and idempotent uninstall
+without executing pkexec or systemctl actions.
+
 When a step adds an app-lifetime SSE stream, cold-start Now Playing with an
 active visualizer and a restored Queue. Confirm artwork loads and Play,
 Previous, Next, and Shuffle remain responsive; a route-only check can miss

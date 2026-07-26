@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 1 ]] || exit 64
+action="$1"
+
+case "$action" in
+  probe | reboot | shutdown) ;;
+  *) exit 64 ;;
+esac
+
+((EUID == 0)) || exit 77
+[[ -x /usr/bin/systemctl ]] || exit 69
+
+case "$action" in
+  probe)
+    exit 0
+    ;;
+  reboot)
+    exec /usr/bin/systemctl --no-block reboot
+    ;;
+  shutdown)
+    exec /usr/bin/systemctl --no-block poweroff
+    ;;
+esac

@@ -9,6 +9,7 @@ export class PowerActionError extends Error {
       | "INVALID_POWER_ACTION"
       | "ACTION_NOT_AVAILABLE"
       | "ACTION_IN_PROGRESS"
+      | "POWER_ACTION_FAILED"
       | "POWER_PREPARATION_FAILED",
     message: string,
     readonly statusCode: number,
@@ -52,16 +53,16 @@ export class PowerActionCoordinator {
   ) {}
 
   async request(action: SystemPowerAction): Promise<void> {
-    if (this.inProgress)
-      throw new PowerActionError(
-        "ACTION_IN_PROGRESS",
-        "A system action is already in progress.",
-        409,
-      );
     if (!this.availableActions.includes(action))
       throw new PowerActionError(
         "ACTION_NOT_AVAILABLE",
         "This system action is unavailable.",
+        409,
+      );
+    if (this.inProgress)
+      throw new PowerActionError(
+        "ACTION_IN_PROGRESS",
+        "A system action is already in progress.",
         409,
       );
     this.inProgress = true;

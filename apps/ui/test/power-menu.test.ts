@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { finalPowerActionFixtures } from "../../../packages/shared/src/system.js";
 
 const read = (path: string) => readFileSync(path, "utf8");
 const menu = read("apps/ui/src/components/power-menu.ts");
@@ -27,6 +28,19 @@ void test("Power renders exclusively from authoritative capabilities", () => {
     /showPower: systemCapabilities\.availablePowerActions\.length > 0/u,
   );
   assert.doesNotMatch(shell, /installationMode.*power|process\.platform/u);
+  assert.deepEqual(finalPowerActionFixtures.development, ["quit"]);
+  assert.deepEqual(finalPowerActionFixtures.standard, [
+    "quit",
+    "reboot",
+    "shutdown",
+  ]);
+  assert.deepEqual(finalPowerActionFixtures.appliance, [
+    "restart-app",
+    "maintenance",
+    "reboot",
+    "shutdown",
+  ]);
+  assert.equal(finalPowerActionFixtures.appliance.includes("quit"), false);
 });
 
 void test("all actions have exact labels, descriptions, confirmations and progress", () => {

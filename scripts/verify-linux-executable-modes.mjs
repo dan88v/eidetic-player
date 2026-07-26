@@ -17,6 +17,7 @@ const requiredExecutablePaths = new Set([
   "deploy/linux/runtime/eidetic-player-display-policy",
   "deploy/linux/runtime/eidetic-player-launch",
   "deploy/linux/runtime/eidetic-player-maintenance",
+  "deploy/linux/runtime/eidetic-player-power-helper",
   "deploy/linux/runtime/eidetic-player-resume",
   "deploy/linux/runtime/eidetic-player-smb-helper",
   "deploy/linux/test-case-sensitive-wsl.sh",

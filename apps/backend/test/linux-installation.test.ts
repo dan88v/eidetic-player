@@ -396,15 +396,65 @@ void test("Raspberry Pi OS detection uses Device Tree plus narrow OS markers", a
 });
 
 void test("maintenance API has a fixed command and no frontend arguments", async () => {
-  const [backend, client, settings] = await Promise.all([
+  const [backend, adapter, client, settings] = await Promise.all([
     read("apps/backend/src/index.ts"),
+    read("apps/backend/src/system/linux-power-adapter.ts"),
     read("apps/ui/src/api/system-api-client.ts"),
     read("apps/ui/src/screens/settings.ts"),
   ]);
-  assert.match(backend, /"\/usr\/local\/bin\/eidetic-player-maintenance"/);
+  assert.match(
+    adapter,
+    /maintenance: "\/usr\/local\/bin\/eidetic-player-maintenance"/,
+  );
+  assert.match(backend, /url\.pathname === "\/api\/system\/maintenance"/);
   assert.match(client, /body: "\{\}"/);
   assert.match(settings, /showModal\(\)/);
   assert.match(settings, /systemCapabilities\.maintenanceMode/);
+});
+
+void test("power integration is managed, exact-match and restore-safe", async () => {
+  const [
+    installer,
+    helper,
+    policy,
+    restore,
+    uninstall,
+    doctor,
+    staging,
+    modes,
+  ] = await Promise.all([
+    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/runtime/eidetic-player-power-helper"),
+    read("deploy/linux/templates/eidetic-player-power.polkit.rules"),
+    read("deploy/linux/restore-system-ui.sh"),
+    read("deploy/linux/uninstall-eidetic-player.sh"),
+    read("deploy/linux/doctor-installation.sh"),
+    read("deploy/linux/test-staging.sh"),
+    read("scripts/verify-linux-executable-modes.mjs"),
+  ]);
+  assert.match(installer, /polkitd pkexec/u);
+  assert.match(installer, /\[\[ -x \/usr\/bin\/pkexec \]\]/u);
+  assert.match(
+    installer,
+    /eidetic_install_managed "\$SCRIPT_DIR\/runtime\/eidetic-player-power-helper" \/usr\/libexec\/eidetic-player-power-helper 0755/u,
+  );
+  assert.match(
+    installer,
+    /eidetic_install_managed "\$power_policy" \/etc\/polkit-1\/rules\.d\/49-eidetic-player-power\.rules 0644/u,
+  );
+  assert.match(helper, /case "\$action" in[\s\S]*probe \| reboot \| shutdown/u);
+  assert.match(policy, /org\.freedesktop\.policykit\.exec/u);
+  assert.match(policy, /subject\.user !== "__EIDETIC_RUNTIME_USER__"/u);
+  assert.match(policy, /subject\.active/u);
+  assert.match(policy, /subject\.local/u);
+  assert.doesNotMatch(policy, /isInGroup|\*/u);
+  assert.match(restore, /preserved_records/u);
+  assert.match(uninstall, /--include-power-integration/u);
+  assert.match(doctor, /power-helper-mode/u);
+  assert.match(doctor, /power-policy-rendered/u);
+  assert.match(staging, /assert_power_installed/u);
+  assert.match(staging, /destructive-power-action-attempted/u);
+  assert.match(modes, /eidetic-player-power-helper/u);
 });
 
 void test("SMB privilege is constrained to the Eidetic helper", async () => {

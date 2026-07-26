@@ -5,7 +5,6 @@ import {
 } from "node:http";
 import { createReadStream } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { spawn } from "node:child_process";
 import type { ApiResponse } from "../../../packages/shared/src/player.js";
 import type {
   HealthResponse,
@@ -99,6 +98,10 @@ import {
   PowerActionError,
   validatePowerActionBody,
 } from "./system/power-action-coordinator.js";
+import {
+  createLinuxPowerActionAdapter,
+  detectAvailablePowerActions,
+} from "./system/linux-power-adapter.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -106,14 +109,17 @@ const applianceFixture =
 const applianceInstallation =
   process.platform === "linux" &&
   process.env.EIDETIC_INSTALLATION_MODE === "appliance";
+const standardInstallation =
+  process.platform === "linux" &&
+  process.env.EIDETIC_INSTALLATION_MODE === "standard";
 const installationMode =
   applianceInstallation || applianceFixture
     ? "appliance"
-    : process.env.EIDETIC_INSTALLATION_MODE === "standard"
+    : standardInstallation
       ? "standard"
       : "development";
 const availablePowerActions: readonly SystemPowerAction[] =
-  installationMode === "appliance" ? ["maintenance"] : ["quit"];
+  detectAvailablePowerActions(installationMode, process.platform);
 const systemCapabilities: SystemCapabilities = {
   installationMode,
   availablePowerActions,
@@ -285,23 +291,12 @@ const playerSession = new PlayerSessionService(
 const powerActions = new PowerActionCoordinator(
   availablePowerActions,
   () => playerSession.flush(),
-  {
-    execute(action) {
-      if (action === "quit") return Promise.resolve();
-      if (action !== "maintenance")
-        throw new Error("Power action adapter unavailable");
-      if (applianceFixture) return Promise.resolve();
-      setTimeout(() => {
-        const child = spawn("/usr/local/bin/eidetic-player-maintenance", [], {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.unref();
-        shutdown("SIGTERM");
-      }, 100).unref();
-      return Promise.resolve();
+  createLinuxPowerActionAdapter({
+    executeHostActions: !applianceFixture,
+    stopBackend: () => {
+      shutdown("SIGTERM");
     },
-  },
+  }),
 );
 const events = new SseHub(player);
 const removableEvents = new RemovableStorageSseHub(removableStorage);

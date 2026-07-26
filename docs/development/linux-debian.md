@@ -133,6 +133,21 @@ and reports `iw reg get` only as information. Verify the distribution packages
 that provide missing executables/services on the actual target; the doctor
 does not install them.
 
+The production installer also installs the dedicated `pkexec` package, the
+root-owned mode-0755 `/usr/libexec/eidetic-player-power-helper`, and a rendered
+mode-0644 rule at
+`/etc/polkit-1/rules.d/49-eidetic-player-power.rules`. The rule authorizes only
+`org.freedesktop.policykit.exec` for that exact helper, active local sessions,
+and the exact validated runtime user. It does not authorize systemctl, pkexec,
+shells, directories, administrative groups, or arbitrary arguments. The
+helper's closed argument parser remains the second authorization barrier.
+
+Standard exposes device reboot/shutdown only while pkexec, helper, and policy
+are all available. Appliance adds the fixed user-service restart when
+`/usr/bin/systemctl` is executable, always retains Maintenance, and never
+exposes Quit. Missing integration degrades only these capabilities; playback
+and the rest of bootstrap remain available.
+
 The Wi-Fi regulatory domain must be configured correctly on the final device.
 No country is selected or stored by this repository. Configuration and
 hardware validation are deferred to Step 2.12.3.

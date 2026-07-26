@@ -107,11 +107,11 @@ void test("unavailable actions and failed flush never invoke the adapter", async
   assert.equal(calls, 0);
 });
 
-void test("production exposes no B action and legacy maintenance shares coordinator", () => {
+void test("production delegates capability detection and legacy maintenance shares coordinator", () => {
   const backend = readFileSync("apps/backend/src/index.ts", "utf8");
   assert.match(
     backend,
-    /installationMode === "appliance" \? \["maintenance"\] : \["quit"\]/u,
+    /detectAvailablePowerActions\(installationMode, process\.platform\)/u,
   );
   assert.match(
     backend,

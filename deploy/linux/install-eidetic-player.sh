@@ -140,7 +140,7 @@ if [[ "$rpi_keyboard" == disable ]]; then
 fi
 
 packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg
-  network-manager dbus polkitd udisks2 cifs-utils xterm)
+  network-manager dbus polkitd pkexec udisks2 cifs-utils xterm)
 if [[ "$EIDETIC_DISTRO" == "raspios" ]]; then
   packages+=(libgtk-3-0t64 libwebkit2gtk-4.1-0)
 else
@@ -198,6 +198,9 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
 
   /usr/bin/mpv --version >/dev/null 2>&1 ||
     eidetic_die "MPV executable verification failed"
+
+  [[ -x /usr/bin/pkexec ]] ||
+    eidetic_die "pkexec was installed but /usr/bin/pkexec is unavailable"
 
 else
   install -d -m 0755 "$(eidetic_target /etc/eidetic-player)"
@@ -432,6 +435,16 @@ if ! "$release_verifier_node" "$release_verifier_cli" \
 fi
 
 conf="$tmp/install.conf"
+power_policy="$tmp/eidetic-player-power.polkit.rules"
+power_policy_placeholder=__EIDETIC_RUNTIME_USER__
+[[ "$(grep -Foc "$power_policy_placeholder" \
+  "$SCRIPT_DIR/templates/eidetic-player-power.polkit.rules")" == 1 ]] ||
+  eidetic_die "Power policy template must contain exactly one runtime-user placeholder"
+sed "s/$power_policy_placeholder/$runtime_user/" \
+  "$SCRIPT_DIR/templates/eidetic-player-power.polkit.rules" >"$power_policy"
+if grep -Fq "$power_policy_placeholder" "$power_policy"; then
+  eidetic_die "Power policy runtime-user placeholder was not replaced"
+fi
 cat >"$conf" <<EOF
 EIDETIC_INSTALLATION_MODE=$mode
 EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
@@ -460,6 +473,31 @@ done
 eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-display-policy" /usr/local/bin/eidetic-player-display-policy 0755
 eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-smb-helper" /usr/libexec/eidetic-player-smb-helper 0755
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-smb.polkit.rules" /etc/polkit-1/rules.d/49-eidetic-player-smb.rules 0644
+eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-power-helper" /usr/libexec/eidetic-player-power-helper 0755
+eidetic_install_managed "$power_policy" /etc/polkit-1/rules.d/49-eidetic-player-power.rules 0644
+
+pkexec_target="$(eidetic_target /usr/bin/pkexec)"
+power_helper_target="$(eidetic_target /usr/libexec/eidetic-player-power-helper)"
+power_policy_target="$(eidetic_target /etc/polkit-1/rules.d/49-eidetic-player-power.rules)"
+[[ -x "$pkexec_target" ]] ||
+  eidetic_die "Power integration verification failed: /usr/bin/pkexec is unavailable. No release was activated."
+[[ -x "$power_helper_target" && ! -L "$power_helper_target" ]] ||
+  eidetic_die "Power integration verification failed: helper is unavailable. No release was activated."
+[[ "$(stat -c '%a' "$power_helper_target")" == 755 ]] ||
+  eidetic_die "Power integration verification failed: helper mode is not 0755. No release was activated."
+[[ -r "$power_policy_target" && ! -L "$power_policy_target" ]] ||
+  eidetic_die "Power integration verification failed: Polkit rule is unavailable. No release was activated."
+[[ "$(stat -c '%a' "$power_policy_target")" == 644 ]] ||
+  eidetic_die "Power integration verification failed: Polkit rule mode is not 0644. No release was activated."
+if grep -Fq "$power_policy_placeholder" "$power_policy_target"; then
+  eidetic_die "Power integration verification failed: Polkit placeholder remains. No release was activated."
+fi
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  [[ "$(stat -c '%u:%g' "$power_helper_target")" == 0:0 ]] ||
+    eidetic_die "Power integration verification failed: helper is not root-owned. No release was activated."
+  "$power_helper_target" probe </dev/null ||
+    eidetic_die "Power integration verification failed: helper probe failed. No release was activated."
+fi
 
 if [[ "${choice[autostart]}" == yes ]]; then
   runtime_home="$EIDETIC_RUNTIME_HOME"

@@ -201,6 +201,20 @@ only one request at a time, flushes the player session, and then delegates to a
 host adapter. The UI never derives availability from the operating system or
 accepts backend-provided labels.
 
+Linux keeps three power paths separate. Quit remains owned by the native
+frontend bridge. Appliance restart uses the fixed user unit
+`eidetic-player.service` through `/usr/bin/systemctl --user`. Device reboot and
+shutdown use `/usr/bin/pkexec --disable-internal-agent` with the fixed
+root-owned `/usr/libexec/eidetic-player-power-helper`; the helper accepts only
+`probe`, `reboot`, or `shutdown`, and the generated Polkit rule exact-matches
+both that program and the configured local runtime user.
+
+The host adapter performs a bounded, non-destructive preflight after the
+session flush. It then schedules the fixed action after 200 ms and returns, so
+the HTTP 202 can be sent before systemd replaces the application or the device
+power action starts. A preflight failure is sanitized and unlocks the
+coordinator; an accepted action remains locked.
+
 ## Cross-platform behavior
 
 Keep OS-specific IPC endpoints, executable discovery, native file dialogs, and

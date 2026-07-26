@@ -32,6 +32,7 @@ const requiredScripts = [
   "runtime/eidetic-player-display-policy",
   "runtime/eidetic-player-launch",
   "runtime/eidetic-player-maintenance",
+  "runtime/eidetic-player-power-helper",
   "runtime/eidetic-player-resume",
   "runtime/eidetic-player-smb-helper",
   "test-case-sensitive-wsl.sh",
@@ -515,6 +516,7 @@ void test("installer contract verifier detects readiness, port, MPV and transact
       "EIDETIC_MPV_PATH=/usr/bin/mpv",
       "EIDETIC_MPV_PATH=/missing/mpv",
     ],
+    ["installer", "polkitd pkexec", "polkitd"],
     [
       "common",
       'mv -Tf "$opt/previous.new" "$opt/previous"',

@@ -186,7 +186,8 @@ The installer:
 - prints the required APT package plan;
 - runs `apt-get update`, never `full-upgrade`;
 - installs GTK/WebKitGTK, MPV, FFmpeg, build tools, NetworkManager, D-Bus,
-  polkit, UDisks2, CIFS support and a fallback terminal;
+  `polkitd`, the explicit `pkexec` package, UDisks2, CIFS support and a fallback
+  terminal;
 - reads Node from `.nvmrc`, downloads the official linux-x64 or linux-arm64
   archive and verifies `SHASUMS256.txt`;
 - uses root only for packages and managed paths under `/opt`, `/etc` and
@@ -365,7 +366,10 @@ After installation:
    uses read-only access.
 7. In Appliance mode, test Maintenance and “Return to Eidetic Player” before
    enabling optional autologin or splash behavior.
-8. Shut down the app and confirm that no MPV, FFmpeg, backend or GUI process
+8. Open Power and confirm Standard offers Quit, Restart device and Shut down
+   device, while Appliance offers Restart Eidetic Player, Maintenance, Restart
+   device and Shut down device without Quit.
+9. Shut down the app and confirm that no MPV, FFmpeg, backend or GUI process
    remains.
 
 Run the read-only installation doctor from the repository:
@@ -388,6 +392,12 @@ The backend and GUI run as the non-root runtime user.
 - USB operations remain mediated by UDisks2 and safe removal does not force
   eject.
 - CIFS mounts pass through a fixed root-owned helper and a narrow polkit rule.
+- Device reboot and shutdown pass through
+  `/usr/libexec/eidetic-player-power-helper`, invoked only by the fixed
+  `/usr/bin/pkexec --disable-internal-agent` path. Its dedicated Polkit rule
+  exact-matches the helper and selected local runtime user.
+- Restart Eidetic Player is non-root and uses only the fixed
+  `eidetic-player.service` user unit.
 - SMB is read-only with `nosuid,nodev,noexec`.
 - The helper accepts only the private Eidetic runtime mountpoint, guest access
   or a caller-owned mode-0600 credential file.
@@ -435,6 +445,9 @@ sudo ./deploy/linux/update-eidetic-player.sh --rollback
 uses the same non-root build/test environment and transactional release switch
 as installation. It builds and verifies before switching `current`, preserves
 XDG data and keeps `previous` available. Rollback performs no build or tests.
+The helper and policy are host integration rather than release contents, so
+rollback leaves them installed; a pre-Step-B release neither detects nor
+exposes the new actions.
 
 ## Restore system UI
 
@@ -454,6 +467,8 @@ Restore is idempotent, uses the installed manifest/backups rather than the
 original Git checkout, and does not alter application data, music, shares, USB
 content or user NetworkManager profiles. If Eidetic disabled the Raspberry Pi
 OS on-screen keyboard, restore also reapplies its exact saved state.
+Restore is not uninstall: it intentionally keeps the Power helper and policy
+installed and recorded in the managed manifest.
 
 ## Uninstall
 
@@ -470,6 +485,11 @@ the runtime user's config, database and credentials:
 ```bash
 sudo ./deploy/linux/uninstall-eidetic-player.sh
 ```
+
+Uninstall includes the Power integration in managed-file restoration. A
+preexisting helper or rule is restored byte-for-byte with its recorded mode and
+ownership; otherwise the Eidetic file is removed. No restart, reboot, or
+shutdown action is executed.
 
 Permanent application-data removal requires both explicit flags:
 
@@ -501,6 +521,10 @@ activation and literal handling of an injection-shaped argument. Raspberry Pi
 fixtures cover keyboard keep/disable, all three saved states, dry-run,
 unsupported versions, transactional failure, update, repeated restore and
 uninstall without changing the WSL host keyboard.
+The same fixtures verify the mode-0755 Power helper, mode-0644 rendered Polkit
+rule, unchanged `install.conf`, preservation across system-UI restore, and
+removal or original-file restoration on uninstall. They never execute reboot,
+poweroff, service restart, or pkexec.
 
 For the case-sensitive import gate, use a native Linux Node/npm installation
 and filesystem:

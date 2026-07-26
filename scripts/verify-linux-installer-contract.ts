@@ -60,6 +60,13 @@ export function inspectLinuxInstallerContract(
   check(
     passed,
     failed,
+    "pkexec package and fixed executable",
+    installer.includes("polkitd pkexec") &&
+      installer.includes("[[ -x /usr/bin/pkexec ]]"),
+  );
+  check(
+    passed,
+    failed,
     "launcher compiled backend entrypoint",
     launcher.includes(
       'backend_entry="$release/backend/apps/backend/src/index.js"',
@@ -129,6 +136,17 @@ export function inspectLinuxInstallerContract(
       installer,
       'release_verifier_args=(--root "$release_stage"',
       "Installation verification failed: Linux release contract",
+      'eidetic_activate_release "$release_stage"',
+    ),
+  );
+  check(
+    passed,
+    failed,
+    "power integration is verified before activation",
+    ordered(
+      installer,
+      "runtime/eidetic-player-power-helper",
+      "Power integration verification failed",
       'eidetic_activate_release "$release_stage"',
     ),
   );
