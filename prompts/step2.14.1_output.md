@@ -55,21 +55,21 @@ Nessuno scroll engine JavaScript è stato introdotto.
 
 ## Ownership scroll e touch
 
-| Superficie | Proprietario | Policy |
-| --- | --- | --- |
-| Root applicativa | nessuno, shell fissa | non selezionabile |
-| Pagine lunghe | `.screen-region` | native `overflow-y: auto`, `pan-y` |
-| Drawer | `.side-menu__nav` | native `overflow-y: auto`, `pan-y` |
-| Queue | `.queue-list` | native `overflow-y: auto`, `pan-y` |
-| Playlist picker | `.playlist-picker__body` | native `overflow-y: auto`, `pan-y` |
-| Dialog SMB | `.smb-dialog__body` | native `overflow-y: auto`, `pan-y` |
-| Library, Sources, Settings, Favorites, History, Playlists, USB e SMB Quick Browse | `.screen-region` | un solo scroller pagina |
-| Timeline/waveform | `.timeline__slider` | `touch-action: none` locale |
-| Mini timeline | `.mini-player__timeline` | `touch-action: none` locale |
-| Volume | `.volume-slider` | `touch-action: none` locale |
-| Queue reorder | `.queue-item__handle` | `touch-action: none` solo handle |
-| Playlist reorder | `.playlist-track__handle` | `touch-action: none` solo handle |
-| Tastiera on-screen | singoli tasti | `manipulation`; input reale autorevole |
+| Superficie                                                                        | Proprietario              | Policy                                 |
+| --------------------------------------------------------------------------------- | ------------------------- | -------------------------------------- |
+| Root applicativa                                                                  | nessuno, shell fissa      | non selezionabile                      |
+| Pagine lunghe                                                                     | `.screen-region`          | native `overflow-y: auto`, `pan-y`     |
+| Drawer                                                                            | `.side-menu__nav`         | native `overflow-y: auto`, `pan-y`     |
+| Queue                                                                             | `.queue-list`             | native `overflow-y: auto`, `pan-y`     |
+| Playlist picker                                                                   | `.playlist-picker__body`  | native `overflow-y: auto`, `pan-y`     |
+| Dialog SMB                                                                        | `.smb-dialog__body`       | native `overflow-y: auto`, `pan-y`     |
+| Library, Sources, Settings, Favorites, History, Playlists, USB e SMB Quick Browse | `.screen-region`          | un solo scroller pagina                |
+| Timeline/waveform                                                                 | `.timeline__slider`       | `touch-action: none` locale            |
+| Mini timeline                                                                     | `.mini-player__timeline`  | `touch-action: none` locale            |
+| Volume                                                                            | `.volume-slider`          | `touch-action: none` locale            |
+| Queue reorder                                                                     | `.queue-item__handle`     | `touch-action: none` solo handle       |
+| Playlist reorder                                                                  | `.playlist-track__handle` | `touch-action: none` solo handle       |
+| Tastiera on-screen                                                                | singoli tasti             | `manipulation`; input reale autorevole |
 
 Gli scroller aggiungono `overscroll-behavior-y: contain` e
 `-webkit-overflow-scrolling: touch`. `overflow-x` resta nascosto. La catena

@@ -131,7 +131,11 @@ See [security and accessibility](docs/development/security-accessibility.md).
 5. Add focused regression tests for every fixed defect.
 6. Test the actual Neutralino → backend → MPV/FFmpeg path when the change
    affects native dialogs, playback, Queue, artwork, seek, or visualizers.
-7. Run the relevant checks, normally:
+7. Draft the final report at `prompts/step<number>_output.md` before the final
+   checks. Do not overwrite previous step reports. The saved file must match
+   the final task summary and is part of the content that must be validated.
+8. Run the relevant checks only after all implementation, tests,
+   documentation, reports, and other deliverables have been created, normally:
    - `npm run format:check`
    - `npm run typecheck`
    - `npm run lint`
@@ -139,10 +143,13 @@ See [security and accessibility](docs/development/security-accessibility.md).
    - `npm test`
    - `npm run mpv:doctor` and `npm run test:mpv` when relevant
    - `npm run ffmpeg:doctor` and `npm run test:ffmpeg` when relevant
-8. Verify clean shutdown: no residual MPV, FFmpeg, Neutralino, Node, Vite,
-   sockets, or generated temporary artwork.
-9. Save the final report to `prompts/step<number>_output.md`. Do not overwrite
-   previous step reports. The saved file must match the final task summary.
+9. If a check fails, diagnose and correct every in-scope failure automatically,
+   then rerun the failed check and any checks invalidated by the correction.
+   Do not finish the step with a known failing check. A requirement to run final
+   gates "once" means one successful final pass after the deliverables are
+   complete; a failed attempt must still be corrected and revalidated.
+10. Verify clean shutdown: no residual MPV, FFmpeg, Neutralino, Node, Vite,
+    sockets, or generated temporary artwork.
 
 All directly executable files under `deploy/linux` must be committed with Git
 mode `100755`; new shell/runtime scripts are incomplete until
