@@ -112,6 +112,16 @@ EventSource is created, REST selection remains responsive with all normal
 app-lifetime subscriptions active, and duplicate device-list events do not
 increment semantic state or repeat the unplug toast.
 
+For the Linux Appliance startup gate, cover a valid non-empty list, a valid
+empty raw list, malformed observations, event-before-timeout, timeout-before-
+event, MPV unavailable, and shutdown during the wait. Confirm the only timer is
+the exact 5000 ms bound, late enumeration changes diagnostics to ready without
+auto-switching, readiness does not degrade, and Windows/Linux Standard start
+without the gate. The installation doctor fixtures must distinguish HDMI
+`MAI PCM i2s-hifi-0` from a coherent GPIO I2S card/PCM pair and cover valid,
+malformed, unreachable, and timed-out app diagnostics without executing MPV,
+audio probes, service mutations, or privileged commands.
+
 For Windows Audio Output smoke testing, use the persistent real MPV process.
 Record its PID and Queue/session invariants, switch to a known safe listed
 device and back to `auto` during playback, then verify PID, Queue IDs, current

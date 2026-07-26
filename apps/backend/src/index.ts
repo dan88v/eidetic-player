@@ -75,6 +75,7 @@ import type {
 } from "../../../packages/shared/src/network.js";
 import { NetworkSseHub } from "./api/network-sse-hub.js";
 import { AudioOutputService } from "./audio-output/audio-output-service.js";
+import { prepareAudioOutputForSessionRestore } from "./audio-output/audio-output-bootstrap.js";
 import { AudioOutputError } from "./audio-output/audio-output-error.js";
 import { NetworkService } from "./network/network-service.js";
 import { createPlatformNetworkAdapter } from "./network/platform-network-adapter.js";
@@ -461,7 +462,11 @@ const bootstrapPromise = Promise.all([
   smb.initialize(),
 ])
   .then(async () => {
-    await audioOutput.initialize();
+    await prepareAudioOutputForSessionRestore(
+      audioOutput,
+      process.platform,
+      installationMode,
+    );
     const restore = await playerSession.restore();
     playerSession.start();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);

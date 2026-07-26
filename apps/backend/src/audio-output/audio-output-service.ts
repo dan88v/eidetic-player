@@ -4,9 +4,11 @@ import {
   disconnectedAudioOutputState,
   isAudioOutputDeviceId,
   normalizeAudioOutputDescription,
+  normalizeMpvCurrentAo,
   normalizeMpvAudioOutputDevices,
   systemDefaultAudioOutputDevice,
   type AudioOutputDevice,
+  type AudioOutputInitialEnumerationStatus,
   type AudioOutputPreference,
   type AudioOutputSelectionResult,
   type AudioOutputState,
@@ -15,7 +17,22 @@ import {
 import { AudioOutputError } from "./audio-output-error.js";
 import { AudioOutputRepository } from "./audio-output-repository.js";
 
-export type AudioOutputPropertyName = "audio-device-list" | "audio-device";
+export type AudioOutputPropertyName =
+  "audio-device-list" | "audio-device" | "current-ao";
+
+export const AUDIO_OUTPUT_INITIAL_ENUMERATION_TIMEOUT_MILLISECONDS = 5_000;
+
+export interface AudioOutputStartupScheduler {
+  setTimeout(callback: () => void, milliseconds: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const defaultStartupScheduler: AudioOutputStartupScheduler = {
+  setTimeout: (callback, milliseconds) => setTimeout(callback, milliseconds),
+  clearTimeout: (handle) => {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
 
 export interface AudioOutputMpvAdapter {
   isMpvAvailable(): boolean;
@@ -41,11 +58,19 @@ export class AudioOutputService {
   private unsubscribePlayback = (): void => undefined;
   private eventChain: Promise<void> = Promise.resolve();
   private initialized = false;
+  private rawEnumerationObserved = false;
+  private initialEnumerationWait: Promise<AudioOutputInitialEnumerationStatus> | null =
+    null;
+  private finishInitialEnumerationWait:
+    ((status: AudioOutputInitialEnumerationStatus) => void) | null = null;
+  private initialEnumerationTimer: unknown = null;
+  private timeoutWarningLogged = false;
 
   constructor(
     private readonly adapter: AudioOutputMpvAdapter,
     private readonly repository = new AudioOutputRepository(),
     private readonly confirmationTimeoutMilliseconds = 1_500,
+    private readonly startupScheduler = defaultStartupScheduler,
   ) {}
 
   snapshot(): AudioOutputState {
@@ -67,8 +92,9 @@ export class AudioOutputService {
       (name, value) => {
         this.enqueueEvent(async () => {
           if (name === "audio-device-list")
-            await this.receiveDeviceList(value, true);
-          else this.updateEffectiveDevice(value);
+            await this.receiveDeviceList(value, this.initialized);
+          else if (name === "audio-device") this.updateEffectiveDevice(value);
+          else this.updateCurrentAo(value);
         });
       },
     );
@@ -86,36 +112,107 @@ export class AudioOutputService {
       this.update({
         mpvAvailable: false,
         status: "mpv-unavailable",
+        diagnostics: {
+          ...this.state.diagnostics,
+          currentAo: null,
+          initialEnumerationStatus: "unavailable",
+        },
       });
-      this.initialized = true;
       return;
     }
 
-    try {
-      const [rawDevices, rawEffective] = await Promise.all([
-        this.adapter.readAudioOutputProperty("audio-device-list"),
-        this.adapter.readAudioOutputProperty("audio-device"),
-      ]);
-      const devices = normalizeMpvAudioOutputDevices(rawDevices);
-      const preferredAvailable = this.isAvailable(
-        preferredDevice.deviceId,
-        devices,
-      );
-      const requestedDeviceId = preferredAvailable
-        ? preferredDevice.deviceId
-        : "auto";
-      if (effectiveId(rawEffective) !== requestedDeviceId)
-        await this.applyAndConfirm(requestedDeviceId);
-      this.state = {
-        ...this.state,
-        mpvAvailable: true,
-        devices,
+    const [rawDevices, rawEffective, rawCurrentAo] = await Promise.all([
+      this.adapter
+        .readAudioOutputProperty("audio-device-list")
+        .catch(() => undefined),
+      this.adapter
+        .readAudioOutputProperty("audio-device")
+        .catch(() => undefined),
+      this.adapter.readAudioOutputProperty("current-ao").catch(() => undefined),
+    ]);
+    this.rawEnumerationObserved = Array.isArray(rawDevices);
+    this.update({
+      mpvAvailable: true,
+      devices: normalizeMpvAudioOutputDevices(rawDevices),
+      preferredDevice,
+      effectiveDeviceId: effectiveId(rawEffective),
+      status: this.resolveStatus(
         preferredDevice,
-        effectiveDeviceId: requestedDeviceId,
-        status: this.resolveStatus(preferredDevice, devices, requestedDeviceId),
-        switching: false,
-        revision: this.state.revision + 1,
+        normalizeMpvAudioOutputDevices(rawDevices),
+        effectiveId(rawEffective),
+      ),
+      switching: false,
+      diagnostics: {
+        ...this.state.diagnostics,
+        currentAo: normalizeMpvCurrentAo(rawCurrentAo),
+        initialEnumerationStatus: this.rawEnumerationObserved
+          ? "ready"
+          : "unavailable",
+      },
+    });
+  }
+
+  waitForInitialEnumeration(
+    enabled: boolean,
+  ): Promise<AudioOutputInitialEnumerationStatus> {
+    if (!this.adapter.isMpvAvailable()) return Promise.resolve("unavailable");
+    if (this.rawEnumerationObserved) return Promise.resolve("ready");
+    if (!enabled)
+      return Promise.resolve(this.state.diagnostics.initialEnumerationStatus);
+    if (this.initialEnumerationWait) return this.initialEnumerationWait;
+
+    this.initialEnumerationWait = new Promise((resolve) => {
+      let settled = false;
+      const finish = (status: AudioOutputInitialEnumerationStatus): void => {
+        if (settled) return;
+        settled = true;
+        if (this.initialEnumerationTimer !== null)
+          this.startupScheduler.clearTimeout(this.initialEnumerationTimer);
+        this.initialEnumerationTimer = null;
+        this.finishInitialEnumerationWait = null;
+        resolve(status);
       };
+      this.finishInitialEnumerationWait = finish;
+      this.initialEnumerationTimer = this.startupScheduler.setTimeout(() => {
+        this.setInitialEnumerationStatus("timed-out");
+        if (!this.timeoutWarningLogged) {
+          this.timeoutWarningLogged = true;
+          console.warn(
+            "[audio-output] initial device enumeration timed out; continuing with system default",
+          );
+        }
+        finish("timed-out");
+      }, AUDIO_OUTPUT_INITIAL_ENUMERATION_TIMEOUT_MILLISECONDS);
+      if (this.rawEnumerationObserved) finish("ready");
+    });
+    return this.initialEnumerationWait;
+  }
+
+  async applyInitialPreference(): Promise<void> {
+    if (!this.adapter.isMpvAvailable()) {
+      this.initialized = true;
+      return;
+    }
+    const preferredAvailable = this.isAvailable(
+      this.state.preferredDevice.deviceId,
+      this.state.devices,
+    );
+    const requestedDeviceId = preferredAvailable
+      ? this.state.preferredDevice.deviceId
+      : "auto";
+    try {
+      if (this.state.effectiveDeviceId !== requestedDeviceId)
+        await this.applyAndConfirm(requestedDeviceId);
+      this.update({
+        mpvAvailable: true,
+        effectiveDeviceId: requestedDeviceId,
+        status: this.resolveStatus(
+          this.state.preferredDevice,
+          this.state.devices,
+          requestedDeviceId,
+        ),
+        switching: false,
+      });
     } catch {
       await this.tryTechnicalFallback();
       this.update({
@@ -124,9 +221,9 @@ export class AudioOutputService {
         status: this.adapter.isMpvAvailable() ? "error" : "mpv-unavailable",
       });
       console.warn("[audio-output] initialization failed");
+    } finally {
+      this.initialized = true;
     }
-
-    this.initialized = true;
   }
 
   async select(deviceId: string): Promise<AudioOutputSelectionResult> {
@@ -273,6 +370,7 @@ export class AudioOutputService {
   }
 
   close(): void {
+    this.finishInitialEnumerationWait?.("unavailable");
     this.unsubscribeProperties();
     this.unsubscribePlayback();
     this.listeners.clear();
@@ -289,9 +387,17 @@ export class AudioOutputService {
         devices: [systemDefaultAudioOutputDevice],
         effectiveDeviceId: "auto",
         status: "mpv-unavailable",
+        diagnostics: {
+          ...this.state.diagnostics,
+          currentAo: null,
+          initialEnumerationStatus: "unavailable",
+        },
       });
+      this.finishInitialEnumerationWait?.("unavailable");
       return;
     }
+    if (!Array.isArray(value)) return;
+    this.recordValidEnumeration();
     const devices = normalizeMpvAudioOutputDevices(value);
     if (
       this.state.mpvAvailable &&
@@ -355,6 +461,35 @@ export class AudioOutputService {
     });
   }
 
+  private updateCurrentAo(value: unknown): void {
+    const currentAo = normalizeMpvCurrentAo(value);
+    if (currentAo === this.state.diagnostics.currentAo) return;
+    this.update({
+      diagnostics: { ...this.state.diagnostics, currentAo },
+    });
+  }
+
+  private recordValidEnumeration(): void {
+    const changed =
+      !this.rawEnumerationObserved ||
+      this.state.diagnostics.initialEnumerationStatus !== "ready";
+    this.rawEnumerationObserved = true;
+    if (changed) this.setInitialEnumerationStatus("ready");
+    this.finishInitialEnumerationWait?.("ready");
+  }
+
+  private setInitialEnumerationStatus(
+    status: AudioOutputInitialEnumerationStatus,
+  ): void {
+    if (this.state.diagnostics.initialEnumerationStatus === status) return;
+    this.update({
+      diagnostics: {
+        ...this.state.diagnostics,
+        initialEnumerationStatus: status,
+      },
+    });
+  }
+
   private resolveStatus(
     preference: AudioOutputPreference,
     devices: readonly AudioOutputDevice[],
@@ -414,9 +549,19 @@ export class AudioOutputService {
   }
 
   private update(patch: Partial<AudioOutputState>): void {
-    const next = {
+    const merged = {
       ...this.state,
       ...patch,
+    };
+    const next = {
+      ...merged,
+      diagnostics: {
+        ...merged.diagnostics,
+        normalizedDeviceCount: merged.devices.length,
+        preferredDeviceAvailable:
+          merged.mpvAvailable &&
+          this.isAvailable(merged.preferredDevice.deviceId, merged.devices),
+      },
       revision: this.state.revision + 1,
     };
     this.state = next;

@@ -1,6 +1,16 @@
 export const AUDIO_OUTPUT_DEVICE_ID_MAX_LENGTH = 512;
 export const AUDIO_OUTPUT_DESCRIPTION_MAX_LENGTH = 256;
 export const AUDIO_OUTPUT_DEVICE_LIMIT = 64;
+export const AUDIO_OUTPUT_CURRENT_AO_MAX_LENGTH = 128;
+
+export const audioOutputInitialEnumerationStatuses = [
+  "ready",
+  "timed-out",
+  "unavailable",
+] as const;
+
+export type AudioOutputInitialEnumerationStatus =
+  (typeof audioOutputInitialEnumerationStatuses)[number];
 
 export const audioOutputStatuses = [
   "active",
@@ -26,6 +36,13 @@ export interface AudioOutputPreference {
   readonly description: string;
 }
 
+export interface AudioOutputDiagnostics {
+  readonly currentAo: string | null;
+  readonly normalizedDeviceCount: number;
+  readonly preferredDeviceAvailable: boolean;
+  readonly initialEnumerationStatus: AudioOutputInitialEnumerationStatus;
+}
+
 export interface AudioOutputState {
   readonly mpvAvailable: boolean;
   readonly devices: readonly AudioOutputDevice[];
@@ -36,6 +53,7 @@ export interface AudioOutputState {
   readonly revision: number;
   readonly notice: "preferred-unavailable" | null;
   readonly noticeRevision: number;
+  readonly diagnostics: AudioOutputDiagnostics;
 }
 
 export interface AudioOutputSelectionResult {
@@ -65,6 +83,12 @@ export const disconnectedAudioOutputState: AudioOutputState = {
   revision: 0,
   notice: null,
   noticeRevision: 0,
+  diagnostics: {
+    currentAo: null,
+    normalizedDeviceCount: 1,
+    preferredDeviceAvailable: false,
+    initialEnumerationStatus: "unavailable",
+  },
 };
 
 function boundedText(value: unknown, maximumLength: number): string | null {
@@ -90,6 +114,17 @@ export function normalizeAudioOutputDescription(
     boundedText(fallback, AUDIO_OUTPUT_DESCRIPTION_MAX_LENGTH) ??
     "Audio output"
   );
+}
+
+export function normalizeMpvCurrentAo(value: unknown): string | null {
+  const currentAo = boundedText(value, AUDIO_OUTPUT_CURRENT_AO_MAX_LENGTH);
+  if (!currentAo) return null;
+  for (const character of currentAo) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 31 || codePoint === 127))
+      return null;
+  }
+  return currentAo;
 }
 
 export function normalizeMpvAudioOutputDevices(

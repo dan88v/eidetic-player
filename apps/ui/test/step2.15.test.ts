@@ -93,14 +93,26 @@ void test("Audio Output backend routes validate closed request bodies", async ()
   assert.match(backend, /error instanceof AudioOutputError/);
 });
 
-void test("bootstrap initializes audio output before player session restore", async () => {
+void test("bootstrap prepares audio output before player session restore", async () => {
   const backend = await readFile("apps/backend/src/index.ts", "utf8");
   assert.match(
     backend,
-    /await audioOutput\.initialize\(\);\s+const restore = await playerSession\.restore\(\)/,
+    /await prepareAudioOutputForSessionRestore\(\s*audioOutput,\s*process\.platform,\s*installationMode,\s*\);\s+const restore = await playerSession\.restore\(\)/,
   );
   assert.match(
     backend,
     /player\.setBeforePlaybackHook\(\(\) => audioOutput\.prepareForPlayback\(\)\)/,
+  );
+  const bootstrap = await readFile(
+    "apps/backend/src/audio-output/audio-output-bootstrap.ts",
+    "utf8",
+  );
+  assert.match(
+    bootstrap,
+    /await service\.initialize\(\);\s+const status = await service\.waitForInitialEnumeration\(\s*shouldWaitForInitialAudioEnumeration\(platform, installationMode\),\s*\);\s+await service\.applyInitialPreference\(\)/,
+  );
+  assert.match(
+    bootstrap,
+    /platform === "linux" && installationMode === "appliance"/,
   );
 });

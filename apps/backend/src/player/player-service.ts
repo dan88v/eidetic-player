@@ -1187,6 +1187,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.unsubscribeMpv = null;
     for (const listener of this.audioOutputPropertyListeners)
       listener("audio-device-list", undefined);
+    for (const listener of this.audioOutputPropertyListeners)
+      listener("current-ao", null);
     if (this.shuttingDown) return;
     this.updateError("MPV_EXITED", "MPV stopped unexpectedly.");
     if (this.restartAttempted || !this.executable) return;
@@ -1210,13 +1212,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
         error: null,
       });
       const controller = this.requireController();
-      const [deviceList, device] = await Promise.all([
+      const [deviceList, device, currentAo] = await Promise.all([
         controller.getProperty("audio-device-list"),
         controller.getProperty("audio-device"),
+        controller.getProperty("current-ao"),
       ]);
       for (const listener of this.audioOutputPropertyListeners) {
         listener("audio-device-list", deviceList);
         listener("audio-device", device);
+        listener("current-ao", currentAo);
       }
     } catch (error) {
       console.error("[player] controlled MPV restart failed", error);
@@ -1231,7 +1235,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
       this.properties.set(message.name, message.data);
       if (
         message.name === "audio-device" ||
-        message.name === "audio-device-list"
+        message.name === "audio-device-list" ||
+        message.name === "current-ao"
       )
         for (const listener of this.audioOutputPropertyListeners)
           listener(message.name, message.data);
@@ -1307,6 +1312,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       "idle-active",
       "audio-device",
       "audio-device-list",
+      "current-ao",
     ];
     const values = await Promise.all(
       names.map(async (name) => {

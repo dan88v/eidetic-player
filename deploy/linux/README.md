@@ -381,8 +381,18 @@ npm run doctor:install:linux -- --json
 
 The doctor reports platform, runtime, Neutralino, GTK/WebKitGTK, MPV, FFmpeg,
 audio/system services, USB/CIFS support, service files, appliance state,
-maintenance commands, XDG state and active/previous releases. It must not
-change configuration or expose credentials and media paths.
+maintenance commands, XDG state and active/previous releases. Its `audio`
+section reports the detected PipeWire/PulseAudio/ALSA stack, read-only tool and
+service availability, ALSA card count, conservative HDMI/GPIO-I2S hardware
+classification, and sanitized live app diagnostics (`current-ao`, normalized
+device count, preferred-output availability and initial enumeration status).
+Missing optional audio tools do not fail the installation checks. The doctor
+does not start MPV or playback, play probe audio, mutate services, use sudo, or
+expose raw device IDs, credentials, media paths, or environment values.
+
+Automatic Raspberry Pi audio configuration and installer-owned PCM integration
+remain deferred to Step 2.15.2. Real Raspberry application-path validation
+remains deferred to Step 2.15.3.
 
 ## Permissions and data safety
 
