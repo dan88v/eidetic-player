@@ -222,4 +222,5 @@ void test("audio doctor source remains read-only and does not start playback", a
     assert.doesNotMatch(source, mutation);
   assert.match(source, /Read-only:/u);
   assert.match(source, /initialEnumerationStatus/u);
+  assert.match(source, /# shellcheck disable=SC2016\s+"\$node_path" -e '/u);
 });

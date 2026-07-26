@@ -67,6 +67,9 @@ eidetic_audio_read_app() {
       mpvVersion=unavailable
     return
   }
+  # The single-quoted payload is JavaScript; its template expressions must not
+  # be expanded by Bash.
+  # shellcheck disable=SC2016
   "$node_path" -e '
 const http = require("node:http");
 function request(path) {
