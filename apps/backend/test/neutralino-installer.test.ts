@@ -29,7 +29,7 @@ void test("Neutralino generator reads explicit borderless environment", async ()
   );
   contains(
     installer,
-    'EIDETIC_BORDERLESS=$([[ "${choice[borderless]}" == yes ',
+    'EIDETIC_BORDERLESS="$borderless_value"',
     "installer borderless runtime env",
   );
   assert.doesNotMatch(
@@ -47,7 +47,7 @@ void test("Installer propagates borderless through install runtime build environ
   assert.match(installer, /--borderless (yes|no)/);
   contains(
     installer,
-    'EIDETIC_BORDERLESS=$([[ "${choice[borderless]}" == yes ',
+    'EIDETIC_BORDERLESS="$borderless_value"',
     "installer borderless export",
   );
   assert.match(common, /EIDETIC_BORDERLESS="\$\{EIDETIC_BORDERLESS:-0\}"/);

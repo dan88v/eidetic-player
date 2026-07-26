@@ -130,6 +130,13 @@ fixture() {
   assert_standard_conf "$root"
   ! grep -q '^EIDETIC_FULL_VERIFY=' "$root/etc/eidetic-player/install.conf"
 
+  if [[ "$name" == raspios ]]; then
+    EIDETIC_BORDERLESS=1 \
+      "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+      --mode standard --unattended --rpi-onscreen-keyboard keep
+    assert_standard_conf "$root"
+  fi
+
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
     --mode standard --unattended --rpi-onscreen-keyboard keep \
     --full-verify --dry-run
@@ -140,9 +147,9 @@ fixture() {
   assert_appliance_conf "$root" 1 1 0 0 0 0 1
 
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
-    --mode appliance --unattended --autostart no --fullscreen no --borderless yes \
+    --mode appliance --unattended --autostart no --fullscreen no --borderless no \
     --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
-  assert_appliance_conf "$root" 0 1 0 0 0 0 0
+  assert_appliance_conf "$root" 0 0 0 0 0 0 0
 
   # validate legacy migration paths
   write_legacy_conf "$root" standard 1 0 1 1 0 0
@@ -172,6 +179,7 @@ fixture() {
 
 test_official_source_remotes
 [[ "${EIDETIC_SOURCE_REMOTE_FIXTURE_ONLY:-0}" != 1 ]] || exit 0
+unset EIDETIC_BORDERLESS
 "$SCRIPT_DIR/test-platform-detection.sh"
 if [[ "${EUID}" -eq 0 ]]; then
   "$SCRIPT_DIR/test-unprivileged-build.sh" "$runtime_user"

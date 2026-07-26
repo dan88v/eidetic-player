@@ -122,6 +122,9 @@ else
     fi
   done
 fi
+borderless_value=$(
+  [[ "${choice[borderless]}" == yes ]] && printf 1 || printf 0
+)
 if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
   "$rpi_keyboard_explicit" == 0 ]]; then
   [[ -t 0 ]] ||
@@ -227,7 +230,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   build_source="$build_workspace/source"
   EIDETIC_INSTALLATION_MODE="$mode"
   EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
-  EIDETIC_BORDERLESS=$([[ "${choice[borderless]}" == yes ]] && printf 1 || printf 0)
+  EIDETIC_BORDERLESS="$borderless_value"
   export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN EIDETIC_BORDERLESS
   eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
   if ! eidetic_fetch_isolated_source \
@@ -428,7 +431,7 @@ conf="$tmp/install.conf"
 cat >"$conf" <<EOF
 EIDETIC_INSTALLATION_MODE=$mode
 EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
-EIDETIC_BORDERLESS=$EIDETIC_BORDERLESS
+EIDETIC_BORDERLESS=$borderless_value
 EIDETIC_HIDE_POINTER=$([[ "${choice[pointer]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_DISABLE_BLANKING=$([[ "${choice[blanking]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_AUTOSTART=$([[ "${choice[autostart]}" == yes ]] && printf 1 || printf 0)

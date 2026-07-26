@@ -35,6 +35,25 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
     /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$phase"/,
   );
   assert.doesNotMatch(source, /(?:full-upgrade|dist-upgrade|curl[^\\n]*\|)/);
+
+  const normalization = source.indexOf("borderless_value=$(");
+  const dryRunExit = source.indexOf("if ((dry_run));");
+  const realStagingSplit = source.indexOf(
+    'if [[ "$EIDETIC_ROOT" == "/" ]]',
+    source.indexOf("trap cleanup EXIT"),
+  );
+  assert.ok(normalization >= 0, "expected one normalized borderless value");
+  assert.equal(
+    source.split("borderless_value=$(").length - 1,
+    1,
+    "expected one borderless normalization",
+  );
+  assert.ok(normalization < dryRunExit);
+  assert.ok(normalization < realStagingSplit);
+  assert.ok(source.includes('EIDETIC_BORDERLESS="$borderless_value"'));
+  assert.ok(source.includes("EIDETIC_BORDERLESS=$borderless_value"));
+  assert.ok(!source.includes("EIDETIC_BORDERLESS=$EIDETIC_BORDERLESS"));
+  assert.doesNotMatch(source, /\$\{EIDETIC_BORDERLESS:-[^}]*\}/);
 });
 
 void test("Linux build synchronizes and selects the correct Neutralino binary", async () => {
