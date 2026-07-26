@@ -5,6 +5,7 @@ import { queueArtworkUrl } from "../api/player-api-client";
 import {
   queueAutoScrollStep,
   queueDropIndex,
+  queueStructureChanged,
   shouldStartQueueDrag,
 } from "../utils/queue-reorder";
 import { createArtwork, type ArtworkView } from "./artwork";
@@ -254,13 +255,10 @@ export function createQueueDrawer(options: {
         state.queue === queueSnapshot
       )
         return;
-      cancelActiveReorder?.();
       queueRevision = state.queueRevision;
       queueSnapshot = state.queue;
       const nextIds = state.queue.map((item) => item.id);
-      const structureChanged =
-        nextIds.length !== queueIds.length ||
-        nextIds.some((id, index) => id !== queueIds[index]);
+      const structureChanged = queueStructureChanged(queueIds, nextIds);
       if (import.meta.env.DEV) {
         list.dataset.reconciliations = String(
           Number(list.dataset.reconciliations ?? "0") + 1,
@@ -271,6 +269,7 @@ export function createQueueDrawer(options: {
           );
       }
       if (structureChanged) {
+        cancelActiveReorder?.();
         loadGeneration += 1;
         observer.disconnect();
         observer = createObserver();

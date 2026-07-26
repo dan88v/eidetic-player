@@ -131,7 +131,8 @@ void test("SMB dialog uses canonical visible auth and keyboard-aware regions", a
   assert.match(text, /field\.hidden = mode === "guest"/u);
   assert.match(text, /smbPassword\.value = ""/u);
   assert.match(styles, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/u);
-  assert.match(styles, /\.smb-dialog__body[\s\S]*overflow-y: visible/u);
+  assert.match(styles, /\.smb-dialog__body[\s\S]*overflow-y: auto/u);
+  assert.match(styles, /\.smb-dialog__body[\s\S]*touch-action: pan-y/u);
   assert.match(styles, /\.smb-dialog__auth-choices[\s\S]*justify-self: end/u);
   assert.match(
     styles,

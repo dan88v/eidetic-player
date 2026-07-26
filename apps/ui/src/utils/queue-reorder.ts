@@ -2,6 +2,16 @@ const QUEUE_DRAG_THRESHOLD = 8;
 const QUEUE_AUTOSCROLL_EDGE = 64;
 const QUEUE_AUTOSCROLL_MAX_STEP = 18;
 
+export function queueStructureChanged(
+  previousIds: readonly string[],
+  nextIds: readonly string[],
+): boolean {
+  return (
+    previousIds.length !== nextIds.length ||
+    nextIds.some((id, index) => id !== previousIds[index])
+  );
+}
+
 export function shouldStartQueueDrag(deltaX: number, deltaY: number): boolean {
   return Math.hypot(deltaX, deltaY) >= QUEUE_DRAG_THRESHOLD;
 }

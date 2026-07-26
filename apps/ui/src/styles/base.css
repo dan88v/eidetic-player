@@ -49,6 +49,27 @@
     overflow: hidden;
   }
 
+  .app-root {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .app-root
+    :is(
+      input,
+      textarea,
+      [contenteditable="true"],
+      .text-selectable,
+      [data-text-selectable="true"]
+    ) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .app-root img {
+    -webkit-user-drag: none;
+  }
+
   body {
     min-width: 20rem;
     min-height: 20rem;

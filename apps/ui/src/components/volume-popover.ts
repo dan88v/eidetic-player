@@ -19,6 +19,7 @@ export function createVolumePopover(options: {
   let muted = false;
   let lastSentAt = 0;
   let returnFocus: HTMLElement | null = null;
+  let activePointerId: number | null = null;
   const backdrop = document.createElement("div");
   backdrop.className = "volume-backdrop";
   const element = document.createElement("section");
@@ -73,6 +74,7 @@ export function createVolumePopover(options: {
     }
   };
   slider.addEventListener("pointerdown", (event) => {
+    activePointerId = event.pointerId;
     slider.setPointerCapture(event.pointerId);
     preview(fromPointer(event), false);
   });
@@ -84,6 +86,13 @@ export function createVolumePopover(options: {
     if (!slider.hasPointerCapture(event.pointerId)) return;
     preview(fromPointer(event), true);
     slider.releasePointerCapture(event.pointerId);
+    activePointerId = null;
+  });
+  slider.addEventListener("pointercancel", (event) => {
+    if (event.pointerId !== activePointerId) return;
+    if (slider.hasPointerCapture(event.pointerId))
+      slider.releasePointerCapture(event.pointerId);
+    activePointerId = null;
   });
   slider.addEventListener("keydown", (event) => {
     let next = volume;
@@ -133,6 +142,12 @@ export function createVolumePopover(options: {
         }
         slider.focus();
       } else {
+        if (
+          activePointerId !== null &&
+          slider.hasPointerCapture(activePointerId)
+        )
+          slider.releasePointerCapture(activePointerId);
+        activePointerId = null;
         returnFocus?.setAttribute("aria-expanded", "false");
         returnFocus?.focus();
       }
