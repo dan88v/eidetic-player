@@ -10,6 +10,7 @@ git_ref=main
 mode=standard
 dry_run=0
 unattended=0
+guided=1
 full_verify=0
 EIDETIC_ROOT=/
 rpi_keyboard=keep
@@ -23,6 +24,20 @@ declare -A choice=()
 usage() {
   cat <<'EOF'
 Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
+
+Without technical options, the installer starts the guided procedure.
+
+Modes:
+  Standard                    Desktop application with manual launch
+  Appliance                   Fullscreen-capable player with optional autostart
+
+Common options:
+  -v, --verbose               Show sanitized commands and live process output
+  --no-color                  Disable terminal colors
+  -h, --help                  Show this help
+  --version                   Show installer provenance
+
+Automation and technical options:
   --user USER                 Existing non-root runtime user
   --ref REF                   Git ref to install (default: main)
   --mode standard|appliance   Installation mode
@@ -39,7 +54,15 @@ Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
   --autologin yes|no          Appliance choice
   --rpi-onscreen-keyboard keep|disable
   --gpio-i2s-dac              Configure a generic GPIO/I2S DAC (opt-in)
-  --help
+
+Examples:
+  sudo ./deploy/linux/install-eidetic-player.sh
+  sudo ./deploy/linux/install-eidetic-player.sh -v
+  sudo ./deploy/linux/install-eidetic-player.sh --no-color
+  sudo ./deploy/linux/install-eidetic-player.sh --user player --mode standard --unattended
+
+Uninstall preserves application data by default. Its guided data removal
+requires a separate DELETE confirmation.
 EOF
 }
 
@@ -49,32 +72,40 @@ set_choice() {
 }
 while (($#)); do
   case "$1" in
+    -v | --verbose) EIDETIC_CONSOLE_VERBOSE=1; shift ;;
+    --no-color) EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
     --user) [[ $# -ge 2 ]] || eidetic_die "--user needs a value"; runtime_user="$2"; shift 2;;
     --ref) [[ $# -ge 2 ]] || eidetic_die "--ref needs a value"; git_ref="$2"; shift 2;;
-    --mode) [[ $# -ge 2 ]] || eidetic_die "--mode needs a value"; mode="$2"; shift 2;;
+    --mode) guided=0; [[ $# -ge 2 ]] || eidetic_die "--mode needs a value"; mode="$2"; shift 2;;
     --root) [[ $# -ge 2 ]] || eidetic_die "--root needs a value"; EIDETIC_ROOT="$2"; shift 2;;
-    --dry-run) dry_run=1; shift;;
-    --unattended) unattended=1; shift;;
+    --dry-run) guided=0; dry_run=1; shift;;
+    --unattended) guided=0; unattended=1; shift;;
     --full-verify) full_verify=1; shift;;
-    --autostart) set_choice autostart "${2:-}"; shift 2;;
-    --fullscreen) set_choice fullscreen "${2:-}"; shift 2;;
-    --borderless) set_choice borderless "${2:-}"; shift 2;;
-    --disable-blanking) set_choice blanking "${2:-}"; shift 2;;
-    --hide-pointer) set_choice pointer "${2:-}"; shift 2;;
-    --splash) set_choice splash "${2:-}"; shift 2;;
-    --autologin) set_choice autologin "${2:-}"; shift 2;;
+    --autostart) guided=0; set_choice autostart "${2:-}"; shift 2;;
+    --fullscreen) guided=0; set_choice fullscreen "${2:-}"; shift 2;;
+    --borderless) guided=0; set_choice borderless "${2:-}"; shift 2;;
+    --disable-blanking) guided=0; set_choice blanking "${2:-}"; shift 2;;
+    --hide-pointer) guided=0; set_choice pointer "${2:-}"; shift 2;;
+    --splash) guided=0; set_choice splash "${2:-}"; shift 2;;
+    --autologin) guided=0; set_choice autologin "${2:-}"; shift 2;;
     --rpi-onscreen-keyboard)
+      guided=0
       [[ $# -ge 2 ]] || eidetic_die "--rpi-onscreen-keyboard needs a value"
       rpi_keyboard="$2"
       rpi_keyboard_explicit=1
       shift 2
       ;;
     --gpio-i2s-dac)
+      guided=0
       gpio_i2s_dac=1
       gpio_i2s_dac_explicit=1
       shift
       ;;
-    --help) usage; exit 0;;
+    -h | --help) usage; exit 0;;
+    --version)
+      printf 'eidetic-player-linux-installer %s\n' "$(eidetic_project_version)"
+      exit 0
+      ;;
     *) eidetic_die "unknown option: $1";;
   esac
 done
@@ -82,15 +113,49 @@ done
 install_question_prompt() {
   case "$1" in
     borderless)
-      printf '%s' 'Run Eidetic Player without window borders? [y/N] '
+      printf '%s' 'Run Eidetic Player without window borders?'
       ;;
     *)
-      printf '%s? [y/N] ' "$1"
+      printf '%s?' "$1"
       ;;
   esac
 }
 
-[[ "$mode" == "standard" || "$mode" == "appliance" ]] || eidetic_die "--mode must be standard or appliance"
+if ((unattended)); then EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
+installer_version="$(eidetic_project_version)"
+eidetic_console_init install "Linux Installer" "$EIDETIC_ROOT" "$installer_version" ||
+  exit 1
+installation_cancelled=0
+early_exit() {
+  local status="$1"
+  if ((status != 0)); then
+    if [[ "$installation_cancelled" == 1 ]]; then
+      eidetic_console_abort_active_phase
+      eidetic_console_info "Installation cancelled by user."
+      eidetic_console_info "Rollback: not required"
+      eidetic_console_info "Log: $EIDETIC_LOG_PATH"
+    else
+      eidetic_console_failure_panel "INSTALLATION FAILED" \
+        "${EIDETIC_FAILURE_REASON:-The current operation did not complete.}" \
+        "$status" "not required"
+    fi
+  fi
+  eidetic_console_finalize
+  return "$status"
+}
+trap 'early_exit "$?"' EXIT
+trap 'installation_cancelled=1; exit 130' INT
+trap 'installation_cancelled=1; exit 143' TERM
+
+if ((guided)) && { [[ ! -t 0 || ! -t 1 ]] &&
+  [[ "${EIDETIC_CONSOLE_FORCE_TTY:-0}" != 1 ]]; }; then
+  EIDETIC_FAILURE_REASON="Guided installation requires an interactive terminal. Use --unattended with explicit technical choices."
+  usage >&3
+  exit 64
+fi
+
+[[ "$mode" == "standard" || "$mode" == "appliance" ]] ||
+  eidetic_die "--mode must be standard or appliance"
 [[ "$rpi_keyboard" == keep || "$rpi_keyboard" == disable ]] ||
   eidetic_die "--rpi-onscreen-keyboard must be keep or disable"
 [[ -n "$runtime_user" ]] || eidetic_die "--user is required when SUDO_USER is unavailable"
@@ -103,8 +168,12 @@ eidetic_require_root
 checkout="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 preflight_world_write=yes
 [[ "$EIDETIC_ROOT" == "/" ]] || preflight_world_write=no
+EIDETIC_CONSOLE_PHASE_TOTAL=$((dry_run ? 2 : 9))
+eidetic_console_phase_begin "Preflight"
 eidetic_preflight_checkout \
   "$runtime_user" "$checkout" "$preflight_world_write"
+eidetic_console_phase_done
+eidetic_console_phase_begin "System detection"
 eidetic_detect_platform
 backend_host="${BACKEND_HOST:-127.0.0.1}"
 backend_port="${BACKEND_PORT:-4310}"
@@ -113,6 +182,24 @@ if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || ((backend_port < 1 || backend_port > 6
 fi
 if [[ "$backend_host" != "127.0.0.1" && "$backend_host" != "localhost" ]]; then
   eidetic_die "Invalid BACKEND_HOST=${backend_host}; only loopback is supported."
+fi
+eidetic_console_phase_done
+
+eidetic_console_section "Detected system"
+eidetic_console_info "  OS                   ${PRETTY_NAME:-${ID:-unknown}}"
+eidetic_console_info "  Architecture         $EIDETIC_ARCH"
+eidetic_console_info "  Desktop              $EIDETIC_DESKTOP"
+eidetic_console_info "  Raspberry Pi         ${EIDETIC_RPI_COMPATIBLE:-none}"
+
+if ((guided)); then
+  eidetic_console_section "Choose installation mode"
+  eidetic_console_info "  1. Standard"
+  eidetic_console_info "     Desktop integration with manual launch."
+  eidetic_console_info "  2. Appliance"
+  eidetic_console_info "     Fullscreen player with optional automatic startup."
+  eidetic_prompt_choice "Select mode" 1 2 1 ||
+    eidetic_die "installation mode input ended unexpectedly"
+  [[ "$EIDETIC_PROMPT_RESULT" == 1 ]] && mode=standard || mode=appliance
 fi
 
 questions=(autostart fullscreen borderless blanking pointer splash autologin)
@@ -126,8 +213,9 @@ else
     if [[ -z "${choice[$key]:-}" ]]; then
       if ((unattended)); then eidetic_die "--unattended appliance installs require every appliance choice flag"; fi
       [[ -t 0 ]] || eidetic_die "appliance choices require a terminal or explicit flags"
-      read -r -p "$(install_question_prompt "$key")" answer
-      [[ "$answer" =~ ^[Yy]$ ]] && choice["$key"]=yes || choice["$key"]=no
+      eidetic_prompt_yes_no "$(install_question_prompt "$key")" no ||
+        eidetic_die "appliance choice input ended unexpectedly"
+      choice["$key"]="$EIDETIC_PROMPT_RESULT"
     fi
   done
 fi
@@ -138,8 +226,11 @@ if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
   "$rpi_keyboard_explicit" == 0 ]]; then
   [[ -t 0 ]] ||
     eidetic_die "Raspberry Pi OS keyboard choice requires a terminal or --rpi-onscreen-keyboard"
-  read -r -p "Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead? [y/N] " answer
-  [[ "$answer" =~ ^[Yy]$ ]] && rpi_keyboard=disable || rpi_keyboard=keep
+  eidetic_prompt_yes_no \
+    "Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead?" no ||
+    eidetic_die "Raspberry Pi OS keyboard choice input ended unexpectedly"
+  [[ "$EIDETIC_PROMPT_RESULT" == yes ]] &&
+    rpi_keyboard=disable || rpi_keyboard=keep
 fi
 if [[ "$EIDETIC_DISTRO" != raspios && "$rpi_keyboard" == disable ]]; then
   eidetic_die "--rpi-onscreen-keyboard disable is supported only on Raspberry Pi OS"
@@ -151,8 +242,10 @@ if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
   "$gpio_i2s_dac_explicit" == 0 ]]; then
   [[ -t 0 ]] ||
     eidetic_die "GPIO/I2S DAC choice requires a terminal or --gpio-i2s-dac"
-  read -r -p "Configure a generic GPIO/I2S DAC (PCM5102A-compatible)? [y/N] " answer
-  [[ "$answer" =~ ^[Yy]$ ]] && gpio_i2s_dac=1 || gpio_i2s_dac=0
+  eidetic_prompt_yes_no \
+    "Configure a generic GPIO/I2S DAC (PCM5102A-compatible)?" no ||
+    eidetic_die "GPIO/I2S DAC choice input ended unexpectedly"
+  [[ "$EIDETIC_PROMPT_RESULT" == yes ]] && gpio_i2s_dac=1 || gpio_i2s_dac=0
 fi
 
 gpio_dac_helper="$SCRIPT_DIR/lib/gpio_i2s_dac.py"
@@ -185,16 +278,42 @@ else
   packages+=(libgtk-3-0t64 libwebkit2gtk-4.1-0)
 fi
 [[ "${choice[splash]}" == yes ]] && packages+=(plymouth)
-eidetic_log "Target: $EIDETIC_DISTRO $EIDETIC_ARCH; user=$runtime_user; mode=$mode; ref=$git_ref"
-eidetic_log "APT plan: ${packages[*]}"
+eidetic_console_plain_log \
+  "Target: $EIDETIC_DISTRO $EIDETIC_ARCH; user=$runtime_user; mode=$mode; ref=$git_ref"
+eidetic_console_plain_log "APT plan: ${packages[*]}"
 if ((full_verify)); then
-  eidetic_log "Verification profile: full"
+  eidetic_console_plain_log "Verification profile: full"
+  ((dry_run)) && eidetic_console_info "Verification profile: full"
 else
-  eidetic_log "Verification profile: install-safe"
+  eidetic_console_plain_log "Verification profile: install-safe"
+  ((dry_run)) && eidetic_console_info "Verification profile: install-safe"
 fi
-eidetic_log "Raspberry Pi OS on-screen keyboard: $rpi_keyboard"
-eidetic_log "GPIO/I2S DAC: $gpio_dac_plan"
-for key in "${questions[@]}"; do eidetic_log "  $key=${choice[$key]}"; done
+eidetic_console_plain_log "Raspberry Pi OS on-screen keyboard: $rpi_keyboard"
+eidetic_console_plain_log "GPIO/I2S DAC: $gpio_dac_plan"
+for key in "${questions[@]}"; do
+  eidetic_console_plain_log "  $key=${choice[$key]}"
+done
+
+eidetic_console_section "Installation summary"
+eidetic_console_info "  System               ${PRETTY_NAME:-${ID:-unknown}}"
+eidetic_console_info "  Architecture         $EIDETIC_ARCH"
+eidetic_console_info "  Runtime user         $runtime_user"
+eidetic_console_info "  Mode                 ${mode^}"
+eidetic_console_info "  Install path         /opt/eidetic-player"
+eidetic_console_info "  Autostart            ${choice[autostart]^}"
+eidetic_console_info "  Fullscreen           ${choice[fullscreen]^}"
+eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
+eidetic_console_info "  Existing data        Preserved"
+eidetic_console_info "  Reboot               May be required; never automatic"
+
+if ((guided)); then
+  eidetic_prompt_yes_no "Proceed with installation?" yes ||
+    eidetic_die "installation confirmation input ended unexpectedly"
+  if [[ "$EIDETIC_PROMPT_RESULT" == no ]]; then
+    eidetic_console_info "Installation cancelled before any change."
+    exit 0
+  fi
+fi
 if ((dry_run)); then
   eidetic_log "Dry-run complete: no files, packages, services, boot settings, mounts, or network profiles changed."
   exit 0
@@ -210,17 +329,27 @@ keyboard_attempt_state=
 gpio_dac_changed=0
 gpio_dac_session="install-${PPID}-${BASHPID}"
 cleanup() {
+  local status="$1" rollback_result="not required"
+  eidetic_console_abort_active_phase
   if [[ "$gpio_dac_changed" == 1 && "$install_committed" == 0 ]]; then
     eidetic_log "Restoring boot configuration after failed installation."
-    python3 "$gpio_dac_helper" rollback --root "$EIDETIC_ROOT" \
-      --session "$gpio_dac_session" >/dev/null ||
+    if python3 "$gpio_dac_helper" rollback --root "$EIDETIC_ROOT" \
+      --session "$gpio_dac_session" >/dev/null; then
+      rollback_result="GPIO/I2S boot configuration restored successfully"
+    else
+      rollback_result="GPIO/I2S boot rollback failed; manual review required"
       eidetic_log "CRITICAL: GPIO/I2S boot rollback could not be proven; manual review is required."
+    fi
   fi
   if [[ "$keyboard_changed" == 1 && "$install_committed" == 0 &&
     -n "$keyboard_attempt_state" ]]; then
     eidetic_log "Restoring Raspberry Pi OS on-screen keyboard after failed installation."
-    eidetic_set_rpi_keyboard_state "$keyboard_attempt_state" ||
+    if eidetic_set_rpi_keyboard_state "$keyboard_attempt_state"; then
+      rollback_result="session changes restored successfully"
+    else
+      rollback_result="on-screen keyboard rollback failed; manual review required"
       eidetic_log "Warning: automatic on-screen keyboard rollback failed; use raspi-config Display Options > D6."
+    fi
   fi
   [[ -z "$release_stage" || ! -e "$release_stage" ]] ||
     rm -rf -- "$release_stage"
@@ -229,8 +358,24 @@ cleanup() {
   [[ -z "$build_workspace" || ! -e "$build_workspace" ]] ||
     rm -rf -- "$build_workspace"
   rm -rf -- "$tmp"
+  if ((status != 0)); then
+    if [[ "$installation_cancelled" == 1 ]]; then
+      eidetic_console_info "Installation cancelled by user."
+      eidetic_console_info "Rollback: $rollback_result"
+      eidetic_console_info "Log: $EIDETIC_LOG_PATH"
+    else
+      eidetic_console_failure_panel "INSTALLATION FAILED" \
+        "${EIDETIC_FAILURE_REASON:-The current operation did not complete.}" \
+        "$status" "$rollback_result"
+    fi
+  fi
+  eidetic_console_finalize
+  return "$status"
 }
-trap cleanup EXIT
+trap 'cleanup "$?"' EXIT
+eidetic_console_phase_begin "System dependencies"
+eidetic_console_command_preview apt-get update
+eidetic_console_command_preview apt-get install -y "${packages[@]}"
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   if [[ "$unattended" == 1 ]]; then
     export DEBIAN_FRONTEND=noninteractive
@@ -273,7 +418,9 @@ elif [[ "$EIDETIC_ROOT" != "/" ]]; then
 fi
 ln -sfn "v$node_version" "$node_root/current.new"
 mv -Tf "$node_root/current.new" "$node_root/current"
+eidetic_console_phase_done
 
+eidetic_console_phase_begin "Application runtime"
 releases="$(eidetic_target /opt/eidetic-player/releases)"
 opt="$(eidetic_target /opt/eidetic-player)"
 install -d -m 0755 "$releases"
@@ -369,7 +516,9 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
 else
   release_commit=staging
 fi
+eidetic_console_phase_done
 
+eidetic_console_phase_begin "Release staging and verification"
 release_base="$(date -u +%Y%m%dT%H%M%SZ)-$release_commit"
 release_id="$release_base"
 release_counter=0
@@ -480,7 +629,9 @@ if ! "$release_verifier_node" "$release_verifier_cli" \
   "$release_verifier_script" "${release_verifier_args[@]}"; then
   eidetic_die "Installation verification failed: Linux release contract. No release was activated."
 fi
+eidetic_console_phase_done
 
+eidetic_console_phase_begin "System integration"
 conf="$tmp/install.conf"
 power_policy="$tmp/eidetic-player-power.polkit.rules"
 power_policy_placeholder=__EIDETIC_RUNTIME_USER__
@@ -546,7 +697,9 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   "$power_helper_target" probe </dev/null ||
     eidetic_die "Power integration verification failed: helper probe failed. No release was activated."
 fi
+eidetic_console_phase_done
 
+eidetic_console_phase_begin "Optional configuration"
 if [[ "${choice[autostart]}" == yes ]]; then
   runtime_home="$EIDETIC_RUNTIME_HOME"
   autostart="$tmp/autostart.desktop"
@@ -649,6 +802,8 @@ if ((gpio_i2s_dac)); then
     eidetic_log "GPIO/I2S DAC: $gpio_i2s_dac_state; boot configuration unchanged."
   fi
 fi
+eidetic_console_phase_done
+eidetic_console_phase_begin "Release activation"
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=
 if [[ "$gpio_dac_changed" == 1 ]]; then
@@ -657,19 +812,33 @@ if [[ "$gpio_dac_changed" == 1 ]]; then
     eidetic_die "GPIO/I2S DAC transaction commit failed"
 fi
 install_committed=1
+eidetic_console_phase_done
 
+eidetic_console_phase_begin "Finalization"
 eidetic_log "Installed release $release_id atomically."
 eidetic_log "Application data under the runtime user's XDG directories was not modified."
+eidetic_console_phase_done
+
+eidetic_console_section "Installation completed successfully."
+eidetic_console_info "  Mode                 ${mode^}"
+eidetic_console_info "  Runtime user         $runtime_user"
+eidetic_console_info "  Install path         /opt/eidetic-player"
+eidetic_console_info "  Service              ${choice[autostart]^}"
+eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
+eidetic_console_info "  Application data     Preserved"
+eidetic_console_info "  Log                  $EIDETIC_LOG_PATH"
+eidetic_console_info "  Diagnostics          eidetic-player-doctor"
+eidetic_console_warning_summary
 
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   if ((unattended)); then
     eidetic_log "Reboot was not performed because the installation is unattended."
     eidetic_log "Reboot manually with: sudo reboot"
   elif [[ -t 0 ]]; then
-    printf '\n'
-    read -r -p "Installation completed successfully. Reboot now? [y/N] " reboot_answer
-
-    if [[ "$reboot_answer" =~ ^[Yy]$ ]]; then
+    printf '\n' >&3
+    eidetic_prompt_yes_no "Restart the device now?" no ||
+      eidetic_die "reboot choice input ended unexpectedly"
+    if [[ "$EIDETIC_PROMPT_RESULT" == yes ]]; then
       eidetic_log "Rebooting the system."
       systemctl reboot
     else

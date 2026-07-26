@@ -5,6 +5,61 @@ cd "$SCRIPT_DIR/../.."
 runtime_user="${1:-$(id -un)}"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
+if [[ "${EUID}" -eq 0 && "$runtime_user" != root ]]; then
+  chown "root:$(id -g "$runtime_user")" "$work"
+  chmod 0710 "$work"
+fi
+if ! command -v node >/dev/null && command -v node.exe >/dev/null; then
+  bridge_bin="$work/windows-node-bridge"
+  install -d "$bridge_bin"
+  windows_node="$(command -v node.exe)"
+  windows_temp=
+  for candidate in /mnt/c/Users/*/AppData/Local/Temp; do
+    windows_probe=
+    if [[ -d "$candidate" ]] &&
+      windows_probe="$(mktemp -d "$candidate/eidetic-probe.XXXXXX" 2>/dev/null)"; then
+      rm -rf -- "$windows_probe"
+      windows_temp="$candidate"
+      break
+    fi
+  done
+  [[ -n "$windows_temp" ]] || {
+    printf 'a writable Windows temporary directory is required for the Node bridge\n' >&2
+    exit 1
+  }
+  cat >"$bridge_bin/node" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+arguments=()
+mirrors=()
+cleanup_bridge() {
+  local mirror
+  for mirror in "\${mirrors[@]}"; do rm -rf -- "\$mirror"; done
+}
+trap cleanup_bridge EXIT
+for argument in "\$@"; do
+  if [[ "\$argument" == /tmp/* && -d "\$argument" ]]; then
+    mirror="\$(mktemp -d "$windows_temp/eidetic-node-bridge.XXXXXX")"
+    mirrors+=("\$mirror")
+    install -d "\$mirror/root"
+    cp -a "\$argument/." "\$mirror/root/"
+    arguments+=("\$(wslpath -w "\$mirror/root")")
+  elif [[ "\$argument" == /* ]]; then
+    arguments+=("\$(wslpath -w "\$argument")")
+  else
+    arguments+=("\$argument")
+  fi
+done
+set +e
+/init "$windows_node" "\${arguments[@]}"
+status=\$?
+set -e
+exit "\$status"
+EOF
+  chmod 0755 "$bridge_bin/node"
+  PATH="$bridge_bin:$PATH"
+  export PATH
+fi
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
 fixture_rpi_cmdline="console=serial0,115200 console=tty1 root=PARTUUID=fixture rootfstype=ext4 fsck.repair=yes rootwait"
@@ -286,7 +341,7 @@ fixture() {
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
   assert_power_installed "$root"
   [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
-  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
   grep -qx 'original power helper' "$root/usr/libexec/eidetic-player-power-helper" ||
     fixture_fail "uninstall did not restore the original power helper"
   grep -qx 'original power policy' "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules" ||
@@ -296,7 +351,7 @@ fixture() {
   [[ "$(stat -c '%a' "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules")" == 600 ]] ||
     fixture_fail "uninstall did not restore the original policy mode"
   [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
-  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
   [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
 }
 
@@ -362,13 +417,13 @@ all_yes_fixture() {
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
   assert_power_installed "$root"
   [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
-  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
   [[ ! -e "$root/usr/libexec/eidetic-player-power-helper" ]] ||
     fixture_fail "uninstall left an orphaned power helper"
   [[ ! -e "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules" ]] ||
     fixture_fail "uninstall left an orphaned power policy"
   [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
-  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
   [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
 }
 
@@ -376,6 +431,8 @@ test_official_source_remotes
 [[ "${EIDETIC_SOURCE_REMOTE_FIXTURE_ONLY:-0}" != 1 ]] || exit 0
 unset EIDETIC_BORDERLESS
 "$SCRIPT_DIR/test-platform-detection.sh"
+"$SCRIPT_DIR/test-console-ui.sh"
+"$SCRIPT_DIR/test-guided-installer-staging.sh" "$runtime_user"
 assert_smb_helper_exit '//server/share$ name' 65
 assert_smb_helper_exit '//server/bad/name' 64
 if [[ "${EUID}" -eq 0 ]]; then

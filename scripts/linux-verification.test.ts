@@ -36,7 +36,9 @@ const requiredScripts = [
   "runtime/eidetic-player-resume",
   "runtime/eidetic-player-smb-helper",
   "test-case-sensitive-wsl.sh",
+  "test-console-ui.sh",
   "test-gpio-i2s-dac-staging.sh",
+  "test-guided-installer-staging.sh",
   "test-platform-detection.sh",
   "test-rpi-keyboard.sh",
   "test-staging.sh",
@@ -69,7 +71,7 @@ void test("GPIO/I2S DAC lifecycle stays opt-in and preserves unowned configurati
 
   assert.match(
     installer,
-    /Configure a generic GPIO\/I2S DAC \(PCM5102A-compatible\)\? \[y\/N\]/u,
+    /Configure a generic GPIO\/I2S DAC \(PCM5102A-compatible\)\?/u,
   );
   assert.match(installer, /--gpio-i2s-dac/u);
   assert.match(installer, /EIDETIC_GPIO_I2S_DAC=\$gpio_i2s_dac/u);
@@ -78,7 +80,7 @@ void test("GPIO/I2S DAC lifecycle stays opt-in and preserves unowned configurati
   assert.match(uninstall, /--remove-gpio-i2s-dac/u);
   assert.match(
     uninstall,
-    /Remove the GPIO\/I2S DAC configuration added by Eidetic\? \[y\/N\]/u,
+    /Remove the GPIO\/I2S DAC configuration added by Eidetic\?/u,
   );
   assert.match(staging, /test-gpio-i2s-dac-staging\.sh" "\$runtime_user"/u);
   assert.match(helper, /os\.replace\(temporary, path\)/u);
@@ -533,13 +535,16 @@ void test("install-safe runner uses an explicit deployment allowlist without UI 
 });
 
 async function readInstallerSources(): Promise<LinuxInstallerSources> {
-  const [installer, update, common, launcher] = await Promise.all([
-    readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
-    readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
-    readFile("deploy/linux/lib/common.sh", "utf8"),
-    readFile("deploy/linux/runtime/eidetic-player-launch", "utf8"),
-  ]);
-  return { installer, update, common, launcher };
+  const [installer, uninstall, update, common, consoleUi, launcher] =
+    await Promise.all([
+      readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/uninstall-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/lib/common.sh", "utf8"),
+      readFile("deploy/linux/lib/console-ui.sh", "utf8"),
+      readFile("deploy/linux/runtime/eidetic-player-launch", "utf8"),
+    ]);
+  return { installer, uninstall, update, common, consoleUi, launcher };
 }
 
 void test("installer contract verifier accepts the frozen deployment baseline", async () => {

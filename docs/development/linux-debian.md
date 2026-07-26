@@ -35,6 +35,29 @@ npm run smoke:linux
 npm run verify:arm
 ```
 
+## Installer terminal UX
+
+`sudo ./deploy/linux/install-eidetic-player.sh` and
+`sudo ./deploy/linux/uninstall-eidetic-player.sh` are guided on an interactive
+terminal. The installer asks for Standard or Appliance, keeps the established
+technical choices, shows a pre-change summary, then reports nine real phases
+with elapsed-time spinner and completed-phase progress. The uninstaller
+preserves all application data by default; guided deletion requires a separate
+Yes followed by exact `DELETE`. GPIO/IÂ²S removal is independent and available
+only for a block whose Eidetic ownership is proven.
+
+`-v`/`--verbose` enables sanitized command previews and live child output.
+`--no-color`, a defined `NO_COLOR`, `TERM=dumb`, or non-TTY output disables
+ANSI styling. `-h`/`--help` and `--version` are read-only and do not require
+root. Automation must use explicit technical choices and `--unattended`; no
+arguments on a non-TTY fails safely instead of prompting or selecting a mode.
+
+Complete non-ANSI diagnostics are logged with mode 0600 under
+`/var/log/eidetic-player`, with a reported private fallback when that directory
+is not yet writable. The newest ten install logs and newest ten uninstall logs
+are retained independently. Failure output includes the failed phase, original
+exit code, rollback result, log path, and `eidetic-player-doctor`.
+
 The project uses Node 24.18.0 in `.nvmrc` and requires Node 24.15 or newer in
 `package.json`, including the built-in `node:sqlite` API used by Library. MPV
 and FFmpeg are discovered from the explicit

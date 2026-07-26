@@ -9,14 +9,18 @@ dry_run=0
 no_restart=0
 rollback=0
 full_verify=0
+verbose=0
+no_color=0
 
 choice_to_flag() {
   [[ "$1" == 1 ]] && printf yes || printf no
 }
 
-usage() { printf 'Usage: %s [--ref REF] [--dry-run] [--root PATH] [--no-restart] [--rollback] [--full-verify] [--help]\n' "$0"; }
+usage() { printf 'Usage: %s [--ref REF] [--dry-run] [--root PATH] [--no-restart] [--rollback] [--full-verify] [-v|--verbose] [--no-color] [--help]\n' "$0"; }
 while (($#)); do
   case "$1" in
+    -v | --verbose) verbose=1; shift ;;
+    --no-color) no_color=1; shift ;;
     --ref) git_ref="${2:-}"; shift 2;;
     --root) EIDETIC_ROOT="${2:-}"; shift 2;;
     --dry-run) dry_run=1; shift;;
@@ -32,8 +36,11 @@ export EIDETIC_ROOT
 eidetic_require_root
 conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 [[ -r "$conf" ]] || eidetic_die "Eidetic Player is not installed"
+administrative_path="$PATH"
 # shellcheck disable=SC1090
 . "$conf"
+PATH="$administrative_path"
+export PATH
 git_ref="${git_ref:-${EIDETIC_GIT_REF:-main}}"
 eidetic_validate_ref "$git_ref"
 backend_host="${BACKEND_HOST:-127.0.0.1}"
@@ -102,6 +109,10 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$mode" --unattende
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && args+=(--dry-run)
 ((full_verify)) && args+=(--full-verify)
+((verbose)) && args+=(--verbose)
+((no_color)) && args+=(--no-color)
 BACKEND_HOST="$backend_host" BACKEND_PORT="$backend_port" \
   "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
-((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]] || runuser -u "$EIDETIC_RUNTIME_USER" -- systemctl --user try-restart eidetic-player.service
+((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]] ||
+  /usr/sbin/runuser -u "$EIDETIC_RUNTIME_USER" -- \
+    systemctl --user try-restart eidetic-player.service

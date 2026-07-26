@@ -354,7 +354,7 @@ void test("Raspberry Pi OS keyboard choice is explicit, reversible and staged", 
   assert.match(installer, /rpi_keyboard=keep/);
   assert.match(
     installer,
-    /Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead\? \[y\/N\]/,
+    /Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead\?/,
   );
   assert.match(installer, /Raspberry Pi OS on-screen keyboard: \$rpi_keyboard/);
   assert.match(installer, /EIDETIC_RPI_ONSCREEN_KEYBOARD=\$rpi_keyboard/);

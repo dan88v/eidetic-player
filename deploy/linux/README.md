@@ -229,9 +229,61 @@ Raspberry Pi OS, Node, the checkout or application data.
 
 No automatic reboot is performed.
 
+## Guided installer
+
+Normal human use needs no technical arguments:
+
+```bash
+sudo ./deploy/linux/install-eidetic-player.sh
+```
+
+With an interactive terminal the installer displays a compact ASCII header,
+detects the supported system, asks for Standard or Appliance, keeps all
+existing mode-specific questions, summarizes every choice, and asks
+`Proceed with installation? [Y/n]` before making changes. Standard remains the
+desktop application with manual launch. Appliance retains the existing
+fullscreen, borderless, autostart, display, splash, and autologin choices.
+GPIO/IÂ²S is offered only on supported Raspberry Pi OS hardware.
+
+The nine displayed phases are real installer boundaries. Overall progress is
+completed phases divided by total phases; the spinner shows elapsed time but
+does not invent internal apt, npm, or systemd percentages. Normal output is
+compact. `-v` and `--verbose` show sanitized command previews and live process
+output without changing installer semantics.
+
+Colors are automatic only on a compatible TTY. Disable them with `--no-color`
+or by defining `NO_COLOR`; `TERM=dumb` and non-TTY output are always plain.
+Unattended operation has stable line-oriented `STEP n/total START|DONE` output,
+no spinner, no color, and no prompt. No arguments on a non-TTY fails with
+usage instead of guessing a mode or waiting for input.
+
+A complete mode-0600 technical log is always created. The preferred directory
+is `/var/log/eidetic-player`; before it is writable, the tool uses and reports
+a collision-safe private fallback. Installer and uninstaller logs are rotated
+independently, retaining the newest ten of each category. Logs contain no ANSI
+sequences, and command previews redact password, token, secret, credential,
+and passphrase arguments. A failure panel reports the phase, reason, exit
+code, rollback result, log, doctor command, and a bounded sanitized excerpt.
+
+Examples:
+
+```bash
+sudo ./deploy/linux/install-eidetic-player.sh -v
+sudo ./deploy/linux/install-eidetic-player.sh --no-color
+sudo ./deploy/linux/install-eidetic-player.sh --help
+sudo ./deploy/linux/install-eidetic-player.sh --version
+```
+
+The final reboot question remains a single explicit prompt with default No.
+Unattended runs never reboot.
+
 ## Installer options
 
 ```text
+-v, --verbose
+--no-color
+-h, --help
+--version
 --user USER
 --ref REF
 --mode standard|appliance
@@ -247,12 +299,13 @@ No automatic reboot is performed.
 --splash yes|no
 --autologin yes|no
 --rpi-onscreen-keyboard keep|disable
---help
+--gpio-i2s-dac
 ```
 
-`--ref` defaults to `main`; `--mode` defaults to `standard`. The final seven
-yes/no flags are appliance choices. In `--unattended` appliance mode every
-choice must be supplied explicitly.
+`--ref` defaults to `main`. Without an explicit technical mode, an interactive
+run asks for Standard or Appliance. The final seven yes/no flags are Appliance
+choices. In `--unattended` Appliance mode every choice must be supplied
+explicitly. Help and version do not require root or create a system log.
 
 The default verification profile is `install-safe`. It uses an explicit
 allowlist of real deployment tests for platform detection, installer/update
@@ -527,10 +580,29 @@ installed and recorded in the managed manifest.
 
 ## Uninstall
 
-Preview the command:
+Interactive uninstall is the default:
 
 ```bash
-sudo ./deploy/linux/uninstall-eidetic-player.sh --dry-run
+sudo ./deploy/linux/uninstall-eidetic-player.sh
+```
+
+It inventories the installation before changing anything and shows what will
+be removed, restored, and preserved. Library, Favorites, settings, Audio
+Output preference, player session, SMB configuration, cache, application data,
+and useful backups are preserved by default. Removing application data is a
+separate default-No question and requires typing `DELETE` exactly. Any other
+response preserves the data while allowing the binary uninstall to continue.
+
+A proven Eidetic-managed GPIO/IÂ²S block has its own default-No question.
+Pre-existing, unowned, conflicted, or externally changed boot configuration is
+never removed. Managed system files are restored only while their recorded
+ownership and current managed hash still match; externally changed files are
+preserved with a manual-review warning.
+
+Preview the command without prompts:
+
+```bash
+sudo ./deploy/linux/uninstall-eidetic-player.sh --unattended --dry-run
 ```
 
 Default uninstall stops services, restores managed system UI changes and
@@ -546,15 +618,20 @@ preexisting helper or rule is restored byte-for-byte with its recorded mode and
 ownership; otherwise the Eidetic file is removed. No restart, reboot, or
 shutdown action is executed.
 
-Permanent application-data removal requires both explicit flags:
+Permanent unattended application-data removal requires both explicit flags:
 
 ```bash
 sudo ./deploy/linux/uninstall-eidetic-player.sh \
-  --purge-data --yes-really-purge-data
+  --unattended --purge-data --yes-really-purge-data
 ```
 
 Purge still does not remove media, NAS/USB content, unrelated network profiles,
 shared packages, users or groups.
+
+The uninstaller supports the same `-v`/`--verbose`, `--no-color`, `NO_COLOR`,
+`-h`/`--help`, and `--version` behavior as the installer. Its success or
+failure summary includes the protected log path. A reboot is offered only when
+a managed GPIO/IÂ²S removal requires one and is never automatic.
 
 ## Staging without hardware
 
@@ -580,6 +657,13 @@ The same fixtures verify the mode-0755 Power helper, mode-0644 rendered Polkit
 rule, unchanged `install.conf`, preservation across system-UI restore, and
 removal or original-file restoration on uninstall. They never execute reboot,
 poweroff, service restart, or pkexec.
+
+The same root staging run uses a pseudoterminal to cover guided Standard and
+Appliance installation, guided uninstall, verbose and no-color output,
+invalid/default choices, cancel-before-change, protected DELETE data removal,
+external managed-file preservation, logging, and log rotation. On WSL without
+a Linux Node binary, the fixture may bridge the already installed Windows Node
+only for read-only release-contract verification; no package is installed.
 
 For the case-sensitive import gate, use a native Linux Node/npm installation
 and filesystem:

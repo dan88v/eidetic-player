@@ -172,11 +172,11 @@ void test("Installer keeps standard choices off and adds borderless appliance op
 
   assert.match(
     source,
-    /case "\$1" in\n\s*borderless\)\n\s*printf '%s' 'Run Eidetic Player without window borders\? \[y\/N\] '/,
+    /case "\$1" in\n\s*borderless\)\n\s*printf '%s' 'Run Eidetic Player without window borders\?'/,
   );
   contains(
     source,
-    'read -r -p "$(install_question_prompt "$key")" answer',
+    'eidetic_prompt_yes_no "$(install_question_prompt "$key")" no',
     "appliance prompt path",
   );
   contains(source, 'choice["$key"]=no', "appliance loop defaults");

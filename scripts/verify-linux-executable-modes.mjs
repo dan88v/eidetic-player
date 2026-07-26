@@ -21,7 +21,9 @@ const requiredExecutablePaths = new Set([
   "deploy/linux/runtime/eidetic-player-resume",
   "deploy/linux/runtime/eidetic-player-smb-helper",
   "deploy/linux/test-case-sensitive-wsl.sh",
+  "deploy/linux/test-console-ui.sh",
   "deploy/linux/test-gpio-i2s-dac-staging.sh",
+  "deploy/linux/test-guided-installer-staging.sh",
   "deploy/linux/test-platform-detection.sh",
   "deploy/linux/test-rpi-keyboard.sh",
   "deploy/linux/test-staging.sh",
@@ -31,6 +33,7 @@ const requiredExecutablePaths = new Set([
 ]);
 
 const knownDataPaths = new Set(["deploy/linux/plymouth/eidetic-player.script"]);
+const knownSourcedPaths = new Set(["deploy/linux/lib/console-ui.sh"]);
 
 function parseArguments(arguments_) {
   let repository = process.cwd();
@@ -91,13 +94,23 @@ async function inspectRecord(repository, record) {
   const absolute = filesystemPath(repository, record.path);
   const content = await readFile(absolute);
   const hasShebang = content[0] === 0x23 && content[1] === 0x21;
+  const sourced = knownSourcedPaths.has(record.path);
   const inferredScript =
-    hasShebang ||
-    record.path.endsWith(".sh") ||
-    record.path.startsWith("deploy/linux/runtime/");
+    !sourced &&
+    (hasShebang ||
+      record.path.endsWith(".sh") ||
+      record.path.startsWith("deploy/linux/runtime/"));
   const required = requiredExecutablePaths.has(record.path);
   const data = isDataPath(record.path);
-  return { ...record, absolute, hasShebang, inferredScript, required, data };
+  return {
+    ...record,
+    absolute,
+    hasShebang,
+    inferredScript,
+    required,
+    sourced,
+    data,
+  };
 }
 
 export async function verifyLinuxExecutableModes({
@@ -182,6 +195,12 @@ export async function verifyLinuxExecutableModes({
       failures.push(
         `script must use Git mode 100755: ${record.path}\n` +
           `  Fix safely with: git update-index --chmod=+x -- "${record.path}"`,
+      );
+    if (item.sourced && item.mode !== "100644")
+      failures.push(`sourced helper must use Git mode 100644: ${record.path}`);
+    if (item.sourced && item.hasShebang)
+      failures.push(
+        `sourced helper must not advertise direct execution: ${record.path}`,
       );
     if (item.mode === "100755" && !item.inferredScript && !item.required)
       failures.push(`data file must use Git mode 100644: ${record.path}`);

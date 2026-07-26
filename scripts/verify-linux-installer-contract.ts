@@ -4,8 +4,10 @@ import { pathToFileURL } from "node:url";
 
 export interface LinuxInstallerSources {
   readonly installer: string;
+  readonly uninstall: string;
   readonly update: string;
   readonly common: string;
+  readonly consoleUi: string;
   readonly launcher: string;
 }
 
@@ -35,7 +37,7 @@ function check(
 export function inspectLinuxInstallerContract(
   sources: LinuxInstallerSources,
 ): LinuxInstallerContractResult {
-  const { installer, update, common, launcher } = sources;
+  const { installer, uninstall, update, common, consoleUi, launcher } = sources;
   const passed: string[] = [];
   const failed: string[] = [];
 
@@ -44,6 +46,73 @@ export function inspectLinuxInstallerContract(
     failed,
     "installer backend loopback default",
     installer.includes('backend_host="${BACKEND_HOST:-127.0.0.1}"'),
+  );
+
+  check(
+    passed,
+    failed,
+    "guided installer common arguments",
+    ["-v | --verbose", "--no-color", "-h | --help", "--version"].every(
+      (option) => installer.includes(option),
+    ),
+  );
+  check(
+    passed,
+    failed,
+    "guided uninstaller common arguments",
+    ["-v | --verbose", "--no-color", "-h | --help", "--version"].every(
+      (option) => uninstall.includes(option),
+    ),
+  );
+  check(
+    passed,
+    failed,
+    "guided no-argument non-TTY fail-safe",
+    installer.includes(
+      "Guided installation requires an interactive terminal",
+    ) &&
+      uninstall.includes("Guided uninstall requires an interactive terminal"),
+  );
+  check(
+    passed,
+    failed,
+    "real installer phase count and progress",
+    installer.includes("EIDETIC_CONSOLE_PHASE_TOTAL=$((dry_run ? 2 : 9))") &&
+      consoleUi.includes("completed * 100 / total") &&
+      !consoleUi.includes("apt_percent"),
+  );
+  check(
+    passed,
+    failed,
+    "protected console logging and color controls",
+    consoleUi.includes("chmod 0600") &&
+      consoleUi.includes("EIDETIC_LOG_FALLBACK=1") &&
+      consoleUi.includes("! -v NO_COLOR") &&
+      consoleUi.includes('"${TERM:-dumb}" != dumb') &&
+      consoleUi.includes("${category}-????????-??????-*.log"),
+  );
+  check(
+    passed,
+    failed,
+    "safe console runner avoids eval and global tracing",
+    !/\beval\b/.test(consoleUi) && !/set\s+-x/.test(consoleUi),
+  );
+  check(
+    passed,
+    failed,
+    "uninstall data and GPIO choices are independent",
+    uninstall.includes("Type DELETE to permanently remove application data") &&
+      uninstall.includes("--yes-really-purge-data requires --purge-data") &&
+      uninstall.includes(
+        "Remove the GPIO/I2S DAC configuration added by Eidetic?",
+      ),
+  );
+  check(
+    passed,
+    failed,
+    "update keeps unattended invocation and explicit verbose propagation",
+    update.includes("--unattended") &&
+      update.includes("((verbose)) && args+=(--verbose)"),
   );
   check(
     passed,
@@ -210,16 +279,21 @@ export async function verifyLinuxInstallerContract(
   root = process.cwd(),
 ): Promise<LinuxInstallerContractResult> {
   const read = (path: string) => readFile(resolve(root, path), "utf8");
-  const [installer, update, common, launcher] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
-    read("deploy/linux/update-eidetic-player.sh"),
-    read("deploy/linux/lib/common.sh"),
-    read("deploy/linux/runtime/eidetic-player-launch"),
-  ]);
+  const [installer, uninstall, update, common, consoleUi, launcher] =
+    await Promise.all([
+      read("deploy/linux/install-eidetic-player.sh"),
+      read("deploy/linux/uninstall-eidetic-player.sh"),
+      read("deploy/linux/update-eidetic-player.sh"),
+      read("deploy/linux/lib/common.sh"),
+      read("deploy/linux/lib/console-ui.sh"),
+      read("deploy/linux/runtime/eidetic-player-launch"),
+    ]);
   return inspectLinuxInstallerContract({
     installer,
+    uninstall,
     update,
     common,
+    consoleUi,
     launcher,
   });
 }

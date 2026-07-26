@@ -110,9 +110,9 @@ fi
   fail "reinstall accumulated a backup"
 "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
 assert_managed "$root" "$config"
-"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
 assert_managed "$root" "$config"
-"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --remove-gpio-i2s-dac
+"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended --remove-gpio-i2s-dac
 ! grep -Fq '# BEGIN EIDETIC MANAGED GPIO I2S DAC' "$config" ||
   fail "explicit managed removal"
 grep -Fqx 'dtparam=audio=on' "$config" || fail "onboard audio preservation"

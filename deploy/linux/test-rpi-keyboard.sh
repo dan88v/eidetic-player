@@ -60,7 +60,12 @@ EOF
   else
     printf '#!/bin/sh\nexit 1\n' >"$root/usr/bin/raspi-config"
   fi
-  chmod 0755 "$root/usr/bin/raspi-config"
+  printf '#!/bin/sh\nexit 99\n' >"$root/usr/bin/pkexec"
+  printf '#!/bin/sh\nexit 99\n' >"$root/usr/bin/systemctl"
+  chmod 0755 \
+    "$root/usr/bin/raspi-config" \
+    "$root/usr/bin/pkexec" \
+    "$root/usr/bin/systemctl"
   printf '%s\n' "$root"
 }
 
@@ -148,8 +153,8 @@ saved_hash="$(sha256sum "$update_root/var/lib/eidetic-player/rpi-onscreen-keyboa
 "$SCRIPT_DIR/update-eidetic-player.sh" --root "$update_root" --no-restart
 [[ "$(<"$update_root/var/lib/fixture-keyboard-state")" == 2 ]]
 [[ "$(sha256sum "$update_root/var/lib/eidetic-player/rpi-onscreen-keyboard-v1")" == "$saved_hash" ]]
-"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$update_root"
-"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$update_root"
+"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$update_root" --unattended
+"$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$update_root" --unattended
 [[ "$(<"$update_root/var/lib/fixture-keyboard-state")" == 1 ]]
 
 printf 'Raspberry Pi OS keyboard keep, disable, transaction and restore fixtures passed.\n'

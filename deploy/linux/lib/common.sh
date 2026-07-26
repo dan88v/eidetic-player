@@ -1,7 +1,41 @@
 #!/usr/bin/env bash
 
-eidetic_die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
-eidetic_log() { printf '%s\n' "$*"; }
+EIDETIC_COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=console-ui.sh
+. "$EIDETIC_COMMON_DIR/console-ui.sh"
+
+eidetic_die() {
+  EIDETIC_FAILURE_REASON="$*"
+  if [[ "${EIDETIC_CONSOLE_ACTIVE:-0}" == 1 ]]; then
+    eidetic_console_plain_log "ERROR: $*"
+  else
+    printf 'Error: %s\n' "$*" >&2
+  fi
+  exit 1
+}
+
+eidetic_log() {
+  if [[ "${EIDETIC_CONSOLE_ACTIVE:-0}" == 1 ]]; then
+    if [[ "${EIDETIC_CONSOLE_CAPTURED:-0}" == 1 &&
+      "${EIDETIC_CONSOLE_VERBOSE:-0}" != 1 ]]; then
+      eidetic_console_plain_log "$*"
+    else
+      eidetic_console_info "$*"
+    fi
+  else
+    printf '%s\n' "$*"
+  fi
+}
+
+eidetic_project_version() {
+  local manifest="$EIDETIC_COMMON_DIR/../../../package.json" version
+  version="$(
+    sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' \
+      "$manifest" | head -n 1
+  )"
+  [[ -n "$version" ]] || version=unknown
+  printf '%s\n' "$version"
+}
 
 eidetic_validate_root() {
   case "$1" in /*) ;; *) eidetic_die "--root must be an absolute path";; esac
@@ -49,19 +83,21 @@ eidetic_load_runtime_identity() {
 }
 
 eidetic_checkout_permission_error() {
-  local user="$1" checkout="$2"
+  local user="$1" checkout="$2" failed_path="${3:-$2}"
   printf 'Error: The source checkout is not readable by the runtime user.\n' >&2
+  printf 'Unreadable bootstrap path: %s\n' "${failed_path#"$checkout"/}" >&2
   printf 'Recommended repair:\n\n' >&2
   printf 'sudo chown -R %s:%s %q\n' \
     "$user" "$EIDETIC_RUNTIME_GID" "$checkout" >&2
   printf 'sudo chmod -R u+rwX,go-rwx %q\n' "$checkout" >&2
-  exit 1
+  eidetic_die \
+    "source checkout bootstrap is not readable by $user: ${failed_path#"$checkout"/}"
 }
 
 eidetic_runtime_test_path() {
   local user="$1" operation="$2" path="$3"
   if [[ "${EUID}" -eq 0 ]]; then
-    runuser --user "$user" -- /usr/bin/test "$operation" "$path"
+    /usr/sbin/runuser --user "$user" -- /usr/bin/test "$operation" "$path"
   else
     /usr/bin/test "$operation" "$path"
   fi
@@ -101,17 +137,18 @@ eidetic_preflight_checkout() {
     eidetic_log "Staging note: checkout world-write check is not enforced on the host-mounted fixture."
   fi
   eidetic_runtime_test_path "$user" -x "$checkout" ||
-    eidetic_checkout_permission_error "$user" "$checkout"
+    eidetic_checkout_permission_error "$user" "$checkout" "$checkout"
   for path in "${bootstrap[@]}"; do
     [[ -e "$path" && ! -L "$path" ]] ||
       eidetic_die "unsafe or missing bootstrap file: ${path#"$checkout"/}"
     eidetic_runtime_test_path "$user" -r "$path" ||
-      eidetic_checkout_permission_error "$user" "$checkout"
+      eidetic_checkout_permission_error "$user" "$checkout" "$path"
     [[ "$(stat -c %u "$path")" -ne 0 ]] || root_owned=yes
   done
   eidetic_runtime_test_path \
     "$user" -x "$checkout/deploy/linux/install-eidetic-player.sh" ||
-    eidetic_checkout_permission_error "$user" "$checkout"
+    eidetic_checkout_permission_error \
+      "$user" "$checkout" "$checkout/deploy/linux/install-eidetic-player.sh"
   head="$(<"$checkout/.git/HEAD")"
   [[ "$head" =~ ^ref:\ refs/[A-Za-z0-9._/-]+$ ||
     "$head" =~ ^[0-9a-fA-F]{40,64}$ ]] ||
@@ -159,7 +196,7 @@ eidetic_run_as_runtime_user() {
   [[ "${EUID}" -eq 0 ]] || eidetic_die "runtime-user execution requires an administrative installer"
   [[ -d "$workspace" ]] || eidetic_die "runtime workspace is missing"
   [[ -d "$runtime" ]] || eidetic_die "short build runtime is missing"
-  runuser --user "$user" -- \
+  /usr/sbin/runuser --user "$user" -- \
     env -i --chdir="$workspace" \
       HOME="$EIDETIC_RUNTIME_HOME" \
       USER="$user" \
@@ -282,8 +319,24 @@ eidetic_record_original() {
   else
     exists=0 mode=- owner=- group=- hash=-
   fi
-  printf 'file\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf 'file\t%s\t%s\t%s\t%s\t%s\t%s\t-\n' \
     "$logical" "$exists" "$key" "$mode" "$owner:$group" "$hash" >>"$EIDETIC_MANIFEST"
+}
+
+eidetic_record_managed_hash() {
+  local logical="$1" hash="$2" updated
+  updated="${EIDETIC_MANIFEST}.eidetic-new"
+  [[ -f "$EIDETIC_MANIFEST" && ! -L "$EIDETIC_MANIFEST" ]] ||
+    eidetic_die "managed manifest is not a regular file"
+  awk -F '\t' -v OFS='\t' -v logical="$logical" -v hash="$hash" '
+    $1 == "file" && $2 == logical {
+      while (NF < 8) $(NF + 1) = "-"
+      $8 = hash
+    }
+    { print }
+  ' "$EIDETIC_MANIFEST" >"$updated"
+  chmod 0640 "$updated"
+  mv -f -- "$updated" "$EIDETIC_MANIFEST"
 }
 
 eidetic_install_managed() {
@@ -294,6 +347,7 @@ eidetic_install_managed() {
   install -d -m 0755 "$(dirname "$target")"
   install -m "$mode" "$source" "${target}.eidetic-new"
   mv -f -- "${target}.eidetic-new" "$target"
+  eidetic_record_managed_hash "$logical" "$(eidetic_sha256 "$target")"
 }
 
 eidetic_detect_raspberry_pi_hardware() {

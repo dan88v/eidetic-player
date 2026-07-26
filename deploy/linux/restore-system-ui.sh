@@ -43,7 +43,7 @@ mapfile -t records < <(grep '^file	' "$manifest" | tac)
 mapfile -t feature_records < <(grep '^feature	gpio-i2s-dac	' "$manifest" || true)
 preserved_records=()
 for record in "${records[@]}"; do
-  IFS=$'\t' read -r _ logical existed key mode ownership hash <<<"$record"
+  IFS=$'\t' read -r _ logical existed key mode ownership hash managed_hash <<<"$record"
   if (( ! include_power_integration )); then
     case "$logical" in
       /usr/libexec/eidetic-player-power-helper | /etc/polkit-1/rules.d/49-eidetic-player-power.rules)
@@ -54,6 +54,26 @@ for record in "${records[@]}"; do
   fi
   target="$(eidetic_target "$logical")"
   [[ ! -L "$target" ]] || eidetic_die "refusing administrative symlink: $logical"
+  if [[ -z "${managed_hash:-}" || "$managed_hash" == - ]]; then
+    eidetic_log \
+      "Warning: preserving $logical because this legacy manifest does not prove current managed integrity."
+    preserved_records+=("$record")
+    continue
+  fi
+  if [[ -e "$target" ]]; then
+    if [[ ! -f "$target" ||
+      "$(eidetic_sha256 "$target")" != "$managed_hash" ]]; then
+      eidetic_log \
+        "Warning: preserving externally changed $logical for manual review."
+      preserved_records+=("$record")
+      continue
+    fi
+  elif [[ "$existed" == 1 ]]; then
+    eidetic_log \
+      "Warning: preserving the record for externally removed $logical; original was not restored."
+    preserved_records+=("$record")
+    continue
+  fi
   if ((dry_run)); then
     eidetic_log "Would restore $logical (original=$existed, sha256=$hash)"
     continue
