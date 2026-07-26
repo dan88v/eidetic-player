@@ -277,6 +277,34 @@ Final gates:
 Docker is not available. Linux staging was **NOT RUN locally**; WSL was not
 used. No Linux or Raspberry behavioral PASS is invented.
 
+## CI follow-up: portable awk loop variable
+
+The first CI validation reached the new Raspberry cmdline assertions after
+installing the staged release, then failed while parsing `assert_token_count`:
+
+```text
+awk: cmd. line:2:     { for (index = 1; index <= NF; index += 1) if ($index == token) count += 1 }
+awk: cmd. line:2:                  ^ syntax error
+```
+
+`index` is an awk built-in function name and is rejected as a loop variable by
+the awk implementation used in CI. The staging-only assertion now uses
+`field_number`. No production file changed.
+
+Follow-up verification:
+
+- the corrected awk expression executed under Git Bash and returned the
+  expected exact token count `1`: PASS;
+- `bash -n deploy/linux/test-staging.sh`: PASS;
+- focused `linux-installation.test.ts`: 14/14 PASS;
+- a focused source regression requires `field_number` and rejects
+  `for (index =`: PASS;
+- `npm.cmd run format:check`: PASS;
+- `npm.cmd run typecheck`: PASS;
+- `npm.cmd run lint`: PASS;
+- `npm.cmd run verify:linux:installer`: PASS, 62 total, 51 pass, 11 expected
+  Windows/POSIX/Linux-staging skips.
+
 ## Windows real smoke
 
 The unchanged application was run with:

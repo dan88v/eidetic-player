@@ -22,7 +22,7 @@ fixture_fail() {
 assert_token_count() {
   local file="$1" token="$2" expected="$3" count
   count="$(awk -v token="$token" '
-    { for (index = 1; index <= NF; index += 1) if ($index == token) count += 1 }
+    { for (field_number = 1; field_number <= NF; field_number += 1) if ($field_number == token) count += 1 }
     END { print count + 0 }
   ' "$file")"
   [[ "$count" == "$expected" ]] ||

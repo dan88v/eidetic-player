@@ -86,6 +86,15 @@ void test("Linux staging covers Raspberry cmdline and guarded tail paths", async
     staging.includes('write_legacy_conf "$root" appliance 1 1 1 1 1'),
     "legacy Appliance splash coverage must remain enabled",
   );
+  assert.match(
+    staging,
+    /for \(field_number = 1; field_number <= NF; field_number \+= 1\)/,
+  );
+  assert.doesNotMatch(
+    staging,
+    /for \(index =/,
+    "awk built-in function names must not be used as loop variables",
+  );
   assert.ok(
     installer.includes(
       'cmdline="$(eidetic_target /boot/firmware/cmdline.txt)"',
