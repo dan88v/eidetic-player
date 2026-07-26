@@ -384,6 +384,7 @@ if [[ "${EUID}" -eq 0 ]]; then
 else
   printf 'Unprivileged-build and keyboard fixtures require root; run this staging suite with sudo for those gates.\n'
 fi
+"$SCRIPT_DIR/test-gpio-i2s-dac-staging.sh" "$runtime_user"
 
 fixture raspios \
   $'PRETTY_NAME="Raspberry Pi OS (64-bit)"\nNAME="Raspberry Pi OS"\nID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie' \

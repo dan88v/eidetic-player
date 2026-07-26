@@ -99,6 +99,13 @@ normally exposes a PulseAudio-compatible RDP sink and may have no physical ALSA
 card; that is not a defect. Raspberry Pi validation must cover its real
 ALSA/PipeWire stack and selected USB DAC.
 
+The optional Raspberry GPIO/I²S integration is limited to the generic
+`i2s-dac` overlay and is opt-in in both installer modes. It owns only its exact
+marked block in the selected boot `config.txt`; pre-existing and ambiguous
+configuration is preserved. It does not configure ALSA, PipeWire, the default
+sink, mixer state, or MPV. Wiring and lifecycle details are documented in the
+Linux installation guide.
+
 ## Performance profile
 
 `EIDETIC_ANALYZER_PROFILE=rpi3` opts into the existing conservative analyzer

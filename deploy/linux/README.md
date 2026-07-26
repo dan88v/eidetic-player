@@ -390,9 +390,54 @@ Missing optional audio tools do not fail the installation checks. The doctor
 does not start MPV or playback, play probe audio, mutate services, use sudo, or
 expose raw device IDs, credentials, media paths, or environment values.
 
-Automatic Raspberry Pi audio configuration and installer-owned PCM integration
-remain deferred to Step 2.15.2. Real Raspberry application-path validation
-remains deferred to Step 2.15.3.
+### Generic GPIO/I²S DAC — PCM5102A-compatible
+
+On recognized Raspberry Pi OS hardware, Standard and Appliance installation
+offer this opt-in question, defaulting to No:
+
+```text
+Configure a generic GPIO/I²S DAC (PCM5102A-compatible)? [y/N]
+```
+
+For unattended installation, `--gpio-i2s-dac` explicitly enables the same
+choice. The installer verifies the active firmware or legacy boot layout and
+the matching `i2s-dac.dtbo` before adding only this managed block:
+
+```text
+# BEGIN EIDETIC MANAGED GPIO I2S DAC
+dtoverlay=i2s-dac
+# END EIDETIC MANAGED GPIO I2S DAC
+```
+
+An existing active `dtoverlay=i2s-dac` remains pre-existing and unowned:
+install, update, restore, rollback, and uninstall neither rewrite nor remove
+it. A marked block without matching manifest ownership is also preserved. A
+different or ambiguous audio/DAC/I²S overlay skips only DAC configuration and
+leaves the rest of installation running. No ALSA, PipeWire, WirePlumber,
+PulseAudio, mixer, volume, default sink, or MPV output setting is changed.
+
+Uninstall preserves an Eidetic-managed block by default. Interactive uninstall
+offers removal only when ownership is proven; unattended removal requires
+`--remove-gpio-i2s-dac`. A real boot-file change requires a later manual reboot;
+the tools never reboot automatically.
+
+The PCM5102A-compatible wiring verified during Step 2.15.1-R1 was:
+
+| Module signal | Raspberry Pi physical pin | Function |
+| ------------- | ------------------------- | -------- |
+| VIN           | 2                         | 5 V      |
+| GND           | 6                         | Ground   |
+| SCK           | 9                         | Ground   |
+| BCK           | 12                        | GPIO18   |
+| LCK/LRCK/WS   | 35                        | GPIO19   |
+| DIN           | 40                        | GPIO21   |
+
+Power the Raspberry Pi off before wiring. Verify the documentation for the
+exact module: not every board accepts 5 V VIN or includes an onboard regulator,
+and jumpers must not be changed by assumption. The installer configures only
+the software overlay; it cannot electrically validate wiring. Bluetooth Audio
+is outside this integration. Physical PCM5102A and HDMI validation remains
+deferred to Step 2.15.3.
 
 ## Permissions and data safety
 

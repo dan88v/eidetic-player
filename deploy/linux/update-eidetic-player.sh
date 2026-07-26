@@ -98,6 +98,7 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref" --mode "$mode" --unattende
   --hide-pointer "$(choice_to_flag "$pointer")"
   --splash "$(choice_to_flag "$splash")" --autologin "$(choice_to_flag "$autologin")"
   --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
+[[ "${EIDETIC_GPIO_I2S_DAC:-0}" != 1 ]] || args+=(--gpio-i2s-dac)
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && args+=(--dry-run)
 ((full_verify)) && args+=(--full-verify)

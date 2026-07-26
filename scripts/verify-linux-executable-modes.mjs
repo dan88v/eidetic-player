@@ -21,6 +21,7 @@ const requiredExecutablePaths = new Set([
   "deploy/linux/runtime/eidetic-player-resume",
   "deploy/linux/runtime/eidetic-player-smb-helper",
   "deploy/linux/test-case-sensitive-wsl.sh",
+  "deploy/linux/test-gpio-i2s-dac-staging.sh",
   "deploy/linux/test-platform-detection.sh",
   "deploy/linux/test-rpi-keyboard.sh",
   "deploy/linux/test-staging.sh",

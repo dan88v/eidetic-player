@@ -36,6 +36,7 @@ const requiredScripts = [
   "runtime/eidetic-player-resume",
   "runtime/eidetic-player-smb-helper",
   "test-case-sensitive-wsl.sh",
+  "test-gpio-i2s-dac-staging.sh",
   "test-platform-detection.sh",
   "test-rpi-keyboard.sh",
   "test-staging.sh",
@@ -43,6 +44,50 @@ const requiredScripts = [
   "uninstall-eidetic-player.sh",
   "update-eidetic-player.sh",
 ];
+
+void test("GPIO/I2S DAC parser, ownership and atomic lifecycle fixtures pass", async () => {
+  const python = process.platform === "win32" ? "python" : "python3";
+  const result = await execFileAsync(
+    python,
+    ["-m", "unittest", "deploy/linux/test_gpio_i2s_dac.py"],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+  assert.match(result.stderr, /Ran 12 tests/u);
+  assert.match(result.stderr, /OK/u);
+});
+
+void test("GPIO/I2S DAC lifecycle stays opt-in and preserves unowned configuration", async () => {
+  const [installer, update, restore, uninstall, staging, helper] =
+    await Promise.all([
+      readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/restore-system-ui.sh", "utf8"),
+      readFile("deploy/linux/uninstall-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/test-staging.sh", "utf8"),
+      readFile("deploy/linux/lib/gpio_i2s_dac.py", "utf8"),
+    ]);
+
+  assert.match(
+    installer,
+    /Configure a generic GPIO\/I2S DAC \(PCM5102A-compatible\)\? \[y\/N\]/u,
+  );
+  assert.match(installer, /--gpio-i2s-dac/u);
+  assert.match(installer, /EIDETIC_GPIO_I2S_DAC=\$gpio_i2s_dac/u);
+  assert.match(update, /EIDETIC_GPIO_I2S_DAC:-0/u);
+  assert.match(restore, /feature_records/u);
+  assert.match(uninstall, /--remove-gpio-i2s-dac/u);
+  assert.match(
+    uninstall,
+    /Remove the GPIO\/I2S DAC configuration added by Eidetic\? \[y\/N\]/u,
+  );
+  assert.match(staging, /test-gpio-i2s-dac-staging\.sh" "\$runtime_user"/u);
+  assert.match(helper, /os\.replace\(temporary, path\)/u);
+  assert.match(helper, /managed-unowned/u);
+  assert.doesNotMatch(
+    [installer, update, restore, uninstall, helper].join("\n"),
+    /dtparam=audio=off|\.asoundrc|\/etc\/asound\.conf|echo .*>>.*config\.txt/u,
+  );
+});
 
 async function runModeVerifier(
   repository: string,

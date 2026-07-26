@@ -40,6 +40,7 @@ manifest="$(eidetic_target /var/lib/eidetic-player/system-ui-manifest-v1.tsv)"
 backups="$(eidetic_target /var/lib/eidetic-player/backups)"
 [[ -e "$manifest" ]] || { eidetic_log "No Eidetic system UI manifest is present."; exit 0; }
 mapfile -t records < <(grep '^file	' "$manifest" | tac)
+mapfile -t feature_records < <(grep '^feature	gpio-i2s-dac	' "$manifest" || true)
 preserved_records=()
 for record in "${records[@]}"; do
   IFS=$'\t' read -r _ logical existed key mode ownership hash <<<"$record"
@@ -74,6 +75,9 @@ done
 if (( ! dry_run )); then
   printf '# eidetic-system-ui-manifest-v1\n' >"$manifest"
   for record in "${preserved_records[@]}"; do
+    printf '%s\n' "$record" >>"$manifest"
+  done
+  for record in "${feature_records[@]}"; do
     printf '%s\n' "$record" >>"$manifest"
   done
 fi

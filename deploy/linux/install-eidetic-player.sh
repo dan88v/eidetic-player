@@ -14,6 +14,9 @@ full_verify=0
 EIDETIC_ROOT=/
 rpi_keyboard=keep
 rpi_keyboard_explicit=0
+gpio_i2s_dac=0
+gpio_i2s_dac_explicit=0
+gpio_i2s_dac_state=not-requested
 SOURCE_REMOTE=https://github.com/dan88v/eidetic-player.git
 declare -A choice=()
 
@@ -35,6 +38,7 @@ Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
   --splash yes|no             Appliance choice
   --autologin yes|no          Appliance choice
   --rpi-onscreen-keyboard keep|disable
+  --gpio-i2s-dac              Configure a generic GPIO/I2S DAC (opt-in)
   --help
 EOF
 }
@@ -64,6 +68,11 @@ while (($#)); do
       rpi_keyboard="$2"
       rpi_keyboard_explicit=1
       shift 2
+      ;;
+    --gpio-i2s-dac)
+      gpio_i2s_dac=1
+      gpio_i2s_dac_explicit=1
+      shift
       ;;
     --help) usage; exit 0;;
     *) eidetic_die "unknown option: $1";;
@@ -138,6 +147,35 @@ fi
 if [[ "$rpi_keyboard" == disable ]]; then
   eidetic_require_rpi_keyboard_support
 fi
+if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
+  "$gpio_i2s_dac_explicit" == 0 ]]; then
+  [[ -t 0 ]] ||
+    eidetic_die "GPIO/I2S DAC choice requires a terminal or --gpio-i2s-dac"
+  read -r -p "Configure a generic GPIO/I2S DAC (PCM5102A-compatible)? [y/N] " answer
+  [[ "$answer" =~ ^[Yy]$ ]] && gpio_i2s_dac=1 || gpio_i2s_dac=0
+fi
+
+gpio_dac_helper="$SCRIPT_DIR/lib/gpio_i2s_dac.py"
+gpio_dac_plan="not requested"
+if ((gpio_i2s_dac)); then
+  command -v python3 >/dev/null ||
+    eidetic_die "python3 is required to inspect GPIO/I2S boot configuration"
+  gpio_dac_args=(inspect --root "$EIDETIC_ROOT")
+  [[ "$EIDETIC_DISTRO" != raspios ]] || gpio_dac_args+=(--raspberry)
+  gpio_i2s_dac_state="$(python3 "$gpio_dac_helper" "${gpio_dac_args[@]}")" ||
+    eidetic_die "GPIO/I2S DAC boot inspection failed"
+  case "$gpio_i2s_dac_state" in
+    absent) gpio_dac_plan="will configure i2s-dac" ;;
+    preexisting) gpio_dac_plan="pre-existing configuration preserved" ;;
+    managed) gpio_dac_plan="already managed" ;;
+    managed-unowned) gpio_dac_plan="managed markers preserved without ownership" ;;
+    conflict) gpio_dac_plan="skipped due to conflicting audio overlay" ;;
+    overlay-unavailable) gpio_dac_plan="overlay unavailable" ;;
+    unsupported-platform) gpio_dac_plan="unavailable on this platform" ;;
+    failed) gpio_dac_plan="unsafe boot configuration" ;;
+    *) eidetic_die "unexpected GPIO/I2S DAC state: $gpio_i2s_dac_state" ;;
+  esac
+fi
 
 packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg
   network-manager dbus polkitd pkexec udisks2 cifs-utils xterm)
@@ -155,6 +193,7 @@ else
   eidetic_log "Verification profile: install-safe"
 fi
 eidetic_log "Raspberry Pi OS on-screen keyboard: $rpi_keyboard"
+eidetic_log "GPIO/I2S DAC: $gpio_dac_plan"
 for key in "${questions[@]}"; do eidetic_log "  $key=${choice[$key]}"; done
 if ((dry_run)); then
   eidetic_log "Dry-run complete: no files, packages, services, boot settings, mounts, or network profiles changed."
@@ -168,7 +207,15 @@ release_stage=
 keyboard_changed=0
 install_committed=0
 keyboard_attempt_state=
+gpio_dac_changed=0
+gpio_dac_session="install-${PPID}-${BASHPID}"
 cleanup() {
+  if [[ "$gpio_dac_changed" == 1 && "$install_committed" == 0 ]]; then
+    eidetic_log "Restoring boot configuration after failed installation."
+    python3 "$gpio_dac_helper" rollback --root "$EIDETIC_ROOT" \
+      --session "$gpio_dac_session" >/dev/null ||
+      eidetic_log "CRITICAL: GPIO/I2S boot rollback could not be proven; manual review is required."
+  fi
   if [[ "$keyboard_changed" == 1 && "$install_committed" == 0 &&
     -n "$keyboard_attempt_state" ]]; then
     eidetic_log "Restoring Raspberry Pi OS on-screen keyboard after failed installation."
@@ -457,6 +504,7 @@ EIDETIC_AUTOLOGIN=$([[ "${choice[autologin]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_RUNTIME_USER=$runtime_user
 EIDETIC_GIT_REF=$git_ref
 EIDETIC_RPI_ONSCREEN_KEYBOARD=$rpi_keyboard
+EIDETIC_GPIO_I2S_DAC=$gpio_i2s_dac
 BACKEND_HOST=$backend_host
 BACKEND_PORT=$backend_port
 EIDETIC_TERMINAL=x-terminal-emulator
@@ -589,8 +637,25 @@ if [[ "$rpi_keyboard" == disable ]]; then
   [[ "$(eidetic_get_rpi_keyboard_state)" == always-off ]] ||
     eidetic_die "Raspberry Pi OS on-screen keyboard verification failed"
 fi
+if ((gpio_i2s_dac)); then
+  gpio_dac_args=(apply --root "$EIDETIC_ROOT" --session "$gpio_dac_session")
+  [[ "$EIDETIC_DISTRO" != raspios ]] || gpio_dac_args+=(--raspberry)
+  gpio_i2s_dac_state="$(python3 "$gpio_dac_helper" "${gpio_dac_args[@]}")" ||
+    eidetic_die "GPIO/I2S DAC configuration failed safely"
+  if [[ "$gpio_i2s_dac_state" == added ]]; then
+    gpio_dac_changed=1
+    eidetic_log "GPIO/I2S DAC: managed i2s-dac block added; reboot required."
+  else
+    eidetic_log "GPIO/I2S DAC: $gpio_i2s_dac_state; boot configuration unchanged."
+  fi
+fi
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=
+if [[ "$gpio_dac_changed" == 1 ]]; then
+  python3 "$gpio_dac_helper" commit --root "$EIDETIC_ROOT" \
+    --session "$gpio_dac_session" >/dev/null ||
+    eidetic_die "GPIO/I2S DAC transaction commit failed"
+fi
 install_committed=1
 
 eidetic_log "Installed release $release_id atomically."
