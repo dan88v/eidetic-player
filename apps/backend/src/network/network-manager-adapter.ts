@@ -62,6 +62,10 @@ export class NetworkManagerAdapter implements NetworkAdapter {
   private networks: readonly WifiNetwork[] = [];
   private scanState: AdapterNetworkState["scanState"] = "idle";
 
+  constructor(
+    private readonly processRunner: typeof runBoundedProcess = runBoundedProcess,
+  ) {}
+
   private async nmcli(
     args: readonly string[],
     input?: string,
@@ -69,7 +73,7 @@ export class NetworkManagerAdapter implements NetworkAdapter {
   ): Promise<string> {
     let result;
     try {
-      result = await runBoundedProcess("nmcli", args, {
+      result = await this.processRunner("nmcli", args, {
         ...(input === undefined ? {} : { input }),
         timeoutMs,
         env: { ...process.env, LC_ALL: "C", LANG: "C" },
@@ -136,11 +140,21 @@ export class NetworkManagerAdapter implements NetworkAdapter {
         "-e",
         "yes",
         "-f",
-        "GENERAL.MTU,GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS,IP4.METHOD",
+        "GENERAL.MTU,GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS",
         "device",
         "show",
         native,
       ]);
+      const connectionName = connection === "--" ? "" : connection;
+      const ipv4Method = connectionName
+        ? await this.nmcli([
+            "-g",
+            "ipv4.method",
+            "connection",
+            "show",
+            connectionName,
+          ])
+        : "";
       const fields = new Map<string, string[]>();
       for (const detail of details.split(/\r?\n/u).filter(Boolean)) {
         const separator = detail.indexOf(":");
@@ -159,9 +173,9 @@ export class NetworkManagerAdapter implements NetworkAdapter {
         enabled: state !== "unavailable",
         connected,
         ipv4Method:
-          fields.get("IP4.METHOD")?.[0] === "auto"
+          ipv4Method === "auto"
             ? "dhcp"
-            : fields.get("IP4.METHOD")?.[0] === "manual"
+            : ipv4Method === "manual"
               ? "manual"
               : "unknown",
         ipv4Address: address || null,

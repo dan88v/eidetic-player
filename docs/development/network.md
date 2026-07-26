@@ -55,7 +55,10 @@ Linux uses `nmcli` with separate arguments, `LC_ALL=C`, explicit terse/escaped
 fields, bounded timeouts, no shell, sudo, or interactive prompt. Secrets use
 `--passwd-file /dev/stdin`. A temporary connection is activated before the
 single Eidetic profile is replaced. Missing NetworkManager degrades to
-`unsupported`; the adapter never edits system network files.
+`unsupported`; the adapter never edits system network files. Device state and
+addresses come from `device show`, while the IPv4 method is read from the
+active connection profile because `IP4.METHOD` is not a portable
+`device show` field.
 
 Eidetic only creates, replaces, disconnects, or deletes the profile named
 `Eidetic Player Wi-Fi`. Profiles created by the operating system or other
@@ -116,3 +119,10 @@ The field remains authoritative, keeps password masking unless the form's
 Show/Hide control is used, is cleared immediately when submitted, and is never
 persisted. Enterprise/EAP, WEP, captive-portal login, IPv6 editing, VPN, proxy,
 hotspot, SMB, and Raspberry Pi deployment policy remain out of scope.
+
+On Windows, `EIDETIC_NETWORK_FIXTURE=1` supplies deterministic Wired and Wi-Fi
+adapters plus Open, WPA2 Personal, WPA3 Personal, and unsupported networks.
+The fixture supports scan, radio, connect, hidden-network, disconnect, Forget,
+and IPv4 safe-transaction UI validation without touching the host network or
+retaining submitted passwords. Its documentation-only addresses use reserved
+example ranges.

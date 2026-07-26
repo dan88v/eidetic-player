@@ -1,12 +1,14 @@
 import type {
   Ipv4Configuration,
   NetworkAdapterSnapshot,
+  WifiNetwork,
   WifiSecurity,
 } from "../../../../packages/shared/src/network.js";
-import type {
-  AdapterIpv4RollbackState,
-  AdapterNetworkState,
-  NetworkAdapter,
+import {
+  NetworkAdapterError,
+  type AdapterIpv4RollbackState,
+  type AdapterNetworkState,
+  type NetworkAdapter,
 } from "./network-adapter.js";
 
 export class FixtureNetworkAdapter implements NetworkAdapter {
@@ -16,14 +18,42 @@ export class FixtureNetworkAdapter implements NetworkAdapter {
     return Promise.resolve(this.state);
   }
   scan(adapterId: string): Promise<void> {
-    void adapterId;
-    return Promise.resolve();
-  }
-  setRadio(_adapterId: string, enabled: boolean): Promise<void> {
+    this.findWifi(adapterId);
+    if (this.state.softwareRadio === "off")
+      throw new NetworkAdapterError(
+        "wifi-hardware-off",
+        "Wi-Fi is switched off.",
+      );
     this.state = {
       ...this.state,
+      scanState:
+        this.state.availableNetworks.length > 0 ? "results" : "no-networks",
+    };
+    return Promise.resolve();
+  }
+  setRadio(adapterId: string, enabled: boolean): Promise<void> {
+    this.findWifi(adapterId);
+    const wifiAdapters = this.state.wifiAdapters.map((adapter) =>
+      adapter.id === adapterId
+        ? {
+            ...adapter,
+            enabled,
+            connected: enabled ? adapter.connected : false,
+          }
+        : adapter,
+    );
+    this.state = {
+      ...this.state,
+      wifiAdapters,
       softwareRadio: enabled ? "on" : "off",
       scanState: enabled ? "idle" : "wifi-off",
+      currentNetwork: enabled ? this.state.currentNetwork : null,
+      availableNetworks: enabled
+        ? this.state.availableNetworks
+        : this.state.availableNetworks.map((network) => ({
+            ...network,
+            connected: false,
+          })),
     };
     return Promise.resolve();
   }
@@ -32,9 +62,23 @@ export class FixtureNetworkAdapter implements NetworkAdapter {
     networkId: string,
     password: string | undefined,
   ): Promise<void> {
-    void adapterId;
-    void networkId;
-    void password;
+    this.ensureRadio(adapterId);
+    const network = this.state.availableNetworks.find(
+      (candidate) => candidate.id === networkId,
+    );
+    if (!network)
+      throw new NetworkAdapterError("network-not-found", "Network not found.");
+    if (!network.supported || network.security === "unsupported")
+      throw new NetworkAdapterError(
+        "unsupported",
+        "This Wi-Fi security mode is unsupported.",
+      );
+    if (network.security !== "open" && !password)
+      throw new NetworkAdapterError(
+        "invalid-credentials",
+        "A password is required.",
+      );
+    this.connectNetwork(adapterId, network);
     return Promise.resolve();
   }
   connectHidden(
@@ -43,18 +87,40 @@ export class FixtureNetworkAdapter implements NetworkAdapter {
     security: Exclude<WifiSecurity, "unsupported">,
     password: string | undefined,
   ): Promise<void> {
-    void adapterId;
-    void ssid;
-    void security;
-    void password;
+    this.ensureRadio(adapterId);
+    if (!ssid.trim())
+      throw new NetworkAdapterError(
+        "network-not-found",
+        "A network name is required.",
+      );
+    if (security !== "open" && !password)
+      throw new NetworkAdapterError(
+        "invalid-credentials",
+        "A password is required.",
+      );
+    this.connectNetwork(adapterId, {
+      id: "network-5555555555555555",
+      ssid: ssid.trim(),
+      signalPercent: 0,
+      security,
+      connected: true,
+      supported: true,
+    });
     return Promise.resolve();
   }
   disconnect(adapterId: string): Promise<void> {
-    void adapterId;
+    this.findWifi(adapterId);
+    this.setWifiConnection(adapterId, false);
     return Promise.resolve();
   }
   forgetManagedProfile(adapterId: string): Promise<void> {
-    void adapterId;
+    this.findWifi(adapterId);
+    if (!this.state.managedByEidetic)
+      throw new NetworkAdapterError(
+        "profile-error",
+        "No Eidetic-managed Wi-Fi profile exists.",
+      );
+    this.setWifiConnection(adapterId, false, false);
     return Promise.resolve();
   }
   captureIpv4(adapterId: string): Promise<AdapterIpv4RollbackState> {
@@ -95,6 +161,71 @@ export class FixtureNetworkAdapter implements NetworkAdapter {
     ].find((candidate) => candidate.id === adapterId);
     if (!adapter) throw new Error("Fixture adapter not found.");
     return adapter;
+  }
+
+  private findWifi(adapterId: string): NetworkAdapterSnapshot {
+    const adapter = this.find(adapterId);
+    if (adapter.type !== "wifi")
+      throw new NetworkAdapterError(
+        "adapter-not-found",
+        "Wi-Fi adapter not found.",
+      );
+    return adapter;
+  }
+
+  private ensureRadio(adapterId: string): void {
+    this.findWifi(adapterId);
+    if (this.state.softwareRadio !== "on")
+      throw new NetworkAdapterError(
+        "wifi-hardware-off",
+        "Wi-Fi is switched off.",
+      );
+  }
+
+  private connectNetwork(adapterId: string, selected: WifiNetwork): void {
+    const current = { ...selected, connected: true };
+    this.state = {
+      ...this.state,
+      wifiAdapters: this.state.wifiAdapters.map((adapter) =>
+        adapter.id === adapterId
+          ? {
+              ...adapter,
+              enabled: true,
+              connected: true,
+              ipv4Method: "dhcp",
+              ipv4Address: "198.51.100.20",
+              subnetMask: "255.255.255.0",
+              gateway: "198.51.100.1",
+              dnsServers: ["198.51.100.1"],
+            }
+          : adapter,
+      ),
+      currentNetwork: current,
+      managedByEidetic: true,
+      availableNetworks: this.state.availableNetworks.map((network) => ({
+        ...network,
+        connected: network.id === selected.id,
+      })),
+    };
+  }
+
+  private setWifiConnection(
+    adapterId: string,
+    connected: boolean,
+    managedByEidetic = this.state.managedByEidetic,
+  ): void {
+    this.state = {
+      ...this.state,
+      wifiAdapters: this.state.wifiAdapters.map((adapter) =>
+        adapter.id === adapterId ? { ...adapter, connected } : adapter,
+      ),
+      currentNetwork: connected ? this.state.currentNetwork : null,
+      managedByEidetic,
+      availableNetworks: this.state.availableNetworks.map((network) => ({
+        ...network,
+        connected: connected && network.id === this.state.currentNetwork?.id,
+      })),
+    };
   }
 
   private replace(adapterId: string, configuration: Ipv4Configuration): void {

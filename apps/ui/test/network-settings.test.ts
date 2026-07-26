@@ -129,3 +129,14 @@ void test("completed IPv4 transactions close the dialog and resync the draft", (
   );
   assert.doesNotMatch(panel, /!next\.configurationTransaction\s*\)\s*return;/);
 });
+
+void test("standalone network details preserve the panel content margins", () => {
+  const styles = readFileSync(
+    new URL("../src/styles/screens.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    styles,
+    /\.network-panel > \.network-details\s*\{\s*padding: var\(--space-4\) var\(--space-6\);/,
+  );
+});
