@@ -263,6 +263,16 @@ immediately; failed persistence rolls back, shows the existing toast, and does
 not navigate. Music browsing can expose Folders, Library, or both without
 hiding Sources.
 
+Settings exposes an `Audio` row with a general description. Its internal Audio
+screen owns the `Output` row and shows the selected output below the label;
+activating it opens the device-selection screen. Output remains always
+openable, including with only `System default`, an empty MPV list, an
+unavailable preferred device, or MPV unavailable. Selection keeps
+`System default` first, shows descriptions and opaque technical IDs as text,
+and distinguishes the persistent `Preferred` indicator from `In use`.
+Selection and manual Refresh remain on the page and report transient outcomes
+through the shared toast.
+
 The optional global inactivity timer returns to Now Playing without changing
 playback. It closes transient overlays and is suspended for every route in the
 Settings screen group, including future sub-screens and their dialogs. Entering

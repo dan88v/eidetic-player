@@ -3,6 +3,7 @@ import type { IndexedLibrarySnapshot } from "../../../../packages/shared/src/lib
 import type { RemovableDeviceListResponse } from "../../../../packages/shared/src/library";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { SmbSnapshot } from "../../../../packages/shared/src/smb";
+import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 
 export interface ComponentView<T extends HTMLElement = HTMLElement> {
   readonly element: T;
@@ -12,6 +13,7 @@ export interface ComponentView<T extends HTMLElement = HTMLElement> {
   updateRemovableDevices?(snapshot: RemovableDeviceListResponse): void;
   updateNetworkSnapshot?(snapshot: NetworkSnapshot): void;
   updateSmbSnapshot?(snapshot: SmbSnapshot): void;
+  updateAudioOutputState?(snapshot: AudioOutputState): void;
   requestLeave?(leave: () => void): boolean;
   destroy(): void;
 }

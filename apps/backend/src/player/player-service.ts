@@ -28,6 +28,10 @@ import type {
   PlayerSessionSnapshot,
   ResolvedQueueItem,
 } from "../player-session/player-session-types.js";
+import type {
+  AudioOutputMpvAdapter,
+  AudioOutputPropertyName,
+} from "../audio-output/audio-output-service.js";
 
 type StateListener = (state: PlayerState) => void;
 
@@ -69,7 +73,7 @@ function isQueueItemId(value: string): boolean {
   );
 }
 
-export class PlayerService {
+export class PlayerService implements AudioOutputMpvAdapter {
   private state: PlayerState = initialState;
   private controller: MpvController | null = null;
   private executable: string | null = null;
@@ -118,6 +122,10 @@ export class PlayerService {
   private readonly removableAvailability = new Map<string, boolean>();
   private readonly folderSourceAvailability = new Map<string, boolean>();
   private readonly smbAvailability = new Map<string, boolean>();
+  private readonly audioOutputPropertyListeners = new Set<
+    (name: AudioOutputPropertyName, value: unknown) => void
+  >();
+  private beforePlayback: () => Promise<void> = () => Promise.resolve();
 
   constructor(
     private readonly metadataService = new MetadataService(),
@@ -180,6 +188,48 @@ export class PlayerService {
   subscribeSeek(listener: (state: PlayerState) => void): () => void {
     this.seekListeners.add(listener);
     return () => this.seekListeners.delete(listener);
+  }
+
+  isMpvAvailable(): boolean {
+    return this.controller !== null && this.state.mpvAvailable;
+  }
+
+  isPlaybackActive(): boolean {
+    return (
+      this.state.currentTrack !== null &&
+      this.state.status !== "idle" &&
+      this.state.status !== "stopped" &&
+      this.state.status !== "unavailable"
+    );
+  }
+
+  readAudioOutputProperty(name: AudioOutputPropertyName): Promise<unknown> {
+    return this.requireController().getProperty(name);
+  }
+
+  async writeAudioOutputDevice(deviceId: string): Promise<void> {
+    await this.requireController().setProperty("audio-device", deviceId);
+  }
+
+  subscribeAudioOutputProperties(
+    listener: (name: AudioOutputPropertyName, value: unknown) => void,
+  ): () => void {
+    this.audioOutputPropertyListeners.add(listener);
+    return () => this.audioOutputPropertyListeners.delete(listener);
+  }
+
+  subscribePlaybackActivity(listener: (active: boolean) => void): () => void {
+    let previous = this.isPlaybackActive();
+    return this.subscribe(() => {
+      const active = this.isPlaybackActive();
+      if (active === previous) return;
+      previous = active;
+      listener(active);
+    });
+  }
+
+  setBeforePlaybackHook(hook: () => Promise<void>): void {
+    this.beforePlayback = hook;
   }
 
   async waitForLibraryScanSlot(signal: AbortSignal): Promise<void> {
@@ -371,6 +421,7 @@ export class PlayerService {
         "The selected library item is unavailable.",
       );
     const controller = this.requireController();
+    if (options.autoplay) await this.beforePlayback();
     const hadQueue = this.state.queue.length > 0;
     this.itemIds.clear();
     this.playlistItemIds = queue.map(
@@ -690,11 +741,13 @@ export class PlayerService {
 
   async playPause(): Promise<void> {
     this.requireTrack();
+    if (this.state.paused) await this.beforePlayback();
     await this.requireController().command(["cycle", "pause"]);
   }
 
   async play(): Promise<void> {
     this.requireTrack();
+    if (this.state.paused) await this.beforePlayback();
     await this.requireController().setProperty("pause", false);
   }
 
@@ -705,6 +758,7 @@ export class PlayerService {
 
   async previous(): Promise<void> {
     this.requireTrack();
+    if (!this.isPlaybackActive()) await this.beforePlayback();
     const controller = this.requireController();
     if (this.pendingTrackTarget === null && this.state.positionSeconds > 3) {
       await controller.command(["seek", 0, "absolute+exact"]);
@@ -719,6 +773,7 @@ export class PlayerService {
 
   async next(): Promise<void> {
     this.requireTrack();
+    if (!this.isPlaybackActive()) await this.beforePlayback();
     const base = this.pendingTrackTarget ?? this.state.currentQueueIndex;
     let target = base + 1;
     if (target >= this.state.queue.length) {
@@ -865,6 +920,7 @@ export class PlayerService {
       });
       return;
     }
+    await this.beforePlayback();
     this.pendingTrackTarget = index;
     await this.requireController().setProperty("playlist-pos", index);
     await this.requireController().setProperty("pause", false);
@@ -1068,6 +1124,7 @@ export class PlayerService {
     this.listeners.clear();
     this.naturalEndListeners.clear();
     this.seekListeners.clear();
+    this.audioOutputPropertyListeners.clear();
   }
 
   private async startController(): Promise<void> {
@@ -1128,6 +1185,8 @@ export class PlayerService {
     this.controller = null;
     this.unsubscribeMpv?.();
     this.unsubscribeMpv = null;
+    for (const listener of this.audioOutputPropertyListeners)
+      listener("audio-device-list", undefined);
     if (this.shuttingDown) return;
     this.updateError("MPV_EXITED", "MPV stopped unexpectedly.");
     if (this.restartAttempted || !this.executable) return;
@@ -1150,6 +1209,15 @@ export class PlayerService {
         paused: true,
         error: null,
       });
+      const controller = this.requireController();
+      const [deviceList, device] = await Promise.all([
+        controller.getProperty("audio-device-list"),
+        controller.getProperty("audio-device"),
+      ]);
+      for (const listener of this.audioOutputPropertyListeners) {
+        listener("audio-device-list", deviceList);
+        listener("audio-device", device);
+      }
     } catch (error) {
       console.error("[player] controlled MPV restart failed", error);
     }
@@ -1161,6 +1229,12 @@ export class PlayerService {
       typeof message.name === "string"
     ) {
       this.properties.set(message.name, message.data);
+      if (
+        message.name === "audio-device" ||
+        message.name === "audio-device-list"
+      )
+        for (const listener of this.audioOutputPropertyListeners)
+          listener(message.name, message.data);
       if (this.preparingPlaylist) return;
       if (
         (message.name === "path" &&
@@ -1232,6 +1306,7 @@ export class PlayerService {
       "mute",
       "idle-active",
       "audio-device",
+      "audio-device-list",
     ];
     const values = await Promise.all(
       names.map(async (name) => {

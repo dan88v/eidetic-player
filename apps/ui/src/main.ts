@@ -18,6 +18,7 @@ import { correctInitialViewportOnce } from "./utils/viewport";
 import { PlayerApiClient } from "./api/player-api-client";
 import { disconnectedPlayerState } from "./state/player-store";
 import { defaultSystemCapabilities } from "../../../packages/shared/src/system";
+import { disconnectedAudioOutputState } from "../../../packages/shared/src/audio-output";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -72,10 +73,12 @@ async function bootstrap(): Promise<void> {
     controller.abort();
   }, 5_000);
   let playerState = disconnectedPlayerState;
+  let audioOutputState = disconnectedAudioOutputState;
   let systemCapabilities = defaultSystemCapabilities;
   try {
     const initial = await new PlayerApiClient().bootstrap(controller.signal);
     playerState = initial.playerState;
+    audioOutputState = initial.audioOutput;
     systemCapabilities = initial.system;
   } catch (error) {
     console.error("[bootstrap] backend initialization failed", error);
@@ -107,6 +110,7 @@ async function bootstrap(): Promise<void> {
     store,
     platform.bridge,
     playerState,
+    audioOutputState,
     systemCapabilities,
   );
   const splash = document.querySelector<HTMLElement>("#app-splash");

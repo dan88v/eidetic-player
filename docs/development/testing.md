@@ -106,6 +106,20 @@ active visualizer and a restored Queue. Confirm artwork loads and Play,
 Previous, Next, and Shuffle remain responsive; a route-only check can miss
 WebView2 HTTP/1.1 connection-budget starvation.
 
+Audio Output therefore shares the player EventSource through a named
+`audio-output` event. Its regression checks must confirm that no additional
+EventSource is created, REST selection remains responsive with all normal
+app-lifetime subscriptions active, and duplicate device-list events do not
+increment semantic state or repeat the unplug toast.
+
+For Windows Audio Output smoke testing, use the persistent real MPV process.
+Record its PID and Queue/session invariants, switch to a known safe listed
+device and back to `auto` during playback, then verify PID, Queue IDs, current
+item, progressing position, volume, mute, shuffle, and repeat. Exercise manual
+Refresh, Power Quit, restart persistence before session restore, final user
+preference restoration, and the 1280 x 800, 1024 x 768, and 1366 x 768
+viewports. Physical unplug and Raspberry audio remain hardware-specific tests.
+
 ## Real media
 
 Real-media tests use user-provided local folders read-only.

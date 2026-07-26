@@ -7,9 +7,11 @@ import type {
 } from "../../../../packages/shared/src/player";
 import { config } from "../config";
 import type { SystemCapabilities } from "../../../../packages/shared/src/system";
+import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
+  readonly audioOutput: AudioOutputState;
   readonly system: SystemCapabilities;
 }
 
@@ -58,6 +60,7 @@ export class PlayerApiClient {
   subscribe(
     onState: (state: PlayerState) => void,
     onConnectionError: () => void,
+    onAudioOutputState?: (state: AudioOutputState) => void,
   ): () => void {
     const source = new EventSource(`${this.baseUrl}/api/player/events`);
     source.onmessage = (event) => {
@@ -69,6 +72,15 @@ export class PlayerApiClient {
         onConnectionError();
       }
     };
+    source.addEventListener("audio-output", (event) => {
+      try {
+        if (typeof event.data !== "string")
+          throw new Error("Invalid SSE payload");
+        onAudioOutputState?.(JSON.parse(event.data) as AudioOutputState);
+      } catch {
+        onConnectionError();
+      }
+    });
     source.onerror = onConnectionError;
     return () => {
       source.close();

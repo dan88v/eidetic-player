@@ -13,6 +13,8 @@ import type {
 } from "../../../../packages/shared/src/smb";
 import type { SmbApiClient } from "../api/smb-api-client";
 import type { SystemCapabilities } from "../../../../packages/shared/src/system";
+import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
+import type { AudioOutputApiClient } from "../api/audio-output-api-client";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -77,6 +79,8 @@ export interface ScreenContext {
   readonly removableApi: RemovableStorageApiClient;
   readonly networkApi: NetworkApiClient;
   readonly networkSnapshot: NetworkSnapshot;
+  readonly audioOutputApi: AudioOutputApiClient;
+  readonly audioOutputState: AudioOutputState;
   readonly smbApi: SmbApiClient;
   readonly smbSnapshot: SmbSnapshot;
   readonly selectedSmbConnection: SmbConnection | null;
@@ -272,6 +276,8 @@ export function createScreen(
         enterMaintenanceMode: context.enterMaintenanceMode,
         networkApi: context.networkApi,
         networkSnapshot: context.networkSnapshot,
+        audioOutputApi: context.audioOutputApi,
+        audioOutputState: context.audioOutputState,
         showToast: context.showToast,
         openSystemNetworkSettings: context.openSystemNetworkSettings,
         setScreenTitle: context.setScreenTitle,

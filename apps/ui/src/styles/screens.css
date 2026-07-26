@@ -1739,6 +1739,94 @@
     color: var(--color-text-secondary);
     font-size: var(--settings-row-description-size);
   }
+  .audio-output-navigation__summary,
+  .audio-output-row__copy {
+    min-width: 0;
+  }
+  .audio-output-navigation__summary {
+    display: grid;
+    gap: 0.125rem;
+  }
+  .audio-output-status {
+    margin-top: var(--space-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+  }
+  .audio-output-status + .settings-panel {
+    margin-top: var(--space-3);
+  }
+  .audio-output-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-4);
+    text-align: left;
+  }
+  .audio-output-row__copy {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .audio-output-row__copy strong {
+    overflow: hidden;
+    font-size: var(--settings-row-title-size);
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .audio-output-row__copy small {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--font-size-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .audio-output-row__indicators {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .audio-output-badge {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-pill);
+    color: var(--color-text-secondary);
+    background: var(--color-bg);
+    font-size: var(--font-size-xs);
+    font-weight: 650;
+  }
+  .audio-output-badge--preferred {
+    color: var(--color-accent-strong);
+  }
+  .audio-output-badge--unavailable {
+    color: var(--color-text-muted);
+  }
+  .audio-output-row:disabled {
+    cursor: default;
+  }
+  .audio-output-row--unavailable {
+    opacity: 0.8;
+  }
+  .audio-output-refresh[aria-busy="true"] {
+    opacity: 0.65;
+  }
+  .app-root[data-animations="true"]
+    .audio-output-refresh[aria-busy="true"]
+    .icon {
+    animation: audio-output-refresh-spin 700ms linear infinite;
+  }
+  @keyframes audio-output-refresh-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-root[data-animations="true"]
+      .audio-output-refresh[aria-busy="true"]
+      .icon {
+      animation: none;
+    }
+  }
   .setting-choice__check {
     color: var(--color-accent-strong);
     font-size: var(--settings-row-value-size);

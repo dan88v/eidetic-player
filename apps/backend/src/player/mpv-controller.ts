@@ -18,6 +18,7 @@ const observedProperties = [
   "mute",
   "idle-active",
   "audio-device",
+  "audio-device-list",
 ] as const;
 
 export interface MpvControllerOptions {

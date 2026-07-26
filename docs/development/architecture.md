@@ -37,6 +37,9 @@ future Raspberry shell.
   state, MPV commands, and authoritative state publication.
 - MPV owns decoding, playback position, pause, playlist behavior, volume, mute,
   repeat, shuffle, and the selected audio output.
+- `AudioOutputService` owns the validated MPV device list, preferred/effective
+  output state, rollback, and its versioned preference repository. It uses the
+  persistent `PlayerService` MPV adapter and never owns a second MPV process.
 - `MetadataService` enriches tracks asynchronously and must not delay playback.
 - `ArtworkService` validates, registers, caches, streams, and cleans artwork.
 - `AudioAnalyzerService` owns at most one realtime FFmpeg process.
@@ -84,6 +87,9 @@ Do not introduce a second owner for any of these concerns.
 
 - REST carries discrete, validated commands.
 - Player SSE carries low-frequency state and discrete changes.
+- Audio-output snapshots use a named event on the existing player SSE
+  connection. This preserves automatic updates without consuming another
+  app-lifetime WebView connection or adding polling.
 - Visualizer SSE carries only the active mode's compact realtime data.
 - Every visualizer frame carries player session, track, transition generation,
   sample-rate, and mode identity; the UI rejects any mismatched frame.
@@ -182,11 +188,13 @@ direct native path. A graceful shutdown or accepted system power action flushes
 the current position, volume, mute, shuffle, and repeat state through that same
 atomic repository. Play state is not persisted: restore remains paused.
 
-`GET /api/bootstrap` completes only after MPV discovery/startup and session
-restore. The UI keeps the static splash visible until this endpoint completes,
-subject to the minimum display interval and safety timeout, then mounts the
-shell once with the returned state. A restored Queue always starts paused at
-the saved position of its current item.
+`GET /api/bootstrap` completes only after MPV discovery/startup, audio-output
+preference loading and application, and session restore, in that order. If a
+preferred output is absent, bootstrap temporarily applies `auto` while retaining
+the preference. The UI keeps the static splash visible until this endpoint
+completes, subject to the minimum display interval and safety timeout, then
+mounts the shell once with the returned state. A restored Queue always starts
+paused at the saved position of its current item.
 If the saved current item belongs to absent removable storage, the existing
 current-item restore rule invalidates that saved session rather than inventing
 a root or auto-resuming. Runtime disconnects preserve the in-memory Queue.

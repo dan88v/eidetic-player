@@ -16,6 +16,11 @@ import { LibraryApiClient } from "../api/library-api-client";
 import { NetworkApiClient } from "../api/network-api-client";
 import { SmbApiClient } from "../api/smb-api-client";
 import { SystemApiClient } from "../api/system-api-client";
+import { AudioOutputApiClient } from "../api/audio-output-api-client";
+import {
+  disconnectedAudioOutputState,
+  type AudioOutputState,
+} from "../../../../packages/shared/src/audio-output";
 import {
   emptyNetworkSnapshot,
   type NetworkSnapshot,
@@ -75,6 +80,7 @@ export function mountApp(
   store: AppStore,
   platform: PlatformBridge,
   initialPlayerState: PlayerState = disconnectedPlayerState,
+  initialAudioOutputState: AudioOutputState = disconnectedAudioOutputState,
   systemCapabilities: SystemCapabilities = defaultSystemCapabilities,
 ): MountedApp {
   const api = new PlayerApiClient();
@@ -84,6 +90,7 @@ export function mountApp(
   const networkApi = new NetworkApiClient();
   const smbApi = new SmbApiClient();
   const systemApi = new SystemApiClient();
+  const audioOutputApi = new AudioOutputApiClient();
   if (systemCapabilities.hidePointerWhenInactive)
     root.dataset.pointerPolicy = "hide-when-inactive";
   const favorites = new FavoriteTrackStore(libraryApi);
@@ -294,6 +301,7 @@ export function mountApp(
   };
   let selectedRemovableDevice: RemovableDevice | null = null;
   let networkSnapshot: NetworkSnapshot = emptyNetworkSnapshot;
+  let audioOutputState = initialAudioOutputState;
   let smbSnapshot: SmbSnapshot = emptySmbSnapshot;
   let selectedSmbConnection: SmbConnection | null = null;
   let smbReturnScreen: ScreenId = "sources";
@@ -378,6 +386,8 @@ export function mountApp(
       removableApi,
       networkApi,
       networkSnapshot,
+      audioOutputApi,
+      audioOutputState,
       smbApi,
       smbSnapshot,
       selectedSmbConnection,
@@ -755,6 +765,20 @@ export function mountApp(
         // EventSource reconnects automatically; the last snapshot remains.
       });
     });
+  let lastAudioOutputNoticeRevision = audioOutputState.noticeRevision;
+  const receiveAudioOutputState = (snapshot: AudioOutputState): void => {
+    if (appDestroyed || snapshot.revision < audioOutputState.revision) return;
+    audioOutputState = snapshot;
+    currentScreen?.updateAudioOutputState?.(snapshot);
+    if (snapshot.noticeRevision > lastAudioOutputNoticeRevision) {
+      lastAudioOutputNoticeRevision = snapshot.noticeRevision;
+      if (snapshot.notice === "preferred-unavailable")
+        showMessage(
+          "Preferred audio output unavailable. Using System default.",
+          "neutral",
+        );
+    }
+  };
   const receiveSmbSnapshot = (snapshot: SmbSnapshot): void => {
     if (appDestroyed || snapshot.revision < smbSnapshot.revision) return;
     const previouslyReadable = new Set(
@@ -932,6 +956,7 @@ export function mountApp(
     () => {
       // EventSource retries automatically; the last valid state remains visible.
     },
+    receiveAudioOutputState,
   );
   void Promise.resolve(initialPlayerState)
     .then(async (state) => {

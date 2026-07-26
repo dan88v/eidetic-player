@@ -74,6 +74,8 @@ import type {
   WifiSecurity,
 } from "../../../packages/shared/src/network.js";
 import { NetworkSseHub } from "./api/network-sse-hub.js";
+import { AudioOutputService } from "./audio-output/audio-output-service.js";
+import { AudioOutputError } from "./audio-output/audio-output-error.js";
 import { NetworkService } from "./network/network-service.js";
 import { createPlatformNetworkAdapter } from "./network/platform-network-adapter.js";
 import { NetworkAdapterError } from "./network/network-adapter.js";
@@ -129,6 +131,8 @@ const systemCapabilities: SystemCapabilities = {
 };
 
 const player = new PlayerService();
+const audioOutput = new AudioOutputService(player);
+player.setBeforePlaybackHook(() => audioOutput.prepareForPlayback());
 const filesystemProvider = new LocalFilesystemProvider();
 const pathService = PathService.forCurrentPlatform(filesystemProvider);
 const sourceRepository = new SourceRepository();
@@ -298,7 +302,7 @@ const powerActions = new PowerActionCoordinator(
     },
   }),
 );
-const events = new SseHub(player);
+const events = new SseHub(player, audioOutput);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
 const networkEvents = new NetworkSseHub(network);
 const smbEvents = new SmbSseHub(smb);
@@ -457,6 +461,7 @@ const bootstrapPromise = Promise.all([
   smb.initialize(),
 ])
   .then(async () => {
+    await audioOutput.initialize();
     const restore = await playerSession.restore();
     playerSession.start();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);
@@ -993,6 +998,50 @@ async function handleRequest(
       sendJson(response, 200, { ok: true, data: player.getPublicState() });
       return;
     }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/audio-output/state"
+    ) {
+      sendJson(response, 200, { ok: true, data: audioOutput.snapshot() });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/audio-output/select"
+    ) {
+      const body = objectBody(await readBody(request));
+      const keys = Object.keys(body);
+      if (
+        keys.length !== 1 ||
+        keys[0] !== "deviceId" ||
+        typeof body.deviceId !== "string"
+      )
+        throw new AudioOutputError(
+          "INVALID_AUDIO_OUTPUT",
+          "Select a valid audio output.",
+        );
+      sendJson(response, 200, {
+        ok: true,
+        data: await audioOutput.select(body.deviceId),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/audio-output/refresh"
+    ) {
+      const body = objectBody(await readBody(request));
+      if (Object.keys(body).length !== 0)
+        throw new AudioOutputError(
+          "INVALID_AUDIO_OUTPUT",
+          "The refresh request is invalid.",
+        );
+      sendJson(response, 200, {
+        ok: true,
+        data: await audioOutput.refresh(),
+      });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/network/state") {
       sendJson(response, 200, { ok: true, data: network.snapshot() });
       return;
@@ -1438,6 +1487,7 @@ async function handleRequest(
         ok: true,
         data: {
           playerState: player.getPublicState(),
+          audioOutput: audioOutput.snapshot(),
           system: systemCapabilities,
           restore: {
             status: restore.status,
@@ -2783,6 +2833,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof AudioOutputError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof SmbError) {
       sendJson(response, error.statusCode, {
         ok: false,
@@ -2837,6 +2894,7 @@ function shutdown(signal: NodeJS.Signals): void {
   shuttingDown = true;
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
+  audioOutput.close();
   removableEvents.close();
   networkEvents.close();
   smbEvents.close();
