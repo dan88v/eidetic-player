@@ -2,6 +2,9 @@ export type NeutralinoListener = (event: { readonly detail?: unknown }) => void;
 
 export interface NeutralinoRuntime {
   init(): void | Promise<void>;
+  readonly app: {
+    exit(code?: number): Promise<void>;
+  };
   readonly os: {
     showOpenDialog(
       title?: string,
@@ -52,6 +55,8 @@ export function getNeutralinoDiagnostics(
   const namespace = scope.Neutralino;
   const namespacePresent = isObject(namespace);
   const os = namespacePresent && isObject(namespace.os) ? namespace.os : null;
+  const app =
+    namespacePresent && isObject(namespace.app) ? namespace.app : null;
   const events =
     namespacePresent && isObject(namespace.events) ? namespace.events : null;
   const openDialogAvailable = typeof os?.showOpenDialog === "function";
@@ -59,6 +64,7 @@ export function getNeutralinoDiagnostics(
   const neutralinoAvailable =
     namespacePresent &&
     typeof namespace.init === "function" &&
+    typeof app?.exit === "function" &&
     openDialogAvailable &&
     folderDialogAvailable &&
     typeof events?.on === "function" &&

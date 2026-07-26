@@ -315,6 +315,9 @@ void test("PlayerService replaces the Queue and opens the selected ninth item", 
   try {
     await player.initialize();
     const platform: PlatformBridge = {
+      quit() {
+        return Promise.resolve();
+      },
       openFolder() {
         return Promise.resolve(null);
       },

@@ -27,16 +27,24 @@ function createRuntime(options?: {
   readonly getListenerCount: (name: string) => number;
   readonly getDialogMultiple: () => boolean | undefined;
   readonly getFolderDialogCount: () => number;
+  readonly getExitCount: () => number;
 } {
   let initCount = 0;
   let dialogMultiple: boolean | undefined;
   let folderDialogCount = 0;
+  let exitCount = 0;
   const listeners = new Map<string, Set<NeutralinoListener>>();
   const runtime: NeutralinoRuntime = {
     init() {
       initCount += 1;
       if (options?.initError) throw options.initError;
       for (const listener of listeners.get("ready") ?? []) listener({});
+    },
+    app: {
+      exit: () => {
+        exitCount += 1;
+        return Promise.resolve();
+      },
     },
     os: {
       showOpenDialog: (_title, dialogOptions) => {
@@ -66,6 +74,7 @@ function createRuntime(options?: {
     getListenerCount: (name) => listeners.get(name)?.size ?? 0,
     getDialogMultiple: () => dialogMultiple,
     getFolderDialogCount: () => folderDialogCount,
+    getExitCount: () => exitCount,
   };
 }
 
@@ -146,6 +155,13 @@ void test("registers and removes one native drop listener", async () => {
   unsubscribe();
   unsubscribe();
   assert.equal(fake.getListenerCount("filesDropped"), 0);
+});
+
+void test("quit delegates to the authorized Neutralino app exit", async () => {
+  const fake = createRuntime();
+  const platform = await initializePlatform(neutralinoScope(fake.runtime), 100);
+  await platform.bridge.quit();
+  assert.equal(fake.getExitCount(), 1);
 });
 
 void test("selects the browser fallback when Neutralino is absent", async () => {

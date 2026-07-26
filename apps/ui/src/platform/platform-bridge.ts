@@ -3,6 +3,7 @@ export interface OpenAudioFilesOptions {
 }
 
 export interface PlatformBridge {
+  quit(): Promise<void>;
   openAudioFiles(options: OpenAudioFilesOptions): Promise<string[]>;
   openFolder(): Promise<string | null>;
   openNetworkSettings?(): Promise<void>;

@@ -66,9 +66,10 @@ function isItem(value: unknown): value is PersistedQueueItem {
 
 function parseSession(value: unknown): PersistedPlayerSession | null {
   if (!value || typeof value !== "object") return null;
-  const session = value as Partial<PersistedPlayerSession>;
+  const session = value as Record<string, unknown>;
+  const version = session.version;
   if (
-    session.version !== 1 ||
+    (version !== 1 && version !== 2) ||
     typeof session.currentQueueItemId !== "string" ||
     !Array.isArray(session.queue) ||
     !session.queue.every(isItem) ||
@@ -76,9 +77,28 @@ function parseSession(value: unknown): PersistedPlayerSession | null {
   )
     return null;
   return {
-    version: 1,
+    version: 2,
     currentQueueItemId: session.currentQueueItemId,
     queue: session.queue,
+    positionSeconds:
+      version === 2 &&
+      typeof session.positionSeconds === "number" &&
+      Number.isFinite(session.positionSeconds)
+        ? Math.max(0, session.positionSeconds)
+        : 0,
+    volume:
+      version === 2 &&
+      typeof session.volume === "number" &&
+      Number.isFinite(session.volume)
+        ? Math.max(0, Math.min(100, session.volume))
+        : 100,
+    muted: version === 2 && session.muted === true,
+    shuffleEnabled: version === 2 && session.shuffleEnabled === true,
+    repeatMode:
+      version === 2 &&
+      (session.repeatMode === "all" || session.repeatMode === "one")
+        ? session.repeatMode
+        : "off",
   };
 }
 

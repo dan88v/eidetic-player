@@ -82,7 +82,12 @@ void test("session repository preserves SMB Quick Browse and indexed SMB origins
   const repository = new PlayerSessionRepository(join(root, "session.json"));
   try {
     await repository.write({
-      version: 1,
+      version: 2,
+      positionSeconds: 12,
+      volume: 80,
+      muted: false,
+      shuffleEnabled: false,
+      repeatMode: "off",
       currentQueueItemId: currentId,
       queue: [
         {
@@ -143,7 +148,12 @@ void test("session restore keeps the current item, drops missing secondary files
     await writeFile(currentPath, "");
     const repository = new PlayerSessionRepository(join(root, "session.json"));
     await repository.write({
-      version: 1,
+      version: 2,
+      positionSeconds: 42,
+      volume: 73,
+      muted: true,
+      shuffleEnabled: true,
+      repeatMode: "all",
       currentQueueItemId: currentId,
       queue: [
         {
@@ -162,8 +172,14 @@ void test("session restore keeps the current item, drops missing secondary files
     });
     let restored: readonly ResolvedQueueItem[] = [];
     let selectedIndex = -1;
+    let restoredPlayback: unknown;
     const snapshot: PlayerSessionSnapshot = {
       currentQueueItemId: currentId,
+      positionSeconds: 42,
+      volume: 73,
+      muted: true,
+      shuffleEnabled: true,
+      repeatMode: "all",
       queue: [
         {
           id: currentId,
@@ -174,9 +190,14 @@ void test("session restore keeps the current item, drops missing secondary files
       ],
     };
     const player = {
-      restoreResolvedQueue(items: readonly ResolvedQueueItem[], index: number) {
+      restoreResolvedQueue(
+        items: readonly ResolvedQueueItem[],
+        index: number,
+        playback: unknown,
+      ) {
         restored = items;
         selectedIndex = index;
+        restoredPlayback = playback;
         return Promise.resolve();
       },
       getSessionSnapshot() {
@@ -200,6 +221,13 @@ void test("session restore keeps the current item, drops missing secondary files
     assert.equal(restored.length, 1);
     assert.equal(restored[0]?.id, currentId);
     assert.equal(selectedIndex, 0);
+    assert.deepEqual(restoredPlayback, {
+      positionSeconds: 42,
+      volume: 73,
+      muted: true,
+      shuffleEnabled: true,
+      repeatMode: "all",
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -213,7 +241,12 @@ void test("an unavailable saved current item invalidates the whole session witho
     const configPath = join(root, "session.json");
     const repository = new PlayerSessionRepository(configPath);
     await repository.write({
-      version: 1,
+      version: 2,
+      positionSeconds: 0,
+      volume: 100,
+      muted: false,
+      shuffleEnabled: false,
+      repeatMode: "off",
       currentQueueItemId: currentId,
       queue: [
         {

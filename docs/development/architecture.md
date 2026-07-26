@@ -178,13 +178,15 @@ complete.
 The backend owns the durable player session. `PlayerSessionService` observes
 structural Queue/current-item changes, debounces atomic repository writes, and
 stores either a Folders source ID plus logical relative path or a backend-only
-direct native path. Position and play state are deliberately not persisted.
+direct native path. A graceful shutdown or accepted system power action flushes
+the current position, volume, mute, shuffle, and repeat state through that same
+atomic repository. Play state is not persisted: restore remains paused.
 
 `GET /api/bootstrap` completes only after MPV discovery/startup and session
 restore. The UI keeps the static splash visible until this endpoint completes,
 subject to the minimum display interval and safety timeout, then mounts the
 shell once with the returned state. A restored Queue always starts paused at
-the beginning of its saved current item.
+the saved position of its current item.
 If the saved current item belongs to absent removable storage, the existing
 current-item restore rule invalidates that saved session rather than inventing
 a root or auto-resuming. Runtime disconnects preserve the in-memory Queue.
@@ -192,6 +194,12 @@ For indexed removable playback, disconnect marks only affected Queue items
 unavailable in place and stops only when the current item depends on that
 volume. Reconnect restores resolution and availability without scanning,
 rebuilding the Queue, or autoplaying.
+
+System power actions use a closed shared action type and an authoritative
+capability list returned by bootstrap. The backend validates the action, allows
+only one request at a time, flushes the player session, and then delegates to a
+host adapter. The UI never derives availability from the operating system or
+accepts backend-provided labels.
 
 ## Cross-platform behavior
 

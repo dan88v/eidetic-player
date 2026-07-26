@@ -267,8 +267,9 @@ report. Do not report an unexecuted manual test as passed.
 Verify a clean launch and a restored launch separately. For restore, save a
 Queue, terminate through the normal shutdown path, restart with
 `npm.cmd run dev`, and assert the same current identity, Queue order, paused
-state, and position zero. Also cover a missing secondary item, a missing
-current item (no fallback), corrupt JSON recovery, and logical Folders origins.
+state, saved position, volume, mute, shuffle, and repeat mode. Also cover a
+missing secondary item, a missing current item (no fallback), corrupt JSON
+recovery, and logical Folders origins.
 
 For interface preferences, verify immediate Folders/Library visibility,
 redirect when the active section becomes hidden, Sources remaining visible,

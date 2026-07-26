@@ -90,7 +90,15 @@ import {
 import { createPlatformSmbAdapter } from "./smb/smb-platform-adapter.js";
 import { SmbConnectionRepository } from "./smb/smb-connection-repository.js";
 import { SmbError } from "./smb/smb-types.js";
-import type { SystemCapabilities } from "../../../packages/shared/src/system.js";
+import type {
+  SystemCapabilities,
+  SystemPowerAction,
+} from "../../../packages/shared/src/system.js";
+import {
+  PowerActionCoordinator,
+  PowerActionError,
+  validatePowerActionBody,
+} from "./system/power-action-coordinator.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -98,13 +106,18 @@ const applianceFixture =
 const applianceInstallation =
   process.platform === "linux" &&
   process.env.EIDETIC_INSTALLATION_MODE === "appliance";
-const systemCapabilities: SystemCapabilities = {
-  installationMode: applianceInstallation
+const installationMode =
+  applianceInstallation || applianceFixture
     ? "appliance"
     : process.env.EIDETIC_INSTALLATION_MODE === "standard"
       ? "standard"
-      : "development",
-  maintenanceMode: applianceInstallation || applianceFixture,
+      : "development";
+const availablePowerActions: readonly SystemPowerAction[] =
+  installationMode === "appliance" ? ["maintenance"] : ["quit"];
+const systemCapabilities: SystemCapabilities = {
+  installationMode,
+  availablePowerActions,
+  maintenanceMode: availablePowerActions.includes("maintenance"),
   fullscreen: process.env.EIDETIC_FULLSCREEN === "1",
   hidePointerWhenInactive: process.env.EIDETIC_HIDE_POINTER === "1",
 };
@@ -268,6 +281,27 @@ const playerSession = new PlayerSessionService(
   player,
   removableStorage,
   smb,
+);
+const powerActions = new PowerActionCoordinator(
+  availablePowerActions,
+  () => playerSession.flush(),
+  {
+    execute(action) {
+      if (action === "quit") return Promise.resolve();
+      if (action !== "maintenance")
+        throw new Error("Power action adapter unavailable");
+      if (applianceFixture) return Promise.resolve();
+      setTimeout(() => {
+        const child = spawn("/usr/local/bin/eidetic-player-maintenance", [], {
+          detached: true,
+          stdio: "ignore",
+        });
+        child.unref();
+        shutdown("SIGTERM");
+      }, 100).unref();
+      return Promise.resolve();
+    },
+  },
 );
 const events = new SseHub(player);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
@@ -1421,9 +1455,14 @@ async function handleRequest(
     }
     if (
       request.method === "POST" &&
-      url.pathname === "/api/system/maintenance"
+      (url.pathname === "/api/system/power" ||
+        url.pathname === "/api/system/maintenance")
     ) {
-      if (!systemCapabilities.maintenanceMode) {
+      if (
+        url.pathname === "/api/system/maintenance" &&
+        !systemCapabilities.maintenanceMode
+      ) {
+        await readBody(request);
         sendJson(response, 404, {
           ok: false,
           error: {
@@ -1433,17 +1472,31 @@ async function handleRequest(
         });
         return;
       }
-      await readBody(request);
-      sendJson(response, 202, { ok: true });
-      if (!applianceFixture)
-        setTimeout(() => {
-          const child = spawn("/usr/local/bin/eidetic-player-maintenance", [], {
-            detached: true,
-            stdio: "ignore",
-          });
-          child.unref();
-          shutdown("SIGTERM");
-        }, 100).unref();
+      try {
+        const action =
+          url.pathname === "/api/system/maintenance"
+            ? "maintenance"
+            : validatePowerActionBody(await readBody(request));
+        if (url.pathname === "/api/system/maintenance") await readBody(request);
+        await powerActions.request(action);
+        sendJson(response, 202, { ok: true });
+      } catch (error) {
+        const powerError =
+          error instanceof PowerActionError
+            ? error
+            : new PowerActionError(
+                "POWER_PREPARATION_FAILED",
+                "The system action could not be prepared.",
+                500,
+              );
+        sendJson(response, powerError.statusCode, {
+          ok: false,
+          error: {
+            code: powerError.code,
+            message: powerError.message,
+          },
+        });
+      }
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/sources") {

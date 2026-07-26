@@ -1,6 +1,11 @@
 import type { PlatformBridge } from "./platform-bridge";
 
 export class BrowserPlatformBridge implements PlatformBridge {
+  quit(): Promise<void> {
+    return Promise.reject(
+      new Error("Quit requires the Eidetic Player native shell."),
+    );
+  }
   openAudioFiles(): Promise<string[]> {
     return Promise.reject(
       new Error("Open Files requires the Eidetic Player native shell."),

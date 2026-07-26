@@ -14,11 +14,14 @@ export interface SideMenu {
   focusInitialControl(): void;
   containFocus(event: KeyboardEvent): void;
   setMusicBrowsingVisibility(value: MusicBrowsingVisibility): void;
+  readonly powerButton: HTMLButtonElement | null;
 }
 
 export interface SideMenuOptions {
   readonly onClose: () => void;
   readonly onNavigate: (screen: ScreenId) => void;
+  readonly onPower?: (trigger: HTMLButtonElement) => void;
+  readonly showPower?: boolean;
 }
 
 const focusableSelector =
@@ -53,13 +56,20 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
         )
         .join("")}
     </nav>
-    <p class="side-menu__footer">${t("app.theme")}</p>
+    <div class="side-menu__footer"><span>${t("app.theme")}</span>${
+      options.showPower
+        ? `<button class="icon-button side-menu__power" type="button" aria-label="Power" title="Power">${icon("power")}</button>`
+        : ""
+    }</div>
   `;
 
   const closeButton =
     element.querySelector<HTMLButtonElement>(".side-menu__close");
   if (!closeButton) throw new Error("Menu close button is missing");
   closeButton.addEventListener("click", options.onClose);
+  const powerButton =
+    element.querySelector<HTMLButtonElement>(".side-menu__power");
+  powerButton?.addEventListener("click", () => options.onPower?.(powerButton));
   backdrop.addEventListener("pointerup", options.onClose);
 
   for (const button of element.querySelectorAll<HTMLButtonElement>(
@@ -75,6 +85,7 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
     element,
     backdrop,
     closeButton,
+    powerButton,
     setOpen(open) {
       element.classList.toggle("side-menu--open", open);
       backdrop.classList.toggle("menu-backdrop--visible", open);

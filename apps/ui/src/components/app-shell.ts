@@ -64,6 +64,7 @@ import type { ComponentView } from "./types";
 import { createVolumePopover } from "./volume-popover";
 import { createPlaylistPicker } from "./playlist-picker";
 import { createRemovableDevicePicker } from "./removable-device-picker";
+import { createPowerMenu } from "./power-menu";
 
 export interface MountedApp {
   destroy(): void;
@@ -172,11 +173,19 @@ export function mountApp(
     closeOverlays();
     store.setMenuOpen(open);
   });
+  const powerMenuRef: {
+    current: ReturnType<typeof createPowerMenu> | null;
+  } = { current: null };
   const sideMenu = createSideMenu({
     onClose: () => {
       store.setMenuOpen(false);
     },
     onNavigate: navigate,
+    showPower: systemCapabilities.availablePowerActions.length > 0,
+    onPower: (trigger) => {
+      store.setMenuOpen(false);
+      powerMenuRef.current?.open(trigger);
+    },
   });
   sideMenu.setMusicBrowsingVisibility(store.getState().musicBrowsingVisibility);
   const playlistPicker = createPlaylistPicker({
@@ -229,6 +238,25 @@ export function mountApp(
   screenRegion.className = "screen-region";
   screenRegion.id = "main-content";
   contentShell.append(screenRegion);
+  const powerMenu = createPowerMenu({
+    actions: systemCapabilities.availablePowerActions,
+    onOpenChange: (open) => {
+      root.dataset.powerOpen = String(open);
+      screenRegion.inert = open;
+      document.body.classList.toggle("overlay-open", open);
+    },
+    onAction: async (action) => {
+      await systemApi.requestPowerAction(action);
+      if (action === "quit")
+        await platform.quit().catch((error: unknown) => {
+          console.error(
+            "[platform] accepted Quit could not close the app",
+            error,
+          );
+        });
+    },
+  });
+  powerMenuRef.current = powerMenu;
   root.className = "app-root";
   root.dataset.animations = String(store.getState().animationsEnabled);
   root.append(
@@ -246,6 +274,8 @@ export function mountApp(
     removablePicker.element,
     volumePopover.backdrop,
     volumePopover.element,
+    powerMenu.backdrop,
+    powerMenu.element,
     dropOverlay,
     toastHost.element,
   );
@@ -934,6 +964,7 @@ export function mountApp(
   window.addEventListener("dragleave", hideDrop);
   window.addEventListener("drop", hideDrop);
   const handleKeydown = (event: KeyboardEvent): void => {
+    if (powerMenu.handleKeydown(event)) return;
     const state = store.getState();
     if (state.volumeOpen) {
       if (event.key === "Escape") {

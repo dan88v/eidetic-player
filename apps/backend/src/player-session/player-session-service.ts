@@ -75,7 +75,13 @@ export class PlayerSessionService {
     const currentIndex = resolved.findIndex((item) => item.id === current.id);
     const verificationMilliseconds = performance.now() - verifyStart;
     const prepareStart = performance.now();
-    await this.player.restoreResolvedQueue(resolved, currentIndex);
+    await this.player.restoreResolvedQueue(resolved, currentIndex, {
+      positionSeconds: session.positionSeconds,
+      volume: session.volume,
+      muted: session.muted,
+      shuffleEnabled: session.shuffleEnabled,
+      repeatMode: session.repeatMode,
+    });
     const prepareMilliseconds = performance.now() - prepareStart;
     this.signature = this.snapshotSignature();
     await this.saveNow();
@@ -101,6 +107,7 @@ export class PlayerSessionService {
   async flush(): Promise<void> {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.pending = this.toPersistedSession();
     await this.saveNow();
     await this.writeChain;
   }
@@ -150,9 +157,14 @@ export class PlayerSessionService {
     if (!snapshot.currentQueueItemId || snapshot.queue.length === 0)
       return null;
     return {
-      version: 1,
+      version: 2,
       currentQueueItemId: snapshot.currentQueueItemId,
       queue: snapshot.queue,
+      positionSeconds: snapshot.positionSeconds,
+      volume: snapshot.volume,
+      muted: snapshot.muted,
+      shuffleEnabled: snapshot.shuffleEnabled,
+      repeatMode: snapshot.repeatMode,
     };
   }
 

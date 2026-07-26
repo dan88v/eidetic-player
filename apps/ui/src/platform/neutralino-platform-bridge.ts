@@ -16,6 +16,10 @@ function errorMessage(error: unknown): string {
 export class NeutralinoPlatformBridge implements PlatformBridge {
   constructor(private readonly runtime: NeutralinoRuntime) {}
 
+  quit(): Promise<void> {
+    return this.runtime.app.exit();
+  }
+
   async openAudioFiles(options: OpenAudioFilesOptions): Promise<string[]> {
     try {
       const result = await this.runtime.os.showOpenDialog("Open audio files", {

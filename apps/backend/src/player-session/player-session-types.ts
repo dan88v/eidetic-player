@@ -32,14 +32,24 @@ export interface PersistedQueueItem {
 }
 
 export interface PersistedPlayerSession {
-  readonly version: 1;
+  readonly version: 2;
   readonly currentQueueItemId: string;
   readonly queue: readonly PersistedQueueItem[];
+  readonly positionSeconds: number;
+  readonly volume: number;
+  readonly muted: boolean;
+  readonly shuffleEnabled: boolean;
+  readonly repeatMode: RepeatMode;
 }
 
 export interface PlayerSessionSnapshot {
   readonly currentQueueItemId: string | null;
   readonly queue: readonly PersistedQueueItem[];
+  readonly positionSeconds: number;
+  readonly volume: number;
+  readonly muted: boolean;
+  readonly shuffleEnabled: boolean;
+  readonly repeatMode: RepeatMode;
 }
 
 export interface ResolvedQueueItem {
@@ -57,3 +67,4 @@ export interface PlayerRestoreResult {
   readonly verificationMilliseconds: number;
   readonly prepareMilliseconds: number;
 }
+import type { RepeatMode } from "../../../../packages/shared/src/player.js";

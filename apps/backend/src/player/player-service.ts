@@ -290,6 +290,10 @@ export class PlayerService {
   async restoreResolvedQueue(
     items: readonly ResolvedQueueItem[],
     selectedIndex: number,
+    playback?: Pick<
+      PlayerState,
+      "positionSeconds" | "volume" | "muted" | "shuffleEnabled" | "repeatMode"
+    >,
   ): Promise<void> {
     await this.loadResolvedQueue(
       items.map((item) => item.path),
@@ -300,6 +304,28 @@ export class PlayerService {
         itemIds: items.map((item) => item.id),
       },
     );
+    if (playback) {
+      const controller = this.requireController();
+      await controller.setProperty("volume", playback.volume);
+      await controller.setProperty("mute", playback.muted);
+      await controller.setProperty(
+        "loop-file",
+        playback.repeatMode === "one" ? "inf" : "no",
+      );
+      await controller.setProperty(
+        "loop-playlist",
+        playback.repeatMode === "all" ? "inf" : "no",
+      );
+      if (playback.positionSeconds > 0.05)
+        await controller.seekWhenReady(playback.positionSeconds);
+      this.update({
+        volume: playback.volume,
+        muted: playback.muted,
+        shuffleEnabled: playback.shuffleEnabled,
+        repeatMode: playback.repeatMode,
+        positionSeconds: playback.positionSeconds,
+      });
+    }
   }
 
   getSessionSnapshot(): PlayerSessionSnapshot {
@@ -314,6 +340,11 @@ export class PlayerService {
         filename: item.filename,
         displayTitle: item.displayTitle,
       })),
+      positionSeconds: this.state.positionSeconds,
+      volume: this.state.volume,
+      muted: this.state.muted,
+      shuffleEnabled: this.state.shuffleEnabled,
+      repeatMode: this.state.repeatMode,
     };
   }
 
