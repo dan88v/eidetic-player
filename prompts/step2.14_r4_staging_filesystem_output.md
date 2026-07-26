@@ -305,6 +305,50 @@ Follow-up verification:
 - `npm.cmd run verify:linux:installer`: PASS, 62 total, 51 pass, 11 expected
   Windows/POSIX/Linux-staging skips.
 
+## CI follow-up: SMB regex and ShellCheck
+
+The next CI validation completed the release installation and reached the
+staging ShellCheck gate. The Debian 12/Trixie error immediately before it is
+the expected rejection from the unsupported-platform fixture. ShellCheck then
+found a fatal parser error in the production SMB helper:
+
+```text
+SC1073: Couldn't parse this $[..] expression.
+SC1072: Fix any mentioned problems and try again.
+```
+
+This was confirmed as a distinct production defect, not only a static-analysis
+false positive: Bash interpreted `$[` inside the inline share regex as
+arithmetic expansion and returned status 1. The regex now lives in
+`share_pattern` and is expanded as the right-hand operand of `=~`.
+
+The staging suite now safely exercises the helper before any mount operation:
+
+- a valid share containing a dollar sign and space passes regex validation,
+  then rejects the deliberately invalid mount option with status 65;
+- a share containing an extra slash is rejected as malformed with status 64.
+
+The ShellCheck invocation now follows the annotated `common.sh` source through
+an explicit source path. The other diagnostics from the CI log were resolved
+without lowering severity: ambiguous `&&`/`||` expressions and the exported
+assignment were rewritten, the staging `! grep` became an explicit condition,
+and the intentionally literal GRUB expression is documented with a focused
+SC2016 directive.
+
+Follow-up verification:
+
+- Bash parser over all deployment shell/runtime files: PASS;
+- SMB helper functional rejection checks: PASS, statuses 65 and 64;
+- focused `linux-installation.test.ts`: 14/14 PASS;
+- `npm.cmd run format:check`: PASS;
+- `npm.cmd run typecheck`: PASS;
+- `npm.cmd run lint`: PASS;
+- `npm.cmd run verify:linux:installer`: PASS, 62 total, 51 pass, 11 expected
+  Windows/POSIX/Linux-staging skips.
+
+ShellCheck is not installed on the Windows development host, so its definitive
+PASS remains for the next Linux CI run and is not claimed locally.
+
 ## Windows real smoke
 
 The unchanged application was run with:
@@ -332,13 +376,18 @@ Verified:
 ## Files changed
 
 - `deploy/linux/test-staging.sh`
+- `deploy/linux/runtime/eidetic-player-smb-helper`
+- `deploy/linux/install-eidetic-player.sh`
+- `deploy/linux/lib/common.sh`
 - `apps/backend/test/linux-installation.test.ts`
 - `prompts/step2.14_r4_staging_filesystem_output.md`
 
-`deploy/linux/test-staging.sh` retains Git mode `100755`.
+All changed deployment scripts retain Git mode `100755`.
 
-No production installer, common library, update, restore, uninstall, runtime,
-CI, package, backend source, UI, MPV, Network, release verifier, or executable
+The production installer and common library contain only the focused
+ShellCheck-safe equivalent rewrites described above. The production SMB helper
+contains the distinct runtime regex fix. No update, restore, uninstall, CI,
+package, backend source, UI, MPV, Network, release verifier, or executable
 verifier file was modified.
 
 There is no CI/root/staging bypass, no host `/boot` write, and no reduction of

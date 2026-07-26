@@ -19,6 +19,20 @@ fixture_fail() {
   exit 1
 }
 
+assert_smb_helper_exit() {
+  local share="$1" expected="$2" caller_uid target status
+  caller_uid="$(id -u "$runtime_user")"
+  target="/run/user/$caller_uid/eidetic-player/smb/smb-0123456789abcdef"
+  if PKEXEC_UID="$caller_uid" "$SCRIPT_DIR/runtime/eidetic-player-smb-helper" \
+    mount "$target" "$share" invalid-option; then
+    status=0
+  else
+    status=$?
+  fi
+  [[ "$status" == "$expected" ]] ||
+    fixture_fail "SMB helper exit for '$share': expected $expected, found $status"
+}
+
 assert_token_count() {
   local file="$1" token="$2" expected="$3" count
   count="$(awk -v token="$token" '
@@ -175,7 +189,9 @@ fixture() {
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
     --mode standard --unattended --rpi-onscreen-keyboard keep
   assert_standard_conf "$root"
-  ! grep -q '^EIDETIC_FULL_VERIFY=' "$root/etc/eidetic-player/install.conf"
+  if grep -q '^EIDETIC_FULL_VERIFY=' "$root/etc/eidetic-player/install.conf"; then
+    fixture_fail "ordinary install persisted the per-operation full verification flag"
+  fi
 
   if [[ "$name" == raspios ]]; then
     EIDETIC_BORDERLESS=1 \
@@ -304,6 +320,8 @@ test_official_source_remotes
 [[ "${EIDETIC_SOURCE_REMOTE_FIXTURE_ONLY:-0}" != 1 ]] || exit 0
 unset EIDETIC_BORDERLESS
 "$SCRIPT_DIR/test-platform-detection.sh"
+assert_smb_helper_exit '//server/share$ name' 65
+assert_smb_helper_exit '//server/bad/name' 64
 if [[ "${EUID}" -eq 0 ]]; then
   "$SCRIPT_DIR/test-unprivileged-build.sh" "$runtime_user"
   "$SCRIPT_DIR/test-rpi-keyboard.sh" "$runtime_user"
@@ -336,7 +354,8 @@ if "$SCRIPT_DIR/install-eidetic-player.sh" --root "$unsupported" --user "$runtim
   printf 'unsupported OS was accepted\n' >&2
   exit 1
 fi
-command -v shellcheck >/dev/null && shellcheck "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/lib/*.sh "$SCRIPT_DIR"/runtime/*
+command -v shellcheck >/dev/null &&
+  shellcheck -x -P "$SCRIPT_DIR" "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/lib/*.sh "$SCRIPT_DIR"/runtime/*
 if command -v systemd-analyze >/dev/null; then
   sed 's#ExecStart=/opt/eidetic-player/current/bin/eidetic-player-launch#ExecStart=/bin/true#' \
     "$SCRIPT_DIR/templates/eidetic-player.service" >"$work/eidetic-player.service"

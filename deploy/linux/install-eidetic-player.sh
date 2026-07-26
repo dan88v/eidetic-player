@@ -185,7 +185,11 @@ cleanup() {
 }
 trap cleanup EXIT
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
-  export DEBIAN_FRONTEND=$([[ "$unattended" == 1 ]] && printf noninteractive || printf dialog)
+  if [[ "$unattended" == 1 ]]; then
+    export DEBIAN_FRONTEND=noninteractive
+  else
+    export DEBIAN_FRONTEND=dialog
+  fi
   apt-get update
   apt-get install -y "${packages[@]}"
 
@@ -503,6 +507,8 @@ if [[ "${choice[splash]}" == yes ]]; then
   eidetic_install_managed "$line" /usr/share/plymouth/themes/eidetic-player/line.ppm 0644
   if [[ "$EIDETIC_DISTRO" == "ubuntu" ]]; then
     grub="$tmp/grub.cfg"
+    # GRUB expands this variable when it consumes the generated fragment.
+    # shellcheck disable=SC2016
     printf 'GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet splash"\n' >"$grub"
     eidetic_install_managed "$grub" /etc/default/grub.d/90-eidetic-player.cfg 0644
   else

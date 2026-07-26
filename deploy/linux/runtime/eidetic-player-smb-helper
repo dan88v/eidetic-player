@@ -5,11 +5,12 @@ caller_uid="${PKEXEC_UID:-}"
 [[ "$caller_uid" =~ ^[0-9]+$ && "$caller_uid" -ne 0 ]] || exit 77
 runtime="/run/user/$caller_uid/eidetic-player/smb"
 target="$2"
+share_pattern='^//[A-Za-z0-9._-]+/[A-Za-z0-9._$[:space:]-]+$'
 case "$target" in "$runtime"/smb-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) exit 65;; esac
 [[ ! -L "$target" ]] || exit 65
 case "$1" in
   mount)
-    [[ $# -eq 4 && "$3" =~ ^//[A-Za-z0-9._-]+/[A-Za-z0-9._$[:space:]-]+$ ]] || exit 64
+    [[ $# -eq 4 && "$3" =~ $share_pattern ]] || exit 64
     IFS=, read -r -a options <<<"$4"
     required=(ro nosuid nodev noexec)
     for option in "${options[@]}"; do

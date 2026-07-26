@@ -76,6 +76,7 @@ void test("Linux staging covers Raspberry cmdline and guarded tail paths", async
     'assert_token_count "$file" quiet 1',
     'assert_token_count "$file" splash 1',
     "--disable-blanking yes --hide-pointer yes --splash yes --autologin yes",
+    'shellcheck -x -P "$SCRIPT_DIR"',
   ])
     assert.ok(
       staging.includes(contract),
@@ -415,6 +416,16 @@ void test("SMB privilege is constrained to the Eidetic helper", async () => {
   assert.match(adapter, /pkexec/);
   assert.match(helper, /ro\|nosuid\|nodev\|noexec/);
   assert.match(helper, /PKEXEC_UID/);
+  assert.match(
+    helper,
+    /share_pattern='\^\/\/\[A-Za-z0-9\._-\]\+\/\[A-Za-z0-9\._\$\[:space:\]-\]\+\$'/,
+  );
+  assert.match(helper, /"\$3" =~ \$share_pattern/);
+  assert.doesNotMatch(
+    helper,
+    /"\$3" =~ \^/,
+    "the SMB share regex must not expose $[ to Bash parsing",
+  );
   assert.match(policy, /eidetic-player-smb-helper/);
   assert.doesNotMatch(policy, /\*/);
 });

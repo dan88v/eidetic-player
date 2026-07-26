@@ -205,9 +205,10 @@ eidetic_require_rpi_keyboard_support() {
   tool="$(eidetic_rpi_keyboard_tool)"
   [[ -x "$tool" ]] ||
     eidetic_die "raspi-config is required to manage the Raspberry Pi OS on-screen keyboard; use Display Options > D6 Onscreen Keyboard manually"
-  grep -Eq '^get_squeekboard\(\)' "$tool" &&
-    grep -Eq '^do_squeekboard\(\)' "$tool" ||
+  if ! grep -Eq '^get_squeekboard\(\)' "$tool" ||
+    ! grep -Eq '^do_squeekboard\(\)' "$tool"; then
     eidetic_die "this raspi-config version cannot manage Squeekboard; use Display Options > D6 Onscreen Keyboard manually"
+  fi
 }
 
 eidetic_get_rpi_keyboard_state() {
@@ -384,7 +385,9 @@ eidetic_detect_platform() {
   fi
   EIDETIC_ARCH="$arch"
   EIDETIC_DESKTOP="$desktop"
-  eidetic_detect_raspberry_pi_hardware && hardware=yes || true
+  if eidetic_detect_raspberry_pi_hardware; then
+    hardware=yes
+  fi
   eidetic_detect_raspios_marker || true
   export EIDETIC_ARCH EIDETIC_DESKTOP
   [[ "${EIDETIC_PLATFORM_DIAGNOSTICS:-show}" == quiet ]] ||
