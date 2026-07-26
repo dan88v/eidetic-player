@@ -476,4 +476,4 @@ if command -v systemd-analyze >/dev/null; then
   chmod 0644 "$work/eidetic-player.service"
   systemd-analyze verify "$work/eidetic-player.service"
 fi
-printf 'Linux staging fixtures passed; temporary root removed on exit.\n'
+printf 'Linux staging fixtures passed; temporary root will be removed on exit.\n'

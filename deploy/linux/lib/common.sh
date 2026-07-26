@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 EIDETIC_COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=console-ui.sh
+# shellcheck source=lib/console-ui.sh
 . "$EIDETIC_COMMON_DIR/console-ui.sh"
 
 eidetic_die() {
-  EIDETIC_FAILURE_REASON="$*"
+  export EIDETIC_FAILURE_REASON="$*"
   if [[ "${EIDETIC_CONSOLE_ACTIVE:-0}" == 1 ]]; then
     eidetic_console_plain_log "ERROR: $*"
   else

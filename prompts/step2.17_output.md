@@ -269,6 +269,30 @@ transient proxy `ECONNREFUSED`; it was discarded and fully cleaned before the
 single-instance smoke above. No media selection, Queue edit, Favorite edit,
 network mutation, or audio-output mutation was made.
 
+## CI follow-up
+
+The first GitHub Actions run after the implementation failed in ShellCheck.
+The preceding Debian 12 rejection was the expected result of the
+`unsupported` staging fixture and was not the failing assertion.
+
+The static-analysis failures were corrected by:
+
+- declaring the source-only console library's Bash dialect without adding a
+  shebang or changing its required `100644` Git mode;
+- making the `common.sh` source hint resolvable by the CI `-P` search path;
+- marking values intentionally shared across sourced files and subprocesses as
+  exported;
+- replacing ambiguous empty local declarations and spinner frame syntax;
+- documenting the test-only trap callback and deliberately isolated fixture
+  subshells;
+- normalizing the final CRLF line in `test-staging.sh` to LF.
+
+The exact CI ShellCheck invocation now passes without diagnostics using the
+official ShellCheck 0.10.0 binary extracted temporarily; no system package or
+repository dependency was installed. The complete root WSL staging suite also
+passes with that ShellCheck binary present in `PATH`. A new GitHub Actions run
+is still required, so this report does not claim CI PASS.
+
 ## Final gates
 
 - `npm.cmd run format:check`: PASS
@@ -285,12 +309,11 @@ network mutation, or audio-output mutation was made.
 - `npm.cmd run verify:linux:release -- --root . --arch x64 --phase build`: PASS
 - `npm.cmd run mpv:doctor`: PASS, MPV 0.41 headless startup and JSON IPC
 - `npm.cmd run test:mpv`: PASS, 8 passed
-- `git diff --check`: PASS; Git reported only the expected future CRLF-to-LF
-  normalization notice for `deploy/linux/test-staging.sh`
+- `git diff --check`: PASS
 
 The complete root WSL staging suite also passed, including the focused console
-UI and guided installer/uninstaller PTY fixtures. ShellCheck was not available
-locally and was not installed; CI remains the authoritative ShellCheck run.
+UI and guided installer/uninstaller PTY fixtures. After the CI follow-up, it
+was repeated with ShellCheck available and passed without diagnostics.
 
 ## Package and regression firewall
 

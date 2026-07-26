@@ -92,7 +92,7 @@ EOF
 run_guided() {
   local input="$1" output="$2"
   shift 2
-  local rendered= argument separator=
+  local rendered='' argument separator=''
   for argument in "$@"; do
     printf -v rendered '%s%s%q' "$rendered" "$separator" "$argument"
     separator=' '

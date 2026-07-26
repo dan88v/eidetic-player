@@ -1,10 +1,11 @@
 # Focused terminal UI for the Eidetic Player installer tools. This file is
 # sourced; it intentionally has no global `set` flags and no external TUI
 # dependency.
+# shellcheck shell=bash
 
 EIDETIC_CONSOLE_VERBOSE=${EIDETIC_CONSOLE_VERBOSE:-0}
 EIDETIC_CONSOLE_NO_COLOR=${EIDETIC_CONSOLE_NO_COLOR:-0}
-EIDETIC_CONSOLE_ACTIVE=0
+export EIDETIC_CONSOLE_ACTIVE=0
 EIDETIC_CONSOLE_TTY=0
 EIDETIC_CONSOLE_COLOR=0
 EIDETIC_CONSOLE_CAPTURED=0
@@ -15,7 +16,7 @@ EIDETIC_CONSOLE_PHASE_LABEL=
 EIDETIC_CONSOLE_WARNINGS=()
 EIDETIC_LOG_PATH=
 EIDETIC_LOG_FALLBACK=0
-EIDETIC_PROMPT_RESULT=
+export EIDETIC_PROMPT_RESULT=
 
 eidetic_console_detect() {
   if [[ "${EIDETIC_CONSOLE_FORCE_NON_TTY:-0}" == 1 ]]; then
@@ -41,7 +42,7 @@ eidetic_console_plain_log() {
 }
 
 eidetic_console_write() {
-  local style="$1" plain="$2" code= reset=
+  local style="$1" plain="$2" code='' reset=''
   if [[ "$EIDETIC_CONSOLE_COLOR" == 1 ]]; then
     case "$style" in
       accent) code=$'\033[1;36m' ;;
@@ -164,7 +165,7 @@ eidetic_console_redact_argument() {
 }
 
 eidetic_console_command_preview() {
-  local argument rendered= separator=
+  local argument rendered='' separator=''
   for argument in "$@"; do
     rendered+="$separator$(eidetic_console_redact_argument "$argument")"
     separator=' '
@@ -193,13 +194,14 @@ eidetic_console_spinner_start() {
   [[ "$EIDETIC_CONSOLE_TTY" == 1 &&
     "$EIDETIC_CONSOLE_VERBOSE" != 1 ]] || return 0
   (
-    local frames='|/-\' index=0 elapsed minutes seconds
+    local -a frames=('|' '/' '-' "\\")
+    local index=0 elapsed minutes seconds
     while :; do
       elapsed=$((SECONDS - started))
       minutes=$((elapsed / 60))
       seconds=$((elapsed % 60))
       printf '\r  %s Working %02d:%02d' \
-        "${frames:index++%4:1}" "$minutes" "$seconds" >&3
+        "${frames[index++ % ${#frames[@]}]}" "$minutes" "$seconds" >&3
       sleep 0.2
     done
   ) &
@@ -322,7 +324,7 @@ eidetic_prompt_choice() {
     [[ -n "$answer" ]] || answer="$default"
     if [[ "$answer" =~ ^[0-9]+$ ]] &&
       ((answer >= minimum && answer <= maximum)); then
-      EIDETIC_PROMPT_RESULT="$answer"
+      export EIDETIC_PROMPT_RESULT="$answer"
       return 0
     fi
     eidetic_console_warning "Choose a number from $minimum to $maximum."

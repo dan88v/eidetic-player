@@ -48,7 +48,7 @@ EOF
 while (($#)); do
   case "$1" in
     -v | --verbose) EIDETIC_CONSOLE_VERBOSE=1; shift ;;
-    --no-color) EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
+    --no-color) export EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
     --unattended) guided=0; unattended=1; shift ;;
     --root)
       [[ $# -ge 2 ]] || eidetic_die "--root needs a value"
@@ -68,7 +68,7 @@ while (($#)); do
   esac
 done
 
-if ((unattended)); then EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
+if ((unattended)); then export EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
 uninstaller_version="$(eidetic_project_version)"
 eidetic_console_init uninstall "Linux Uninstaller" "$EIDETIC_ROOT" \
   "$uninstaller_version" || exit 1
@@ -110,7 +110,7 @@ if ((!purge && yes)); then
   eidetic_die "--yes-really-purge-data requires --purge-data"
 fi
 
-EIDETIC_CONSOLE_PHASE_TOTAL=5
+export EIDETIC_CONSOLE_PHASE_TOTAL=5
 eidetic_console_phase_begin "Installation inventory"
 conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 runtime_user=

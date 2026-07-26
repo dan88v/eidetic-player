@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Each scenario deliberately isolates its console environment in a subshell.
+# shellcheck disable=SC2030,SC2031
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 work="$(mktemp -d)"
@@ -23,7 +25,7 @@ install -d "$normal_root"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
   eidetic_console_init install "Linux Installer" "$normal_root" 0.1.0
   EIDETIC_CONSOLE_PHASE_TOTAL=2
   eidetic_console_phase_begin "Hidden child output"
@@ -57,8 +59,8 @@ install -d "$color_root"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_TTY=1
-  TERM=xterm-256color
+  export EIDETIC_CONSOLE_FORCE_TTY=1
+  export TERM=xterm-256color
   unset NO_COLOR
   eidetic_console_init install "Linux Installer" "$color_root" 0.1.0
   eidetic_console_success "Color fixture"
@@ -74,16 +76,16 @@ for disable_case in no-color no-color-variable dumb non-tty; do
   (
     # shellcheck source=lib/console-ui.sh
     . "$SCRIPT_DIR/lib/console-ui.sh"
-    EIDETIC_CONSOLE_FORCE_TTY=1
-    TERM=xterm-256color
+    export EIDETIC_CONSOLE_FORCE_TTY=1
+    export TERM=xterm-256color
     unset NO_COLOR
     case "$disable_case" in
-      no-color) EIDETIC_CONSOLE_NO_COLOR=1 ;;
-      no-color-variable) NO_COLOR=; export NO_COLOR ;;
-      dumb) TERM=dumb ;;
+      no-color) export EIDETIC_CONSOLE_NO_COLOR=1 ;;
+      no-color-variable) export NO_COLOR= ;;
+      dumb) export TERM=dumb ;;
       non-tty)
-        EIDETIC_CONSOLE_FORCE_TTY=0
-        EIDETIC_CONSOLE_FORCE_NON_TTY=1
+        export EIDETIC_CONSOLE_FORCE_TTY=0
+        export EIDETIC_CONSOLE_FORCE_NON_TTY=1
         ;;
     esac
     eidetic_console_init install "Linux Installer" "$root" 0.1.0
@@ -98,7 +100,7 @@ install -d "$prompt_root"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
   eidetic_console_init install "Linux Installer" "$prompt_root" 0.1.0
   eidetic_prompt_yes_no "Proceed?" no <<< $'invalid\ny'
   [[ "$EIDETIC_PROMPT_RESULT" == yes ]] || fail "yes/no prompt result"
@@ -117,7 +119,7 @@ install -d "$verbose_root"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
   EIDETIC_CONSOLE_VERBOSE=1
   eidetic_console_init install "Linux Installer" "$verbose_root" 0.1.0
   EIDETIC_CONSOLE_PHASE_TOTAL=1
@@ -146,8 +148,8 @@ install -d "$spinner_root"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_TTY=1
-  EIDETIC_CONSOLE_NO_COLOR=1
+  export EIDETIC_CONSOLE_FORCE_TTY=1
+  export EIDETIC_CONSOLE_NO_COLOR=1
   eidetic_console_init install "Linux Installer" "$spinner_root" 0.1.0
   EIDETIC_CONSOLE_PHASE_TOTAL=1
   eidetic_console_phase_begin "Spinner fixture"
@@ -167,9 +169,11 @@ install -d "$interrupt_root"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_TTY=1
-  EIDETIC_CONSOLE_NO_COLOR=1
+  export EIDETIC_CONSOLE_FORCE_TTY=1
+  export EIDETIC_CONSOLE_NO_COLOR=1
   active_child=
+  # The EXIT trap invokes this callback indirectly.
+  # shellcheck disable=SC2317
   interrupt_cleanup() {
     local status="$1"
     eidetic_console_abort_active_phase
@@ -223,7 +227,7 @@ install -m 0600 /dev/null "$rotation_dir/uninstall-keep.log"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
   eidetic_console_init install "Linux Installer" "$rotation_root" 0.1.0
   eidetic_console_finalize
 ) >/dev/null 2>&1
@@ -239,7 +243,7 @@ symlink_log_path="$work/symlink-log-path"
 (
   # shellcheck source=lib/console-ui.sh
   . "$SCRIPT_DIR/lib/console-ui.sh"
-  EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
   eidetic_console_init uninstall "Linux Uninstaller" "$symlink_root" 0.1.0
   printf '%s\n' "$EIDETIC_LOG_PATH" >"$symlink_log_path"
   eidetic_console_finalize

@@ -73,7 +73,7 @@ set_choice() {
 while (($#)); do
   case "$1" in
     -v | --verbose) EIDETIC_CONSOLE_VERBOSE=1; shift ;;
-    --no-color) EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
+    --no-color) export EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
     --user) [[ $# -ge 2 ]] || eidetic_die "--user needs a value"; runtime_user="$2"; shift 2;;
     --ref) [[ $# -ge 2 ]] || eidetic_die "--ref needs a value"; git_ref="$2"; shift 2;;
     --mode) guided=0; [[ $# -ge 2 ]] || eidetic_die "--mode needs a value"; mode="$2"; shift 2;;
@@ -121,7 +121,7 @@ install_question_prompt() {
   esac
 }
 
-if ((unattended)); then EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
+if ((unattended)); then export EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
 installer_version="$(eidetic_project_version)"
 eidetic_console_init install "Linux Installer" "$EIDETIC_ROOT" "$installer_version" ||
   exit 1
@@ -168,7 +168,7 @@ eidetic_require_root
 checkout="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 preflight_world_write=yes
 [[ "$EIDETIC_ROOT" == "/" ]] || preflight_world_write=no
-EIDETIC_CONSOLE_PHASE_TOTAL=$((dry_run ? 2 : 9))
+export EIDETIC_CONSOLE_PHASE_TOTAL=$((dry_run ? 2 : 9))
 eidetic_console_phase_begin "Preflight"
 eidetic_preflight_checkout \
   "$runtime_user" "$checkout" "$preflight_world_write"
