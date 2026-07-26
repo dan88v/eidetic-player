@@ -327,8 +327,9 @@ was repeated with ShellCheck available and passed without diagnostics.
 - Power helper/policy: unchanged.
 - Network templates/integration: unchanged.
 - GPIO/I²S Python helper: unchanged.
-- No Raspberry, SSH, real `/boot`, real Linux `/etc`, Windows network, or
-  Windows audio configuration was touched.
+- The implementation phase did not touch a Raspberry, real `/boot`, or real
+  Linux `/etc`; the separately authorized post-CI validation below did.
+- Windows network and audio configuration were not touched.
 
 ## Files modified
 
@@ -346,8 +347,12 @@ was repeated with ShellCheck available and passed without diagnostics.
 - `deploy/linux/test-staging.sh`
 - `deploy/linux/uninstall-eidetic-player.sh`
 - `deploy/linux/update-eidetic-player.sh`
+- `docs/development/README.md`
 - `docs/development/linux-debian.md`
+- `docs/development/raspberry-remote-operations.md`
 - `scripts/linux-verification.test.ts`
+- `scripts/remote-rpi-reinstall.ps1`
+- `scripts/remote-rpi-verify.ps1`
 - `scripts/verify-linux-executable-modes.mjs`
 - `scripts/verify-linux-installer-contract.ts`
 - `prompts/step2.17_output.md`
@@ -357,17 +362,37 @@ development logs, and app processes are removed during final cleanup.
 
 ## Raspberry status
 
-`RASPBERRY GUIDED INSTALLER VALIDATION — NOT TESTED`
+After the user confirmed the CI run was green, an explicitly authorized visible
+SSH session connected to `daniele@10.0.0.112` and performed the real workflow:
 
-`RASPBERRY GUIDED UNINSTALLER VALIDATION — NOT TESTED`
+1. stopped the running Eidetic Player service;
+2. completed the guided uninstaller;
+3. validated and removed only `/home/daniele/eidetic-player`;
+4. cloned GitHub `main` at commit `4054bf5`;
+5. completed the guided Appliance installation;
+6. preserved application data and the pre-existing GPIO/I²S configuration;
+7. rebooted from the final installer prompt.
 
-`RASPBERRY REINSTALLATION — NOT TESTED`
+The reboot intentionally reset SSH, producing client exit code `255`. After the
+device returned, the user service was active and the installation doctor passed
+every installation check. ALSA reported three cards with HDMI and the GPIO/I²S
+DAC detected.
 
-`PCM5102A SYSTEM CONFIGURATION — PASS FROM R1`
+The first readiness request, only 36 seconds after boot, transiently reported
+MPV unavailable while the backend was still cycling. Installed MPV path,
+environment and permissions were correct; the user then tested the device
+physically and confirmed MPV playback worked. Future verification uses a
+bounded readiness wait instead of treating that early state as final.
 
-`RASPBERRY UPDATED-BUILD VALIDATION — NOT TESTED`
+`RASPBERRY GUIDED INSTALLER VALIDATION — PASS`
 
-No Raspberry or SSH connection was opened.
+`RASPBERRY GUIDED UNINSTALLER VALIDATION — PASS`
+
+`RASPBERRY REINSTALLATION — PASS`
+
+`PCM5102A SYSTEM CONFIGURATION — PASS; PRE-EXISTING CONFIGURATION PRESERVED`
+
+`RASPBERRY UPDATED-BUILD VALIDATION — PASS FOR INSTALLATION, BOOT, SERVICE, DOCTOR, AND PHYSICAL MPV PLAYBACK; BROADER UI CHECKLIST NOT RUN`
 
 ## Future Step 2.15.3 checklist
 
