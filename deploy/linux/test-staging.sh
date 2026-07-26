@@ -7,6 +7,51 @@ work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+fixture_rpi_cmdline="console=serial0,115200 console=tty1 root=PARTUUID=fixture rootfstype=ext4 fsck.repair=yes rootwait"
+runtime_home="$(getent passwd "$runtime_user" | cut -d: -f6)"
+[[ "$runtime_home" == /* ]] || {
+  printf 'runtime user home is not absolute\n' >&2
+  exit 1
+}
+
+fixture_fail() {
+  printf 'staging fixture failed: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_token_count() {
+  local file="$1" token="$2" expected="$3" count
+  count="$(awk -v token="$token" '
+    { for (index = 1; index <= NF; index += 1) if ($index == token) count += 1 }
+    END { print count + 0 }
+  ' "$file")"
+  [[ "$count" == "$expected" ]] ||
+    fixture_fail "$token count in ${file#"$work"/}: expected $expected, found $count"
+}
+
+assert_rpi_cmdline_augmented() {
+  local root="$1" file line_count token
+  local -a original_tokens=()
+  file="$root/boot/firmware/cmdline.txt"
+  [[ -f "$file" ]] || fixture_fail "Raspberry Pi cmdline is missing"
+  line_count="$(awk 'END { print NR }' "$file")"
+  [[ "$line_count" == 1 ]] ||
+    fixture_fail "Raspberry Pi cmdline must contain exactly one line"
+  read -r -a original_tokens <<<"$fixture_rpi_cmdline"
+  for token in "${original_tokens[@]}"; do
+    assert_token_count "$file" "$token" 1
+  done
+  assert_token_count "$file" quiet 1
+  assert_token_count "$file" splash 1
+}
+
+assert_rpi_cmdline_original() {
+  local root="$1" file
+  file="$root/boot/firmware/cmdline.txt"
+  [[ -f "$file" ]] || fixture_fail "restored Raspberry Pi cmdline is missing"
+  cmp -s "$file" <(printf '%s\n' "$fixture_rpi_cmdline") ||
+    fixture_fail "Raspberry Pi cmdline was not restored byte-for-byte"
+}
 
 test_official_source_remotes() {
   local remote
@@ -72,6 +117,8 @@ install_root() {
     install -d "$root/var/lib/dpkg"
     printf 'Package: raspberrypi-ui-mods\nStatus: install ok installed\nArchitecture: arm64\n' \
       >"$root/var/lib/dpkg/status"
+    install -d "$root/boot/firmware"
+    printf '%s\n' "$fixture_rpi_cmdline" >"$root/boot/firmware/cmdline.txt"
   fi
   printf '%s\n' "$root"
 }
@@ -159,10 +206,17 @@ fixture() {
   write_legacy_conf "$root" appliance 1 1 1 1 1 0 0
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
   assert_install_conf_value "$root" EIDETIC_BORDERLESS 0
+  if [[ "$name" == raspios ]]; then
+    assert_rpi_cmdline_augmented "$root"
+  else
+    [[ ! -e "$root/boot/firmware/cmdline.txt" ]] ||
+      fixture_fail "Ubuntu staging unexpectedly created a Raspberry Pi cmdline"
+  fi
 
   write_legacy_conf "$root" appliance 1 1 1 1 1 0
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
   assert_install_conf_value "$root" EIDETIC_BORDERLESS 1
+  [[ "$name" != raspios ]] || assert_rpi_cmdline_augmented "$root"
 
   # installation lifecycle
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --dry-run
@@ -171,10 +225,79 @@ fixture() {
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --full-verify --no-restart
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --rollback
   "$SCRIPT_DIR/doctor-installation.sh" --root "$root" --json
+  [[ "$name" != raspios ]] || assert_rpi_cmdline_augmented "$root"
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
+  [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
+  [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
   "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
   "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
+}
+
+assert_all_yes_common() {
+  local root="$1" current
+  assert_appliance_conf "$root" 1 1 1 1 1 1 1
+  [[ -f "$root$runtime_home/.config/autostart/eidetic-player.desktop" ]] ||
+    fixture_fail "all-yes autostart desktop is missing"
+  [[ -f "$root$runtime_home/.config/autostart/eidetic-player-display-policy.desktop" ]] ||
+    fixture_fail "all-yes display-policy autostart is missing"
+  [[ -f "$root/usr/share/plymouth/themes/eidetic-player/eidetic-player.plymouth" ]] ||
+    fixture_fail "all-yes Plymouth theme is missing"
+  [[ -f "$root/usr/share/plymouth/themes/eidetic-player/eidetic-player.script" ]] ||
+    fixture_fail "all-yes Plymouth script is missing"
+  [[ -f "$root/usr/share/plymouth/themes/eidetic-player/line.ppm" ]] ||
+    fixture_fail "all-yes Plymouth line image is missing"
+  [[ -L "$root/opt/eidetic-player/current" ]] ||
+    fixture_fail "all-yes release was not activated"
+  current="$(readlink "$root/opt/eidetic-player/current")"
+  [[ -d "$root/opt/eidetic-player/$current" ]] ||
+    fixture_fail "all-yes current release target is missing"
+}
+
+all_yes_fixture() {
+  local name="$1" root
+  root="$(install_root "$@")"
+
+  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+    --mode appliance --unattended --autostart yes --fullscreen yes --borderless yes \
+    --disable-blanking yes --hide-pointer yes --splash yes --autologin yes \
+    --rpi-onscreen-keyboard keep
+  assert_all_yes_common "$root"
+
+  if [[ "$name" == raspios-all-yes ]]; then
+    [[ -f "$root/etc/lightdm/lightdm.conf.d/90-eidetic-player.conf" ]] ||
+      fixture_fail "Raspberry Pi all-yes LightDM configuration is missing"
+    grep -qx "autologin-user=$runtime_user" \
+      "$root/etc/lightdm/lightdm.conf.d/90-eidetic-player.conf" ||
+      fixture_fail "Raspberry Pi all-yes LightDM user is incorrect"
+    assert_rpi_cmdline_augmented "$root"
+  else
+    [[ -f "$root/etc/gdm3/custom.conf" ]] ||
+      fixture_fail "Ubuntu all-yes GDM configuration is missing"
+    grep -qx 'AutomaticLoginEnable=true' "$root/etc/gdm3/custom.conf" ||
+      fixture_fail "Ubuntu all-yes GDM enable flag is missing"
+    grep -qx "AutomaticLogin=$runtime_user" "$root/etc/gdm3/custom.conf" ||
+      fixture_fail "Ubuntu all-yes GDM user is incorrect"
+    [[ -f "$root/etc/default/grub.d/90-eidetic-player.cfg" ]] ||
+      fixture_fail "Ubuntu all-yes GRUB fragment is missing"
+    [[ ! -e "$root/boot/firmware/cmdline.txt" ]] ||
+      fixture_fail "Ubuntu all-yes staging requested a Raspberry Pi cmdline"
+  fi
+
+  "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  assert_all_yes_common "$root"
+  [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_augmented "$root"
+
+  "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
+  [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
+  "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
+  [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
+  [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
 }
 
 test_official_source_remotes
@@ -197,6 +320,12 @@ fixture ubuntu-amd64 \
 fixture ubuntu-arm64 \
   $'PRETTY_NAME="Ubuntu 26.04 LTS"\nNAME=Ubuntu\nID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute' \
   arm64 GNOME
+all_yes_fixture raspios-all-yes \
+  $'PRETTY_NAME="Raspberry Pi OS (64-bit)"\nNAME="Raspberry Pi OS"\nID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie' \
+  arm64 RaspberryPi raspberrypi,3-model-b package
+all_yes_fixture ubuntu-all-yes \
+  $'PRETTY_NAME="Ubuntu 26.04 LTS"\nNAME=Ubuntu\nID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute' \
+  amd64 GNOME
 
 unsupported="$work/unsupported"
 install -d "$unsupported/etc/eidetic-player"

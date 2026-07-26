@@ -56,6 +56,120 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
   assert.doesNotMatch(source, /\$\{EIDETIC_BORDERLESS:-[^}]*\}/);
 });
 
+void test("Linux staging covers Raspberry cmdline and guarded tail paths", async () => {
+  const [installer, staging, restore, uninstall] = await Promise.all([
+    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/test-staging.sh"),
+    read("deploy/linux/restore-system-ui.sh"),
+    read("deploy/linux/uninstall-eidetic-player.sh"),
+  ]);
+
+  for (const contract of [
+    "fixture_rpi_cmdline=",
+    'install -d "$root/boot/firmware"',
+    'assert_rpi_cmdline_augmented "$root"',
+    'assert_rpi_cmdline_original "$root"',
+    "cmp -s",
+    "all_yes_fixture raspios-all-yes",
+    "all_yes_fixture ubuntu-all-yes",
+    '[[ ! -e "$root/boot/firmware/cmdline.txt" ]]',
+    'assert_token_count "$file" quiet 1',
+    'assert_token_count "$file" splash 1',
+    "--disable-blanking yes --hide-pointer yes --splash yes --autologin yes",
+  ])
+    assert.ok(
+      staging.includes(contract),
+      `missing staging contract: ${contract}`,
+    );
+
+  assert.ok(
+    staging.includes('write_legacy_conf "$root" appliance 1 1 1 1 1'),
+    "legacy Appliance splash coverage must remain enabled",
+  );
+  assert.ok(
+    installer.includes(
+      'cmdline="$(eidetic_target /boot/firmware/cmdline.txt)"',
+    ),
+  );
+  assert.ok(
+    installer.includes(
+      '[[ -f "$cmdline" ]] || eidetic_die "Raspberry Pi boot cmdline was not found"',
+    ),
+  );
+
+  const splash = installer.indexOf('if [[ "${choice[splash]}" == yes ]]');
+  const splashRealOnly = installer.indexOf(
+    'if [[ "$EIDETIC_ROOT" == "/" ]]',
+    splash,
+  );
+  const networkRealOnly = installer.indexOf(
+    'if [[ "$EIDETIC_ROOT" == "/" ]]',
+    splashRealOnly + 1,
+  );
+  const keyboard = installer.indexOf(
+    'if [[ "$rpi_keyboard" == disable ]]',
+    networkRealOnly,
+  );
+  const rebootRealOnly = installer.indexOf(
+    'if [[ "$EIDETIC_ROOT" == "/" ]]',
+    keyboard,
+  );
+  assert.ok(
+    splash >= 0 &&
+      splash < splashRealOnly &&
+      splashRealOnly < networkRealOnly &&
+      networkRealOnly < keyboard &&
+      keyboard < rebootRealOnly,
+  );
+
+  const guardedSplashCommands = installer.slice(
+    splashRealOnly,
+    networkRealOnly,
+  );
+  for (const command of [
+    "plymouth-set-default-theme",
+    "update-initramfs",
+    "update-grub",
+  ])
+    assert.ok(guardedSplashCommands.includes(command));
+
+  const guardedNetworkCommands = installer.slice(networkRealOnly, keyboard);
+  for (const command of [
+    "groupadd",
+    "usermod",
+    "install-network-integration.sh",
+    "systemctl daemon-reload",
+    "loginctl enable-linger",
+  ])
+    assert.ok(guardedNetworkCommands.includes(command));
+
+  assert.ok(installer.slice(rebootRealOnly).includes("systemctl reboot"));
+
+  const restoreRealOnly = restore.indexOf(
+    'if (( ! dry_run )) && [[ "$EIDETIC_ROOT" == "/" ]]',
+  );
+  assert.ok(restoreRealOnly >= 0);
+  for (const command of [
+    "plymouth-set-default-theme",
+    "update-initramfs",
+    "update-grub",
+  ])
+    assert.ok(restore.slice(restoreRealOnly).includes(command));
+
+  const uninstallRealOnly = uninstall.indexOf(
+    'if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_user" ]]',
+  );
+  assert.ok(uninstallRealOnly >= 0);
+  assert.ok(
+    uninstall
+      .slice(
+        uninstallRealOnly,
+        uninstall.indexOf("restore_args=()", uninstallRealOnly),
+      )
+      .includes("systemctl --user stop"),
+  );
+});
+
 void test("Linux build synchronizes and selects the correct Neutralino binary", async () => {
   const [packageJson, installer] = await Promise.all([
     read("package.json"),
