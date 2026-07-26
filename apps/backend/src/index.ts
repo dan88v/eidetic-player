@@ -966,7 +966,7 @@ async function handleRequest(
         response.setHeader("access-control-allow-headers", "content-type");
         response.setHeader(
           "access-control-allow-methods",
-          "GET, POST, PATCH, DELETE, OPTIONS",
+          "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         );
       }
     }

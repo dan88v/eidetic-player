@@ -133,6 +133,11 @@ Discrete commands use REST:
 - `POST /api/library/recovery/acknowledge`;
 - development diagnostics at `GET /api/library/diagnostics`.
 
+The production WebView reaches the backend through its loopback origin, so the
+restricted loopback CORS contract must list every REST verb used by these
+clients, including Favorite `PUT`. Origins remain limited to `localhost` and
+`127.0.0.1`; this is not a wildcard CORS policy.
+
 `GET /api/library/events` is a low-frequency snapshot SSE stream. One backend
 subscription and keepalive exist only while at least one client is connected.
 There is no polling.
