@@ -152,10 +152,12 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
 });
 
 void test("Linux build uses a short private runtime and an isolated Git checkout", async () => {
-  const [installer, common, fixture] = await Promise.all([
+  const [installer, common, fixture, staging, workflow] = await Promise.all([
     read("deploy/linux/install-eidetic-player.sh"),
     read("deploy/linux/lib/common.sh"),
     read("deploy/linux/test-unprivileged-build.sh"),
+    read("deploy/linux/test-staging.sh"),
+    read(".github/workflows/ci.yml"),
   ]);
   assert.match(common, /mktemp -d -p "\$parent" 'ep-r\.XXXXXX'/);
   assert.match(common, /XDG_RUNTIME_DIR="\$runtime"/);
@@ -177,6 +179,17 @@ void test("Linux build uses a short private runtime and an isolated Git checkout
     /git -C "\$SCRIPT_DIR\/\.\.\/\.\." (?:fetch|archive|checkout|reset|pull)/,
   );
   assert.match(installer, /eidetic_preflight_checkout/);
+  assert.match(common, /eidetic_is_official_source_remote "\$origin"/);
+  assert.match(
+    common,
+    /source checkout is not the official Eidetic Player repository/,
+  );
+  const validator =
+    /eidetic_is_official_source_remote\(\)\s*\{([\s\S]*?)\n\}/.exec(common);
+  const validatorBody = validator?.[1];
+  assert.ok(validatorBody, "expected reusable official-source validator");
+  assert.doesNotMatch(validatorBody, /\b(?:GITHUB_ACTIONS|CI|EIDETIC_ROOT)\b/);
+  assert.doesNotMatch(`${workflow}\n${staging}`, /git\s+remote\s+set-url/);
   assert.match(common, /source checkout directory is world-writable/);
   assert.match(common, /source checkout is not readable by the runtime user/);
   assert.doesNotMatch(common, /^\s*chmod(?: -R)? 777/m);

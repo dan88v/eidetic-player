@@ -5,6 +5,48 @@ cd "$SCRIPT_DIR/../.."
 runtime_user="${1:-$(id -un)}"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+test_official_source_remotes() {
+  local remote
+  local -a official=(
+    "https://github.com/dan88v/eidetic-player"
+    "https://github.com/dan88v/eidetic-player.git"
+    "git@github.com:dan88v/eidetic-player"
+    "git@github.com:dan88v/eidetic-player.git"
+  )
+  local -a rejected=(
+    ""
+    "/tmp/eidetic-player"
+    "file:///tmp/eidetic-player"
+    "https://github.com/other/eidetic-player"
+    "https://github.com/dan88v/eidetic-player-fork"
+    "https://github.com/dan88v/eidetic-player.git.evil"
+    "https://github.com.evil/dan88v/eidetic-player.git"
+    "https://evil.example/dan88v/eidetic-player.git"
+    "https://github.com/dan88v/eidetic-player/../other"
+    "https://token@github.com/dan88v/eidetic-player.git"
+    "git@evil.example:dan88v/eidetic-player.git"
+    "https://github.com/dan88v/eidetic-player.git?ref=main"
+    "https://github.com/dan88v/eidetic-player.git#main"
+    "https://github.com/dan88v/eidetic-player.git/extra"
+  )
+
+  for remote in "${official[@]}"; do
+    eidetic_is_official_source_remote "$remote" || {
+      printf 'official source remote was rejected: %s\n' "$remote" >&2
+      exit 1
+    }
+  done
+  for remote in "${rejected[@]}"; do
+    if eidetic_is_official_source_remote "$remote"; then
+      printf 'unofficial source remote was accepted\n' >&2
+      exit 1
+    fi
+  done
+  printf 'Official source remote fixtures passed.\n'
+}
 
 assert_install_conf_value() {
   local root="$1" key="$2" expected="$3"
@@ -128,6 +170,8 @@ fixture() {
   "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root"
 }
 
+test_official_source_remotes
+[[ "${EIDETIC_SOURCE_REMOTE_FIXTURE_ONLY:-0}" != 1 ]] || exit 0
 "$SCRIPT_DIR/test-platform-detection.sh"
 if [[ "${EUID}" -eq 0 ]]; then
   "$SCRIPT_DIR/test-unprivileged-build.sh" "$runtime_user"

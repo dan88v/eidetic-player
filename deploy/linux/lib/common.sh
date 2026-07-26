@@ -67,6 +67,16 @@ eidetic_runtime_test_path() {
   fi
 }
 
+eidetic_is_official_source_remote() {
+  case "${1-}" in
+    https://github.com/dan88v/eidetic-player | \
+      https://github.com/dan88v/eidetic-player.git | \
+      git@github.com:dan88v/eidetic-player | \
+      git@github.com:dan88v/eidetic-player.git) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 eidetic_preflight_checkout() {
   local user="$1" checkout="$2" enforce_world_write="${3:-yes}"
   local mode origin head root_owned=no path
@@ -109,10 +119,8 @@ eidetic_preflight_checkout() {
   command -v git >/dev/null ||
     eidetic_die "Git is required to validate the source checkout"
   origin="$(git config --file "$checkout/.git/config" --get remote.origin.url 2>/dev/null || true)"
-  case "$origin" in
-    https://github.com/dan88v/eidetic-player.git | git@github.com:dan88v/eidetic-player.git) ;;
-    *) eidetic_die "source checkout is not the official Eidetic Player repository" ;;
-  esac
+  eidetic_is_official_source_remote "$origin" ||
+    eidetic_die "source checkout is not the official Eidetic Player repository"
   [[ "$root_owned" == no ]] ||
     eidetic_log "Checkout preflight: root-owned bootstrap files are accepted because the runtime user can read them."
   eidetic_log "Checkout preflight: safe read-only bootstrap access confirmed."
