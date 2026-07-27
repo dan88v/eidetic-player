@@ -290,6 +290,20 @@ Verify:
 Screenshots are useful evidence but do not prove drag, playback, focus, or
 smoothness. Exercise those behaviors.
 
+For native-scrolling changes, also inspect 1024 × 768. In the real Windows app,
+exercise wheel, scrollbar, clicks, keyboard navigation, overlay Escape, and
+handle-only reorder. Confirm that page, drawer, Queue, picker, and dialog
+scrollbars move only their owning content while app chrome and overlay
+backgrounds stay fixed.
+
+Windows mouse input and synthetic pointer diagnostics do not certify Raspberry
+touch. After the exact commit passes CI and the normal updater installs it,
+validate slow pan, flick inertia, row-originated pan, tap, list bounds, modal
+containment, timeline, volume, reorder handles, and OSK with a physical finger.
+Do not substitute browser fallback screenshots for that device test. Pointer
+capture for reorder must begin only after its drag threshold and must release
+on both `pointerup` and `pointercancel`.
+
 ## Performance verification
 
 Reproduce and measure before optimizing. Use a stable interval, typically 30–60

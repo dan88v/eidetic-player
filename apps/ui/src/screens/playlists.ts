@@ -390,8 +390,6 @@ export function createPlaylistsScreen(options: {
     const scrollRegion = list.closest<HTMLElement>(".screen-region");
     const initialScrollTop = scrollRegion?.scrollTop ?? 0;
 
-    handle.setPointerCapture(event.pointerId);
-
     const restoreInitialOrder = (): void => {
       for (const child of initial) list.append(child);
       if (scrollRegion) scrollRegion.scrollTop = initialScrollTop;
@@ -450,6 +448,8 @@ export function createPlaylistsScreen(options: {
     const activate = (): void => {
       if (dragging) return;
       dragging = true;
+      if (!handle.hasPointerCapture(pointerId))
+        handle.setPointerCapture(pointerId);
       const rect = row.getBoundingClientRect();
       rowOffsetY = latestClientY - rect.top;
       placeholder = document.createElement("li");

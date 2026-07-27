@@ -19,6 +19,28 @@ Emergency layouts below 1280 × 800 may scroll or hide secondary information.
 They must not shrink touch targets below safe sizes or introduce horizontal
 overflow.
 
+## Native scrolling ownership
+
+Keep `html`, `body`, and `#app` fixed to the viewport with hidden overflow and
+root overscroll disabled. Long pages scroll through the canonical
+`.screen-region`; drawers, Queue lists, picker bodies, and long dialog bodies
+own their respective inner scroll. Every vertical scroller needs
+`min-height: 0`, hidden horizontal overflow, native `overflow-y: auto`,
+`touch-action: pan-y`, and contained vertical overscroll.
+
+Buttons and row actions inside a vertical scroller must also permit `pan-y` so a
+gesture that begins over their text, icon, or padding remains eligible for
+native WebView scrolling. Reserve `touch-action: none` for controls that
+genuinely own the gesture, such as timelines, volume sliders, and dedicated
+reorder handles. Never add a global `touchmove` blocker or JavaScript momentum
+engine.
+
+Drawer headers and footers remain outside their scrolling nav. Queue headers
+remain outside their scrolling list. Queue and Playlist reorder capture the
+pointer only after the drag threshold is crossed; ordinary row bodies never
+capture it. Keep native scrollbars thin, visible, and usable without making
+them the only way to scroll.
+
 ## Native visual validation
 
 On Windows, validate UI changes only in the real Neutralino/WebView2

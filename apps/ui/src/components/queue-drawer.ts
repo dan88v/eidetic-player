@@ -349,7 +349,6 @@ export function createQueueDrawer(options: {
               ...list.querySelectorAll<HTMLLIElement>(".queue-item"),
             ].map((queueRow) => queueRow.dataset.queueItemId ?? "");
             const initialScrollTop = list.scrollTop;
-            handle.setPointerCapture(pointerId);
 
             const restoreInitialOrder = (): void => {
               for (const child of initial) list.append(child);
@@ -409,6 +408,8 @@ export function createQueueDrawer(options: {
             const activate = (): void => {
               if (dragging) return;
               dragging = true;
+              if (!handle.hasPointerCapture(pointerId))
+                handle.setPointerCapture(pointerId);
               const rect = row.getBoundingClientRect();
               rowOffsetY = latestClientY - rect.top;
               placeholder = document.createElement("li");

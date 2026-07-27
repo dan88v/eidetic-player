@@ -251,7 +251,8 @@
     inset: 0 auto 0 0;
     display: grid;
     width: min(var(--menu-width), 90vw);
-    grid-template-rows: var(--top-bar-height) 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
     border-right: 1px solid var(--color-border-strong);
     background: var(--color-bg-elevated);
     box-shadow: var(--shadow-panel);
@@ -318,6 +319,10 @@
     overscroll-behavior-y: contain;
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .side-menu__nav :where(button, [role="button"]) {
+    touch-action: pan-y;
   }
 
   .nav-item {
@@ -412,6 +417,9 @@
     width: min(480px, calc(100vw - 40px));
     max-height: calc(100vh - 40px);
     overflow-y: auto;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-lg);
     background: var(--color-bg-elevated);
@@ -778,6 +786,7 @@
     display: grid;
     width: min(29rem, 92vw);
     grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
     border-left: 1px solid var(--color-border-strong);
     background: var(--color-bg-elevated);
     box-shadow: var(--shadow-panel);
@@ -851,6 +860,10 @@
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     list-style: none;
+  }
+
+  .queue-list :where(button, [role="button"]) {
+    touch-action: pan-y;
   }
 
   .queue-list__clear {
@@ -973,6 +986,7 @@
     background: var(--color-surface-raised);
     color: inherit;
     text-align: left;
+    touch-action: pan-y;
   }
   .playlist-picker__body > button span {
     color: var(--color-text-muted);
