@@ -2,12 +2,13 @@
 
 ## Status
 
-Local implementation complete. Final local gates are recorded below.
+Implementation, exact-head CI validation, and the guided Raspberry update are
+complete.
 
-`READY FOR CI VALIDATION — RASPBERRY PROGRESS TEST NOT STARTED`
+`REAL RASPBERRY GUIDED UPDATE VALIDATION - PASS`
 
-No commit, push, merge, rebase, reset, stash, clean, or Raspberry SSH session
-was performed.
+No automatic commit, push, merge, rebase, reset, stash, or clean was
+performed.
 
 ## Baseline
 
@@ -193,7 +194,7 @@ available locally. The corrective follow-up:
 
 After this follow-up, `bash -n`, console protocol fixtures,
 `verify:linux:installer`, and `git diff --check` pass. The corrective CI rerun
-is pending; no Raspberry test has started.
+passed on exact commit `82596a7a10127f5bb8aece6cdc5a38feb3d145ee`.
 
 ## Real Windows post-smoke
 
@@ -262,10 +263,44 @@ Linux deployment contract test; no application source changed.
 - Build-info schema and Build ID behavior: unchanged.
 - No automatic commit or push.
 
-## Raspberry checkpoint
+## Real Raspberry guided update
 
-No Raspberry connection or update was started. Raspberry Build ID before/after,
-real progress experience, and the second real no-op remain pending until manual
-commit/push, exact-head green CI, and explicit authorization.
+The reusable visible-terminal workflow
+`scripts/remote-rpi-update.ps1` was run against `daniele@10.0.0.112` only after
+the local tree was clean, `HEAD == origin/main`, exact-head CI was green, and
+the user explicitly authorized the connection. Normal mode was used; no
+`--verbose` flag and no reboot were requested.
 
-`REAL RASPBERRY RUNTIME FAILURE ROLLBACK — NOT TESTED`
+The real updater showed one updater header, one update summary, one
+confirmation prompt, macro progress, runtime substep progress and elapsed
+durations. It did not show a second installer header, installer summary,
+installer prompt, raw protocol record, or normal-mode technical build output.
+The pasted terminal transcript retains the first four transient runtime
+substeps; the completed updater reports 12-step runtime preparation at 09:42
+and total duration 10:01.
+
+Results:
+
+- installed Build ID moved from `b448c44` to `82596a7`;
+- release activated as `releases/20260727T111454Z-82596a7`;
+- user service: `active`;
+- readiness: `ready`, player paused, MPV available, no error code;
+- API commit: `82596a7a10127f5bb8aece6cdc5a38feb3d145ee`;
+- installation doctor: PASS for every required platform, runtime, maintenance,
+  power, manifest, and build-info check;
+- ALSA: three cards, HDMI detected, GPIO/I2S DAC detected;
+- application audio: reachable, MPV true, ALSA preferred output available,
+  25 enumerated devices;
+- application data, configuration, and pre-existing GPIO/I2S configuration
+  preserved;
+- reboot not performed;
+- same-commit second invocation returned exactly `Already up to date.`;
+- SSH workflow ended successfully and reported
+  `Remote update and same-commit verification passed.`
+
+The read-only doctor reported build provenance `source/dirty git/true`; commit,
+short Build ID, ref, package version, and API coherence all matched. This
+pre-existing provenance observation did not affect activation, readiness,
+doctor status, audio detection, or the no-op proof.
+
+`REAL RASPBERRY RUNTIME FAILURE ROLLBACK - NOT TESTED`
