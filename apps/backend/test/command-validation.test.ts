@@ -12,12 +12,38 @@ void test("valid command bodies are parsed", () => {
     mode: "one",
   });
   assert.deepEqual(
+    validateCommandBody("queue-play", {
+      index: 2,
+      queueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+      intentId: 7,
+      requestedAtMilliseconds: 12.5,
+    }),
+    {
+      type: "queue-play",
+      index: 2,
+      queueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+      metadata: { intentId: 7, requestedAtMilliseconds: 12.5 },
+    },
+  );
+  assert.deepEqual(
     validateCommandBody("queue-remove", {
       queueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
     }),
     {
       type: "queue-remove",
       queueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+    },
+  );
+  assert.deepEqual(
+    validateCommandBody("next", {
+      targetQueueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+      intentId: 8,
+      requestedAtMilliseconds: 13,
+    }),
+    {
+      type: "next",
+      targetQueueItemId: "queue-123e4567-e89b-42d3-a456-426614174000",
+      metadata: { intentId: 8, requestedAtMilliseconds: 13 },
     },
   );
 });
@@ -35,5 +61,17 @@ void test("invalid command bodies are rejected", () => {
   assert.throws(
     () => validateCommandBody("queue-remove", { queueItemId: "../track" }),
     /opaque/,
+  );
+  assert.throws(
+    () => validateCommandBody("next", { targetQueueItemId: "../track" }),
+    /opaque/,
+  );
+  assert.throws(
+    () =>
+      validateCommandBody("play-pause", {
+        intentId: 0,
+        requestedAtMilliseconds: 1,
+      }),
+    /intent metadata/,
   );
 });

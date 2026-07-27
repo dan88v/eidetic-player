@@ -52,9 +52,12 @@ import {
 import {
   loadPlaybackPreferences,
   saveAnimationsEnabled,
-  savePlaybackPreferences,
+  saveMutedPreference,
+  saveRepeatPreference,
+  saveShufflePreference,
   saveTimelineStyle,
   saveTimelineTimeMode,
+  saveVolumePreference,
   saveVisualizerMode,
   saveMainPlayerMode,
   saveMusicBrowsingVisibility,
@@ -107,7 +110,20 @@ export function mountApp(
     readonly kind: "album" | "artist";
     readonly id: string;
   } | null = null;
-  const playerStore = new PlayerStore(initialPlayerState);
+  const playerStore = new PlayerStore(initialPlayerState, {
+    onConfirmed: (kind, target) => {
+      if (kind === "volume" && typeof target === "number") {
+        saveVolumePreference(target);
+        void preferencesController?.flush();
+      } else if (kind === "mute" && typeof target === "boolean") {
+        saveMutedPreference(target);
+        void preferencesController?.flush();
+      }
+    },
+    onFailed: () => {
+      showMessage(t("playback.commandFailed"));
+    },
+  });
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
   const dropOverlay = document.createElement("div");
@@ -123,6 +139,15 @@ export function mountApp(
   const run = (operation: Promise<void>): void => {
     void operation.catch((error: unknown) => {
       showMessage(error instanceof Error ? error.message : t("error.generic"));
+    });
+  };
+  const runIntent = (
+    kind: "volume" | "mute" | "transport" | "navigation",
+    metadata: ReturnType<PlayerStore["beginVolumeIntent"]>,
+    operation: Promise<void>,
+  ): void => {
+    void operation.catch(() => {
+      playerStore.failIntent(kind, metadata);
     });
   };
   const handlePaths = (paths: readonly string[]): void => {
@@ -212,9 +237,14 @@ export function mountApp(
     onClose: () => {
       store.setQueueOpen(false);
     },
-    onPlay: (index) => {
+    onPlay: (index, queueItemId) => {
       trackTransitions.noteTrackCommand();
-      run(api.playQueue(index));
+      const metadata = playerStore.beginNavigationIntent(queueItemId);
+      runIntent(
+        "navigation",
+        metadata,
+        api.playQueue(index, queueItemId, metadata),
+      );
     },
     onClear: () => {
       run(api.clearQueue());
@@ -241,13 +271,15 @@ export function mountApp(
       store.setVolumeOpen(false);
     },
     onVolume: (volume) => {
-      run(api.volume(volume));
+      const metadata = playerStore.beginVolumeIntent(volume);
+      runIntent("volume", metadata, api.volume(volume, metadata));
     },
     onVolumeCommit: () => {
       void preferencesController?.flush();
     },
     onMute: (muted) => {
-      run(api.mute(muted));
+      const metadata = playerStore.beginMuteIntent(muted);
+      runIntent("mute", metadata, api.mute(muted, metadata));
     },
   });
   const contentShell = document.createElement("div");
@@ -322,24 +354,59 @@ export function mountApp(
   const actions = {
     openFiles,
     playPause: () => {
-      run(api.playPause());
+      const targetPaused = !playerStore.getState().paused;
+      const metadata = playerStore.beginTransportIntent(targetPaused);
+      runIntent("transport", metadata, api.playPause(metadata));
     },
     previous: () => {
       trackTransitions.noteTrackCommand();
-      run(api.previous());
+      const state = playerStore.getState();
+      const pendingTarget = playerStore.pendingNavigationTarget();
+      const pendingIndex =
+        pendingTarget === undefined
+          ? -1
+          : state.queue.findIndex((item) => item.id === pendingTarget);
+      const baseIndex =
+        pendingIndex >= 0 ? pendingIndex : state.currentQueueIndex;
+      const targetId =
+        pendingTarget === undefined && state.positionSeconds > 3
+          ? (state.queue[state.currentQueueIndex]?.id ?? null)
+          : (state.queue[baseIndex - 1]?.id ?? null);
+      const metadata = playerStore.beginNavigationIntent(targetId);
+      runIntent("navigation", metadata, api.previous(targetId, metadata));
     },
     next: () => {
       trackTransitions.noteTrackCommand();
-      run(api.next());
+      const state = playerStore.getState();
+      const pendingTarget = playerStore.pendingNavigationTarget();
+      const pendingIndex =
+        pendingTarget === undefined
+          ? -1
+          : state.queue.findIndex((item) => item.id === pendingTarget);
+      const baseIndex =
+        pendingIndex >= 0 ? pendingIndex : state.currentQueueIndex;
+      const targetId =
+        state.queue[baseIndex + 1]?.id ??
+        (state.repeatMode === "all" ? (state.queue[0]?.id ?? null) : null);
+      const metadata = playerStore.beginNavigationIntent(targetId);
+      runIntent("navigation", metadata, api.next(targetId, metadata));
     },
     seek: (positionSeconds: number) => {
       run(api.seek(positionSeconds));
     },
     shuffle: (enabled: boolean) => {
-      run(api.shuffle(enabled));
+      run(
+        api.shuffle(enabled).then(() => {
+          saveShufflePreference(enabled);
+        }),
+      );
     },
     repeat: (mode: PlayerState["repeatMode"]) => {
-      run(api.repeat(mode));
+      run(
+        api.repeat(mode).then(() => {
+          saveRepeatPreference(mode);
+        }),
+      );
     },
   };
   const openUsbDevice = (
@@ -951,13 +1018,6 @@ export function mountApp(
       state.queue[state.currentQueueIndex - 1]?.artwork ?? null,
     ]);
     volumePopover.setState(state.volume, state.muted);
-    if (state.mpvAvailable)
-      savePlaybackPreferences({
-        volume: state.volume,
-        muted: state.muted,
-        shuffleEnabled: state.shuffleEnabled,
-        repeatMode: state.repeatMode,
-      });
     if (state.error && state.status === "error")
       showMessage(state.error.message);
   });

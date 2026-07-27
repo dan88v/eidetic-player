@@ -1,14 +1,25 @@
-import type { RepeatMode } from "../../../../packages/shared/src/player.js";
+import type {
+  PlayerCommandRequestMetadata,
+  RepeatMode,
+} from "../../../../packages/shared/src/player.js";
 import { PlayerError } from "../player/player-error.js";
+
+interface CommandMetadata {
+  readonly metadata?: PlayerCommandRequestMetadata;
+}
 
 export type PlayerCommand =
   | { readonly type: "open"; readonly paths: readonly string[] }
   | { readonly type: "seek"; readonly positionSeconds: number }
-  | { readonly type: "volume"; readonly volume: number }
-  | { readonly type: "mute"; readonly muted: boolean }
+  | ({ readonly type: "volume"; readonly volume: number } & CommandMetadata)
+  | ({ readonly type: "mute"; readonly muted: boolean } & CommandMetadata)
   | { readonly type: "shuffle"; readonly enabled: boolean }
   | { readonly type: "repeat"; readonly mode: RepeatMode }
-  | { readonly type: "queue-play"; readonly index: number }
+  | ({
+      readonly type: "queue-play";
+      readonly index: number;
+      readonly queueItemId?: string;
+    } & CommandMetadata)
   | { readonly type: "queue-append"; readonly paths: readonly string[] }
   | { readonly type: "queue-remove"; readonly queueItemId: string }
   | {
@@ -16,12 +27,71 @@ export type PlayerCommand =
       readonly queueItemId: string;
       readonly toIndex: number;
     }
+  | ({
+      readonly type: "play-pause" | "play" | "pause";
+    } & CommandMetadata)
+  | ({
+      readonly type: "previous" | "next";
+      readonly targetQueueItemId?: string | null;
+    } & CommandMetadata)
   | { readonly type: "empty" };
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new PlayerError("INVALID_BODY", "A JSON object is required.");
   return value as Record<string, unknown>;
+}
+
+function metadata(
+  value: Record<string, unknown>,
+): PlayerCommandRequestMetadata | undefined {
+  if (
+    value.intentId === undefined &&
+    value.requestedAtMilliseconds === undefined
+  )
+    return undefined;
+  if (
+    (value.clientSessionId !== undefined &&
+      (typeof value.clientSessionId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          value.clientSessionId,
+        ))) ||
+    typeof value.intentId !== "number" ||
+    !Number.isSafeInteger(value.intentId) ||
+    value.intentId <= 0 ||
+    typeof value.requestedAtMilliseconds !== "number" ||
+    !Number.isFinite(value.requestedAtMilliseconds) ||
+    value.requestedAtMilliseconds < 0
+  )
+    throw new PlayerError(
+      "INVALID_COMMAND_INTENT",
+      "Command intent metadata is invalid.",
+    );
+  return {
+    ...(typeof value.clientSessionId === "string"
+      ? { clientSessionId: value.clientSessionId }
+      : {}),
+    intentId: value.intentId,
+    requestedAtMilliseconds: value.requestedAtMilliseconds,
+  };
+}
+
+function optionalQueueItemId(
+  value: unknown,
+  field: string,
+): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (
+    typeof value !== "string" ||
+    !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  )
+    throw new PlayerError(
+      "INVALID_QUEUE_ITEM",
+      `${field} must be an opaque Queue item ID or null.`,
+    );
+  return value;
 }
 
 export function validateCommandBody(
@@ -71,11 +141,25 @@ export function validateCommandBody(
           "INVALID_VOLUME",
           "volume must be between 0 and 100.",
         );
-      return { type, volume: value.volume };
+      {
+        const commandMetadata = metadata(value);
+        return {
+          type,
+          volume: value.volume,
+          ...(commandMetadata ? { metadata: commandMetadata } : {}),
+        };
+      }
     case "mute":
       if (typeof value.muted !== "boolean")
         throw new PlayerError("INVALID_MUTE", "muted must be a boolean.");
-      return { type, muted: value.muted };
+      {
+        const commandMetadata = metadata(value);
+        return {
+          type,
+          muted: value.muted,
+          ...(commandMetadata ? { metadata: commandMetadata } : {}),
+        };
+      }
     case "shuffle":
       if (typeof value.enabled !== "boolean")
         throw new PlayerError("INVALID_SHUFFLE", "enabled must be a boolean.");
@@ -97,7 +181,28 @@ export function validateCommandBody(
           "INVALID_QUEUE_INDEX",
           "index must be a non-negative integer.",
         );
-      return { type, index: value.index };
+      if (
+        value.queueItemId !== undefined &&
+        (typeof value.queueItemId !== "string" ||
+          !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            value.queueItemId,
+          ))
+      )
+        throw new PlayerError(
+          "INVALID_QUEUE_ITEM",
+          "queueItemId must be an opaque Queue item ID.",
+        );
+      {
+        const commandMetadata = metadata(value);
+        return {
+          type,
+          index: value.index,
+          ...(typeof value.queueItemId === "string"
+            ? { queueItemId: value.queueItemId }
+            : {}),
+          ...(commandMetadata ? { metadata: commandMetadata } : {}),
+        };
+      }
     case "queue-remove":
     case "queue-reorder":
       if (
@@ -125,5 +230,27 @@ export function validateCommandBody(
       return { type, queueItemId: value.queueItemId };
     case "empty":
       return { type };
+    case "play-pause":
+    case "play":
+    case "pause": {
+      const commandMetadata = metadata(value);
+      return {
+        type,
+        ...(commandMetadata ? { metadata: commandMetadata } : {}),
+      };
+    }
+    case "previous":
+    case "next": {
+      const commandMetadata = metadata(value);
+      const targetQueueItemId = optionalQueueItemId(
+        value.targetQueueItemId,
+        "targetQueueItemId",
+      );
+      return {
+        type,
+        ...(targetQueueItemId !== undefined ? { targetQueueItemId } : {}),
+        ...(commandMetadata ? { metadata: commandMetadata } : {}),
+      };
+    }
   }
 }

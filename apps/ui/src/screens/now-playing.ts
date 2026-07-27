@@ -269,7 +269,7 @@ export function createNowPlayingScreen(
       state.paused || state.status !== "playing",
       state.audioBufferSeconds,
     );
-    const usable = Boolean(track) && state.status !== "loading";
+    const usable = state.mpvAvailable && state.queue.length > 0;
     playButton.disabled = !usable;
     previousButton.disabled = !usable;
     nextButton.disabled = !usable;

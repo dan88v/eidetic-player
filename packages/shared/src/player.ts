@@ -60,6 +60,47 @@ export interface PlayerErrorState {
   readonly message: string;
 }
 
+export type PlayerCommandPhase =
+  "pending" | "acknowledged" | "confirmed" | "failed";
+
+export interface PlayerCommandRequestMetadata {
+  readonly clientSessionId?: string;
+  readonly intentId: number;
+  readonly requestedAtMilliseconds: number;
+}
+
+export interface PlayerLevelCommandState {
+  readonly generation: number;
+  readonly clientSessionId: string | null;
+  readonly clientIntentId: number;
+  readonly phase: PlayerCommandPhase;
+  readonly target: number;
+}
+
+export interface PlayerBooleanCommandState {
+  readonly generation: number;
+  readonly clientSessionId: string | null;
+  readonly clientIntentId: number;
+  readonly phase: PlayerCommandPhase;
+  readonly target: boolean;
+}
+
+export interface PlayerNavigationCommandState {
+  readonly generation: number;
+  readonly clientSessionId: string | null;
+  readonly clientIntentId: number;
+  readonly phase: PlayerCommandPhase;
+  readonly targetQueueItemId: string | null;
+}
+
+export interface PlayerCommandState {
+  readonly volume: PlayerLevelCommandState;
+  readonly mute: PlayerBooleanCommandState;
+  readonly transport: PlayerBooleanCommandState;
+  readonly navigation: PlayerNavigationCommandState;
+  readonly failureRevision: number;
+}
+
 export interface PlayerState {
   readonly playerSessionId: string;
   readonly trackTransitionId: number;
@@ -79,6 +120,7 @@ export interface PlayerState {
   readonly queueRevision: number;
   readonly audioDevice: string;
   readonly audioBufferSeconds?: number;
+  readonly commands?: PlayerCommandState;
   readonly error: PlayerErrorState | null;
 }
 

@@ -348,3 +348,19 @@ export function savePlaybackPreferences(
 ): boolean {
   return save(preferences);
 }
+
+export function saveVolumePreference(volume: number): boolean {
+  return save({ volume });
+}
+
+export function saveMutedPreference(muted: boolean): boolean {
+  return save({ muted });
+}
+
+export function saveShufflePreference(shuffleEnabled: boolean): boolean {
+  return save({ shuffleEnabled });
+}
+
+export function saveRepeatPreference(repeatMode: RepeatMode): boolean {
+  return save({ repeatMode });
+}

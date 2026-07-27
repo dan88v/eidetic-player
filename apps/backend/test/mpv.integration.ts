@@ -667,3 +667,83 @@ void test("removable Library disconnect preserves a mixed Queue and stops only i
     await rm(root, { recursive: true, force: true });
   }
 });
+
+void test("persistent MPV accepts rapid transport and level commands through one transition", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "eidetic-player-commands-"));
+  const paths = await Promise.all(
+    Array.from({ length: 4 }, async (_, index) => {
+      const path = join(root, `${String(index + 1)}.wav`);
+      await writeFile(path, silentWav(10));
+      return path;
+    }),
+  );
+  const player = new PlayerService(undefined, undefined, {
+    commandDiagnostics: true,
+  });
+  const clientSessionId = "123e4567-e89b-42d3-a456-426614174000";
+  const metadata = (intentId: number) => ({
+    clientSessionId,
+    intentId,
+    requestedAtMilliseconds: performance.now(),
+  });
+  try {
+    await player.initialize();
+    await player.openResolvedQueue(paths, 0);
+    const initial = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentQueueIndex === 0 && !state.paused,
+      5_000,
+    );
+    const queueIds = initial.queue.map((item) => item.id);
+
+    await Promise.all([
+      player.next(metadata(1)),
+      player.setVolume(63, metadata(2)),
+      player.pause(metadata(3)),
+      player.play(metadata(4)),
+    ]);
+    await Promise.all([
+      player.next(metadata(5)),
+      player.previous(metadata(6)),
+      player.setMuted(true, metadata(7)),
+      player.setMuted(false, metadata(8)),
+    ]);
+
+    const settled = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) =>
+        state.currentQueueIndex === 1 &&
+        Math.abs(state.volume - 63) < 0.55 &&
+        !state.muted &&
+        !state.paused &&
+        state.commands?.volume.phase === "confirmed" &&
+        state.commands.mute.phase === "confirmed" &&
+        state.commands.transport.phase === "confirmed",
+      5_000,
+    );
+    assert.deepEqual(
+      settled.queue.map((item) => item.id),
+      queueIds,
+    );
+    assert.equal(settled.queueRevision, initial.queueRevision);
+    const diagnostics = player.getCommandDiagnostics();
+    for (const stage of [
+      "service-accepted",
+      "ipc-sent",
+      "ipc-acknowledged",
+      "property-confirmed",
+    ] as const)
+      assert.ok(
+        diagnostics.some((entry) => entry.stage === stage),
+        stage,
+      );
+  } finally {
+    await player.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});

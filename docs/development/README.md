@@ -14,6 +14,8 @@ These documents expand the mandatory rules in the repository
   reconnect, Sources status, and read-only Quick Browse.
 - [UI preferences](preferences.md) - backend-authoritative schema, atomic
   persistence, bootstrap, legacy migration, and update behavior.
+- [Playback command responsiveness](playback-command-responsiveness.md) -
+  latest-intent ordering, MPV confirmation, transition races, and UI rollback.
 - [Performance](performance.md) — Raspberry Pi 3B budgets, Canvas, SSE, MPV,
   and FFmpeg.
 - [Cassette main player](cassette-player.md) — Queue tape progress, mechanics,

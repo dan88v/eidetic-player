@@ -95,7 +95,7 @@ void test("queue selection always autoplays and preserves staged identities", as
   );
   assert.match(
     player,
-    /setProperty\("playlist-pos", index\)[\s\S]*setProperty\("pause", false\)/,
+    /playQueueIndex[\s\S]*navigateToIndex\(index, metadata\)[\s\S]*setPausedIntent\(false, metadata\)/,
   );
 });
 

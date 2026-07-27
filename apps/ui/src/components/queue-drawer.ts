@@ -39,7 +39,7 @@ interface QueueRowView {
 
 export function createQueueDrawer(options: {
   readonly onClose: () => void;
-  readonly onPlay: (index: number) => void;
+  readonly onPlay: (index: number, queueItemId: string) => void;
   readonly onClear: () => void;
   readonly onRemove: (queueItemId: string) => void;
   readonly onReorder: (queueItemId: string, toIndex: number) => Promise<void>;
@@ -324,7 +324,9 @@ export function createQueueDrawer(options: {
           button.append(number, artwork.element, copy);
           button.addEventListener("click", () => {
             const index = Number(row.dataset.queueIndex);
-            if (Number.isInteger(index)) options.onPlay(index);
+            const queueItemId = row.dataset.queueItemId;
+            if (Number.isInteger(index) && queueItemId)
+              options.onPlay(index, queueItemId);
           });
           const remove = document.createElement("button");
           remove.type = "button";

@@ -6,6 +6,8 @@ import type {
   PlayerTrack,
   QueueItem,
   RepeatMode,
+  PlayerCommandRequestMetadata,
+  PlayerCommandState,
 } from "../../../../packages/shared/src/player.js";
 
 const MAX_REPORTED_AUDIO_BUFFER_SECONDS = 1;
@@ -33,6 +35,11 @@ import type {
   AudioOutputMpvAdapter,
   AudioOutputPropertyName,
 } from "../audio-output/audio-output-service.js";
+import {
+  CommandIntentCoordinator,
+  type PlaybackCommandDiagnostic,
+  type PlaybackCommandKind,
+} from "./command-intent-coordinator.js";
 
 type StateListener = (state: PlayerState) => void;
 
@@ -54,6 +61,37 @@ const initialState: PlayerState = {
   queue: [],
   queueRevision: 0,
   audioDevice: "Default output",
+  commands: {
+    volume: {
+      generation: 0,
+      clientSessionId: null,
+      clientIntentId: 0,
+      phase: "confirmed",
+      target: 100,
+    },
+    mute: {
+      generation: 0,
+      clientSessionId: null,
+      clientIntentId: 0,
+      phase: "confirmed",
+      target: false,
+    },
+    transport: {
+      generation: 0,
+      clientSessionId: null,
+      clientIntentId: 0,
+      phase: "confirmed",
+      target: true,
+    },
+    navigation: {
+      generation: 0,
+      clientSessionId: null,
+      clientIntentId: 0,
+      phase: "confirmed",
+      targetQueueItemId: null,
+    },
+    failureRevision: 0,
+  },
   error: null,
 };
 
@@ -111,7 +149,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
   >();
   private readonly queueArtworkConcurrency = new LimitedConcurrency(2);
   private preparingPlaylist = false;
-  private pendingTrackTarget: number | null = null;
+  private pendingTrackTargetId: string | null = null;
+  private pendingTrackTargetExpiresAt = 0;
   private openRequestGeneration = 0;
   private openRequestChain: Promise<void> = Promise.resolve();
   private enrichmentWork = 0;
@@ -127,11 +166,38 @@ export class PlayerService implements AudioOutputMpvAdapter {
     (name: AudioOutputPropertyName, value: unknown) => void
   >();
   private beforePlayback: () => Promise<void> = () => Promise.resolve();
+  private readonly propertyVersions = new Map<string, number>();
+  private refreshGeneration = 0;
+  private transitionGeneration = 0;
+  private lastOutputVolumeReapplyGeneration = 0;
+  private lastOutputMuteReapplyGeneration = 0;
+  private readonly commandIntents: CommandIntentCoordinator;
 
   constructor(
     private readonly metadataService = new MetadataService(),
     private readonly artworkService = new ArtworkService(),
-  ) {}
+    options: {
+      readonly commandConfirmationTimeoutMilliseconds?: number;
+      readonly commandDiagnostics?: boolean;
+    } = {},
+  ) {
+    this.commandIntents = new CommandIntentCoordinator(
+      {
+        volume: initialState.volume,
+        muted: initialState.muted,
+        paused: initialState.paused,
+      },
+      (commands) => {
+        this.publishCommandState(commands);
+      },
+      options.commandConfirmationTimeoutMilliseconds,
+      options.commandDiagnostics,
+    );
+    this.state = Object.freeze({
+      ...this.state,
+      commands: this.commandIntents.snapshot(),
+    });
+  }
 
   getState(): PlayerState {
     return this.state;
@@ -179,6 +245,17 @@ export class PlayerService implements AudioOutputMpvAdapter {
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  noteCommandApiReceived(
+    kind: PlaybackCommandKind,
+    metadata?: PlayerCommandRequestMetadata,
+  ): void {
+    this.commandIntents.noteApiReceived(kind, metadata);
+  }
+
+  getCommandDiagnostics(): readonly PlaybackCommandDiagnostic[] {
+    return this.commandIntents.diagnosticSnapshot();
   }
 
   subscribeNaturalEnd(listener: (state: PlayerState) => void): () => void {
@@ -369,6 +446,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
       );
       if (playback.positionSeconds > 0.05)
         await controller.seekWhenReady(playback.positionSeconds);
+      this.commandIntents.observeVolume(playback.volume);
+      this.commandIntents.observeMute(playback.muted);
       this.update({
         volume: playback.volume,
         muted: playback.muted,
@@ -448,7 +527,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.currentEnrichment = null;
     this.nextArtwork = null;
     this.preloadedEnrichments.clear();
-    this.pendingTrackTarget = null;
+    this.clearPendingTrackTarget();
     this.artworkService.setPinned([]);
     if (!hadQueue) this.update({ status: "loading", error: null });
     this.originalQueue = [...queue];
@@ -740,49 +819,110 @@ export class PlayerService implements AudioOutputMpvAdapter {
     }
   }
 
-  async playPause(): Promise<void> {
-    this.requireTrack();
-    if (this.state.paused) await this.beforePlayback();
-    await this.requireController().command(["cycle", "pause"]);
+  async playPause(metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    this.requirePlayableQueue();
+    const base =
+      this.commandIntents.pendingPausedTarget() ??
+      this.commandIntents.confirmedPausedTarget();
+    await this.setPausedIntent(!base, metadata);
   }
 
-  async play(): Promise<void> {
-    this.requireTrack();
-    if (this.state.paused) await this.beforePlayback();
-    await this.requireController().setProperty("pause", false);
+  async play(metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    this.requirePlayableQueue();
+    await this.setPausedIntent(false, metadata);
   }
 
-  async pause(): Promise<void> {
-    this.requireTrack();
-    await this.requireController().setProperty("pause", true);
+  async pause(metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    this.requirePlayableQueue();
+    await this.setPausedIntent(true, metadata);
   }
 
-  async previous(): Promise<void> {
-    this.requireTrack();
-    if (!this.isPlaybackActive()) await this.beforePlayback();
+  async previous(
+    metadata?: PlayerCommandRequestMetadata,
+    targetQueueItemId?: string | null,
+  ): Promise<void> {
+    this.requirePlayableQueue();
     const controller = this.requireController();
-    if (this.pendingTrackTarget === null && this.state.positionSeconds > 3) {
-      await controller.command(["seek", 0, "absolute+exact"]);
+    this.preparePlaybackWithoutBlocking();
+    const explicitTargetIndex =
+      targetQueueItemId === undefined
+        ? -1
+        : this.state.queue.findIndex((item) => item.id === targetQueueItemId);
+    if (
+      targetQueueItemId !== null &&
+      this.pendingTrackTargetId === null &&
+      this.state.positionSeconds > 3 &&
+      (targetQueueItemId === undefined ||
+        explicitTargetIndex === this.state.currentQueueIndex)
+    ) {
+      const currentId =
+        this.state.queue[this.state.currentQueueIndex]?.id ?? null;
+      const intent = this.commandIntents.beginNavigation(currentId, metadata);
+      if (!intent.accepted) return;
+      this.commandIntents.record("navigation", "ipc-sent", intent.generation);
+      try {
+        await controller.command(["seek", 0, "absolute+exact"]);
+        this.commandIntents.acknowledge("navigation", intent.generation);
+      } catch (error) {
+        this.commandIntents.fail("navigation", intent.generation);
+        throw error;
+      }
       return;
     }
-    const base = this.pendingTrackTarget ?? this.state.currentQueueIndex;
-    if (base <= 0) return;
+    if (targetQueueItemId !== undefined) {
+      if (targetQueueItemId === null) {
+        this.acknowledgeNavigationNoop(metadata);
+        return;
+      }
+      if (explicitTargetIndex < 0)
+        throw new PlayerError(
+          "INVALID_QUEUE_ITEM",
+          "Queue item is no longer available.",
+        );
+      await this.navigateToIndex(explicitTargetIndex, metadata);
+      return;
+    }
+    const base = this.pendingTargetIndex();
+    if (base <= 0) {
+      this.acknowledgeNavigationNoop(metadata);
+      return;
+    }
     const target = base - 1;
-    this.pendingTrackTarget = target;
-    await controller.setProperty("playlist-pos", target);
+    await this.navigateToIndex(target, metadata);
   }
 
-  async next(): Promise<void> {
-    this.requireTrack();
-    if (!this.isPlaybackActive()) await this.beforePlayback();
-    const base = this.pendingTrackTarget ?? this.state.currentQueueIndex;
+  async next(
+    metadata?: PlayerCommandRequestMetadata,
+    targetQueueItemId?: string | null,
+  ): Promise<void> {
+    this.requirePlayableQueue();
+    this.preparePlaybackWithoutBlocking();
+    if (targetQueueItemId !== undefined) {
+      if (targetQueueItemId === null) {
+        this.acknowledgeNavigationNoop(metadata);
+        return;
+      }
+      const explicitTargetIndex = this.state.queue.findIndex(
+        (item) => item.id === targetQueueItemId,
+      );
+      if (explicitTargetIndex < 0)
+        throw new PlayerError(
+          "INVALID_QUEUE_ITEM",
+          "Queue item is no longer available.",
+        );
+      await this.navigateToIndex(explicitTargetIndex, metadata);
+      return;
+    }
+    const base = this.pendingTargetIndex();
     let target = base + 1;
     if (target >= this.state.queue.length) {
-      if (this.state.repeatMode !== "all") return;
+      if (this.state.repeatMode !== "all") {
+        this.acknowledgeNavigationNoop(metadata);
+        return;
+      }
       target = 0;
     }
-    this.pendingTrackTarget = target;
-    await this.requireController().setProperty("playlist-pos", target);
+    await this.navigateToIndex(target, metadata);
   }
 
   async seek(positionSeconds: number): Promise<void> {
@@ -795,12 +935,54 @@ export class PlayerService implements AudioOutputMpvAdapter {
     await this.requireController().seekWhenReady(target);
   }
 
-  async setVolume(volume: number): Promise<void> {
-    await this.requireController().setProperty("volume", volume);
+  async setVolume(
+    volume: number,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    const controller = this.requireController();
+    const intent = this.commandIntents.beginVolume(volume, metadata);
+    if (!intent.accepted) return;
+    this.commandIntents.record("volume", "ipc-sent", intent.generation);
+    try {
+      await controller.setProperty("volume", volume);
+      this.commandIntents.acknowledge("volume", intent.generation);
+      const confirmed = await controller
+        .getProperty("volume")
+        .catch(() => undefined);
+      if (typeof confirmed === "number" && Number.isFinite(confirmed))
+        this.update({
+          volume: this.commandIntents.observeVolume(
+            Math.max(0, Math.min(100, confirmed)),
+          ),
+        });
+    } catch (error) {
+      this.commandIntents.fail("volume", intent.generation);
+      throw error;
+    }
   }
 
-  async setMuted(muted: boolean): Promise<void> {
-    await this.requireController().setProperty("mute", muted);
+  async setMuted(
+    muted: boolean,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    const controller = this.requireController();
+    const intent = this.commandIntents.beginMute(muted, metadata);
+    if (!intent.accepted) return;
+    this.commandIntents.record("mute", "ipc-sent", intent.generation);
+    try {
+      await controller.setProperty("mute", muted);
+      this.commandIntents.acknowledge("mute", intent.generation);
+      const confirmed = await controller
+        .getProperty("mute")
+        .catch(() => undefined);
+      if (typeof confirmed === "boolean")
+        this.update({
+          muted: this.commandIntents.observeMute(confirmed),
+        });
+    } catch (error) {
+      this.commandIntents.fail("mute", intent.generation);
+      throw error;
+    }
   }
 
   async setRepeatMode(mode: RepeatMode): Promise<void> {
@@ -856,7 +1038,21 @@ export class PlayerService implements AudioOutputMpvAdapter {
   async playQueueIndex(
     index: number,
     resolveOrigin?: (origin: PersistedQueueOrigin) => Promise<string>,
+    queueItemId?: string,
+    metadata?: PlayerCommandRequestMetadata,
   ): Promise<void> {
+    if (queueItemId) {
+      const currentIndex = this.state.queue.findIndex(
+        (item) => item.id === queueItemId,
+      );
+      if (currentIndex < 0)
+        throw new PlayerError(
+          "QUEUE_ITEM_NOT_FOUND",
+          "Queue item not found.",
+          404,
+        );
+      index = currentIndex;
+    }
     if (index < 0 || index >= this.state.queue.length)
       throw new PlayerError(
         "INVALID_QUEUE_INDEX",
@@ -921,10 +1117,9 @@ export class PlayerService implements AudioOutputMpvAdapter {
       });
       return;
     }
-    await this.beforePlayback();
-    this.pendingTrackTarget = index;
-    await this.requireController().setProperty("playlist-pos", index);
-    await this.requireController().setProperty("pause", false);
+    this.preparePlaybackWithoutBlocking();
+    await this.navigateToIndex(index, metadata);
+    await this.setPausedIntent(false, metadata);
   }
 
   async setRemovableDeviceAvailable(
@@ -1111,6 +1306,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
+    this.commandIntents.dispose();
     this.enrichmentGeneration += 1;
     if (this.positionTimer) clearTimeout(this.positionTimer);
     this.positionTimer = null;
@@ -1163,7 +1359,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.nextArtwork = null;
     this.preloadedEnrichments.clear();
     this.transitionPending = false;
-    this.pendingTrackTarget = null;
+    this.clearPendingTrackTarget();
     this.artworkService.setPinned([]);
     this.update({
       trackTransitionId: this.trackTransitionId,
@@ -1234,6 +1430,10 @@ export class PlayerService implements AudioOutputMpvAdapter {
       typeof message.name === "string"
     ) {
       this.properties.set(message.name, message.data);
+      this.propertyVersions.set(
+        message.name,
+        (this.propertyVersions.get(message.name) ?? 0) + 1,
+      );
       if (
         message.name === "audio-device" ||
         message.name === "audio-device-list" ||
@@ -1241,6 +1441,31 @@ export class PlayerService implements AudioOutputMpvAdapter {
       )
         for (const listener of this.audioOutputPropertyListeners)
           listener(message.name, message.data);
+      if (message.name === "audio-device" || message.name === "current-ao")
+        this.reapplyPendingLevelsAfterOutputChange();
+      if (message.name === "volume") {
+        this.update({
+          volume: this.commandIntents.observeVolume(
+            Math.max(
+              0,
+              Math.min(100, this.asNumber(message.data, this.state.volume)),
+            ),
+          ),
+        });
+      } else if (message.name === "mute") {
+        this.update({
+          muted: this.commandIntents.observeMute(
+            this.asBoolean(message.data, this.state.muted),
+          ),
+        });
+      } else if (message.name === "pause") {
+        this.flushPosition();
+        this.update({
+          paused: this.commandIntents.observePaused(
+            this.asBoolean(message.data, this.state.paused),
+          ),
+        });
+      }
       if (this.preparingPlaylist) return;
       if (
         (message.name === "path" &&
@@ -1255,7 +1480,6 @@ export class PlayerService implements AudioOutputMpvAdapter {
       if (message.name === "time-pos") {
         this.queuePositionUpdate(this.asNumber(message.data));
       } else {
-        if (message.name === "pause") this.flushPosition();
         this.deriveStateFromProperties();
       }
       return;
@@ -1263,11 +1487,17 @@ export class PlayerService implements AudioOutputMpvAdapter {
     switch (message.event) {
       case "start-file":
         if (this.preparingPlaylist) break;
+        this.commandIntents.record("navigation", "start-file");
         this.beginTrackTransition();
         break;
       case "file-loaded":
+        if (this.preparingPlaylist) break;
+        this.commandIntents.record("navigation", "file-loaded");
+        void this.refreshProperties();
+        break;
       case "playback-restart":
         if (this.preparingPlaylist) break;
+        this.commandIntents.record("navigation", "playback-restart");
         void this.refreshProperties();
         break;
       case "end-file":
@@ -1296,6 +1526,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
   private async refreshProperties(): Promise<void> {
     const controller = this.controller;
     if (!controller) return;
+    const refreshGeneration = ++this.refreshGeneration;
+    const transitionGeneration = this.transitionGeneration;
     const names = [
       "pause",
       "time-pos",
@@ -1308,28 +1540,37 @@ export class PlayerService implements AudioOutputMpvAdapter {
       "audio-params",
       "audio-codec-name",
       "audio-buffer",
-      "volume",
-      "mute",
       "idle-active",
-      "audio-device",
-      "audio-device-list",
-      "current-ao",
     ];
+    const versions = names.map((name) => this.propertyVersions.get(name) ?? 0);
     const values = await Promise.all(
       names.map(async (name) => {
         try {
-          return await controller.getProperty(name);
+          return await controller.getProperty(name, "background");
         } catch {
           return undefined;
         }
       }),
     );
-    names.forEach((name, index) => this.properties.set(name, values[index]));
+    if (
+      refreshGeneration !== this.refreshGeneration ||
+      transitionGeneration !== this.transitionGeneration
+    ) {
+      this.commandIntents.record("navigation", "stale-discarded");
+      return;
+    }
+    names.forEach((name, index) => {
+      if ((this.propertyVersions.get(name) ?? 0) === versions[index])
+        this.properties.set(name, values[index]);
+      else this.commandIntents.record("navigation", "stale-discarded");
+    });
     this.transitionPending = false;
     this.deriveStateFromProperties();
   }
 
   private beginTrackTransition(): void {
+    this.transitionGeneration += 1;
+    this.commandIntents.record("navigation", "transition-start");
     if (this.transitionPending) return;
     this.transitionPending = true;
     this.enrichmentGeneration += 1;
@@ -1344,7 +1585,9 @@ export class PlayerService implements AudioOutputMpvAdapter {
 
   private deriveStateFromProperties(): void {
     if (this.transitionPending) return;
-    const pause = this.asBoolean(this.properties.get("pause"), true);
+    const pause = this.commandIntents.observePaused(
+      this.asBoolean(this.properties.get("pause"), this.state.paused),
+    );
     const idle = this.asBoolean(this.properties.get("idle-active"), false);
     const duration = this.asNumber(this.properties.get("duration"));
     const path = this.asString(this.properties.get("path"));
@@ -1376,8 +1619,10 @@ export class PlayerService implements AudioOutputMpvAdapter {
       if (path) this.trackTransitionId += 1;
     }
     const currentTrack = path ? this.createTrack(path, duration) : null;
-    if (playlistIndex === this.pendingTrackTarget)
-      this.pendingTrackTarget = null;
+    const currentQueueItemId = this.playlistItemIds[playlistIndex] ?? null;
+    this.commandIntents.confirmNavigation(currentQueueItemId);
+    if (currentQueueItemId === this.pendingTrackTargetId)
+      this.clearPendingTrackTarget();
     this.update({
       trackTransitionId: this.trackTransitionId,
       paused: pause,
@@ -1412,14 +1657,18 @@ export class PlayerService implements AudioOutputMpvAdapter {
           this.asNumber(this.properties.get("audio-buffer"), 0),
         ),
       ),
-      volume: Math.max(
-        0,
-        Math.min(
-          100,
-          this.asNumber(this.properties.get("volume"), this.state.volume),
+      volume: this.commandIntents.observeVolume(
+        Math.max(
+          0,
+          Math.min(
+            100,
+            this.asNumber(this.properties.get("volume"), this.state.volume),
+          ),
         ),
       ),
-      muted: this.asBoolean(this.properties.get("mute"), this.state.muted),
+      muted: this.commandIntents.observeMute(
+        this.asBoolean(this.properties.get("mute"), this.state.muted),
+      ),
       audioDevice: this.formatAudioDevice(this.properties.get("audio-device")),
       error: null,
     });
@@ -1817,8 +2066,153 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.update({ positionSeconds });
   }
 
+  private publishCommandState(commands: PlayerCommandState): void {
+    const volume =
+      commands.volume.phase === "pending" ||
+      commands.volume.phase === "acknowledged" ||
+      commands.volume.phase === "failed"
+        ? commands.volume.target
+        : this.state.volume;
+    const muted =
+      commands.mute.phase === "pending" ||
+      commands.mute.phase === "acknowledged" ||
+      commands.mute.phase === "failed"
+        ? commands.mute.target
+        : this.state.muted;
+    const paused =
+      commands.transport.phase === "pending" ||
+      commands.transport.phase === "acknowledged" ||
+      commands.transport.phase === "failed"
+        ? commands.transport.target
+        : this.state.paused;
+    this.update({ commands, volume, muted, paused });
+  }
+
+  private async setPausedIntent(
+    targetPaused: boolean,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    if (!targetPaused) this.preparePlaybackWithoutBlocking();
+    const intent = this.commandIntents.beginTransport(targetPaused, metadata);
+    if (!intent.accepted) return;
+    const controller = this.requireController();
+    this.commandIntents.record("transport", "ipc-sent", intent.generation);
+    try {
+      await controller.setProperty("pause", targetPaused);
+      this.commandIntents.acknowledge("transport", intent.generation);
+      const confirmed = await controller
+        .getProperty("pause")
+        .catch(() => undefined);
+      if (typeof confirmed === "boolean")
+        this.update({
+          paused: this.commandIntents.observePaused(confirmed),
+        });
+    } catch (error) {
+      this.commandIntents.fail("transport", intent.generation);
+      throw error;
+    }
+  }
+
+  private async navigateToIndex(
+    targetIndex: number,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    const target = this.state.queue[targetIndex];
+    if (!target)
+      throw new PlayerError(
+        "INVALID_QUEUE_INDEX",
+        "Queue index is out of range.",
+      );
+    const intent = this.commandIntents.beginNavigation(target.id, metadata);
+    if (!intent.accepted) return;
+    this.pendingTrackTargetId = target.id;
+    this.pendingTrackTargetExpiresAt = performance.now() + 10_000;
+    this.transitionGeneration += 1;
+    const controller = this.requireController();
+    this.commandIntents.record("navigation", "ipc-sent", intent.generation);
+    try {
+      await controller.setProperty("playlist-pos", targetIndex);
+      this.commandIntents.acknowledge("navigation", intent.generation);
+    } catch (error) {
+      this.clearPendingTrackTarget();
+      this.commandIntents.fail("navigation", intent.generation);
+      throw error;
+    }
+  }
+
+  private acknowledgeNavigationNoop(
+    metadata?: PlayerCommandRequestMetadata,
+  ): void {
+    const currentId =
+      this.state.queue[this.state.currentQueueIndex]?.id ?? null;
+    const intent = this.commandIntents.beginNavigation(currentId, metadata);
+    if (!intent.accepted) return;
+    this.commandIntents.acknowledge("navigation", intent.generation);
+  }
+
+  private pendingTargetIndex(): number {
+    if (
+      this.pendingTrackTargetId &&
+      performance.now() <= this.pendingTrackTargetExpiresAt
+    ) {
+      const pendingIndex = this.state.queue.findIndex(
+        (item) => item.id === this.pendingTrackTargetId,
+      );
+      if (pendingIndex >= 0) return pendingIndex;
+    }
+    this.clearPendingTrackTarget();
+    return this.state.currentQueueIndex;
+  }
+
+  private clearPendingTrackTarget(): void {
+    this.pendingTrackTargetId = null;
+    this.pendingTrackTargetExpiresAt = 0;
+  }
+
+  private preparePlaybackWithoutBlocking(): void {
+    void this.beforePlayback().catch(() => {
+      console.warn("[audio-output] non-blocking playback preparation failed");
+    });
+  }
+
+  private reapplyPendingLevelsAfterOutputChange(): void {
+    const controller = this.controller;
+    if (!controller) return;
+    const volume = this.commandIntents.pendingVolume();
+    if (
+      volume &&
+      volume.generation !== this.lastOutputVolumeReapplyGeneration
+    ) {
+      this.lastOutputVolumeReapplyGeneration = volume.generation;
+      this.commandIntents.record("volume", "ipc-sent", volume.generation);
+      void controller
+        .setProperty("volume", volume.target)
+        .then(() => {
+          this.commandIntents.acknowledge("volume", volume.generation);
+        })
+        .catch(() => {
+          this.commandIntents.fail("volume", volume.generation);
+        });
+    }
+    const mute = this.commandIntents.pendingMute();
+    if (mute && mute.generation !== this.lastOutputMuteReapplyGeneration) {
+      this.lastOutputMuteReapplyGeneration = mute.generation;
+      this.commandIntents.record("mute", "ipc-sent", mute.generation);
+      void controller
+        .setProperty("mute", mute.target)
+        .then(() => {
+          this.commandIntents.acknowledge("mute", mute.generation);
+        })
+        .catch(() => {
+          this.commandIntents.fail("mute", mute.generation);
+        });
+    }
+  }
+
   private update(patch: Partial<PlayerState>): void {
     this.state = Object.freeze({ ...this.state, ...patch });
+    if (this.commandIntents.hasPendingIntent())
+      this.commandIntents.record("navigation", "state-published");
     for (const listener of this.listeners) listener(this.state);
     this.notifyLibraryPriorityWaiters();
   }
@@ -1828,7 +2222,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       this.state.status === "loading" ||
       this.transitionPending ||
       this.preparingPlaylist ||
-      this.pendingTrackTarget !== null ||
+      this.pendingTrackTargetId !== null ||
       this.enrichmentWork > 0
     );
   }
@@ -1855,6 +2249,12 @@ export class PlayerService implements AudioOutputMpvAdapter {
   private requireTrack(): void {
     this.requireController();
     if (!this.state.currentTrack)
+      throw new PlayerError("NO_TRACK", "No track is loaded.", 409);
+  }
+
+  private requirePlayableQueue(): void {
+    this.requireController();
+    if (this.state.queue.length === 0 && this.originalQueue.length === 0)
       throw new PlayerError("NO_TRACK", "No track is loaded.", 409);
   }
 

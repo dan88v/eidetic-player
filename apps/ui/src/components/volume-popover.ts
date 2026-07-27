@@ -17,6 +17,7 @@ export function createVolumePopover(options: {
   readonly onMute: (muted: boolean) => void;
 }): VolumePopover {
   let volume = 100;
+  let confirmedVolume = 100;
   let muted = false;
   let lastSentAt = 0;
   let returnFocus: HTMLElement | null = null;
@@ -95,6 +96,8 @@ export function createVolumePopover(options: {
     if (slider.hasPointerCapture(event.pointerId))
       slider.releasePointerCapture(event.pointerId);
     activePointerId = null;
+    volume = confirmedVolume;
+    render();
   });
   slider.addEventListener("keydown", (event) => {
     let next = volume;
@@ -150,13 +153,18 @@ export function createVolumePopover(options: {
           slider.hasPointerCapture(activePointerId)
         )
           slider.releasePointerCapture(activePointerId);
+        if (activePointerId !== null) {
+          volume = confirmedVolume;
+          render();
+        }
         activePointerId = null;
         returnFocus?.setAttribute("aria-expanded", "false");
         returnFocus?.focus();
       }
     },
     setState(nextVolume, nextMuted) {
-      volume = nextVolume;
+      confirmedVolume = nextVolume;
+      if (activePointerId === null) volume = nextVolume;
       muted = nextMuted;
       render();
     },

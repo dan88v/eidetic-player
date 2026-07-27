@@ -4,6 +4,7 @@ import type {
   PlayerState,
   RepeatMode,
   ArtworkRef,
+  PlayerCommandRequestMetadata,
 } from "../../../../packages/shared/src/player";
 import { config } from "../config";
 import type {
@@ -96,29 +97,38 @@ export class PlayerApiClient {
   open(paths: readonly string[]): Promise<void> {
     return this.post("open", { paths });
   }
-  playPause(): Promise<void> {
-    return this.post("play-pause", {});
+  playPause(metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    return this.post("play-pause", metadata ?? {});
   }
-  play(): Promise<void> {
-    return this.post("play", {});
+  play(metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    return this.post("play", metadata ?? {});
   }
-  pause(): Promise<void> {
-    return this.post("pause", {});
+  pause(metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    return this.post("pause", metadata ?? {});
   }
-  previous(): Promise<void> {
-    return this.post("previous", {});
+  previous(
+    targetQueueItemId: string | null,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    return this.post("previous", { targetQueueItemId, ...metadata });
   }
-  next(): Promise<void> {
-    return this.post("next", {});
+  next(
+    targetQueueItemId: string | null,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    return this.post("next", { targetQueueItemId, ...metadata });
   }
   seek(positionSeconds: number): Promise<void> {
     return this.post("seek", { positionSeconds });
   }
-  volume(volume: number): Promise<void> {
-    return this.post("volume", { volume });
+  volume(
+    volume: number,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    return this.post("volume", { volume, ...metadata });
   }
-  mute(muted: boolean): Promise<void> {
-    return this.post("mute", { muted });
+  mute(muted: boolean, metadata?: PlayerCommandRequestMetadata): Promise<void> {
+    return this.post("mute", { muted, ...metadata });
   }
   shuffle(enabled: boolean): Promise<void> {
     return this.post("shuffle", { enabled });
@@ -126,8 +136,12 @@ export class PlayerApiClient {
   repeat(mode: RepeatMode): Promise<void> {
     return this.post("repeat", { mode });
   }
-  playQueue(index: number): Promise<void> {
-    return this.post("queue/play", { index });
+  playQueue(
+    index: number,
+    queueItemId?: string,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    return this.post("queue/play", { index, queueItemId, ...metadata });
   }
   appendQueue(paths: readonly string[]): Promise<void> {
     return this.post("queue/append", { paths });

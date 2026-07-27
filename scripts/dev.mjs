@@ -120,6 +120,7 @@ try {
     {
       ...process.env,
       EIDETIC_DEV_SHUTDOWN_TOKEN: backendShutdownToken,
+      EIDETIC_COMMAND_DIAGNOSTICS: "1",
       ...(developmentBuildId
         ? { EIDETIC_DEV_BUILD_ID: developmentBuildId }
         : {}),

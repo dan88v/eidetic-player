@@ -88,6 +88,9 @@ zero complete Queue rebuilds.
 ## MPV and FFmpeg
 
 - MPV is a single persistent, headless playback process.
+- Interactive playback IPC has priority over bounded read-only property
+  refresh work on that single connection. A stale refresh or transition
+  generation must not overwrite a newer command intent.
 - Never decode playback audio in Node.
 - Realtime analysis uses at most one FFmpeg process.
 - Waveform extraction uses at most one separate FFmpeg process.

@@ -104,6 +104,8 @@ export const en = {
   "settings.saveError": "The setting could not be saved.",
   "settings.persistenceWarning":
     "Settings could not be saved. They will be retried.",
+  "playback.commandFailed":
+    "The playback command was not confirmed. The last confirmed state was restored.",
   "settings.migrationWarning":
     "Previous settings need a safe manual import before they can be restored.",
   "settings.animations": "Animations",

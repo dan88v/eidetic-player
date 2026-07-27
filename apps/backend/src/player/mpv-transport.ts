@@ -15,9 +15,18 @@ interface PendingRequest {
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
   readonly commandName: string;
+  readonly background: boolean;
+}
+
+interface QueuedBackgroundRequest {
+  readonly command: readonly unknown[];
+  readonly timeoutMilliseconds: number;
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (error: Error) => void;
 }
 
 export type MpvMessageListener = (message: MpvResponse) => void;
+export type MpvRequestPriority = "interactive" | "background";
 
 export class MpvTransport {
   private requestId = 0;
@@ -25,6 +34,9 @@ export class MpvTransport {
   private readonly listeners = new Set<MpvMessageListener>();
   private disconnected = false;
   private readonly parser: JsonLineParser;
+  private readonly backgroundQueue: QueuedBackgroundRequest[] = [];
+  private activeBackgroundRequests = 0;
+  private static readonly maximumBackgroundRequests = 2;
 
   private constructor(private readonly socket: Socket) {
     this.parser = new JsonLineParser(
@@ -78,14 +90,37 @@ export class MpvTransport {
   request(
     command: readonly unknown[],
     timeoutMilliseconds = 3_000,
+    priority: MpvRequestPriority = "interactive",
   ): Promise<unknown> {
     if (this.disconnected)
       return Promise.reject(new Error("MPV IPC is not connected"));
+    if (priority === "background")
+      return new Promise((resolve, reject) => {
+        this.backgroundQueue.push({
+          command,
+          timeoutMilliseconds,
+          resolve,
+          reject,
+        });
+        this.drainBackgroundQueue();
+      });
+    return this.send(command, timeoutMilliseconds, false);
+  }
+
+  private send(
+    command: readonly unknown[],
+    timeoutMilliseconds: number,
+    background: boolean,
+  ): Promise<unknown> {
     const requestId = ++this.requestId;
     const commandName = typeof command[0] === "string" ? command[0] : "unknown";
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        if (background) {
+          this.activeBackgroundRequests -= 1;
+          this.drainBackgroundQueue();
+        }
         reject(new Error(`MPV request ${String(requestId)} timed out`));
       }, timeoutMilliseconds);
       this.pending.set(requestId, {
@@ -93,6 +128,7 @@ export class MpvTransport {
         reject,
         timer,
         commandName,
+        background,
       });
       this.socket.write(
         `${JSON.stringify({ command, request_id: requestId })}\n`,
@@ -113,6 +149,10 @@ export class MpvTransport {
       if (pending) {
         clearTimeout(pending.timer);
         this.pending.delete(response.request_id);
+        if (pending.background) {
+          this.activeBackgroundRequests -= 1;
+          this.drainBackgroundQueue();
+        }
         if (response.error && response.error !== "success") {
           pending.reject(
             new Error(`MPV ${pending.commandName}: ${response.error}`),
@@ -134,5 +174,23 @@ export class MpvTransport {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const queued of this.backgroundQueue) queued.reject(error);
+    this.backgroundQueue.length = 0;
+    this.activeBackgroundRequests = 0;
+  }
+
+  private drainBackgroundQueue(): void {
+    while (
+      !this.disconnected &&
+      this.activeBackgroundRequests < MpvTransport.maximumBackgroundRequests
+    ) {
+      const queued = this.backgroundQueue.shift();
+      if (!queued) return;
+      this.activeBackgroundRequests += 1;
+      void this.send(queued.command, queued.timeoutMilliseconds, true).then(
+        queued.resolve,
+        queued.reject,
+      );
+    }
   }
 }

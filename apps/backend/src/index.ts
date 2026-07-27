@@ -589,6 +589,22 @@ async function readBody(
 }
 
 async function execute(command: PlayerCommand): Promise<void> {
+  if (command.type === "volume")
+    player.noteCommandApiReceived("volume", command.metadata);
+  else if (command.type === "mute")
+    player.noteCommandApiReceived("mute", command.metadata);
+  else if (
+    command.type === "play" ||
+    command.type === "pause" ||
+    command.type === "play-pause"
+  )
+    player.noteCommandApiReceived("transport", command.metadata);
+  else if (
+    command.type === "next" ||
+    command.type === "previous" ||
+    command.type === "queue-play"
+  )
+    player.noteCommandApiReceived("navigation", command.metadata);
   switch (command.type) {
     case "open":
       await player.open(command.paths);
@@ -598,10 +614,25 @@ async function execute(command: PlayerCommand): Promise<void> {
       analyzer.restartAtCurrentPosition();
       break;
     case "volume":
-      await player.setVolume(command.volume);
+      await player.setVolume(command.volume, command.metadata);
       break;
     case "mute":
-      await player.setMuted(command.muted);
+      await player.setMuted(command.muted, command.metadata);
+      break;
+    case "play-pause":
+      await player.playPause(command.metadata);
+      break;
+    case "play":
+      await player.play(command.metadata);
+      break;
+    case "pause":
+      await player.pause(command.metadata);
+      break;
+    case "previous":
+      await player.previous(command.metadata, command.targetQueueItemId);
+      break;
+    case "next":
+      await player.next(command.metadata, command.targetQueueItemId);
       break;
     case "shuffle":
       await player.setShuffle(command.enabled);
@@ -610,26 +641,31 @@ async function execute(command: PlayerCommand): Promise<void> {
       await player.setRepeatMode(command.mode);
       break;
     case "queue-play":
-      await player.playQueueIndex(command.index, async (origin) => {
-        if (origin.kind === "removable")
-          return removableStorage.resolveLogicalPath(
-            origin.deviceId,
-            origin.relativePath,
-          );
-        if (origin.kind === "smb")
-          return smb.resolveLogicalPath(
-            origin.connectionId,
-            origin.relativePath,
-          );
-        if (origin.kind === "folders") {
-          const source = await sources.getInternal(origin.sourceId);
-          return pathService.resolveWithinSource(
-            source.canonicalRoot,
-            origin.relativePath,
-          );
-        }
-        return origin.nativePath;
-      });
+      await player.playQueueIndex(
+        command.index,
+        async (origin) => {
+          if (origin.kind === "removable")
+            return removableStorage.resolveLogicalPath(
+              origin.deviceId,
+              origin.relativePath,
+            );
+          if (origin.kind === "smb")
+            return smb.resolveLogicalPath(
+              origin.connectionId,
+              origin.relativePath,
+            );
+          if (origin.kind === "folders") {
+            const source = await sources.getInternal(origin.sourceId);
+            return pathService.resolveWithinSource(
+              source.canonicalRoot,
+              origin.relativePath,
+            );
+          }
+          return origin.nativePath;
+        },
+        command.queueItemId,
+        command.metadata,
+      );
       break;
     case "queue-append":
       await player.append(command.paths);
@@ -1010,14 +1046,14 @@ const commandRoutes = new Map<string, PlayerCommand["type"]>([
   ["/api/player/queue/append", "queue-append"],
   ["/api/player/queue/remove", "queue-remove"],
   ["/api/player/queue/reorder", "queue-reorder"],
+  ["/api/player/play-pause", "play-pause"],
+  ["/api/player/play", "play"],
+  ["/api/player/pause", "pause"],
+  ["/api/player/previous", "previous"],
+  ["/api/player/next", "next"],
 ]);
 
 const emptyCommands = new Map<string, () => Promise<void>>([
-  ["/api/player/play-pause", () => player.playPause()],
-  ["/api/player/play", () => player.play()],
-  ["/api/player/pause", () => player.pause()],
-  ["/api/player/previous", () => player.previous()],
-  ["/api/player/next", () => player.next()],
   ["/api/player/queue/clear", () => player.clearQueue()],
 ]);
 

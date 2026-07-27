@@ -20,6 +20,14 @@ can expose the reported problem.
 Browser headless checks cannot replace Neutralino or real-media verification
 when native integration, playback, artwork, or realtime rendering is involved.
 
+Playback responsiveness tests cover monotonic client intents and backend
+generations, out-of-order HTTP arrival, stale property refresh, transition
+generation, explicit pause targets, rapid stable-ID navigation, bounded
+timeout/rollback, volume rounding, output changes, drag preview protection,
+intent-only persistence, the single persistent MPV process, and clean
+shutdown. Raspberry audio-path comparisons remain target-device evidence and
+must not be inferred from Windows.
+
 Preference persistence tests cover missing/corrupt/future-schema files,
 per-field validation, unknown-field preservation, private modes, atomic
 replacement and backup recovery, revision conflicts, whitelist-only legacy

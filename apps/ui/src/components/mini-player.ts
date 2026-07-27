@@ -191,7 +191,7 @@ export function createMiniPlayer(
       favoriteIndicator?.setTrack(
         state.queue[state.currentQueueIndex]?.libraryTrackId ?? null,
       );
-      playbackDisabled = !state.currentTrack || state.status === "loading";
+      playbackDisabled = !state.mpvAvailable || state.queue.length === 0;
       const disabled = playbackDisabled || surfaceDisabled;
       previousButton.disabled = disabled;
       playButton.disabled = disabled;

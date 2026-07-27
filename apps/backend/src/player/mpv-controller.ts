@@ -1,6 +1,10 @@
 import { createMpvEndpoint, type MpvEndpoint } from "./mpv-endpoint.js";
 import { MpvProcess } from "./mpv-process.js";
-import { MpvTransport, type MpvMessageListener } from "./mpv-transport.js";
+import {
+  MpvTransport,
+  type MpvMessageListener,
+  type MpvRequestPriority,
+} from "./mpv-transport.js";
 
 const observedProperties = [
   "pause",
@@ -74,8 +78,12 @@ export class MpvController {
     return this.transport.request(command, timeout);
   }
 
-  getProperty(name: string): Promise<unknown> {
-    return this.command(["get_property", name]);
+  getProperty(
+    name: string,
+    priority: MpvRequestPriority = "interactive",
+  ): Promise<unknown> {
+    if (!this.transport) return Promise.reject(new Error("MPV is unavailable"));
+    return this.transport.request(["get_property", name], 3_000, priority);
   }
 
   setProperty(name: string, value: unknown): Promise<unknown> {
