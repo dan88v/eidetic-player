@@ -228,7 +228,7 @@ install -d "$runtime_root"
   EIDETIC_RUNTIME_FULL_VERIFY=0
   eidetic_runtime_begin
   eidetic_runtime_local_event start prepare-source 1
-  eidetic_runtime_local_event done prepare-source 1 999
+  eidetic_runtime_local_event "done" prepare-source 1 999
   eidetic_runtime_local_event start install-dependencies 2
   eidetic_runtime_local_event skipped install-dependencies 2 0
   eidetic_runtime_local_event start typecheck 3
@@ -283,6 +283,8 @@ install -d "$protocol_child_root"
   export EIDETIC_CONSOLE_FORCE_NON_TTY=1
   eidetic_console_init update "Linux Updater" "$protocol_child_root" 0.1.0
   eidetic_runtime_configure 0
+  # Called indirectly by the protocol runner.
+  # shellcheck disable=SC2317
   protocol_fixture_child() {
     printf 'human stdout must not become progress\n'
     printf 'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\n' \
@@ -291,6 +293,8 @@ install -d "$protocol_child_root"
       >&"$EIDETIC_PROGRESS_FD"
   }
   eidetic_runtime_run_protocol_child 0 protocol_fixture_child
+  # Called indirectly by the protocol runner.
+  # shellcheck disable=SC2317
   external_protocol_fixture() {
     export EIDETIC_PROGRESS_FD
     bash -c \
@@ -337,7 +341,7 @@ embedded_progress="$work/embedded.progress"
   eidetic_console_info "embedded technical record"
   eidetic_runtime_configure 0
   eidetic_runtime_local_event start prepare-source 1
-  eidetic_runtime_local_event done prepare-source 1 8
+  eidetic_runtime_local_event "done" prepare-source 1 8
   eidetic_console_finalize
   exec {parent_log_fd}>&-
   exec {parent_progress_fd}>&-

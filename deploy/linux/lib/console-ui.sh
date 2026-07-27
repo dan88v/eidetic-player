@@ -468,7 +468,7 @@ eidetic_runtime_finish() {
   local now
   now="$(eidetic_console_monotonic_ms)"
   if [[ -n "$EIDETIC_RUNTIME_STARTED_MS" ]]; then
-    EIDETIC_RUNTIME_ELAPSED_MS=$((now - EIDETIC_RUNTIME_STARTED_MS))
+    export EIDETIC_RUNTIME_ELAPSED_MS=$((now - EIDETIC_RUNTIME_STARTED_MS))
   fi
   EIDETIC_RUNTIME_ACTIVE_ID=
   EIDETIC_RUNTIME_ACTIVE_INDEX=0
@@ -530,7 +530,7 @@ eidetic_runtime_render_event() {
       fi
       eidetic_console_spinner_start
       ;;
-    done)
+    "done")
       eidetic_console_spinner_stop
       if [[ "$EIDETIC_CONSOLE_TTY" == 1 ]]; then
         eidetic_console_write success "  $label ($duration)"
@@ -576,7 +576,7 @@ eidetic_runtime_accept_line() {
   IFS=$'\t' read -r magic scope event id index total elapsed extra <<<"$line"
   [[ -z "${extra:-}" ]] || return 1
   [[ "$magic" == EIDETIC_PROGRESS_V1 && "$scope" == runtime ]] || return 1
-  [[ "$event" == start || "$event" == done || "$event" == skipped ||
+  [[ "$event" == start || "$event" == "done" || "$event" == skipped ||
     "$event" == failed ]] || return 1
   [[ "$id" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || return 1
   [[ -v "EIDETIC_RUNTIME_LABELS[$id]" ]] || return 1
@@ -596,7 +596,7 @@ eidetic_runtime_accept_line() {
     [[ "$elapsed" =~ ^[0-9]+$ ]] || return 1
     [[ "$EIDETIC_RUNTIME_ACTIVE_ID" == "$id" &&
       "$EIDETIC_RUNTIME_ACTIVE_INDEX" == "$index" ]] || return 1
-    if [[ "$event" == done || "$event" == skipped ]]; then
+    if [[ "$event" == "done" || "$event" == skipped ]]; then
       EIDETIC_RUNTIME_COMPLETED="$index"
       EIDETIC_FAILURE_SUBSTEP_LABEL=
     fi
@@ -620,7 +620,7 @@ eidetic_runtime_local_event() {
 }
 
 eidetic_runtime_run_step() {
-  local id="$1" index="$2" started ended status
+  local id="$1" index="$2" started ended status terminal_event
   shift 2
   started="$(eidetic_console_monotonic_ms)"
   eidetic_runtime_local_event start "$id" "$index"
@@ -629,36 +629,43 @@ eidetic_runtime_run_step() {
   status=$?
   set -e
   ended="$(eidetic_console_monotonic_ms)"
+  if [[ "$status" == 0 ]]; then
+    terminal_event="done"
+  else
+    terminal_event=failed
+  fi
   eidetic_runtime_local_event \
-    "$([[ "$status" == 0 ]] && printf done || printf failed)" \
-    "$id" "$index" "$((ended - started))"
+    "$terminal_event" "$id" "$index" "$((ended - started))"
   return "$status"
 }
 
 eidetic_runtime_run_protocol_child() {
-  local full="$1" progress_fd read_fd status relay_status
+  local full="$1" progress_fd read_fd relay_read_fd relay_write_fd
+  local status relay_status
   local previous_progress_fd="${EIDETIC_PROGRESS_FD:-}" had_progress_fd=0
   shift
   [[ -z "${EIDETIC_PROGRESS_FD+x}" ]] || had_progress_fd=1
   coproc EIDETIC_PROGRESS_RELAY { cat; }
-  exec {read_fd}<&"${EIDETIC_PROGRESS_RELAY[0]}"
+  relay_read_fd="${EIDETIC_PROGRESS_RELAY[0]}"
+  relay_write_fd="${EIDETIC_PROGRESS_RELAY[1]}"
+  exec {read_fd}<&"$relay_read_fd"
   if [[ ! -e /proc/"$BASHPID"/fd/7 ]]; then
-    exec 7>"/proc/$BASHPID/fd/${EIDETIC_PROGRESS_RELAY[1]}"
+    exec 7>"/proc/$BASHPID/fd/$relay_write_fd"
     progress_fd=7
   elif [[ ! -e /proc/"$BASHPID"/fd/6 ]]; then
-    exec 6>"/proc/$BASHPID/fd/${EIDETIC_PROGRESS_RELAY[1]}"
+    exec 6>"/proc/$BASHPID/fd/$relay_write_fd"
     progress_fd=6
   else
     exec {read_fd}<&-
-    exec {EIDETIC_PROGRESS_RELAY[0]}<&-
-    exec {EIDETIC_PROGRESS_RELAY[1]}>&-
+    exec {relay_read_fd}<&-
+    exec {relay_write_fd}>&-
     wait "$EIDETIC_PROGRESS_RELAY_PID" 2>/dev/null || true
     eidetic_console_plain_log \
       "ERROR: no dedicated runtime progress descriptor is available"
     return 70
   fi
-  exec {EIDETIC_PROGRESS_RELAY[0]}<&-
-  exec {EIDETIC_PROGRESS_RELAY[1]}>&-
+  exec {relay_read_fd}<&-
+  exec {relay_write_fd}>&-
   EIDETIC_RUNTIME_READ_FD="$read_fd"
   EIDETIC_RUNTIME_WRITE_FD="$progress_fd"
   EIDETIC_RUNTIME_RELAY_PID="$EIDETIC_PROGRESS_RELAY_PID"

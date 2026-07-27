@@ -182,6 +182,19 @@ Shell syntax (`bash -n`) passed for every modified shell file. ShellCheck is not
 installed in the local WSL environment, so no package was installed; CI remains
 the authoritative ShellCheck run.
 
+The first post-commit CI run exposed ShellCheck-only findings that were not
+available locally. The corrective follow-up:
+
+- quotes the protocol event literal `done`;
+- marks two test fixture callbacks as intentionally invoked indirectly;
+- exports the cross-script runtime-duration result;
+- copies the two `coproc` descriptors into scalar FD variables before closing
+  them, avoiding unsupported array-subscript redirection syntax.
+
+After this follow-up, `bash -n`, console protocol fixtures,
+`verify:linux:installer`, and `git diff --check` pass. The corrective CI rerun
+is pending; no Raspberry test has started.
+
 ## Real Windows post-smoke
 
 The exact `npm.cmd run dev` path was run again with the explicit MPV path.
