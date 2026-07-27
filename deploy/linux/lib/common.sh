@@ -195,10 +195,24 @@ eidetic_validate_mpv_runtime_budget() {
 
 eidetic_run_as_runtime_user() {
   local user="$1" workspace="$2" runtime="$3" node_bin="$4"
+  local -a progress_environment=()
   shift 4
   [[ "${EUID}" -eq 0 ]] || eidetic_die "runtime-user execution requires an administrative installer"
   [[ -d "$workspace" ]] || eidetic_die "runtime workspace is missing"
   [[ -d "$runtime" ]] || eidetic_die "short build runtime is missing"
+  if [[ "${EIDETIC_PROGRESS_FD:-}" =~ ^[0-9]+$ ]]; then
+    progress_environment+=("EIDETIC_PROGRESS_FD=$EIDETIC_PROGRESS_FD")
+  fi
+  if [[ "${EIDETIC_RUNTIME_PROGRESS_OFFSET:-}" =~ ^[0-9]+$ ]]; then
+    progress_environment+=(
+      "EIDETIC_RUNTIME_PROGRESS_OFFSET=$EIDETIC_RUNTIME_PROGRESS_OFFSET"
+    )
+  fi
+  if [[ "${EIDETIC_RUNTIME_PROGRESS_TOTAL:-}" =~ ^[0-9]+$ ]]; then
+    progress_environment+=(
+      "EIDETIC_RUNTIME_PROGRESS_TOTAL=$EIDETIC_RUNTIME_PROGRESS_TOTAL"
+    )
+  fi
   /usr/sbin/runuser --user "$user" -- \
     env -i --chdir="$workspace" \
       HOME="$EIDETIC_RUNTIME_HOME" \
@@ -220,6 +234,7 @@ eidetic_run_as_runtime_user() {
       EIDETIC_INSTALLATION_MODE="${EIDETIC_INSTALLATION_MODE:-standard}" \
       EIDETIC_FULLSCREEN="${EIDETIC_FULLSCREEN:-0}" \
       EIDETIC_BUILD_REF="${EIDETIC_BUILD_REF:-unknown}" \
+      "${progress_environment[@]}" \
       "$@"
 }
 

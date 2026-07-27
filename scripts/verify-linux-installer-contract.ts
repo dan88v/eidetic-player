@@ -162,17 +162,24 @@ export function inspectLinuxInstallerContract(
     failed,
     "install-safe default phase list",
     installer.includes(
-      "verification_phases=(ci typecheck verify:linux:installer)",
-    ) && installer.includes("verification_phases+=(build:linux)"),
+      "eidetic_runtime_run_step install-dependencies 2 runtime_npm_ci",
+    ) &&
+      installer.includes(
+        "eidetic_runtime_run_step typecheck 3 runtime_npm_run typecheck",
+      ) &&
+      installer.includes("eidetic_runtime_run_protocol_child"),
   );
   const phaseListStart = installer.indexOf(
-    "verification_phases=(ci typecheck verify:linux:installer)",
+    "eidetic_runtime_run_step install-dependencies",
   );
   const fullBlockStart = installer.indexOf(
-    "if ((full_verify)); then",
+    "if ((full_verify && runtime_status == 0)); then",
     phaseListStart,
   );
-  const fullBlockEnd = installer.indexOf("\n  fi", fullBlockStart);
+  const fullBlockEnd = installer.indexOf(
+    "\n    runtime_build_offset=9",
+    fullBlockStart,
+  );
   const fullBlock =
     fullBlockStart >= 0 && fullBlockEnd >= 0
       ? installer.slice(fullBlockStart, fullBlockEnd)
@@ -191,9 +198,9 @@ export function inspectLinuxInstallerContract(
     "verification precedes build and staging",
     ordered(
       installer,
-      "verification_phases=(ci typecheck verify:linux:installer)",
-      "verification_phases+=(build:linux)",
-      "verify-linux-release.ts",
+      "eidetic_runtime_run_step install-dependencies",
+      "eidetic_runtime_run_protocol_child",
+      "eidetic_runtime_run_step verify-runtime",
       'release_stage="$(mktemp',
     ),
   );

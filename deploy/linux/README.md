@@ -564,6 +564,16 @@ resolved full commit is already installed, it prints exactly
 `Already up to date.` and performs no build, installer call, release switch, or
 restart.
 
+The long application-runtime phase reports a closed sequence of real source,
+dependency, verification, build, Neutralino packaging, and artifact-verifier
+substeps. Progress is completed substeps over the fixed plan; it does not
+infer percentages from command output. Normal mode keeps child output in the
+protected log, verbose mode also streams it live, and non-TTY mode emits one
+stable line per event. The updater invokes the same installer pipeline in an
+internal unattended mode and receives only versioned progress records over an
+inherited anonymous-pipe file descriptor. It therefore keeps one updater
+header, summary, global progress display, prompt, and `update-*.log`.
+
 After activation the updater restarts the user service without rebooting. A
 hard 60-second gate requires the service, backend HTTP response, and API Build
 ID to match the target. Failure switches back atomically and verifies the
@@ -574,7 +584,9 @@ automatic rollback. Explicit rollback performs no build or tests and is itself
 restarted and verified unless `--no-restart` is selected.
 
 Update logs are mode 0600 under `/var/log/eidetic-player`; the newest ten are
-retained independently from install and uninstall logs.
+retained independently from install and uninstall logs. A direct install still
+creates an `install-*.log`; an installer embedded by the updater writes its
+technical output into the parent update log and creates no second install log.
 
 Every release contains `build-info.json`. Its versioned schema records the
 exact full commit, derived seven-character Build ID, sanitized source ref,

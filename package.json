@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "npm run clean && npm run build:info && npm run shell:config:prod && vite build --config apps/ui/vite.config.ts && tsc -p apps/backend/tsconfig.build.json",
+    "build": "node scripts/build-orchestrator.mjs app",
+    "build:ui": "vite build --config apps/ui/vite.config.ts",
+    "build:backend": "tsc -p apps/backend/tsconfig.build.json",
     "build:info": "node scripts/generate-build-info.mjs --output dist/build-info.json",
     "clean": "node scripts/clean.mjs",
     "typecheck": "tsc -p apps/ui/tsconfig.json && tsc -p apps/backend/tsconfig.json && tsc -p scripts/tsconfig.json && tsc -p packages/on-screen-keyboard/tsconfig.json",
@@ -31,13 +33,14 @@
     "test:linux": "npm run test:case-sensitive && npm run test:posix && npm test",
     "test:posix": "tsx --test apps/backend/test/linux-platform.test.ts",
     "test:case-sensitive": "tsx scripts/test-case-sensitive.ts",
-    "build:linux": "npm run build && npm run neutralino:sync && neu build --release",
+    "build:linux": "node scripts/build-orchestrator.mjs linux",
     "smoke:linux": "tsx scripts/linux-smoke.ts",
     "verify:arm": "tsx scripts/verify-arm.ts",
     "benchmark:library-search": "tsx scripts/library-search-benchmark.ts",
     "shell:config:dev": "tsx scripts/generate-neutralino-config.ts development",
     "shell:config:prod": "tsx scripts/generate-neutralino-config.ts production",
     "neutralino:sync": "neu update",
+    "neutralino:build": "neu build --release",
     "neutralino:update": "neu update --latest"
   },
   "dependencies": {

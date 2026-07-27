@@ -215,6 +215,151 @@ set -e
 ! kill -0 "$interrupt_spinner" 2>/dev/null ||
   fail "SIGINT left the spinner running"
 
+runtime_root="$work/runtime"
+runtime_output="$work/runtime.out"
+runtime_marker="$work/runtime-injection"
+install -d "$runtime_root"
+(
+  # shellcheck source=lib/console-ui.sh
+  . "$SCRIPT_DIR/lib/console-ui.sh"
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  eidetic_console_init install "Linux Installer" "$runtime_root" 0.1.0
+  eidetic_runtime_configure 0
+  EIDETIC_RUNTIME_FULL_VERIFY=0
+  eidetic_runtime_begin
+  eidetic_runtime_local_event start prepare-source 1
+  eidetic_runtime_local_event done prepare-source 1 999
+  eidetic_runtime_local_event start install-dependencies 2
+  eidetic_runtime_local_event skipped install-dependencies 2 0
+  eidetic_runtime_local_event start typecheck 3
+  eidetic_runtime_local_event failed typecheck 3 61000
+  [[ "$EIDETIC_FAILURE_SUBSTEP_LABEL" == "Type-check application" ]] ||
+    fail "failed runtime substep was not retained"
+
+  for malformed in \
+    $'EIDETIC_PROGRESS_V2\truntime\tstart\tprepare-source\t1\t12' \
+    $'EIDETIC_PROGRESS_V1\tforeign\tstart\tprepare-source\t1\t12' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tunknown\t1\t12' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\tx\t12' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t0\t12' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t99' \
+    $'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t12\t-1' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\textra' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\t$(touch '"$runtime_marker"$')\t1\t12' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\001'; do
+    eidetic_runtime_accept_line "$malformed" 0 && fail "malformed record accepted"
+  done
+  oversized="EIDETIC_PROGRESS_V1"
+  printf -v oversized '%-300s' "$oversized"
+  eidetic_runtime_accept_line "$oversized" 0 &&
+    fail "oversized record accepted"
+  [[ ! -e "$runtime_marker" ]] || fail "protocol text was executed"
+  eidetic_runtime_finish
+  eidetic_console_finalize
+) >"$runtime_output" 2>&1 || {
+  cat "$runtime_output" >&2
+  fail "runtime protocol fixture exited unexpectedly"
+}
+grep -q 'RUNTIME STEP 1/12 START Prepare isolated source' "$runtime_output" ||
+  fail "runtime START line missing"
+grep -q 'RUNTIME STEP 1/12 DONE Prepare isolated source 00:00' "$runtime_output" ||
+  fail "runtime DONE duration missing"
+grep -q 'RUNTIME STEP 2/12 SKIPPED Install production build dependencies 00:00' \
+  "$runtime_output" || fail "runtime SKIPPED line missing"
+grep -q 'RUNTIME STEP 3/12 FAILED Type-check application 01:01' "$runtime_output" ||
+  fail "runtime FAILED duration missing"
+! grep -q 'EIDETIC_PROGRESS_V1' "$runtime_output" ||
+  fail "raw protocol was rendered"
+assert_no_ansi "$runtime_output"
+! LC_ALL=C grep -q $'\r' "$runtime_output" ||
+  fail "non-TTY runtime output contains a carriage return"
+
+protocol_child_root="$work/protocol-child"
+protocol_child_output="$work/protocol-child.out"
+install -d "$protocol_child_root"
+(
+  # shellcheck source=lib/console-ui.sh
+  . "$SCRIPT_DIR/lib/console-ui.sh"
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  eidetic_console_init update "Linux Updater" "$protocol_child_root" 0.1.0
+  eidetic_runtime_configure 0
+  protocol_fixture_child() {
+    printf 'human stdout must not become progress\n'
+    printf 'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\n' \
+      >&"$EIDETIC_PROGRESS_FD"
+    printf 'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t12\t4\n' \
+      >&"$EIDETIC_PROGRESS_FD"
+  }
+  eidetic_runtime_run_protocol_child 0 protocol_fixture_child
+  external_protocol_fixture() {
+    export EIDETIC_PROGRESS_FD
+    bash -c \
+      'printf "EIDETIC_PROGRESS_V1\truntime\tstart\tinstall-dependencies\t2\t12\n" >&"$EIDETIC_PROGRESS_FD"; printf "EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5\n" >&"$EIDETIC_PROGRESS_FD"'
+  }
+  eidetic_runtime_run_protocol_child 0 external_protocol_fixture
+  [[ -z "$EIDETIC_RUNTIME_CHILD_PID" &&
+    -z "$EIDETIC_RUNTIME_RELAY_PID" &&
+    -z "$EIDETIC_RUNTIME_READ_FD" &&
+    -z "$EIDETIC_RUNTIME_WRITE_FD" ]] ||
+    fail "protocol reader descriptors or children survived EOF"
+  eidetic_console_finalize
+) >"$protocol_child_output" 2>&1 || {
+  cat "$protocol_child_output" >&2
+  fail "dedicated protocol child fixture exited unexpectedly"
+}
+grep -q 'RUNTIME STEP 1/12 DONE Prepare isolated source' "$protocol_child_output" ||
+  {
+    cat "$protocol_child_output" >&2
+    fail "dedicated protocol pipe was not consumed"
+  }
+grep -q 'RUNTIME STEP 2/12 DONE Install production build dependencies' \
+  "$protocol_child_output" ||
+  {
+    cat "$protocol_child_output" >&2
+    fail "progress descriptor was not inherited by an external child"
+  }
+grep -q 'human stdout must not become progress' "$protocol_child_output" ||
+  fail "protocol fixture stdout unexpectedly disappeared"
+
+embedded_output="$work/embedded.out"
+embedded_log="$work/embedded.log"
+embedded_progress="$work/embedded.progress"
+(
+  # shellcheck source=lib/console-ui.sh
+  . "$SCRIPT_DIR/lib/console-ui.sh"
+  exec {parent_log_fd}>>"$embedded_log"
+  exec {parent_progress_fd}>"$embedded_progress"
+  export EIDETIC_PARENT_LOG_FD="$parent_log_fd"
+  export EIDETIC_PROGRESS_FD="$parent_progress_fd"
+  eidetic_console_init_embedded update
+  eidetic_console_header "Linux Installer"
+  eidetic_console_section "Installation summary"
+  eidetic_console_info "embedded technical record"
+  eidetic_runtime_configure 0
+  eidetic_runtime_local_event start prepare-source 1
+  eidetic_runtime_local_event done prepare-source 1 8
+  eidetic_console_finalize
+  exec {parent_log_fd}>&-
+  exec {parent_progress_fd}>&-
+) >"$embedded_output" 2>&1
+[[ ! -s "$embedded_output" ]] ||
+  {
+    cat "$embedded_output" >&2
+    fail "embedded installer rendered a second human console"
+  }
+grep -q 'embedded technical record' "$embedded_log" ||
+  fail "embedded installer omitted parent technical log output"
+! grep -q 'EIDETIC_PROGRESS_V1' "$embedded_log" ||
+  fail "raw embedded protocol reached the parent log"
+grep -q $'^EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12$' \
+  "$embedded_progress" || fail "embedded progress did not use its dedicated FD"
+(
+  # shellcheck source=lib/console-ui.sh
+  . "$SCRIPT_DIR/lib/console-ui.sh"
+  EIDETIC_PROGRESS_FD=2 EIDETIC_PARENT_LOG_FD=999 \
+    eidetic_console_init_embedded unknown
+) >/dev/null 2>&1 && fail "invalid embedded parent or descriptors were accepted"
+
 rotation_root="$work/rotation"
 rotation_dir="$rotation_root/var/log/eidetic-player"
 install -d -m 0700 "$rotation_dir"

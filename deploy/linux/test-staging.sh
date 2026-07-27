@@ -311,12 +311,18 @@ fixture() {
   )"
   [[ "$noop_output" == *"Already up to date."* ]] ||
     fixture_fail "same-commit update did not report the exact no-op"
+  [[ "$noop_output" != *"RUNTIME STEP"* ]] ||
+    fixture_fail "same-commit update rendered runtime progress"
   [[ "$(readlink "$root/opt/eidetic-player/current")" == "$current_before_noop" ]] ||
     fixture_fail "same-commit update changed current"
   [[ "$(find "$root/opt/eidetic-player/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)" == "$releases_before_noop" ]] ||
     fixture_fail "same-commit update created a release"
 
   rm -f -- "$root/opt/eidetic-player/current/build-info.json"
+  install_logs_before_update="$(
+    find "$root/var/log/eidetic-player" -maxdepth 1 -type f \
+      -name 'install-*.log' | wc -l
+  )"
   legacy_output="$(
     "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
   )"
@@ -324,6 +330,15 @@ fixture() {
     fixture_fail "legacy current release did not report unknown provenance"
   [[ -r "$root/opt/eidetic-player/current/build-info.json" ]] ||
     fixture_fail "legacy update did not install a new provenance manifest"
+  [[ "$(grep -c '^EIDETIC PLAYER - Linux Updater$' <<<"$legacy_output")" == 1 ]] ||
+    fixture_fail "embedded update did not render exactly one updater header"
+  [[ "$legacy_output" != *"EIDETIC PLAYER - Linux Installer"* ]] ||
+    fixture_fail "embedded installer rendered a second header"
+  [[ "$(grep -c '^Update summary$' <<<"$legacy_output")" == 1 ]] ||
+    fixture_fail "embedded update did not render exactly one summary"
+  [[ "$(find "$root/var/log/eidetic-player" -maxdepth 1 -type f \
+    -name 'install-*.log' | wc -l)" == "$install_logs_before_update" ]] ||
+    fixture_fail "embedded installer created a second install log"
 
   # validate legacy migration paths
   write_legacy_conf "$root" standard 1 0 1 1 0 0

@@ -604,15 +604,17 @@ void test("installer default omits the full suite while full verify and dry-run 
     "deploy/linux/install-eidetic-player.sh",
     "utf8",
   );
-  const defaultPhases = /verification_phases=\(([^)]*)\)/.exec(source)?.[1];
-  assert.equal(defaultPhases, "ci typecheck verify:linux:installer");
   assert.match(
     source,
-    /if \(\(full_verify\)\); then\s+verification_phases\+=\([^)]*test[^)]*\)/,
+    /eidetic_runtime_run_step install-dependencies 2 runtime_npm_ci/,
+  );
+  assert.match(
+    source,
+    /if \(\(full_verify && runtime_status == 0\)\); then[\s\S]*eidetic_runtime_run_step test-suite/,
   );
   assert.ok(
     source.indexOf("if ((dry_run)); then") <
-      source.indexOf("verification_phases=(ci typecheck"),
+      source.indexOf('eidetic_console_phase_begin "Application runtime"'),
   );
   const update = await readFile(
     "deploy/linux/update-eidetic-player.sh",

@@ -107,6 +107,12 @@ hard target health, one verified automatic rollback, rollback-verification
 failure diagnostics, soft MPV timeout without rollback, `--no-restart`
 semantics, independent update-log retention, and absence of reboot paths.
 
+Runtime-progress regression coverage additionally validates the versioned
+dedicated-FD protocol, closed step map, ordering/range checks, malformed input,
+EOF and child cleanup, original failure status, TTY/non-TTY rendering, and the
+single-log embedded updater contract. Tests must not derive progress from
+human command output or run a build command twice merely to expose progress.
+
 When a step adds an app-lifetime SSE stream, cold-start Now Playing with an
 active visualizer and a restored Queue. Confirm artwork loads and Play,
 Previous, Next, and Shuffle remain responsive; a route-only check can miss

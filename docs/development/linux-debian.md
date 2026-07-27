@@ -58,6 +58,13 @@ is not yet writable. The newest ten install logs and newest ten uninstall logs
 are retained independently. Failure output includes the failed phase, original
 exit code, rollback result, log path, and `eidetic-player-doctor`.
 
+Inside the installer Application runtime macro-phase, the terminal UI exposes
+only real canonical operations. The default plan has 12 substeps; the
+`--full-verify` plan has 17 because its five additional gates actually run.
+Each terminal event includes a monotonic duration. `SKIPPED` is accepted by
+the internal protocol only for a proven non-applicable operation; the current
+runtime plans omit non-applicable work and do not claim cache hits.
+
 The updater follows the same console contract. Its no-argument path is guided
 only on a TTY; unattended callers must be explicit. Update logs rotate
 independently at ten files. A resolved target identical to the installed full
@@ -66,6 +73,12 @@ activates only after `build-info.json` validation, restarts without reboot,
 verifies service + HTTP + target Build ID for 60 seconds, and rolls back once
 on a hard failure. MPV readiness has a separate 120-second soft window and
 cannot roll back an otherwise healthy target.
+
+Updater-to-installer progress uses `EIDETIC_PROGRESS_V1` records on a dedicated
+inherited anonymous-pipe descriptor. Records contain only scope, event, closed
+step ID, index, total, and terminal elapsed milliseconds. Human stdout and
+stderr are never parsed. Unknown, malformed, oversized, or incoherent records
+are ignored and noted technically without rendering their content.
 
 The project uses Node 24.18.0 in `.nvmrc` and requires Node 24.15 or newer in
 `package.json`, including the built-in `node:sqlite` API used by Library. MPV

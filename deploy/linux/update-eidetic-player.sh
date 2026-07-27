@@ -389,8 +389,29 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref"
 ((no_color)) && args+=(--no-color)
 
 eidetic_console_phase_begin "Build, stage and activate"
-BACKEND_HOST="$backend_host" BACKEND_PORT="$backend_port" \
+eidetic_runtime_configure "$full_verify"
+EIDETIC_RUNTIME_FULL_VERIFY="$full_verify"
+export EIDETIC_RUNTIME_FULL_VERIFY
+eidetic_runtime_begin
+exec 5>>"$EIDETIC_LOG_PATH"
+installer_log_fd=5
+run_embedded_installer() {
+  export EIDETIC_PROGRESS_FD
+  export EIDETIC_EMBEDDED_PARENT=update
+  export EIDETIC_PARENT_LOG_FD="$installer_log_fd"
+  export BACKEND_HOST="$backend_host"
+  export BACKEND_PORT="$backend_port"
   "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
+}
+embedded_status=0
+eidetic_runtime_run_protocol_child "$full_verify" run_embedded_installer ||
+  embedded_status=$?
+exec 5>&-
+eidetic_runtime_finish
+if ((embedded_status != 0)); then
+  EIDETIC_FAILURE_REASON="${EIDETIC_FAILURE_REASON:-Embedded installer failed during ${EIDETIC_FAILURE_SUBSTEP_LABEL:-application runtime}.}"
+  exit "$embedded_status"
+fi
 eidetic_console_phase_done
 
 if ((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]]; then
@@ -401,6 +422,8 @@ if ((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]]; then
   eidetic_console_phase_done
   eidetic_console_section "Update completed successfully."
   eidetic_console_info "New build $target_short is active; runtime verification was intentionally skipped."
+  eidetic_console_info "Runtime preparation: $(eidetic_console_duration "${EIDETIC_RUNTIME_ELAPSED_MS:-0}")"
+  eidetic_console_info "Total duration: $(eidetic_console_duration "$(eidetic_console_total_elapsed_ms)")"
   exit 0
 fi
 
@@ -431,5 +454,7 @@ eidetic_console_info "  Build                $target_short"
 eidetic_console_info "  Release              $(readlink "$opt/current")"
 eidetic_console_info "  Service              active"
 eidetic_console_info "  Reboot               not performed"
+eidetic_console_info "  Runtime preparation  $(eidetic_console_duration "${EIDETIC_RUNTIME_ELAPSED_MS:-0}")"
+eidetic_console_info "  Total duration       $(eidetic_console_duration "$(eidetic_console_total_elapsed_ms)")"
 eidetic_console_info "  Log                  $EIDETIC_LOG_PATH"
 eidetic_console_warning_summary

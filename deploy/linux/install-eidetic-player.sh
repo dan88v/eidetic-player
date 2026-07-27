@@ -130,8 +130,19 @@ install_question_prompt() {
 
 if ((unattended)); then export EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
 installer_version="$(eidetic_project_version)"
-eidetic_console_init install "Linux Installer" "$EIDETIC_ROOT" "$installer_version" ||
-  exit 1
+if [[ -n "${EIDETIC_EMBEDDED_PARENT:-}" ]]; then
+  ((unattended)) || {
+    printf 'Error: embedded installer mode requires --unattended.\n' >&2
+    exit 64
+  }
+  eidetic_console_init_embedded "$EIDETIC_EMBEDDED_PARENT" || {
+    printf 'Error: invalid embedded installer channel.\n' >&2
+    exit 64
+  }
+else
+  eidetic_console_init install "Linux Installer" "$EIDETIC_ROOT" "$installer_version" ||
+    exit 1
+fi
 installation_cancelled=0
 early_exit() {
   local status="$1"
@@ -436,97 +447,140 @@ releases="$(eidetic_target /opt/eidetic-player/releases)"
 opt="$(eidetic_target /opt/eidetic-player)"
 install -d -m 0755 "$releases"
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
-  build_workspace="$(eidetic_prepare_build_workspace "$runtime_user")"
-  build_runtime="$(eidetic_prepare_build_runtime "$runtime_user")"
-  eidetic_validate_mpv_runtime_budget "$build_runtime"
-  build_source="$build_workspace/source"
   EIDETIC_INSTALLATION_MODE="$mode"
   EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
   EIDETIC_BORDERLESS="$borderless_value"
   EIDETIC_BUILD_REF="$git_ref"
   export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN EIDETIC_BORDERLESS
   export EIDETIC_BUILD_REF
-  eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
-  source_ref="${resolved_commit:-$git_ref}"
-  if ! eidetic_fetch_isolated_source \
-    "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-    "$source_ref" "$SOURCE_REMOTE"; then
-    eidetic_die "source phase failed: isolated Git fetch"
-  fi
-
-  # Raspberry Pi kiosk presentation:
-  # fullscreen, borderless and window title bar behavior are controlled by installer choices.
-
-  verification_phases=(ci typecheck verify:linux:installer)
-  if ((full_verify)); then
-    verification_phases+=(format:check lint test test:posix test:case-sensitive)
-  fi
-  verification_phases+=(build:linux)
-  for phase in "${verification_phases[@]}"; do
-    eidetic_log "Build phase (runtime user UID $EIDETIC_RUNTIME_UID): npm $phase"
-    if ! case "$phase" in
-        ci)
-          eidetic_run_as_runtime_user \
-            "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-            "$node_release/bin/npm" --prefix "$build_source" ci
-          ;;
-        test)
-          eidetic_run_as_runtime_user \
-            "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-            "$node_release/bin/npm" --prefix "$build_source" test
-          ;;
-        *)
-          eidetic_run_as_runtime_user \
-            "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-            "$node_release/bin/npm" --prefix "$build_source" run "$phase"
-          ;;
-      esac; then
-      if [[ "$phase" == build:linux ]]; then
-        eidetic_die "build phase failed: npm $phase. No release was activated."
-      fi
-      eidetic_die "Installation verification failed: npm $phase. No release was activated."
+  runtime_prepare_source() {
+    build_workspace="$(eidetic_prepare_build_workspace "$runtime_user")" || return
+    build_runtime="$(eidetic_prepare_build_runtime "$runtime_user")" || return
+    eidetic_validate_mpv_runtime_budget "$build_runtime" || return
+    build_source="$build_workspace/source"
+    source_ref="${resolved_commit:-$git_ref}"
+    eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
+    eidetic_fetch_isolated_source \
+      "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+      "$source_ref" "$SOURCE_REMOTE"
+  }
+  runtime_npm_ci() {
+    eidetic_run_as_runtime_user \
+      "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+      "$node_release/bin/npm" --prefix "$build_source" ci
+  }
+  runtime_npm_run() {
+    eidetic_run_as_runtime_user \
+      "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+      "$node_release/bin/npm" --prefix "$build_source" run "$1"
+  }
+  runtime_npm_test() {
+    eidetic_run_as_runtime_user \
+      "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+      "$node_release/bin/npm" --prefix "$build_source" test
+  }
+  runtime_build_linux() {
+    export EIDETIC_RUNTIME_PROGRESS_OFFSET="$runtime_build_offset"
+    export EIDETIC_RUNTIME_PROGRESS_TOTAL="$EIDETIC_RUNTIME_TOTAL"
+    runtime_npm_run build:linux
+  }
+  runtime_verify_artifacts() {
+    [[ -d "$build_source/dist/backend" ]] || {
+      EIDETIC_FAILURE_REASON="build phase failed: backend artifact was not produced"
+      return 1
+    }
+    case "$EIDETIC_ARCH" in
+      amd64) neutralino_arch=x64 ;;
+      arm64) neutralino_arch=arm64 ;;
+      *)
+        EIDETIC_FAILURE_REASON="unsupported Neutralino Linux architecture: $EIDETIC_ARCH"
+        return 1
+        ;;
+    esac
+    shell_binary="$build_source/dist/eidetic-player/eidetic-player-linux_${neutralino_arch}"
+    if [[ ! -f "$shell_binary" ]]; then
+      eidetic_log "Neutralino distribution contents:"
+      find "$build_source/dist" -maxdepth 3 -type f -printf '  %m %p\n' >&2 || true
+      EIDETIC_FAILURE_REASON="Neutralino Linux ${neutralino_arch} binary was not produced"
+      return 1
     fi
-  done
-  [[ -d "$build_source/dist/backend" ]] ||
-    eidetic_die "build phase failed: backend artifact was not produced"
+    mapfile -d '' neu_files < <(
+      find "$build_source/dist" -maxdepth 3 -type f \
+        \( -name '*.neu' -o -name 'neutralino.config.json' \) -print0
+    )
+    ((${#neu_files[@]} > 0)) || {
+      EIDETIC_FAILURE_REASON="Neutralino resources were not produced"
+      return 1
+    }
+    eidetic_run_as_runtime_user \
+      "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+      "$node_release/bin/node" "$build_source/node_modules/tsx/dist/cli.mjs" \
+      "$build_source/scripts/verify-linux-release.ts" \
+      --root "$build_source" --arch "$neutralino_arch" --phase build || {
+      EIDETIC_FAILURE_REASON="Installation verification failed: Linux build artifact contract. No release was activated."
+      return 1
+    }
+    release_commit="$("$node_release/bin/node" -e \
+      'const value=require(process.argv[1]); process.stdout.write(value.shortCommitSha)' \
+      "$build_source/dist/build-info.json")"
+  }
 
-  case "$EIDETIC_ARCH" in
-    amd64)
-      neutralino_arch=x64
-      ;;
-    arm64)
-      neutralino_arch=arm64
-      ;;
-    *)
-      eidetic_die "unsupported Neutralino Linux architecture: $EIDETIC_ARCH"
-      ;;
-  esac
-
-  shell_binary="$build_source/dist/eidetic-player/eidetic-player-linux_${neutralino_arch}"
-
-  if [[ ! -f "$shell_binary" ]]; then
-    eidetic_log "Neutralino distribution contents:"
-    find "$build_source/dist" -maxdepth 3 -type f -printf '  %m %p\n' >&2 || true
-    eidetic_die "Neutralino Linux ${neutralino_arch} binary was not produced"
+  EIDETIC_RUNTIME_FULL_VERIFY="$full_verify"
+  export EIDETIC_RUNTIME_FULL_VERIFY
+  eidetic_runtime_configure "$full_verify"
+  eidetic_runtime_begin
+  runtime_status=0
+  eidetic_runtime_run_step prepare-source 1 runtime_prepare_source ||
+    runtime_status=$?
+  if ((runtime_status == 0)); then
+    eidetic_runtime_run_step install-dependencies 2 runtime_npm_ci ||
+      runtime_status=$?
   fi
-
-
-  mapfile -d '' neu_files < <(
-    find "$build_source/dist" -maxdepth 3 -type f \
-      \( -name '*.neu' -o -name 'neutralino.config.json' \) -print0
-  )
-  ((${#neu_files[@]} > 0)) ||
-    eidetic_die "Neutralino resources were not produced"
-  if ! eidetic_run_as_runtime_user \
-    "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-    "$node_release/bin/node" "$build_source/node_modules/tsx/dist/cli.mjs" \
-    "$build_source/scripts/verify-linux-release.ts" \
-    --root "$build_source" --arch "$neutralino_arch" --phase build; then
-    eidetic_die "Installation verification failed: Linux build artifact contract. No release was activated."
+  if ((runtime_status == 0)); then
+    eidetic_runtime_run_step typecheck 3 runtime_npm_run typecheck ||
+      runtime_status=$?
   fi
-  release_commit="$("$node_release/bin/node" -e \
-    'const value=require(process.argv[1]); process.stdout.write(value.shortCommitSha)' \
-    "$build_source/dist/build-info.json")"
+  if ((runtime_status == 0)); then
+    eidetic_runtime_run_step verify-installer 4 runtime_npm_run verify:linux:installer ||
+      runtime_status=$?
+  fi
+  runtime_build_offset=4
+  runtime_final_index=12
+  if ((full_verify && runtime_status == 0)); then
+    eidetic_runtime_run_step format-check 5 runtime_npm_run format:check ||
+      runtime_status=$?
+    if ((runtime_status == 0)); then
+      eidetic_runtime_run_step lint 6 runtime_npm_run lint ||
+        runtime_status=$?
+    fi
+    if ((runtime_status == 0)); then
+      eidetic_runtime_run_step test-suite 7 runtime_npm_test ||
+        runtime_status=$?
+    fi
+    if ((runtime_status == 0)); then
+      eidetic_runtime_run_step test-posix 8 runtime_npm_run test:posix ||
+        runtime_status=$?
+    fi
+    if ((runtime_status == 0)); then
+      eidetic_runtime_run_step test-case-sensitive 9 \
+        runtime_npm_run test:case-sensitive || runtime_status=$?
+    fi
+    runtime_build_offset=9
+    runtime_final_index=17
+  fi
+  if ((runtime_status == 0)); then
+    eidetic_runtime_run_protocol_child "$full_verify" runtime_build_linux ||
+      runtime_status=$?
+  fi
+  if ((runtime_status == 0)); then
+    eidetic_runtime_run_step verify-runtime "$runtime_final_index" \
+      runtime_verify_artifacts || runtime_status=$?
+  fi
+  eidetic_runtime_finish
+  if ((runtime_status != 0)); then
+    EIDETIC_FAILURE_REASON="${EIDETIC_FAILURE_REASON:-Runtime substep failed. No release was activated.}"
+    exit "$runtime_status"
+  fi
 else
   release_commit=staging
 fi
@@ -847,6 +901,10 @@ eidetic_console_info "  Install path         /opt/eidetic-player"
 eidetic_console_info "  Service              ${choice[autostart]^}"
 eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
 eidetic_console_info "  Application data     Preserved"
+if [[ -n "${EIDETIC_RUNTIME_ELAPSED_MS:-}" ]]; then
+  eidetic_console_info "  Runtime preparation  $(eidetic_console_duration "$EIDETIC_RUNTIME_ELAPSED_MS")"
+fi
+eidetic_console_info "  Total duration       $(eidetic_console_duration "$(eidetic_console_total_elapsed_ms)")"
 eidetic_console_info "  Log                  $EIDETIC_LOG_PATH"
 eidetic_console_info "  Diagnostics          eidetic-player-doctor"
 eidetic_console_warning_summary

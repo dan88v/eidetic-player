@@ -32,7 +32,7 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
   );
   assert.match(
     source,
-    /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$phase"/,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$1"/,
   );
   assert.doesNotMatch(source, /(?:full-upgrade|dist-upgrade|curl[^\\n]*\|)/);
 
@@ -213,8 +213,9 @@ void test("Linux build synchronizes and selects the correct Neutralino binary", 
   assert.match(packageJson, /"neutralino:sync":\s*"neu update"/);
   assert.match(
     packageJson,
-    /"build:linux":\s*"[^"]*npm run neutralino:sync[^"]*neu build --release"/,
+    /"build:linux":\s*"node scripts\/build-orchestrator\.mjs linux"/,
   );
+  assert.match(packageJson, /"neutralino:build":\s*"neu build --release"/);
 
   assert.match(installer, /neutralino_arch=x64/);
   assert.match(installer, /neutralino_arch=arm64/);
@@ -256,7 +257,7 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
   assert.match(installer, /eidetic_prepare_build_workspace/);
   assert.match(installer, /eidetic_prepare_build_runtime/);
   assert.match(installer, /eidetic_validate_mpv_runtime_budget/);
-  assert.match(installer, /Build phase \(runtime user UID/);
+  assert.match(installer, /runtime_npm_ci\(\)/);
   assert.match(
     installer,
     /"\$node_release\/bin\/npm" --prefix "\$build_source" ci/,
@@ -267,14 +268,17 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
   );
   assert.match(
     installer,
-    /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$phase"/,
+    /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$1"/,
   );
   assert.match(update, /install-eidetic-player\.sh" "\$\{args\[@\]\}"/);
+  assert.match(update, /eidetic_runtime_run_protocol_child/);
 
   const lifecycle = installer.indexOf(
-    "verification_phases=(ci typecheck verify:linux:installer)",
+    "eidetic_runtime_run_step install-dependencies",
   );
-  const verification = installer.indexOf("backend artifact was not produced");
+  const verification = installer.indexOf(
+    "eidetic_runtime_run_step verify-runtime",
+  );
   const releaseStage = installer.indexOf('release_stage="$(mktemp');
   const activation = installer.indexOf("eidetic_activate_release");
   assert.ok(lifecycle >= 0 && lifecycle < verification);

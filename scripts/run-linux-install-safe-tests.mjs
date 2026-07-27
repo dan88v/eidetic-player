@@ -33,6 +33,10 @@ export const installSafeTests = Object.freeze([
     path: "scripts/linux-verification.test.ts",
     risk: "executable modes, release artifact and verification-profile mutations",
   },
+  {
+    path: "scripts/runtime-progress.test.mjs",
+    risk: "runtime progress protocol and canonical build orchestration",
+  },
 ]);
 
 function run(command, arguments_) {
