@@ -93,6 +93,7 @@ function request(path) {
     call.on("error", reject);
   });
 }
+
 function unavailable(state = "unavailable") {
   console.log(`reachable=${state}`);
   console.log("mpvAvailable=false");
@@ -167,6 +168,68 @@ Promise.all([
 ' 2>/dev/null || true
 }
 
+eidetic_build_info_read() {
+  local node_path="$1" manifest="$2"
+  if [[ "${EIDETIC_ROOT:-/}" != "/" ]]; then
+    local commit short ref package built source dirty
+    commit="$(sed -n 's/.*"commitSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)"
+    short="$(sed -n 's/.*"shortCommitSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)"
+    ref="$(sed -n 's/.*"ref"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)"
+    package="$(sed -n 's/.*"packageVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)"
+    built="$(sed -n 's/.*"builtAt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)"
+    source="$(sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n 1)"
+    dirty="$(sed -n 's/.*"dirty"[[:space:]]*:[[:space:]]*\([^,}]*\).*/\1/p' "$manifest" | tr -d '[:space:]' | head -n 1)"
+    [[ "$commit" =~ ^[0-9a-f]{40}$ &&
+      "$short" == "${commit:0:7}" &&
+      "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ &&
+      "$built" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T &&
+      "$source" =~ ^(ci|git|explicit)$ ]] || return 1
+    [[ -n "$dirty" ]] || dirty=unset
+    printf '%s\n' \
+      "commitSha=$commit" "shortCommitSha=$short" "ref=$ref" \
+      "packageVersion=$package" "builtAt=$built" "source=$source" \
+      "dirty=$dirty"
+    return
+  fi
+  [[ -x "$node_path" && -r "$manifest" ]] || return 1
+  # shellcheck disable=SC2016
+  "$node_path" -e '
+const fs = require("node:fs");
+const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (
+  value?.schemaVersion !== 1 ||
+  !/^[0-9a-f]{40}$/u.test(value.commitSha) ||
+  value.shortCommitSha !== value.commitSha.slice(0, 7) ||
+  !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/u.test(value.ref) ||
+  !["ci", "git", "explicit"].includes(value.source) ||
+  !Number.isFinite(Date.parse(value.builtAt))
+) process.exit(1);
+for (const key of [
+  "commitSha", "shortCommitSha", "ref", "packageVersion", "builtAt", "source",
+]) console.log(`${key}=${value[key]}`);
+console.log(`dirty=${typeof value.dirty === "boolean" ? value.dirty : "unset"}`);
+' "$manifest" 2>/dev/null
+}
+
+eidetic_api_build_sha() {
+  local node_path="$1"
+  [[ -x "$node_path" ]] || return 1
+  # The single-quoted payload is JavaScript.
+  # shellcheck disable=SC2016
+  curl --silent --show-error --max-time 2 --fail \
+    http://127.0.0.1:4310/api/readiness 2>/dev/null |
+    "$node_path" -e '
+let body = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { body += chunk; });
+process.stdin.on("end", () => {
+  const value = JSON.parse(body);
+  if (!/^[0-9a-f]{40}$/u.test(value?.buildInfo?.commitSha)) process.exit(1);
+  process.stdout.write(value.buildInfo.commitSha);
+});
+' 2>/dev/null
+}
+
 main() {
   EIDETIC_ROOT=/
   json=0
@@ -229,6 +292,45 @@ case "$installation_mode" in
     ;;
 esac
 check manifest "$([[ -r "$(eidetic_target /var/lib/eidetic-player/system-ui-manifest-v1.tsv)" ]] && printf pass || printf fail)"
+node_path="$(eidetic_target /opt/eidetic-player/node/current/bin/node)"
+build_manifest="$(eidetic_target /opt/eidetic-player/current/build-info.json)"
+build_commit_sha=unknown
+build_short_sha=unknown
+build_ref=unknown
+build_package_version=unknown
+build_built_at=unknown
+build_source=unknown
+build_dirty=unset
+if build_info_lines="$(eidetic_build_info_read "$node_path" "$build_manifest")"; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      commitSha) build_commit_sha="$value" ;;
+      shortCommitSha) build_short_sha="$value" ;;
+      ref) build_ref="$value" ;;
+      packageVersion) build_package_version="$value" ;;
+      builtAt) build_built_at="$value" ;;
+      source) build_source="$value" ;;
+      dirty) build_dirty="$value" ;;
+    esac
+  done <<<"$build_info_lines"
+  check build-info pass
+else
+  check build-info fail
+fi
+build_api_coherence=unavailable
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  api_build_sha="$(eidetic_api_build_sha "$node_path" || true)"
+  if [[ -n "$api_build_sha" ]]; then
+    if [[ "$api_build_sha" == "$build_commit_sha" ]]; then
+      build_api_coherence=match
+    else
+      build_api_coherence=mismatch
+      check build-api fail
+    fi
+  fi
+else
+  build_api_coherence=not-applicable
+fi
 
 pipewire_state=unavailable
 pipewire_pulse_state=unavailable
@@ -319,7 +421,11 @@ if ((json)); then
   fi
   printf '"preferredAvailable":%s,"effectiveOutput":"%s","deviceCount":%s,' \
     "$app_preferred_available" "$app_effective_output" "$app_device_count"
-  printf '"initialEnumerationStatus":"%s"}}}\n' "$app_initial_enumeration_status"
+  printf '"initialEnumerationStatus":"%s"}},' "$app_initial_enumeration_status"
+  # Build provenance fields are validated against a closed, JSON-safe alphabet.
+  printf '"build":{"commitSha":"%s","shortCommitSha":"%s","ref":"%s","packageVersion":"%s","builtAt":"%s","source":"%s","dirty":"%s","apiCoherence":"%s"}}\n' \
+    "$build_commit_sha" "$build_short_sha" "$build_ref" "$build_package_version" \
+    "$build_built_at" "$build_source" "$build_dirty" "$build_api_coherence"
 else
   printf 'Eidetic Player installation doctor: %s\n' "$status"
   for item in "${checks[@]}"; do printf '  %-18s %s\n' "${item%%:*}" "${item#*:}"; done
@@ -335,6 +441,14 @@ else
     "$app_reachable" "$app_mpv_available" "$app_current_ao" "$app_preferred_available"
   printf '  app outputs         effective=%s devices=%s initial-enumeration=%s\n' \
     "$app_effective_output" "$app_device_count" "$app_initial_enumeration_status"
+  printf 'Build provenance:\n'
+  printf '  commit              %s\n' "$build_commit_sha"
+  printf '  Build ID            %s\n' "$build_short_sha"
+  printf '  ref                 %s\n' "$build_ref"
+  printf '  package             %s\n' "$build_package_version"
+  printf '  built at            %s\n' "$build_built_at"
+  printf '  source/dirty        %s/%s\n' "$build_source" "$build_dirty"
+  printf '  API coherence       %s\n' "$build_api_coherence"
   printf 'Read-only: no configuration, service, mount, network or data was changed.\n'
 fi
 [[ "$status" == pass ]]

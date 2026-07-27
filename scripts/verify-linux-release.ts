@@ -30,6 +30,17 @@ interface Entry {
   readonly symbolicLink: boolean;
 }
 
+interface ReleaseBuildInfo {
+  readonly schemaVersion: 1;
+  readonly commitSha: string;
+  readonly shortCommitSha: string;
+  readonly ref: string;
+  readonly packageVersion: string;
+  readonly builtAt: string;
+  readonly source: string;
+  readonly dirty?: boolean;
+}
+
 export interface LinuxReleaseResult {
   readonly passed: readonly string[];
   readonly failed: readonly string[];
@@ -105,6 +116,32 @@ function addCheck(
   (condition ? passed : failed).push(label);
 }
 
+async function validBuildInfo(path: string): Promise<boolean> {
+  try {
+    const value = JSON.parse(
+      await readFile(path, "utf8"),
+    ) as Partial<ReleaseBuildInfo>;
+    return (
+      value.schemaVersion === 1 &&
+      typeof value.commitSha === "string" &&
+      /^[0-9a-f]{40}$/u.test(value.commitSha) &&
+      typeof value.shortCommitSha === "string" &&
+      /^[0-9a-f]{7}$/u.test(value.shortCommitSha) &&
+      value.shortCommitSha === value.commitSha.slice(0, 7) &&
+      typeof value.ref === "string" &&
+      /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/u.test(value.ref) &&
+      typeof value.packageVersion === "string" &&
+      typeof value.builtAt === "string" &&
+      Number.isFinite(Date.parse(value.builtAt)) &&
+      typeof value.source === "string" &&
+      ["ci", "git", "explicit"].includes(value.source) &&
+      (value.dirty === undefined || typeof value.dirty === "boolean")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function findSourceLeak(
   entries: readonly Entry[],
   sourceRoot: string,
@@ -157,6 +194,12 @@ export async function verifyLinuxRelease(
   };
 
   if (options.phase === "build") {
+    addCheck(
+      passed,
+      failed,
+      "valid build provenance manifest",
+      await validBuildInfo(resolve(root, "dist/build-info.json")),
+    );
     const backend = resolve(root, "dist/backend/apps/backend/src/index.js");
     const shell = resolve(
       root,
@@ -205,6 +248,12 @@ export async function verifyLinuxRelease(
         uiAssets.some((entry) => entry.relative.endsWith(".js")),
     );
   } else {
+    addCheck(
+      passed,
+      failed,
+      "valid build provenance manifest",
+      await validBuildInfo(resolve(root, "build-info.json")),
+    );
     for (const [label, path] of [
       ["compiled backend entrypoint", "backend/apps/backend/src/index.js"],
       ["Neutralino executable", "eidetic-player"],

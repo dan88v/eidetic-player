@@ -314,9 +314,10 @@ void test("Linux build uses a short private runtime and an isolated Git checkout
   assert.match(common, /fetch --depth 1 --no-tags origin "\$ref"/);
   assert.match(common, /checkout --quiet --detach FETCH_HEAD/);
   assert.match(
-    installer,
-    /SOURCE_REMOTE=https:\/\/github\.com\/dan88v\/eidetic-player\.git/,
+    common,
+    /EIDETIC_SOURCE_REMOTE=https:\/\/github\.com\/dan88v\/eidetic-player\.git/,
   );
+  assert.match(installer, /SOURCE_REMOTE="\$EIDETIC_SOURCE_REMOTE"/);
   assert.doesNotMatch(
     installer,
     /git -C "\$SCRIPT_DIR\/\.\.\/\.\." (?:fetch|archive|checkout|reset|pull)/,
@@ -493,6 +494,28 @@ void test("restore, update, uninstall and doctor expose the required safe modes"
   assert.match(update, /--no-restart/);
   assert.match(uninstall, /--yes-really-purge-data/);
   assert.match(doctor, /--json/);
+});
+
+void test("guided updater pins Build IDs and separates hard health from soft MPV readiness", async () => {
+  const [update, installer, doctor] = await Promise.all([
+    read("deploy/linux/update-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/doctor-installation.sh"),
+  ]);
+  assert.match(update, /Already up to date\./);
+  assert.match(update, /exit 64/);
+  assert.match(update, /--unattended/);
+  assert.match(update, /--resolved-commit "\$target_sha"/);
+  assert.match(update, /wait_for_build "\$target_sha" 60 0/);
+  assert.match(update, /wait_for_build "\$target_sha" 120 1/);
+  assert.match(update, /wait_for_build "\$current_sha" 60 0/);
+  assert.match(update, /previous release restored and verified/);
+  assert.match(update, /runtime verification was intentionally skipped/);
+  assert.doesNotMatch(update, /\b(?:reboot|shutdown|poweroff)\b.*(?:-f|now)/);
+  assert.match(installer, /build-info\.json/);
+  assert.match(installer, /NODE_ENV=production/);
+  assert.match(doctor, /Build provenance/);
+  assert.match(doctor, /API coherence/);
 });
 
 void test("installer writes a shared MPV path for all install modes", async () => {

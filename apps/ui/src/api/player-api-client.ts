@@ -6,13 +6,17 @@ import type {
   ArtworkRef,
 } from "../../../../packages/shared/src/player";
 import { config } from "../config";
-import type { SystemCapabilities } from "../../../../packages/shared/src/system";
+import type {
+  BuildInfo,
+  SystemCapabilities,
+} from "../../../../packages/shared/src/system";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
   readonly audioOutput: AudioOutputState;
   readonly system: SystemCapabilities;
+  readonly buildInfo: BuildInfo;
 }
 
 const apiBaseUrl = config.development

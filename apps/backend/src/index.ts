@@ -105,6 +105,7 @@ import {
   createLinuxPowerActionAdapter,
   detectAvailablePowerActions,
 } from "./system/linux-power-adapter.js";
+import { loadBuildInfo } from "./system/build-info.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -130,6 +131,7 @@ const systemCapabilities: SystemCapabilities = {
   fullscreen: process.env.EIDETIC_FULLSCREEN === "1",
   hidePointerWhenInactive: process.env.EIDETIC_HIDE_POINTER === "1",
 };
+const buildInfo = loadBuildInfo(config.environment);
 
 const player = new PlayerService();
 const audioOutput = new AudioOutputService(player);
@@ -991,6 +993,7 @@ async function handleRequest(
         mpvAvailable: state.mpvAvailable,
         bootstrapErrorCode: bootstrapFailureCode,
         playerErrorCode: state.error?.code ?? null,
+        buildInfo,
       });
       sendJson(
         response,
@@ -1494,6 +1497,7 @@ async function handleRequest(
           playerState: player.getPublicState(),
           audioOutput: audioOutput.snapshot(),
           system: systemCapabilities,
+          buildInfo,
           restore: {
             status: restore.status,
             restoredCount: restore.restoredCount,

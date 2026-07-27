@@ -281,6 +281,16 @@ function elfHeader(architecture: "arm64" | "x64"): Buffer {
   return header;
 }
 
+const buildInfoFixture = `${JSON.stringify({
+  schemaVersion: 1,
+  commitSha: "0123456789abcdef0123456789abcdef01234567",
+  shortCommitSha: "0123456",
+  ref: "main",
+  packageVersion: "0.1.0",
+  builtAt: "2026-07-27T10:00:00.000Z",
+  source: "explicit",
+})}\n`;
+
 async function makeBuildFixture(
   architecture: "arm64" | "x64",
 ): Promise<string> {
@@ -288,6 +298,7 @@ async function makeBuildFixture(
     resolve(tmpdir(), `eidetic build ${architecture} `),
   );
   const files = new Map<string, string | Buffer>([
+    ["dist/build-info.json", buildInfoFixture],
     ["dist/backend/apps/backend/src/index.js", "export {};\n"],
     ["dist/ui/index.html", "<!doctype html>\n"],
     ["dist/ui/assets/app.css", "body{}\n"],
@@ -316,6 +327,7 @@ async function makeStagedFixture(): Promise<{
   const root = resolve(opt, "releases/.incoming-fixture.1234");
   const source = resolve(opt, "source checkout Ü");
   const files = new Map<string, string | Buffer>([
+    ["build-info.json", buildInfoFixture],
     ["backend/apps/backend/src/index.js", "export {};\n"],
     ["eidetic-player", elfHeader("arm64")],
     ["bin/eidetic-player-launch", "#!/bin/sh\nexit 0\n"],
@@ -433,6 +445,7 @@ void test("staged verifier accepts a complete release and rejects deployment mut
     "resources.neu",
     "neutralino.config.json",
     "package-lock.json",
+    "build-info.json",
     "node_modules/music-metadata",
   ]) {
     const fixture = await makeStagedFixture();

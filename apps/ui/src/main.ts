@@ -17,7 +17,10 @@ import {
 import { correctInitialViewportOnce } from "./utils/viewport";
 import { PlayerApiClient } from "./api/player-api-client";
 import { disconnectedPlayerState } from "./state/player-store";
-import { defaultSystemCapabilities } from "../../../packages/shared/src/system";
+import {
+  defaultSystemCapabilities,
+  developmentBuildInfo,
+} from "../../../packages/shared/src/system";
 import { disconnectedAudioOutputState } from "../../../packages/shared/src/audio-output";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
@@ -75,11 +78,13 @@ async function bootstrap(): Promise<void> {
   let playerState = disconnectedPlayerState;
   let audioOutputState = disconnectedAudioOutputState;
   let systemCapabilities = defaultSystemCapabilities;
+  let buildInfo = developmentBuildInfo;
   try {
     const initial = await new PlayerApiClient().bootstrap(controller.signal);
     playerState = initial.playerState;
     audioOutputState = initial.audioOutput;
     systemCapabilities = initial.system;
+    buildInfo = initial.buildInfo;
   } catch (error) {
     console.error("[bootstrap] backend initialization failed", error);
   } finally {
@@ -112,6 +117,7 @@ async function bootstrap(): Promise<void> {
     playerState,
     audioOutputState,
     systemCapabilities,
+    buildInfo,
   );
   const splash = document.querySelector<HTMLElement>("#app-splash");
   if (splash) {

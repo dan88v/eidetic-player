@@ -1,3 +1,5 @@
+import type { BuildInfo } from "./system.js";
+
 export interface HealthResponse {
   readonly status: "ok";
   readonly environment: "development" | "production";
@@ -10,6 +12,7 @@ export interface StartingReadinessResponse {
   readonly playerStatus: string;
   readonly mpvAvailable: boolean;
   readonly errorCode?: undefined;
+  readonly buildInfo: BuildInfo;
 }
 
 export interface SettledReadinessResponse {
@@ -17,6 +20,7 @@ export interface SettledReadinessResponse {
   readonly playerStatus: string;
   readonly mpvAvailable: boolean;
   readonly errorCode: string | null;
+  readonly buildInfo: BuildInfo;
 }
 
 export type ReadinessResponse =

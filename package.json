@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "npm run clean && npm run shell:config:prod && vite build --config apps/ui/vite.config.ts && tsc -p apps/backend/tsconfig.build.json",
+    "build": "npm run clean && npm run build:info && npm run shell:config:prod && vite build --config apps/ui/vite.config.ts && tsc -p apps/backend/tsconfig.build.json",
+    "build:info": "node scripts/generate-build-info.mjs --output dist/build-info.json",
     "clean": "node scripts/clean.mjs",
     "typecheck": "tsc -p apps/ui/tsconfig.json && tsc -p apps/backend/tsconfig.json && tsc -p scripts/tsconfig.json && tsc -p packages/on-screen-keyboard/tsconfig.json",
     "lint": "eslint .",

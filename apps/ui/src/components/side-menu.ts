@@ -4,6 +4,7 @@ import { t } from "../i18n";
 import { navigationItems } from "../navigation/routes";
 import type { ScreenId } from "../state/types";
 import type { MusicBrowsingVisibility } from "../state/types";
+import type { BuildInfo } from "../../../../packages/shared/src/system";
 
 export interface SideMenu {
   readonly element: HTMLElement;
@@ -18,6 +19,7 @@ export interface SideMenu {
 }
 
 export interface SideMenuOptions {
+  readonly buildInfo: BuildInfo;
   readonly onClose: () => void;
   readonly onNavigate: (screen: ScreenId) => void;
   readonly onPower?: (trigger: HTMLButtonElement) => void;
@@ -56,7 +58,7 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
         )
         .join("")}
     </nav>
-    <div class="side-menu__footer"><span>${t("app.theme")}</span>${
+    <div class="side-menu__footer"><span class="side-menu__build">Build ${options.buildInfo.shortCommitSha}</span>${
       options.showPower
         ? `<button class="icon-button side-menu__power" type="button" aria-label="Power" title="Power">${icon("power")}</button>`
         : ""

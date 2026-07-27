@@ -1,4 +1,8 @@
 import type { ReadinessResponse } from "../../../packages/shared/src/health.js";
+import {
+  unknownBuildInfo,
+  type BuildInfo,
+} from "../../../packages/shared/src/system.js";
 
 export type BootstrapReadiness = "starting" | "ready" | "degraded";
 
@@ -8,16 +12,19 @@ export interface ReadinessContext {
   readonly mpvAvailable: boolean;
   readonly playerErrorCode: string | null;
   readonly bootstrapErrorCode: string | null;
+  readonly buildInfo?: BuildInfo;
 }
 
 export function buildReadinessResponse(
   context: ReadinessContext,
 ): ReadinessResponse {
+  const buildInfo = context.buildInfo ?? unknownBuildInfo;
   if (context.bootstrapStatus === "starting") {
     return {
       status: "starting",
       playerStatus: context.playerStatus,
       mpvAvailable: context.mpvAvailable,
+      buildInfo,
     };
   }
 
@@ -28,6 +35,7 @@ export function buildReadinessResponse(
       playerStatus: context.playerStatus,
       mpvAvailable: context.mpvAvailable,
       errorCode,
+      buildInfo,
     };
   }
 
@@ -36,5 +44,6 @@ export function buildReadinessResponse(
     playerStatus: context.playerStatus,
     mpvAvailable: context.mpvAvailable,
     errorCode: null,
+    buildInfo,
   };
 }

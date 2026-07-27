@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 EIDETIC_COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+EIDETIC_SOURCE_REMOTE=https://github.com/dan88v/eidetic-player.git
 # shellcheck source=lib/console-ui.sh
 . "$EIDETIC_COMMON_DIR/console-ui.sh"
 
@@ -216,6 +217,7 @@ eidetic_run_as_runtime_user() {
       GIT_CONFIG_NOSYSTEM=1 \
       EIDETIC_INSTALLATION_MODE="${EIDETIC_INSTALLATION_MODE:-standard}" \
       EIDETIC_FULLSCREEN="${EIDETIC_FULLSCREEN:-0}" \
+      EIDETIC_BUILD_REF="${EIDETIC_BUILD_REF:-unknown}" \
       "$@"
 }
 

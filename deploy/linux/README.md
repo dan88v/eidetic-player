@@ -61,6 +61,8 @@ The backend exposes two separate endpoints:
 - returns `status: "ready"` when startup succeeds;
 - returns `status: "degraded"` when startup completed with a recoverable startup
   error.
+- always includes immutable Build provenance loaded once at backend start;
+  updater health checks compare its full commit to the resolved target.
 
 Production Linux launcher (`deploy/linux/runtime/eidetic-player-launch`) now waits
 only on `/api/readiness`, with these constants:
@@ -525,11 +527,16 @@ sudo ./deploy/linux/update-eidetic-player.sh --help
 sudo ./deploy/linux/update-eidetic-player.sh --dry-run
 ```
 
-Install and switch to the configured ref:
+Start the guided update. It resolves the configured ref to an exact commit,
+shows the current and target seven-character Build IDs, and defaults to Yes
+only on an interactive terminal:
 
 ```bash
 sudo ./deploy/linux/update-eidetic-player.sh
 ```
+
+No-argument non-interactive use exits with code 64. Automation must add
+`--unattended` and any technical options explicitly.
 
 Use another safe Git ref:
 
@@ -552,7 +559,32 @@ sudo ./deploy/linux/update-eidetic-player.sh --rollback
 `--no-restart` prevents the update command from restarting the app. Update
 uses the same non-root build/test environment and transactional release switch
 as installation. It builds and verifies before switching `current`, preserves
-XDG data and keeps `previous` available. Rollback performs no build or tests.
+XDG data and all installation choices, and keeps `previous` available. If the
+resolved full commit is already installed, it prints exactly
+`Already up to date.` and performs no build, installer call, release switch, or
+restart.
+
+After activation the updater restarts the user service without rebooting. A
+hard 60-second gate requires the service, backend HTTP response, and API Build
+ID to match the target. Failure switches back atomically and verifies the
+previous build once. MPV gets a separate 120-second readiness window: a timeout
+is a warning when the hard gate remains healthy, so it does not roll back a
+good backend. `--no-restart` intentionally skips both runtime gates and
+automatic rollback. Explicit rollback performs no build or tests and is itself
+restarted and verified unless `--no-restart` is selected.
+
+Update logs are mode 0600 under `/var/log/eidetic-player`; the newest ten are
+retained independently from install and uninstall logs.
+
+Every release contains `build-info.json`. Its versioned schema records the
+exact full commit, derived seven-character Build ID, sanitized source ref,
+package version, UTC build timestamp, closed provenance source, and optional
+dirty flag. The release verifier rejects a missing, malformed, or incoherent
+manifest before activation. The drawer exposes only `Build <short>` (`Build
+dev` in development and `Build unknown` for invalid production provenance).
+The read-only installation doctor reports the full sanitized provenance and
+checks it against the readiness API.
+
 The helper and policy are host integration rather than release contents, so
 rollback leaves them installed; a pre-Step-B release neither detects nor
 exposes the new actions.

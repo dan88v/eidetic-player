@@ -58,6 +58,15 @@ is not yet writable. The newest ten install logs and newest ten uninstall logs
 are retained independently. Failure output includes the failed phase, original
 exit code, rollback result, log path, and `eidetic-player-doctor`.
 
+The updater follows the same console contract. Its no-argument path is guided
+only on a TTY; unattended callers must be explicit. Update logs rotate
+independently at ten files. A resolved target identical to the installed full
+commit exits before build or restart. Otherwise the updater pins that commit,
+activates only after `build-info.json` validation, restarts without reboot,
+verifies service + HTTP + target Build ID for 60 seconds, and rolls back once
+on a hard failure. MPV readiness has a separate 120-second soft window and
+cannot roll back an otherwise healthy target.
+
 The project uses Node 24.18.0 in `.nvmrc` and requires Node 24.15 or newer in
 `package.json`, including the built-in `node:sqlite` API used by Library. MPV
 and FFmpeg are discovered from the explicit

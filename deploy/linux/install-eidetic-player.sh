@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 runtime_user="${SUDO_USER:-}"
 git_ref=main
+resolved_commit=
 mode=standard
 dry_run=0
 unattended=0
@@ -18,7 +19,7 @@ rpi_keyboard_explicit=0
 gpio_i2s_dac=0
 gpio_i2s_dac_explicit=0
 gpio_i2s_dac_state=not-requested
-SOURCE_REMOTE=https://github.com/dan88v/eidetic-player.git
+SOURCE_REMOTE="$EIDETIC_SOURCE_REMOTE"
 declare -A choice=()
 
 usage() {
@@ -40,6 +41,7 @@ Common options:
 Automation and technical options:
   --user USER                 Existing non-root runtime user
   --ref REF                   Git ref to install (default: main)
+  --resolved-commit SHA       Pin the fetched ref to an already resolved commit
   --mode standard|appliance   Installation mode
   --dry-run                   Validate and print the plan only
   --unattended                Never prompt
@@ -76,6 +78,11 @@ while (($#)); do
     --no-color) export EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
     --user) [[ $# -ge 2 ]] || eidetic_die "--user needs a value"; runtime_user="$2"; shift 2;;
     --ref) [[ $# -ge 2 ]] || eidetic_die "--ref needs a value"; git_ref="$2"; shift 2;;
+    --resolved-commit)
+      [[ $# -ge 2 ]] || eidetic_die "--resolved-commit needs a value"
+      resolved_commit="$2"
+      shift 2
+      ;;
     --mode) guided=0; [[ $# -ge 2 ]] || eidetic_die "--mode needs a value"; mode="$2"; shift 2;;
     --root) [[ $# -ge 2 ]] || eidetic_die "--root needs a value"; EIDETIC_ROOT="$2"; shift 2;;
     --dry-run) guided=0; dry_run=1; shift;;
@@ -162,6 +169,10 @@ fi
 eidetic_validate_user "$runtime_user"
 eidetic_load_runtime_identity "$runtime_user"
 eidetic_validate_ref "$git_ref"
+if [[ -n "$resolved_commit" ]] &&
+  ! [[ "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  eidetic_die "--resolved-commit must be an exact lowercase commit SHA"
+fi
 if [[ "$EIDETIC_ROOT" != "/" ]]; then eidetic_validate_root "$EIDETIC_ROOT"; fi
 export EIDETIC_ROOT
 eidetic_require_root
@@ -432,11 +443,14 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   EIDETIC_INSTALLATION_MODE="$mode"
   EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
   EIDETIC_BORDERLESS="$borderless_value"
+  EIDETIC_BUILD_REF="$git_ref"
   export EIDETIC_INSTALLATION_MODE EIDETIC_FULLSCREEN EIDETIC_BORDERLESS
+  export EIDETIC_BUILD_REF
   eidetic_log "Source phase (runtime user UID $EIDETIC_RUNTIME_UID): isolated fetch $git_ref"
+  source_ref="${resolved_commit:-$git_ref}"
   if ! eidetic_fetch_isolated_source \
     "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-    "$git_ref" "$SOURCE_REMOTE"; then
+    "$source_ref" "$SOURCE_REMOTE"; then
     eidetic_die "source phase failed: isolated Git fetch"
   fi
 
@@ -510,9 +524,9 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
     --root "$build_source" --arch "$neutralino_arch" --phase build; then
     eidetic_die "Installation verification failed: Linux build artifact contract. No release was activated."
   fi
-  release_commit="$(eidetic_run_as_runtime_user \
-    "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-    git -C "$build_source" rev-parse --short=12 HEAD)"
+  release_commit="$("$node_release/bin/node" -e \
+    'const value=require(process.argv[1]); process.stdout.write(value.shortCommitSha)' \
+    "$build_source/dist/build-info.json")"
 else
   release_commit=staging
 fi
@@ -534,6 +548,8 @@ install -d -m 0755 "$release_stage/bin"
 
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   cp -a "$build_source/dist/backend" "$release_stage/backend"
+  install -m 0644 "$build_source/dist/build-info.json" \
+    "$release_stage/build-info.json"
   install -m 0755 "$shell_binary" "$release_stage/eidetic-player"
   cp -- "${neu_files[@]}" "$release_stage/"
   install -m 0644 "$build_source/neutralino.config.json" \
@@ -565,6 +581,10 @@ else
 
   printf '{"type":"module"}\n' \
     >"$release_stage/package.json"
+
+  printf '%s\n' \
+    '{"schemaVersion":1,"commitSha":"0000000000000000000000000000000000000000","shortCommitSha":"0000000","ref":"staging","packageVersion":"0.1.0","builtAt":"2026-01-01T00:00:00.000Z","source":"explicit"}' \
+    >"$release_stage/build-info.json"
 
   printf '{"lockfileVersion":3}\n' \
     >"$release_stage/package-lock.json"
@@ -660,6 +680,7 @@ BACKEND_HOST=$backend_host
 BACKEND_PORT=$backend_port
 EIDETIC_TERMINAL=x-terminal-emulator
 EIDETIC_MPV_PATH=/usr/bin/mpv
+NODE_ENV=production
 PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin
 EOF
 eidetic_install_managed "$conf" /etc/eidetic-player/install.conf 0644

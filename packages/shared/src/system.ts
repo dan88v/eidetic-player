@@ -34,6 +34,47 @@ export interface SystemCapabilities {
   readonly hidePointerWhenInactive: boolean;
 }
 
+export const buildInfoSources = [
+  "ci",
+  "git",
+  "explicit",
+  "development",
+  "unknown",
+] as const;
+
+export type BuildInfoSource = (typeof buildInfoSources)[number];
+
+export interface BuildInfo {
+  readonly schemaVersion: 1;
+  readonly commitSha: string | null;
+  readonly shortCommitSha: string;
+  readonly ref: string;
+  readonly packageVersion: string;
+  readonly builtAt: string | null;
+  readonly source: BuildInfoSource;
+  readonly dirty?: boolean;
+}
+
+export const developmentBuildInfo: BuildInfo = {
+  schemaVersion: 1,
+  commitSha: null,
+  shortCommitSha: "dev",
+  ref: "development",
+  packageVersion: "0.1.0",
+  builtAt: null,
+  source: "development",
+};
+
+export const unknownBuildInfo: BuildInfo = {
+  schemaVersion: 1,
+  commitSha: null,
+  shortCommitSha: "unknown",
+  ref: "unknown",
+  packageVersion: "unknown",
+  builtAt: null,
+  source: "unknown",
+};
+
 export const defaultSystemCapabilities: SystemCapabilities = {
   installationMode: "development",
   maintenanceMode: false,

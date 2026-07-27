@@ -1,7 +1,9 @@
 import { isSupportedAudioPath } from "../../../../packages/shared/src/audio";
 import type { PlayerState } from "../../../../packages/shared/src/player";
 import {
+  developmentBuildInfo,
   defaultSystemCapabilities,
+  type BuildInfo,
   type SystemCapabilities,
 } from "../../../../packages/shared/src/system";
 import type {
@@ -82,6 +84,7 @@ export function mountApp(
   initialPlayerState: PlayerState = disconnectedPlayerState,
   initialAudioOutputState: AudioOutputState = disconnectedAudioOutputState,
   systemCapabilities: SystemCapabilities = defaultSystemCapabilities,
+  buildInfo: BuildInfo = developmentBuildInfo,
 ): MountedApp {
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
@@ -184,6 +187,7 @@ export function mountApp(
     current: ReturnType<typeof createPowerMenu> | null;
   } = { current: null };
   const sideMenu = createSideMenu({
+    buildInfo,
     onClose: () => {
       store.setMenuOpen(false);
     },

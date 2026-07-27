@@ -303,6 +303,28 @@ fixture() {
   assert_appliance_conf "$root" 0 0 0 0 0 0 0
   assert_power_installed "$root"
 
+  current_before_noop="$(readlink "$root/opt/eidetic-player/current")"
+  releases_before_noop="$(find "$root/opt/eidetic-player/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+  noop_output="$(
+    EIDETIC_UPDATE_TARGET_SHA=0000000000000000000000000000000000000000 \
+      "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  )"
+  [[ "$noop_output" == *"Already up to date."* ]] ||
+    fixture_fail "same-commit update did not report the exact no-op"
+  [[ "$(readlink "$root/opt/eidetic-player/current")" == "$current_before_noop" ]] ||
+    fixture_fail "same-commit update changed current"
+  [[ "$(find "$root/opt/eidetic-player/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)" == "$releases_before_noop" ]] ||
+    fixture_fail "same-commit update created a release"
+
+  rm -f -- "$root/opt/eidetic-player/current/build-info.json"
+  legacy_output="$(
+    "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
+  )"
+  [[ "$legacy_output" == *"legacy/unknown provenance"* ]] ||
+    fixture_fail "legacy current release did not report unknown provenance"
+  [[ -r "$root/opt/eidetic-player/current/build-info.json" ]] ||
+    fixture_fail "legacy update did not install a new provenance manifest"
+
   # validate legacy migration paths
   write_legacy_conf "$root" standard 1 0 1 1 0 0
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart

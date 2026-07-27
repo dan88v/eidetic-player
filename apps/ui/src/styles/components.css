@@ -380,6 +380,10 @@
     touch-action: manipulation;
   }
 
+  .side-menu__build {
+    text-transform: none;
+  }
+
   .power-backdrop {
     position: fixed;
     z-index: 80;

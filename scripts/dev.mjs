@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
@@ -11,6 +11,17 @@ const cli = {
 };
 const children = new Set();
 const backendShutdownToken = randomUUID();
+let developmentBuildId;
+try {
+  const candidate = execFileSync("git", ["rev-parse", "--short=7", "HEAD"], {
+    cwd: workspace,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+  if (/^[0-9a-f]{7}$/u.test(candidate)) developmentBuildId = candidate;
+} catch {
+  developmentBuildId = undefined;
+}
 let stopping = false;
 let cleanupPromise = null;
 
@@ -109,6 +120,9 @@ try {
     {
       ...process.env,
       EIDETIC_DEV_SHUTDOWN_TOKEN: backendShutdownToken,
+      ...(developmentBuildId
+        ? { EIDETIC_DEV_BUILD_ID: developmentBuildId }
+        : {}),
     },
   );
   const frontend = run(

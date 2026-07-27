@@ -9,9 +9,10 @@ const drawer = read("apps/ui/src/components/side-menu.ts");
 const shell = read("apps/ui/src/components/app-shell.ts");
 const styles = read("apps/ui/src/styles/components.css");
 
-void test("drawer footer preserves MODERN HI-FI and adds one accessible power icon", () => {
+void test("drawer footer shows the short Build ID and one accessible power icon", () => {
   assert.match(drawer, /side-menu__footer/);
-  assert.match(drawer, /t\("app\.theme"\)/);
+  assert.match(drawer, /Build \$\{options\.buildInfo\.shortCommitSha\}/);
+  assert.doesNotMatch(drawer, /commitSha/);
   assert.match(drawer, /aria-label="Power" title="Power"/);
   assert.equal((drawer.match(/side-menu__power/g) ?? []).length, 2);
   assert.match(

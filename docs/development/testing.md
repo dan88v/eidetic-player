@@ -101,6 +101,12 @@ fixed host action. Linux staging verifies helper/policy modes, rendered user,
 repeat install/update/rollback, restore retention, and idempotent uninstall
 without executing pkexec or systemctl actions.
 
+Update regression coverage must also prove exact-SHA no-op behavior, bounded
+ref resolution, valid/invalid release provenance, preserved installer choices,
+hard target health, one verified automatic rollback, rollback-verification
+failure diagnostics, soft MPV timeout without rollback, `--no-restart`
+semantics, independent update-log retention, and absence of reboot paths.
+
 When a step adds an app-lifetime SSE stream, cold-start Now Playing with an
 active visualizer and a restored Queue. Confirm artwork loads and Play,
 Previous, Next, and Shuffle remain responsive; a route-only check can miss
