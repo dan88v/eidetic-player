@@ -299,20 +299,25 @@ Prima iterazione:
 È necessaria una seconda correzione locale, seguita nuovamente da commit
 manuale, push, CI verde sull'esatto commit, update e validazione fisica.
 
-## Secondo checkpoint pre-CI
+## Secondo checkpoint, update e prova Raspberry
 
-La seconda correzione locale è completa e tutti i gate sono verdi.
+- commit manuale e push:
+  `6f49d17540d88afc3ef076ccdebc210094b02dac`;
+- commit: `Step 2.17.4 — Native Touch Scrolling Corrective`;
+- working tree pulito e `main` allineato a `origin/main` prima dell'update;
+- CI esatta: `Eidetic Player CI` run `30274682219`, PASS;
+- update remoto verso `daniele@10.0.0.112` tramite
+  `scripts/remote-rpi-update.ps1`: completato con successo e confermato
+  dall'utente;
+- Build ID target: `6f49d17`;
+- prova fisica sul Raspberry Pi: lo scrolling touch ora funziona correttamente,
+  confermato dall'utente.
 
-`READY FOR CI VALIDATION — RASPBERRY TOUCH VALIDATION NOT STARTED`
+Il difetto di scrolling osservato dopo la prima installazione è quindi chiuso
+sul dispositivo reale. Nel riscontro finale non è stata fornita una conferma
+separata del reorder Queue verso entrambe le direzioni: la relativa copertura
+automatica e lo smoke Windows restano PASS, ma questa specifica interazione
+fisica sul Raspberry deve essere ricontrollata al prossimo test se non era
+inclusa nella prova dell'utente.
 
-La frase indica il secondo tentativo fisico: il primo è documentato sopra come
-FAIL. Non sono stati eseguiti commit, push, SSH o update automatici per questa
-seconda correzione. Dopo commit/push manuali e CI verde sull'esatto nuovo SHA,
-rieseguire l'updater remoto e verificare almeno:
-
-1. drawer: swipe up mostra contenuto inferiore, swipe down contenuto superiore;
-2. Queue row: stessa direzione, nessun playback dopo swipe;
-3. flick: inerzia finita e nessun click fantasma;
-4. Queue handle: move verso il basso e verso l'alto, poi ripristino ordine;
-5. pagine lunghe e modali: stesso verso, background fermo;
-6. timeline, volume, input/OSK e tap cover: invariati.
+`RASPBERRY TOUCH SCROLLING PASS — QUEUE REORDER PHYSICAL CONFIRMATION PENDING`
