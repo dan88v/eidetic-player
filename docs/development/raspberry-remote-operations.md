@@ -4,6 +4,36 @@ These scripts reproduce the visible, interactive SSH workflow used on
 2026-07-27. They never store or pipe a password. SSH and `sudo` prompts remain
 attached to the terminal.
 
+## Guided update
+
+After the exact `main` CI run is green, run:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File scripts/remote-rpi-update.ps1
+```
+
+The updater:
+
+1. validates the exact checkout path, official origin, `main` branch and clean
+   working tree;
+2. synchronizes the checkout to `origin/main` using fast-forward only;
+3. records the installed and target Build IDs;
+4. starts the guided production updater with visible SSH, `sudo` and updater
+   prompts;
+5. verifies the installed Build ID, user service, readiness API and read-only
+   installation doctor;
+6. reruns the updater unattended on the same ref to prove
+   `Already up to date.`;
+7. performs no reboot.
+
+Host and user can be overridden explicitly:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File scripts/remote-rpi-update.ps1 `
+  -HostAddress 10.0.0.112 `
+  -RemoteUser daniele
+```
+
 ## Reinstall
 
 From a visible PowerShell terminal at the repository root:

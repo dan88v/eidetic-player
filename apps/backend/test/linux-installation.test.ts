@@ -497,11 +497,12 @@ void test("restore, update, uninstall and doctor expose the required safe modes"
 });
 
 void test("guided updater pins Build IDs and separates hard health from soft MPV readiness", async () => {
-  const [update, installer, doctor, common] = await Promise.all([
+  const [update, installer, doctor, common, remoteUpdate] = await Promise.all([
     read("deploy/linux/update-eidetic-player.sh"),
     read("deploy/linux/install-eidetic-player.sh"),
     read("deploy/linux/doctor-installation.sh"),
     read("deploy/linux/lib/common.sh"),
+    read("scripts/remote-rpi-update.ps1"),
   ]);
   assert.match(update, /Already up to date\./);
   assert.match(update, /exit 64/);
@@ -524,6 +525,30 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
   assert.match(
     common,
     /# shellcheck disable=SC2034\s+EIDETIC_SOURCE_REMOTE=https:\/\/github\.com\/dan88v\/eidetic-player\.git/,
+  );
+  assert.match(remoteUpdate, /& ssh\.exe `\s+-tt `/);
+  assert.match(remoteUpdate, /BatchMode=no/);
+  assert.match(remoteUpdate, /\[Convert\]::ToBase64String/);
+  assert.match(remoteUpdate, /\[Text\.Encoding\]::UTF8\.GetBytes/);
+  assert.match(remoteUpdate, /base64 -d > \$remote_script/);
+  assert.match(remoteUpdate, /! git diff --quiet/);
+  assert.match(remoteUpdate, /! git diff --cached --quiet/);
+  assert.match(remoteUpdate, /git ls-files --others --exclude-standard/);
+  assert.match(
+    remoteUpdate,
+    /git ls-files --others --exclude-standard \| grep -q \./,
+  );
+  assert.match(remoteUpdate, /git merge --ff-only/);
+  assert.match(
+    remoteUpdate,
+    /sudo \.\/deploy\/linux\/update-eidetic-player\.sh\s*\n/,
+  );
+  assert.match(remoteUpdate, /doctor-installation\.sh/);
+  assert.match(remoteUpdate, /installed Build ID does not match/);
+  assert.match(remoteUpdate, /--ref "\$branch" --unattended/);
+  assert.doesNotMatch(
+    remoteUpdate,
+    /^\s*(?:sudo\s+)?(?:reboot|shutdown|poweroff)\b/m,
   );
 });
 

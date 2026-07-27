@@ -2,11 +2,12 @@
 
 ## Status
 
-`READY FOR CI VALIDATION — REMOTE UPDATE NOT STARTED`
+`RASPBERRY GUIDED UPDATE VALIDATION — PASS`
 
-No commit, push, SSH connection, Raspberry update, reboot, or destructive
-real-device rollback was performed. The new CI run must not be called green
-until the user commits, pushes, and confirms that exact run.
+The user committed and pushed `b448c44ec5f4383d51e22dd5461f3643be47d411`
+and confirmed its exact CI run green before separately authorizing SSH to the
+Raspberry Pi. The guided update and same-commit no-op validation completed
+without reboot. No destructive forced-failure rollback was performed.
 
 ## Baseline
 
@@ -247,15 +248,41 @@ No dependency or APT package was added, and the package plan is unchanged.
 
 ## Post-CI Raspberry phase
 
-Not started. After the user commits and pushes, confirms the exact new CI run
-green, and separately authorizes SSH, the later remote phase must record:
+Completed against `daniele@10.0.0.112` after the user confirmed the exact CI
+run green:
 
-- Raspberry Build ID before and after;
-- real guided update result;
-- service/backend/MPV state;
-- second run proving `Already up to date.`;
-- cleanup.
+- installed provenance before update: legacy/unknown;
+- target commit: `b448c44ec5f4383d51e22dd5461f3643be47d411`;
+- target and installed Build ID: `b448c44`;
+- activated release: `releases/20260727T090427Z-b448c44`;
+- update log:
+  `/var/log/eidetic-player/update-20260727-085455-225541-0.log`;
+- user service: `active`;
+- readiness: `ready`, player paused, MPV available;
+- readiness full commit: exact target match;
+- installation doctor: PASS, including manifest, BuildInfo and API coherence;
+- Raspberry Pi 3 Model B and Raspberry Pi OS Trixie detection: PASS;
+- HDMI and GPIO/I2S DAC detection: PASS;
+- no reboot requested or performed;
+- immediate updater rerun: `Already up to date.`;
+- final reusable-controller rerun: unchanged `b448c44`, doctor PASS and
+  `Already up to date.` again.
 
-A real forced hard-failure rollback remains **NOT TESTED** unless separately
-authorized. The eventual successful remote status may then become
-`RASPBERRY GUIDED UPDATE VALIDATION — PASS`.
+The installed manifest records `source/dirty` as `git/true`. The exact commit,
+Build ID and API coherence all match and the remote source checkout passed the
+clean-worktree guard; the flag is retained here as observed provenance rather
+than hidden.
+
+Added reusable `scripts/remote-rpi-update.ps1` and documented it in
+`docs/development/raspberry-remote-operations.md`. It keeps SSH, sudo and guided
+prompts visible, validates the exact checkout/origin/branch, permits only a
+fast-forward sync, compares Build IDs, runs the doctor and proves the no-op.
+The first controller attempts exposed Windows `ssh.exe` quote rewriting: an
+empty Bash test became a false dirty-check result, then the manifest `sed`
+expression and comparison were altered. The final controller transports the
+UTF-8 remote script as Base64 into a private temporary file, preserving it
+byte-for-byte while leaving stdin attached to the interactive terminal. The
+corrected controller completed successfully.
+
+A real forced hard-failure rollback remains **NOT TESTED** because it was not
+separately authorized.
