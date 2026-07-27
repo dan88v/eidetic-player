@@ -20,6 +20,16 @@ can expose the reported problem.
 Browser headless checks cannot replace Neutralino or real-media verification
 when native integration, playback, artwork, or realtime rendering is involved.
 
+Preference persistence tests cover missing/corrupt/future-schema files,
+per-field validation, unknown-field preservation, private modes, atomic
+replacement and backup recovery, revision conflicts, whitelist-only legacy
+reads, manual import, debounce/coalescing, bounded retry, lifecycle flush, and
+separate-store non-regression. Linux staging must reuse one config root across
+different release/current/previous fixtures and prove an updater no-op leaves
+the preference revision unchanged. Final target validation compares every
+preference before update, after update, after a user-service restart, and
+after updater no-op, then restores the original vector.
+
 For metadata integrity regressions, trace the same value from the real media
 tag through MPV raw properties, `MetadataService`, player/API state, Library
 indexing, the shared presentation snapshot, and DOM `textContent`. Include

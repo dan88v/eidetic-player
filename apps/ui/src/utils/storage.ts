@@ -1,20 +1,24 @@
+import type { RepeatMode } from "../../../../packages/shared/src/player";
+import {
+  defaultUiPreferences,
+  type UiPreferences,
+} from "../../../../packages/shared/src/preferences";
 import type {
+  FavoriteSegment,
+  FolderSortMode,
+  FolderViewMode,
+  LibraryAlbumViewMode,
+  LibrarySegment,
+  MainPlayerMode,
+  MusicBrowsingVisibility,
+  OnScreenKeyboardMode,
+  ReturnToNowPlayingSeconds,
   TimelineStyle,
   TimelineTimeMode,
   VisualizerMode,
-  MainPlayerMode,
-  FolderSortMode,
-  FolderViewMode,
-  MusicBrowsingVisibility,
-  ReturnToNowPlayingSeconds,
-  LibraryAlbumViewMode,
-  LibrarySegment,
-  FavoriteSegment,
-  OnScreenKeyboardMode,
 } from "../state/types";
-import type { RepeatMode } from "../../../../packages/shared/src/player";
 
-const storageKeys = {
+export const legacyPreferenceStorageKeys = {
   animationsEnabled: "eidetic-player.interface.animations-enabled",
   visualizerMode: "eidetic-player.interface.visualizer-mode",
   mainPlayerMode: "eidetic-player.interface.main-player-mode",
@@ -22,180 +26,304 @@ const storageKeys = {
   timelineTimeMode: "eidetic-player.interface.timeline-time-mode",
   volume: "eidetic-player.player.volume",
   muted: "eidetic-player.player.muted",
-  shuffle: "eidetic-player.player.shuffle",
-  repeat: "eidetic-player.player.repeat",
-  folderView: "eidetic-player.interface.folder-view",
+  shuffleEnabled: "eidetic-player.player.shuffle",
+  repeatMode: "eidetic-player.player.repeat",
+  folderViewMode: "eidetic-player.interface.folder-view",
   legacyLibraryFolderView: "eidetic-player.interface.library-folder-view",
-  folderSort: "eidetic-player.interface.folder-sort",
-  musicBrowsing: "eidetic-player.interface.music-browsing",
-  returnToNowPlaying: "eidetic-player.interface.return-to-now-playing",
+  folderSortMode: "eidetic-player.interface.folder-sort",
+  musicBrowsingVisibility: "eidetic-player.interface.music-browsing",
+  returnToNowPlayingSeconds: "eidetic-player.interface.return-to-now-playing",
   librarySegment: "eidetic-player.interface.library-segment",
-  libraryAlbumView: "eidetic-player.interface.library-album-view",
+  libraryAlbumViewMode: "eidetic-player.interface.library-album-view",
   favoriteSegment: "eidetic-player.interface.favorite-segment",
-  favoriteAlbumView: "eidetic-player.interface.favorite-album-view",
-  onScreenKeyboard: "eidetic-player.interface.on-screen-keyboard",
+  favoriteAlbumViewMode: "eidetic-player.interface.favorite-album-view",
+  onScreenKeyboardMode: "eidetic-player.interface.on-screen-keyboard",
 } as const;
 
-export function loadOnScreenKeyboardMode(): OnScreenKeyboardMode {
-  const value = read(storageKeys.onScreenKeyboard);
-  return value === "always" || value === "off" ? value : "auto";
+export interface PreferencesPersistenceAdapter {
+  getPreferences(): UiPreferences;
+  update(changes: Partial<UiPreferences>): void;
 }
 
-export function saveOnScreenKeyboardMode(value: OnScreenKeyboardMode): boolean {
-  return write(storageKeys.onScreenKeyboard, value);
+export interface LegacyPreferencesRead {
+  readonly preferences: Partial<UiPreferences>;
+  readonly sourceAvailable: boolean;
+  readonly foundKeyCount: number;
+  readonly readKeyCount: number;
 }
 
-export function loadLibrarySegment(): LibrarySegment {
-  const value = read(storageKeys.librarySegment);
-  return value === "artists" || value === "tracks" ? value : "albums";
+type MutableUiPreferences = {
+  -readonly [Key in keyof UiPreferences]?: UiPreferences[Key];
+};
+
+let currentPreferences: UiPreferences = defaultUiPreferences;
+let persistenceAdapter: PreferencesPersistenceAdapter | null = null;
+
+export function initializePreferenceStorage(
+  preferences: UiPreferences,
+  adapter: PreferencesPersistenceAdapter,
+): void {
+  currentPreferences = Object.freeze({ ...preferences });
+  persistenceAdapter = adapter;
 }
 
-export function saveLibrarySegment(value: LibrarySegment): boolean {
-  return write(storageKeys.librarySegment, value);
+export function resetPreferenceStorageForTests(): void {
+  currentPreferences = defaultUiPreferences;
+  persistenceAdapter = null;
 }
 
-export function loadLibraryAlbumViewMode(): LibraryAlbumViewMode {
-  return read(storageKeys.libraryAlbumView) === "list" ? "list" : "grid";
+function current(): UiPreferences {
+  return persistenceAdapter?.getPreferences() ?? currentPreferences;
 }
 
-export function saveLibraryAlbumViewMode(value: LibraryAlbumViewMode): boolean {
-  return write(storageKeys.libraryAlbumView, value);
+function save(changes: Partial<UiPreferences>): boolean {
+  currentPreferences = Object.freeze({ ...current(), ...changes });
+  persistenceAdapter?.update(changes);
+  return true;
 }
 
-export function loadFavoriteSegment(): FavoriteSegment {
-  const value = read(storageKeys.favoriteSegment);
-  return value === "albums" || value === "artists" ? value : "tracks";
+function legacyRead(
+  storage: Storage,
+  key: string,
+  state: { count: number },
+): string | null {
+  state.count += 1;
+  return storage.getItem(key);
 }
 
-export function saveFavoriteSegment(value: FavoriteSegment): boolean {
-  return write(storageKeys.favoriteSegment, value);
+function legacyBoolean(value: string | null): boolean | undefined {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
 }
 
-export function loadFavoriteAlbumViewMode(): LibraryAlbumViewMode {
-  return read(storageKeys.favoriteAlbumView) === "list" ? "list" : "grid";
-}
-
-export function saveFavoriteAlbumViewMode(
-  value: LibraryAlbumViewMode,
-): boolean {
-  return write(storageKeys.favoriteAlbumView, value);
-}
-
-export function loadMusicBrowsingVisibility(): MusicBrowsingVisibility {
-  const value = read(storageKeys.musicBrowsing);
-  return value === "folders" || value === "library" ? value : "both";
-}
-
-export function saveMusicBrowsingVisibility(
-  value: MusicBrowsingVisibility,
-): boolean {
-  return write(storageKeys.musicBrowsing, value);
-}
-
-export function loadReturnToNowPlayingSeconds(): ReturnToNowPlayingSeconds {
-  const value = Number(read(storageKeys.returnToNowPlaying));
-  return value === 10 || value === 30 || value === 60 || value === 120
-    ? value
-    : 0;
-}
-
-export function saveReturnToNowPlayingSeconds(
-  value: ReturnToNowPlayingSeconds,
-): boolean {
-  return write(storageKeys.returnToNowPlaying, String(value));
-}
-
-export function loadFolderViewMode(): FolderViewMode {
-  const value =
-    read(storageKeys.folderView) ?? read(storageKeys.legacyLibraryFolderView);
-  return value === "list" ? "list" : "grid";
-}
-
-export function saveFolderViewMode(mode: FolderViewMode): boolean {
-  return write(storageKeys.folderView, mode);
-}
-
-export function loadFolderSortMode(): FolderSortMode {
-  const value = read(storageKeys.folderSort);
-  return value === "name-desc" ||
-    value === "files-desc" ||
-    value === "files-asc"
-    ? value
-    : "name-asc";
-}
-
-export function saveFolderSortMode(mode: FolderSortMode): boolean {
-  return write(storageKeys.folderSort, mode);
-}
-
-function read(key: string): string | null {
+export function readLegacyPreferences(
+  storage: Storage = window.localStorage,
+): LegacyPreferencesRead {
+  const preferences: MutableUiPreferences = {};
+  const state = { count: 0 };
+  let foundKeyCount = 0;
+  const read = (key: string): string | null => {
+    const value = legacyRead(storage, key, state);
+    if (value !== null) foundKeyCount += 1;
+    return value;
+  };
   try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
+    const animationsEnabled = legacyBoolean(
+      read(legacyPreferenceStorageKeys.animationsEnabled),
+    );
+    if (animationsEnabled !== undefined)
+      preferences.animationsEnabled = animationsEnabled;
 
-function write(key: string, value: string): boolean {
-  try {
-    window.localStorage.setItem(key, value);
-    return true;
+    const visualizer = read(legacyPreferenceStorageKeys.visualizerMode);
+    if (visualizer === "spectrum") preferences.visualizerMode = "spectrumMono";
+    else if (
+      visualizer === "meter" ||
+      visualizer === "spectrumMono" ||
+      visualizer === "spectrumStereo" ||
+      visualizer === "technical" ||
+      visualizer === "none"
+    )
+      preferences.visualizerMode = visualizer;
+
+    const mainPlayer = read(legacyPreferenceStorageKeys.mainPlayerMode);
+    if (mainPlayer === "default" || mainPlayer === "cassette")
+      preferences.mainPlayerMode = mainPlayer;
+
+    const timeline = read(legacyPreferenceStorageKeys.timelineStyle);
+    if (timeline === "waveform" || timeline === "line")
+      preferences.timelineStyle = timeline;
+
+    const timeMode = read(legacyPreferenceStorageKeys.timelineTimeMode);
+    if (timeMode === "total" || timeMode === "remaining")
+      preferences.timelineTimeMode = timeMode;
+
+    const rawVolume = read(legacyPreferenceStorageKeys.volume);
+    if (rawVolume !== null && rawVolume.trim().length > 0) {
+      const volume = Number(rawVolume);
+      if (Number.isFinite(volume) && volume >= 0 && volume <= 100)
+        preferences.volume = volume;
+    }
+
+    const muted = legacyBoolean(read(legacyPreferenceStorageKeys.muted));
+    if (muted !== undefined) preferences.muted = muted;
+    const shuffle = legacyBoolean(
+      read(legacyPreferenceStorageKeys.shuffleEnabled),
+    );
+    if (shuffle !== undefined) preferences.shuffleEnabled = shuffle;
+
+    const repeat = read(legacyPreferenceStorageKeys.repeatMode);
+    if (repeat === "off" || repeat === "all" || repeat === "one")
+      preferences.repeatMode = repeat;
+
+    const folderView =
+      read(legacyPreferenceStorageKeys.folderViewMode) ??
+      read(legacyPreferenceStorageKeys.legacyLibraryFolderView);
+    if (folderView === "list" || folderView === "grid")
+      preferences.folderViewMode = folderView;
+
+    const folderSort = read(legacyPreferenceStorageKeys.folderSortMode);
+    if (
+      folderSort === "name-asc" ||
+      folderSort === "name-desc" ||
+      folderSort === "files-desc" ||
+      folderSort === "files-asc"
+    )
+      preferences.folderSortMode = folderSort;
+
+    const browsing = read(legacyPreferenceStorageKeys.musicBrowsingVisibility);
+    if (browsing === "both" || browsing === "folders" || browsing === "library")
+      preferences.musicBrowsingVisibility = browsing;
+
+    const rawReturnSeconds = read(
+      legacyPreferenceStorageKeys.returnToNowPlayingSeconds,
+    );
+    if (rawReturnSeconds !== null && rawReturnSeconds.trim().length > 0) {
+      const returnSeconds = Number(rawReturnSeconds);
+      if (
+        returnSeconds === 0 ||
+        returnSeconds === 10 ||
+        returnSeconds === 30 ||
+        returnSeconds === 60 ||
+        returnSeconds === 120
+      )
+        preferences.returnToNowPlayingSeconds = returnSeconds;
+    }
+
+    const librarySegment = read(legacyPreferenceStorageKeys.librarySegment);
+    if (
+      librarySegment === "albums" ||
+      librarySegment === "artists" ||
+      librarySegment === "tracks"
+    )
+      preferences.librarySegment = librarySegment;
+
+    const libraryView = read(legacyPreferenceStorageKeys.libraryAlbumViewMode);
+    if (libraryView === "list" || libraryView === "grid")
+      preferences.libraryAlbumViewMode = libraryView;
+
+    const favoriteSegment = read(legacyPreferenceStorageKeys.favoriteSegment);
+    if (
+      favoriteSegment === "tracks" ||
+      favoriteSegment === "albums" ||
+      favoriteSegment === "artists"
+    )
+      preferences.favoriteSegment = favoriteSegment;
+
+    const favoriteView = read(
+      legacyPreferenceStorageKeys.favoriteAlbumViewMode,
+    );
+    if (favoriteView === "list" || favoriteView === "grid")
+      preferences.favoriteAlbumViewMode = favoriteView;
+
+    const keyboard = read(legacyPreferenceStorageKeys.onScreenKeyboardMode);
+    if (keyboard === "auto" || keyboard === "always" || keyboard === "off")
+      preferences.onScreenKeyboardMode = keyboard;
   } catch {
-    return false;
+    return {
+      preferences: {},
+      sourceAvailable: false,
+      foundKeyCount: 0,
+      readKeyCount: state.count,
+    };
   }
+  return {
+    preferences,
+    sourceAvailable: true,
+    foundKeyCount,
+    readKeyCount: state.count,
+  };
 }
 
 export function loadAnimationsEnabled(): boolean {
-  const storedValue = read(storageKeys.animationsEnabled);
-  return storedValue === null ? true : storedValue === "true";
+  return current().animationsEnabled;
 }
-
-export function saveAnimationsEnabled(enabled: boolean): boolean {
-  return write(storageKeys.animationsEnabled, String(enabled));
+export function saveAnimationsEnabled(value: boolean): boolean {
+  return save({ animationsEnabled: value });
 }
-
 export function loadVisualizerMode(): VisualizerMode {
-  const value = read(storageKeys.visualizerMode);
-  if (value === "spectrum") return "spectrumMono";
-  return value === "meter" ||
-    value === "spectrumMono" ||
-    value === "spectrumStereo" ||
-    value === "technical" ||
-    value === "none"
-    ? value
-    : "meter";
+  return current().visualizerMode;
 }
-
-export function saveVisualizerMode(mode: VisualizerMode): boolean {
-  return write(storageKeys.visualizerMode, mode);
+export function saveVisualizerMode(value: VisualizerMode): boolean {
+  return save({ visualizerMode: value });
 }
-
 export function loadMainPlayerMode(): MainPlayerMode {
-  return read(storageKeys.mainPlayerMode) === "cassette"
-    ? "cassette"
-    : "default";
+  return current().mainPlayerMode;
 }
-
-export function saveMainPlayerMode(mode: MainPlayerMode): boolean {
-  return write(storageKeys.mainPlayerMode, mode);
+export function saveMainPlayerMode(value: MainPlayerMode): boolean {
+  return save({ mainPlayerMode: value });
 }
-
 export function loadTimelineStyle(): TimelineStyle {
-  return read(storageKeys.timelineStyle) === "line" ? "line" : "waveform";
+  return current().timelineStyle;
 }
-
-export function saveTimelineStyle(style: TimelineStyle): boolean {
-  return write(storageKeys.timelineStyle, style);
+export function saveTimelineStyle(value: TimelineStyle): boolean {
+  return save({ timelineStyle: value });
 }
-
 export function loadTimelineTimeMode(): TimelineTimeMode {
-  return read(storageKeys.timelineTimeMode) === "remaining"
-    ? "remaining"
-    : "total";
+  return current().timelineTimeMode;
 }
-
-export function saveTimelineTimeMode(mode: TimelineTimeMode): boolean {
-  return write(storageKeys.timelineTimeMode, mode);
+export function saveTimelineTimeMode(value: TimelineTimeMode): boolean {
+  return save({ timelineTimeMode: value });
+}
+export function loadFolderViewMode(): FolderViewMode {
+  return current().folderViewMode;
+}
+export function saveFolderViewMode(value: FolderViewMode): boolean {
+  return save({ folderViewMode: value });
+}
+export function loadFolderSortMode(): FolderSortMode {
+  return current().folderSortMode;
+}
+export function saveFolderSortMode(value: FolderSortMode): boolean {
+  return save({ folderSortMode: value });
+}
+export function loadMusicBrowsingVisibility(): MusicBrowsingVisibility {
+  return current().musicBrowsingVisibility;
+}
+export function saveMusicBrowsingVisibility(
+  value: MusicBrowsingVisibility,
+): boolean {
+  return save({ musicBrowsingVisibility: value });
+}
+export function loadReturnToNowPlayingSeconds(): ReturnToNowPlayingSeconds {
+  return current().returnToNowPlayingSeconds;
+}
+export function saveReturnToNowPlayingSeconds(
+  value: ReturnToNowPlayingSeconds,
+): boolean {
+  return save({ returnToNowPlayingSeconds: value });
+}
+export function loadLibrarySegment(): LibrarySegment {
+  return current().librarySegment;
+}
+export function saveLibrarySegment(value: LibrarySegment): boolean {
+  return save({ librarySegment: value });
+}
+export function loadLibraryAlbumViewMode(): LibraryAlbumViewMode {
+  return current().libraryAlbumViewMode;
+}
+export function saveLibraryAlbumViewMode(value: LibraryAlbumViewMode): boolean {
+  return save({ libraryAlbumViewMode: value });
+}
+export function loadFavoriteSegment(): FavoriteSegment {
+  return current().favoriteSegment;
+}
+export function saveFavoriteSegment(value: FavoriteSegment): boolean {
+  return save({ favoriteSegment: value });
+}
+export function loadFavoriteAlbumViewMode(): LibraryAlbumViewMode {
+  return current().favoriteAlbumViewMode;
+}
+export function saveFavoriteAlbumViewMode(
+  value: LibraryAlbumViewMode,
+): boolean {
+  return save({ favoriteAlbumViewMode: value });
+}
+export function loadOnScreenKeyboardMode(): OnScreenKeyboardMode {
+  return current().onScreenKeyboardMode;
+}
+export function saveOnScreenKeyboardMode(value: OnScreenKeyboardMode): boolean {
+  return save({ onScreenKeyboardMode: value });
 }
 
 export interface PlaybackPreferences {
@@ -206,24 +334,17 @@ export interface PlaybackPreferences {
 }
 
 export function loadPlaybackPreferences(): PlaybackPreferences {
-  const volume = Number(read(storageKeys.volume));
-  const repeat = read(storageKeys.repeat);
+  const preferences = current();
   return {
-    volume:
-      Number.isFinite(volume) && volume >= 0 && volume <= 100 ? volume : 100,
-    muted: read(storageKeys.muted) === "true",
-    shuffleEnabled: read(storageKeys.shuffle) === "true",
-    repeatMode: repeat === "all" || repeat === "one" ? repeat : "off",
+    volume: preferences.volume,
+    muted: preferences.muted,
+    shuffleEnabled: preferences.shuffleEnabled,
+    repeatMode: preferences.repeatMode,
   };
 }
 
 export function savePlaybackPreferences(
   preferences: PlaybackPreferences,
 ): boolean {
-  return (
-    write(storageKeys.volume, String(preferences.volume)) &&
-    write(storageKeys.muted, String(preferences.muted)) &&
-    write(storageKeys.shuffle, String(preferences.shuffleEnabled)) &&
-    write(storageKeys.repeat, preferences.repeatMode)
-  );
+  return save(preferences);
 }

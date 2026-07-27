@@ -1,18 +1,12 @@
 import "./styles/index.css";
-import { mountApp } from "./components/app-shell";
+import { mountApp, type MountedApp } from "./components/app-shell";
 import { config } from "./config";
 import { t } from "./i18n";
 import { initializePlatform } from "./platform";
 import { createAppStore } from "./state/store";
 import {
-  loadAnimationsEnabled,
-  loadTimelineStyle,
-  loadTimelineTimeMode,
-  loadVisualizerMode,
-  loadMainPlayerMode,
-  loadMusicBrowsingVisibility,
-  loadReturnToNowPlayingSeconds,
-  loadOnScreenKeyboardMode,
+  initializePreferenceStorage,
+  readLegacyPreferences,
 } from "./utils/storage";
 import { correctInitialViewportOnce } from "./utils/viewport";
 import { PlayerApiClient } from "./api/player-api-client";
@@ -22,6 +16,12 @@ import {
   developmentBuildInfo,
 } from "../../../packages/shared/src/system";
 import { disconnectedAudioOutputState } from "../../../packages/shared/src/audio-output";
+import {
+  defaultUiPreferences,
+  type PreferencesSnapshot,
+} from "../../../packages/shared/src/preferences";
+import { PreferencesApiClient } from "./api/preferences-api-client";
+import { PreferencesController } from "./state/preferences-controller";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -59,7 +59,6 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  const animationsEnabled = loadAnimationsEnabled();
   const immediateSplash = document.querySelector<HTMLElement>("#app-splash");
   const accent = getComputedStyle(document.documentElement)
     .getPropertyValue("--color-accent")
@@ -69,8 +68,6 @@ async function bootstrap(): Promise<void> {
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
-  if (!animationsEnabled || reducedMotion)
-    immediateSplash?.setAttribute("data-motion", "reduced");
   const controller = new AbortController();
   const timeout = window.setTimeout(() => {
     controller.abort();
@@ -79,17 +76,60 @@ async function bootstrap(): Promise<void> {
   let audioOutputState = disconnectedAudioOutputState;
   let systemCapabilities = defaultSystemCapabilities;
   let buildInfo = developmentBuildInfo;
+  let preferencesSnapshot: PreferencesSnapshot = {
+    schemaVersion: 1,
+    revision: 0,
+    preferences: defaultUiPreferences,
+    persistence: "degraded",
+    legacyImport: "manual-required",
+    warning: true,
+  };
+  let migrationFailed = false;
+  const preferencesApi = new PreferencesApiClient();
   try {
     const initial = await new PlayerApiClient().bootstrap(controller.signal);
     playerState = initial.playerState;
     audioOutputState = initial.audioOutput;
     systemCapabilities = initial.system;
     buildInfo = initial.buildInfo;
+    preferencesSnapshot = initial.preferences;
+    if (preferencesSnapshot.legacyImport === "required") {
+      const legacy = readLegacyPreferences();
+      try {
+        preferencesSnapshot = await preferencesApi.migrateLegacy(
+          {
+            preferences: legacy.preferences,
+            sourceAvailable: legacy.sourceAvailable,
+          },
+          controller.signal,
+        );
+      } catch (error) {
+        migrationFailed = true;
+        console.error("[preferences] legacy import failed", error);
+      }
+    }
   } catch (error) {
     console.error("[bootstrap] backend initialization failed", error);
   } finally {
     window.clearTimeout(timeout);
   }
+  let mountedApp: MountedApp | null = null;
+  const preferencesController = new PreferencesController(
+    preferencesSnapshot,
+    preferencesApi,
+    {
+      onWarning: () => {
+        mountedApp?.showSettingsWarning(t("settings.persistenceWarning"));
+      },
+    },
+  );
+  initializePreferenceStorage(
+    preferencesSnapshot.preferences,
+    preferencesController,
+  );
+  const animationsEnabled = preferencesSnapshot.preferences.animationsEnabled;
+  if (!animationsEnabled || reducedMotion)
+    immediateSplash?.setAttribute("data-motion", "reduced");
   const minimumRemaining = 700 - (performance.now() - startedAt);
   if (minimumRemaining > 0)
     await new Promise<void>((resolve) =>
@@ -102,15 +142,17 @@ async function bootstrap(): Promise<void> {
     queueOpen: false,
     volumeOpen: false,
     animationsEnabled,
-    visualizerMode: loadVisualizerMode(),
-    mainPlayerMode: loadMainPlayerMode(),
-    timelineStyle: loadTimelineStyle(),
-    timelineTimeMode: loadTimelineTimeMode(),
-    musicBrowsingVisibility: loadMusicBrowsingVisibility(),
-    returnToNowPlayingSeconds: loadReturnToNowPlayingSeconds(),
-    onScreenKeyboardMode: loadOnScreenKeyboardMode(),
+    visualizerMode: preferencesSnapshot.preferences.visualizerMode,
+    mainPlayerMode: preferencesSnapshot.preferences.mainPlayerMode,
+    timelineStyle: preferencesSnapshot.preferences.timelineStyle,
+    timelineTimeMode: preferencesSnapshot.preferences.timelineTimeMode,
+    musicBrowsingVisibility:
+      preferencesSnapshot.preferences.musicBrowsingVisibility,
+    returnToNowPlayingSeconds:
+      preferencesSnapshot.preferences.returnToNowPlayingSeconds,
+    onScreenKeyboardMode: preferencesSnapshot.preferences.onScreenKeyboardMode,
   });
-  const app = mountApp(
+  mountedApp = mountApp(
     root,
     store,
     platform.bridge,
@@ -118,7 +160,12 @@ async function bootstrap(): Promise<void> {
     audioOutputState,
     systemCapabilities,
     buildInfo,
+    preferencesController,
   );
+  if (migrationFailed || preferencesSnapshot.legacyImport === "manual-required")
+    mountedApp.showSettingsWarning(t("settings.migrationWarning"));
+  else if (preferencesSnapshot.warning)
+    mountedApp.showSettingsWarning(t("settings.persistenceWarning"));
   const splash = document.querySelector<HTMLElement>("#app-splash");
   if (splash) {
     if (!animationsEnabled || reducedMotion) {
@@ -132,10 +179,19 @@ async function bootstrap(): Promise<void> {
     if (!animationsEnabled || reducedMotion) remove();
     else window.setTimeout(remove, 160);
   }
+  const flushPreferences = (): void => {
+    void preferencesController.flush();
+  };
+  const handleVisibility = (): void => {
+    if (document.visibilityState === "hidden") flushPreferences();
+  };
+  window.addEventListener("pagehide", flushPreferences);
+  document.addEventListener("visibilitychange", handleVisibility);
   window.addEventListener(
     "beforeunload",
     () => {
-      app.destroy();
+      flushPreferences();
+      mountedApp.destroy();
     },
     { once: true },
   );

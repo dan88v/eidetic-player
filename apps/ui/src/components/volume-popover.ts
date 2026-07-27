@@ -13,6 +13,7 @@ export interface VolumePopover {
 export function createVolumePopover(options: {
   readonly onClose: () => void;
   readonly onVolume: (volume: number) => void;
+  readonly onVolumeCommit?: () => void;
   readonly onMute: (muted: boolean) => void;
 }): VolumePopover {
   let volume = 100;
@@ -85,6 +86,7 @@ export function createVolumePopover(options: {
   slider.addEventListener("pointerup", (event) => {
     if (!slider.hasPointerCapture(event.pointerId)) return;
     preview(fromPointer(event), true);
+    options.onVolumeCommit?.();
     slider.releasePointerCapture(event.pointerId);
     activePointerId = null;
   });
@@ -105,6 +107,7 @@ export function createVolumePopover(options: {
     else return;
     event.preventDefault();
     preview(Math.max(0, Math.min(100, next)), true);
+    options.onVolumeCommit?.();
   });
   muteButton.addEventListener("click", () => {
     options.onMute(!muted);

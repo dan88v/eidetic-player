@@ -57,21 +57,29 @@ void test("Album and Artist stores share bounded batch status and optimistic rol
 });
 
 void test("Favorites exposes persistent Tracks Albums Artists without Search", async () => {
-  const [screen, storage, types, css, copy] = await Promise.all([
-    read("screens/favorites.ts"),
-    read("utils/storage.ts"),
-    read("state/types.ts"),
-    read("styles/screens.css"),
-    read("i18n/en.ts"),
-  ]);
+  const [screen, storage, types, css, copy, preferencesContract] =
+    await Promise.all([
+      read("screens/favorites.ts"),
+      read("utils/storage.ts"),
+      read("state/types.ts"),
+      read("styles/screens.css"),
+      read("i18n/en.ts"),
+      readFile(
+        new URL("../../../packages/shared/src/preferences.ts", import.meta.url),
+        "utf8",
+      ),
+    ]);
   assert.match(types, /FavoriteSegment = "tracks" \| "albums" \| "artists"/);
   assert.match(screen, /createSegmentedControl<FavoriteSegment>/);
   assert.match(screen, /value: segment/);
   assert.match(storage, /favoriteSegment/);
   assert.match(storage, /favoriteAlbumView/);
+  assert.match(storage, /return current\(\)\.favoriteSegment/);
+  assert.match(storage, /return save\(\{ favoriteSegment: value \}\)/);
+  assert.match(preferencesContract, /favoriteSegment: "tracks"/);
   assert.match(
-    storage,
-    /return value === "albums" \|\| value === "artists" \? value : "tracks"/,
+    preferencesContract,
+    /isOneOf\(value, \["tracks", "albums", "artists"\]\)/,
   );
   assert.doesNotMatch(screen, /type="search"|sorting|sortMode/i);
   assert.match(screen, /library-album-collection/);

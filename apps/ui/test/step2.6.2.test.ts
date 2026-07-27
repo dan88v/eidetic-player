@@ -104,38 +104,51 @@ void test("angular velocity is radius-derived, capped and angle integration boun
 });
 
 void test("Cassette integration is scoped and excludes Default visualizer creation", async () => {
-  const [host, cassette, animation, css, shell, miniPlayer, settings, storage] =
-    await Promise.all([
-      readFile(
-        new URL("../src/main-player/main-player-host.ts", import.meta.url),
-        "utf8",
+  const [
+    host,
+    cassette,
+    animation,
+    css,
+    shell,
+    miniPlayer,
+    settings,
+    storage,
+    preferencesContract,
+  ] = await Promise.all([
+    readFile(
+      new URL("../src/main-player/main-player-host.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/cassette/cassette-main-player.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../src/cassette/cassette-animation-controller.ts",
+        import.meta.url,
       ),
-      readFile(
-        new URL("../src/cassette/cassette-main-player.ts", import.meta.url),
-        "utf8",
-      ),
-      readFile(
-        new URL(
-          "../src/cassette/cassette-animation-controller.ts",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-      readFile(
-        new URL("../src/styles/cassette-player.css", import.meta.url),
-        "utf8",
-      ),
-      readFile(
-        new URL("../src/components/app-shell.ts", import.meta.url),
-        "utf8",
-      ),
-      readFile(
-        new URL("../src/components/mini-player.ts", import.meta.url),
-        "utf8",
-      ),
-      readFile(new URL("../src/screens/settings.ts", import.meta.url), "utf8"),
-      readFile(new URL("../src/utils/storage.ts", import.meta.url), "utf8"),
-    ]);
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/styles/cassette-player.css", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/components/app-shell.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/components/mini-player.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../src/screens/settings.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/utils/storage.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../../packages/shared/src/preferences.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
   assert.match(host, /mode === "default"/);
   assert.match(host, /createNowPlayingScreen/);
   assert.match(host, /createCassetteMainPlayer/);
@@ -154,8 +167,11 @@ void test("Cassette integration is scoped and excludes Default visualizer creati
   assert.match(animation, /1_000 \/ 30/);
   assert.match(settings, /createSegmentedControl<MainPlayerMode>/);
   assert.match(storage, /interface\.main-player-mode/);
+  assert.match(storage, /return current\(\)\.mainPlayerMode/);
+  assert.match(storage, /return save\(\{ mainPlayerMode: value \}\)/);
+  assert.match(preferencesContract, /mainPlayerMode: "default"/);
   assert.match(
-    storage,
-    /=== "cassette"[\s\S]{0,40}\? "cassette"[\s\S]{0,40}: "default"/,
+    preferencesContract,
+    /isOneOf\(value, \["default", "cassette"\]\)/,
   );
 });

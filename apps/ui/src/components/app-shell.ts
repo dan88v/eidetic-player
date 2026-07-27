@@ -73,9 +73,11 @@ import { createVolumePopover } from "./volume-popover";
 import { createPlaylistPicker } from "./playlist-picker";
 import { createRemovableDevicePicker } from "./removable-device-picker";
 import { createPowerMenu } from "./power-menu";
+import type { PreferencesController } from "../state/preferences-controller";
 
 export interface MountedApp {
   destroy(): void;
+  showSettingsWarning(message: string): void;
 }
 
 export function mountApp(
@@ -86,6 +88,7 @@ export function mountApp(
   initialAudioOutputState: AudioOutputState = disconnectedAudioOutputState,
   systemCapabilities: SystemCapabilities = defaultSystemCapabilities,
   buildInfo: BuildInfo = developmentBuildInfo,
+  preferencesController?: PreferencesController,
 ): MountedApp {
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
@@ -240,6 +243,9 @@ export function mountApp(
     onVolume: (volume) => {
       run(api.volume(volume));
     },
+    onVolumeCommit: () => {
+      void preferencesController?.flush();
+    },
     onMute: (muted) => {
       run(api.mute(muted));
     },
@@ -259,6 +265,7 @@ export function mountApp(
       document.body.classList.toggle("overlay-open", open);
     },
     onAction: async (action) => {
+      await preferencesController?.flush();
       await systemApi.requestPowerAction(action);
       if (action === "quit")
         await platform.quit().catch((error: unknown) => {
@@ -1016,6 +1023,9 @@ export function mountApp(
   };
   document.addEventListener("keydown", handleKeydown);
   return {
+    showSettingsWarning(message) {
+      showMessage(message, "error");
+    },
     destroy() {
       appDestroyed = true;
       unsubscribeEvents();
@@ -1038,6 +1048,7 @@ export function mountApp(
       toastHost.destroy();
       keyboardAdapter.destroy();
       screenTouchScroller.destroy();
+      preferencesController?.destroy();
       window.clearTimeout(inactivityTimer);
       window.clearTimeout(pointerTimer);
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])

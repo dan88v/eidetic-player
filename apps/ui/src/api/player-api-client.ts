@@ -11,12 +11,14 @@ import type {
   SystemCapabilities,
 } from "../../../../packages/shared/src/system";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
+import type { PreferencesSnapshot } from "../../../../packages/shared/src/preferences";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
   readonly audioOutput: AudioOutputState;
   readonly system: SystemCapabilities;
   readonly buildInfo: BuildInfo;
+  readonly preferences: PreferencesSnapshot;
 }
 
 const apiBaseUrl = config.development

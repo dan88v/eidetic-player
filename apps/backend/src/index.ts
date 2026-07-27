@@ -106,6 +106,14 @@ import {
   detectAvailablePowerActions,
 } from "./system/linux-power-adapter.js";
 import { loadBuildInfo } from "./system/build-info.js";
+import {
+  PreferencesError,
+  PreferencesStore,
+} from "./preferences/preferences-store.js";
+import type {
+  LegacyPreferencesMigration,
+  PreferencesPatch,
+} from "../../../packages/shared/src/preferences.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -132,6 +140,7 @@ const systemCapabilities: SystemCapabilities = {
   hidePointerWhenInactive: process.env.EIDETIC_HIDE_POINTER === "1",
 };
 const buildInfo = loadBuildInfo(config.environment);
+const preferences = new PreferencesStore();
 
 const player = new PlayerService();
 const audioOutput = new AudioOutputService(player);
@@ -462,6 +471,7 @@ const bootstrapPromise = Promise.all([
   player.initialize(),
   removableStorage.start(),
   smb.initialize(),
+  preferences.initialize(),
 ])
   .then(async () => {
     await prepareAudioOutputForSessionRestore(
@@ -551,7 +561,10 @@ async function sendArtworkResource(
   });
 }
 
-async function readBody(request: IncomingMessage): Promise<unknown> {
+async function readBody(
+  request: IncomingMessage,
+  maximumBytes = 256 * 1024,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
@@ -559,7 +572,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
       ? chunk
       : Buffer.from(chunk as string);
     size += buffer.length;
-    if (size > 256 * 1024)
+    if (size > maximumBytes)
       throw new PlayerError(
         "BODY_TOO_LARGE",
         "Request body is too large.",
@@ -639,6 +652,81 @@ function objectBody(value: unknown): Record<string, unknown> {
       "The request body is invalid.",
     );
   return value as Record<string, unknown>;
+}
+
+function requireJson(request: IncomingMessage): void {
+  const contentType = request.headers["content-type"] ?? "";
+  if (
+    typeof contentType !== "string" ||
+    !/^application\/json(?:\s*;|$)/iu.test(contentType)
+  )
+    throw new PreferencesError(
+      "PREFERENCES_JSON_REQUIRED",
+      "Settings requests require JSON.",
+      415,
+    );
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+function preferencesPatchBody(value: unknown): PreferencesPatch {
+  const body = objectBody(value);
+  if (
+    !hasOnlyKeys(body, ["expectedRevision", "changes"]) ||
+    !body.changes ||
+    typeof body.changes !== "object" ||
+    Array.isArray(body.changes) ||
+    (body.expectedRevision !== undefined &&
+      (!Number.isSafeInteger(body.expectedRevision) ||
+        Number(body.expectedRevision) < 0))
+  )
+    throw new PreferencesError(
+      "INVALID_PREFERENCES_PATCH",
+      "Settings changes are invalid.",
+      400,
+    );
+  return {
+    ...(typeof body.expectedRevision === "number"
+      ? { expectedRevision: body.expectedRevision }
+      : {}),
+    changes: body.changes,
+  };
+}
+
+function legacyPreferencesMigrationBody(
+  value: unknown,
+): LegacyPreferencesMigration {
+  const body = objectBody(value);
+  if (
+    !hasOnlyKeys(body, [
+      "preferences",
+      "sourceAvailable",
+      "confirmOverwrite",
+    ]) ||
+    !body.preferences ||
+    typeof body.preferences !== "object" ||
+    Array.isArray(body.preferences) ||
+    typeof body.sourceAvailable !== "boolean" ||
+    (body.confirmOverwrite !== undefined &&
+      typeof body.confirmOverwrite !== "boolean")
+  )
+    throw new PreferencesError(
+      "INVALID_PREFERENCES_MIGRATION",
+      "Legacy settings import is invalid.",
+      400,
+    );
+  return {
+    preferences: body.preferences,
+    sourceAvailable: body.sourceAvailable,
+    ...(typeof body.confirmOverwrite === "boolean"
+      ? { confirmOverwrite: body.confirmOverwrite }
+      : {}),
+  };
 }
 
 function addSourceBody(value: unknown): AddLocalSourceRequest {
@@ -1004,6 +1092,32 @@ async function handleRequest(
     }
     if (request.method === "GET" && url.pathname === "/api/player/state") {
       sendJson(response, 200, { ok: true, data: player.getPublicState() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/preferences") {
+      await bootstrapPromise;
+      sendJson(response, 200, { ok: true, data: preferences.snapshot() });
+      return;
+    }
+    if (request.method === "PATCH" && url.pathname === "/api/preferences") {
+      requireJson(request);
+      await bootstrapPromise;
+      const snapshot = await preferences.patch(
+        preferencesPatchBody(await readBody(request, 16 * 1024)),
+      );
+      sendJson(response, 200, { ok: true, data: snapshot });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/preferences/migrate-legacy"
+    ) {
+      requireJson(request);
+      await bootstrapPromise;
+      const snapshot = await preferences.migrateLegacy(
+        legacyPreferencesMigrationBody(await readBody(request, 16 * 1024)),
+      );
+      sendJson(response, 200, { ok: true, data: snapshot });
       return;
     }
     if (
@@ -1498,6 +1612,7 @@ async function handleRequest(
           audioOutput: audioOutput.snapshot(),
           system: systemCapabilities,
           buildInfo,
+          preferences: preferences.snapshot(),
           restore: {
             status: restore.status,
             restoredCount: restore.restoredCount,
@@ -2861,6 +2976,13 @@ async function handleRequest(
         ok: false,
         error: { code: error.code, message: error.message },
       });
+      return;
+    }
+    if (error instanceof PreferencesError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      } satisfies ApiResponse);
       return;
     }
     const playerError =

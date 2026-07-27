@@ -26,6 +26,14 @@ The updater:
    `Already up to date.`;
 7. performs no reboot.
 
+For a settings-persistence release, record the non-sensitive UI preference
+vector before update. After update, check `/api/preferences`, file ownership
+and modes, restart only `eidetic-player.service`, and repeat the comparison.
+Then run the updater again and confirm both `Already up to date.` and an
+unchanged preference revision. If bootstrap reports `manual-required`, use the
+stdin-only procedure in [`preferences.md`](preferences.md); never inspect
+WebKit databases blindly or place the snapshot on a command line.
+
 Host and user can be overridden explicitly:
 
 ```powershell

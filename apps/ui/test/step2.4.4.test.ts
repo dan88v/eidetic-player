@@ -11,18 +11,25 @@ const readWorkspace = (path: string): Promise<string> =>
   readFile(new URL(`../../../${path}`, import.meta.url), "utf8");
 
 void test("visualizers use the requested presentation order", async () => {
-  const [types, storage, settings, visualizer, i18n] = await Promise.all([
-    read("state/types.ts"),
-    read("utils/storage.ts"),
-    read("screens/settings.ts"),
-    read("components/visualizer.ts"),
-    read("i18n/en.ts"),
-  ]);
+  const [types, storage, preferencesContract, settings, visualizer, i18n] =
+    await Promise.all([
+      read("state/types.ts"),
+      read("utils/storage.ts"),
+      readWorkspace("packages/shared/src/preferences.ts"),
+      read("screens/settings.ts"),
+      read("components/visualizer.ts"),
+      read("i18n/en.ts"),
+    ]);
   assert.match(
     types,
     /"meter" \| "spectrumMono" \| "spectrumStereo" \| "technical" \| "none"/,
   );
-  assert.match(storage, /value === "technical"/);
+  assert.match(storage, /visualizerMode/);
+  assert.match(preferencesContract, /visualizerMode: "meter"/);
+  assert.match(
+    preferencesContract,
+    /isOneOf\(value, \[[\s\S]*?"technical"[\s\S]*?"none"[\s\S]*?\]\)/,
+  );
   assert.match(
     settings,
     /\["spectrumMono",[\s\S]*?\["spectrumStereo",[\s\S]*?\["meter",[\s\S]*?\["technical",[\s\S]*?\["none",/,

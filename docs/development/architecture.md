@@ -202,6 +202,13 @@ repeated artist values retain their existing multi-value semantics.
 
 ## Bootstrap and player-session ownership
 
+UI preferences have a separate backend owner documented in
+[`preferences.md`](preferences.md). The versioned, atomic JSON store is loaded
+before bootstrap responds, and the UI initializes its AppStore from that
+snapshot before meaningful rendering. localStorage is only a narrowly
+whitelisted legacy-import source; it is never authoritative. Audio Output,
+SMB, Library/Favorites, Queue, and player-session persistence remain separate.
+
 The backend owns the durable player session. `PlayerSessionService` observes
 structural Queue/current-item changes, debounces atomic repository writes, and
 stores either a Folders source ID plus logical relative path or a backend-only

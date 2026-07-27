@@ -7,6 +7,7 @@ const shell = read("apps/ui/src/components/app-shell.ts");
 const adapter = read("apps/ui/src/components/eidetic-keyboard-adapter.ts");
 const settings = read("apps/ui/src/screens/settings.ts");
 const storage = read("apps/ui/src/utils/storage.ts");
+const preferencesContract = read("packages/shared/src/preferences.ts");
 const library = read("apps/ui/src/screens/library.ts");
 const sources = read("apps/ui/src/screens/sources.ts");
 const controller = read(
@@ -17,7 +18,7 @@ const miniPlayer = read("apps/ui/src/components/mini-player.ts");
 const defaultPlayer = read("apps/ui/src/screens/now-playing.ts");
 const cassette = read("apps/ui/src/cassette/cassette-main-player.ts");
 
-void test("Settings persists immediate Auto, Always or Off with Auto as default", () => {
+void test("Settings persists immediate Auto, Always or Off through backend preferences", () => {
   assert.match(settings, /settings\.onScreenKeyboard/);
   assert.match(settings, /page === "keyboard"/);
   assert.match(settings, /\["auto", t\("common\.auto"\)\]/);
@@ -28,7 +29,17 @@ void test("Settings persists immediate Auto, Always or Off with Auto as default"
     /keyboardRow\.className = "settings-row-base setting-navigation"/,
   );
   assert.doesNotMatch(settings, /keyboardControl|keyboardRow\.append/);
-  assert.match(storage, /value === "always" \|\| value === "off"/);
+  assert.match(preferencesContract, /onScreenKeyboardMode: "auto"/);
+  assert.match(
+    preferencesContract,
+    /isOneOf\(value, \["auto", "always", "off"\]\)/,
+  );
+  assert.match(
+    storage,
+    /onScreenKeyboardMode: "eidetic-player\.interface\.on-screen-keyboard"/,
+  );
+  assert.match(storage, /return current\(\)\.onScreenKeyboardMode/);
+  assert.match(storage, /return save\(\{ onScreenKeyboardMode: value \}\)/);
   assert.match(shell, /saveOnScreenKeyboardMode/);
   assert.match(shell, /keyboardAdapter\.setMode/);
 });

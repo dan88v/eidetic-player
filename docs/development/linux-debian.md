@@ -95,8 +95,11 @@ Linux paths are centralized and separated:
 - data: `${XDG_DATA_HOME:-$HOME/.local/share}/eidetic-player`;
 - runtime: `$XDG_RUNTIME_DIR/eidetic-player`, with a per-user temp fallback.
 
-Sources and the paused-at-zero player session use config. Regenerable artwork
-uses cache. The versioned SQLite Library is stored in
+Sources, the paused-at-zero player session, and the backend-authoritative
+`preferences.json` use config. The preferences parent is mode 0700 and its
+atomically replaced file is mode 0600; updates, rollback, reinstall, and
+ordinary uninstall preserve it. Regenerable artwork uses cache. The versioned
+SQLite Library is stored in
 `${XDG_DATA_HOME:-$HOME/.local/share}/eidetic-player/library.db`. MPV Unix
 sockets use a private mode-0700 runtime directory, a per-process UUID name, a
 conservative length guard, and cleanup on shutdown.

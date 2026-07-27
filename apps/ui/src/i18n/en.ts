@@ -102,6 +102,10 @@ export const en = {
     "Choose when the interface returns to Now Playing.",
   "settings.seconds": "seconds",
   "settings.saveError": "The setting could not be saved.",
+  "settings.persistenceWarning":
+    "Settings could not be saved. They will be retried.",
+  "settings.migrationWarning":
+    "Previous settings need a safe manual import before they can be restored.",
   "settings.animations": "Animations",
   "settings.animationsDescription": "Use lightweight interface transitions.",
   "settings.onScreenKeyboard": "On-screen keyboard",

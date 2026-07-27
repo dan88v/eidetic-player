@@ -251,7 +251,10 @@ void test("32. timeline time mode uses a typed persistent preference", async () 
   ]);
   assert.match(types, /TimelineTimeMode\s*=\s*"total"\s*\|\s*"remaining"/);
   assert.match(storage, /eidetic-player\.interface\.timeline-time-mode/);
-  assert.match(main, /timelineTimeMode:\s*loadTimelineTimeMode\(\)/);
+  assert.match(
+    main,
+    /timelineTimeMode:\s*preferencesSnapshot\.preferences\.timelineTimeMode/,
+  );
 });
 
 void test("33. total and remaining formats support tracks over one hour", () => {
