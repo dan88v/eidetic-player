@@ -9,6 +9,7 @@ import {
   shouldStartQueueDrag,
 } from "../utils/queue-reorder";
 import { createArtwork, type ArtworkView } from "./artwork";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 const focusableSelector =
   'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
@@ -121,6 +122,7 @@ export function createQueueDrawer(options: {
     !confirmClear
   )
     throw new Error("Queue drawer is incomplete");
+  const touchScroller = createReliableTouchScroller(list);
   const setConfirmationOpen = (open: boolean): void => {
     confirmationOpen = open;
     confirmation.classList.toggle("queue-confirmation--open", open);
@@ -337,6 +339,8 @@ export function createQueueDrawer(options: {
             event.stopPropagation();
             cancelActiveReorder?.();
             const pointerId = event.pointerId;
+            if (!handle.hasPointerCapture(pointerId))
+              handle.setPointerCapture(pointerId);
             const startX = event.clientX;
             const startY = event.clientY;
             let latestClientY = startY;
@@ -408,8 +412,6 @@ export function createQueueDrawer(options: {
             const activate = (): void => {
               if (dragging) return;
               dragging = true;
-              if (!handle.hasPointerCapture(pointerId))
-                handle.setPointerCapture(pointerId);
               const rect = row.getBoundingClientRect();
               rowOffsetY = latestClientY - rect.top;
               placeholder = document.createElement("li");
@@ -577,6 +579,7 @@ export function createQueueDrawer(options: {
         view.artwork.destroy();
       }
       rowViews.clear();
+      touchScroller.destroy();
     },
   };
 }

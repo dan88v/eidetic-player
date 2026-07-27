@@ -1,4 +1,5 @@
 import type { RemovableDevice } from "../../../../packages/shared/src/library";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 export interface RemovableDevicePicker {
   readonly element: HTMLElement;
@@ -33,6 +34,7 @@ export function createRemovableDevicePicker(): RemovableDevicePicker {
   element.innerHTML = `<header><h2 id="removable-device-picker-title">USB Storage</h2><button type="button" data-action="close" aria-label="Close">&times;</button></header><div class="playlist-picker__body"></div>`;
   const body = element.querySelector<HTMLElement>(".playlist-picker__body");
   if (!body) throw new Error("USB device picker is incomplete");
+  const touchScroller = createReliableTouchScroller(body);
   let isOpen = false;
   let devices: readonly RemovableDevice[] = [];
   let select: ((device: RemovableDevice) => void) | null = null;
@@ -116,6 +118,7 @@ export function createRemovableDevicePicker(): RemovableDevicePicker {
     },
     destroy() {
       close(false);
+      touchScroller.destroy();
       document.removeEventListener("keydown", keydown);
       element.remove();
       backdrop.remove();

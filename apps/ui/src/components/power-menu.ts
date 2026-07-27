@@ -1,5 +1,6 @@
 import type { SystemPowerAction } from "../../../../packages/shared/src/system";
 import { icon } from "./icons";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 const copy = {
   quit: {
@@ -60,6 +61,7 @@ export function createPowerMenu(options: {
   element.setAttribute("aria-modal", "true");
   element.setAttribute("aria-labelledby", "power-dialog-title");
   element.setAttribute("aria-describedby", "power-dialog-description");
+  const touchScroller = createReliableTouchScroller(element);
   let trigger: HTMLElement | null = null;
   let state: "closed" | "menu" | "confirm" | "progress" | "error" = "closed";
   let selected: SystemPowerAction | null = null;
@@ -172,6 +174,9 @@ export function createPowerMenu(options: {
     },
     get isOpen() {
       return state !== "closed";
+    },
+    destroy() {
+      touchScroller.destroy();
     },
   };
 }

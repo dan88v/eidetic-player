@@ -17,6 +17,7 @@ import type {
 import { icon } from "../components/icons";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 export interface SourcesScreenOptions {
   readonly api: FoldersApiClient;
@@ -239,6 +240,8 @@ export function createSourcesScreen(
     !smbDomain
   )
     throw new Error("Sources screen is incomplete");
+  const dialogTouchScroller = createReliableTouchScroller(dialog);
+  const smbTouchScroller = createReliableTouchScroller(smbBody);
 
   let destroyed = false;
   let requestGeneration = 0;
@@ -1189,6 +1192,8 @@ export function createSourcesScreen(
       requestGeneration += 1;
       closeMenu();
       closeSmbDialog();
+      dialogTouchScroller.destroy();
+      smbTouchScroller.destroy();
       document.removeEventListener("keydown", handleKeydown);
       document.removeEventListener("pointerdown", handleDocumentPointer);
     },

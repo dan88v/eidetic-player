@@ -6,6 +6,7 @@ import {
   createPlaylistNameDialog,
   type PlaylistNameDialog,
 } from "./playlist-name-dialog";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 export interface PlaylistPicker {
   readonly element: HTMLElement;
@@ -32,6 +33,7 @@ export function createPlaylistPicker(options: {
   element.setAttribute("aria-labelledby", "playlist-picker-title");
   element.innerHTML = `<header><h2 id="playlist-picker-title">${t("common.addToPlaylist")}</h2><button type="button" data-action="close" aria-label="Close">&times;</button></header><div class="playlist-picker__body"></div><p class="playlist-picker__error" role="alert"></p><footer><button type="button" data-action="create">Create New Playlist</button></footer>`;
   const body = element.querySelector<HTMLElement>(".playlist-picker__body")!;
+  const touchScroller = createReliableTouchScroller(body);
   const error = element.querySelector<HTMLElement>(".playlist-picker__error")!;
   const nameDialog = createPlaylistNameDialog();
   let tracks: readonly string[] = [];
@@ -158,6 +160,7 @@ export function createPlaylistPicker(options: {
     close,
     destroy() {
       if (open) close();
+      touchScroller.destroy();
       nameDialog.destroy();
       element.remove();
       backdrop.remove();

@@ -41,6 +41,7 @@ import { disconnectedPlayerState, PlayerStore } from "../state/player-store";
 import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 import { foldersSession } from "../state/folders-session";
 import { usbStorageSession } from "../state/folders-session";
 import {
@@ -248,6 +249,7 @@ export function mountApp(
   const screenRegion = document.createElement("main");
   screenRegion.className = "screen-region";
   screenRegion.id = "main-content";
+  const screenTouchScroller = createReliableTouchScroller(screenRegion);
   contentShell.append(screenRegion);
   const powerMenu = createPowerMenu({
     actions: systemCapabilities.availablePowerActions,
@@ -1027,12 +1029,15 @@ export function mountApp(
       currentScreen?.destroy();
       miniPlayer?.destroy();
       queueDrawer.destroy();
+      sideMenu.destroy();
+      powerMenu.destroy();
       playlistPicker.destroy();
       removablePicker.destroy();
       artworkPreloader.destroy();
       topBar.destroy();
       toastHost.destroy();
       keyboardAdapter.destroy();
+      screenTouchScroller.destroy();
       window.clearTimeout(inactivityTimer);
       window.clearTimeout(pointerTimer);
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])

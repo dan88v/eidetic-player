@@ -11,6 +11,7 @@ import {
 } from "../../../../packages/shared/src/network";
 import type { NetworkApiClient } from "../api/network-api-client";
 import { createSegmentedControl } from "../components/segmented-control";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 export interface NetworkSettingsPanel {
   readonly element: HTMLElement;
@@ -190,6 +191,7 @@ export function createNetworkSettingsPanel(options: {
     actions.append(confirm);
     dialog.append(heading, content, actions);
     element.append(backdrop, dialog);
+    const touchScroller = createReliableTouchScroller(dialog);
     const dismiss = (): void => {
       closeDialog();
     };
@@ -219,6 +221,7 @@ export function createNetworkSettingsPanel(options: {
     };
     document.addEventListener("keydown", escape);
     dialogCleanup = () => {
+      touchScroller.destroy();
       document.removeEventListener("keydown", escape);
     };
     queueMicrotask(() => {
@@ -436,6 +439,10 @@ export function createNetworkSettingsPanel(options: {
       actions.append(revert, keep);
       dialog.append(title, content, actions);
       element.append(backdrop, dialog);
+      const touchScroller = createReliableTouchScroller(dialog);
+      dialogCleanup = () => {
+        touchScroller.destroy();
+      };
       element.querySelector(".network-panel")?.toggleAttribute("inert", true);
       viewControl.element.toggleAttribute("inert", true);
       queueMicrotask(() => {
@@ -482,6 +489,10 @@ export function createNetworkSettingsPanel(options: {
       dialog.append(actions);
     }
     element.append(backdrop, dialog);
+    const touchScroller = createReliableTouchScroller(dialog);
+    dialogCleanup = () => {
+      touchScroller.destroy();
+    };
     element.querySelector(".network-panel")?.toggleAttribute("inert", true);
     viewControl.element.toggleAttribute("inert", true);
   };

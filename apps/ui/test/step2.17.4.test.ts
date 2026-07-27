@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  touchScrollTarget,
+  touchScrollVelocity,
+} from "../src/utils/reliable-touch-scroll";
+import { queueDropIndex } from "../src/utils/queue-reorder";
 
 const read = (path: string): string => readFileSync(path, "utf8");
 const base = read("apps/ui/src/styles/base.css");
@@ -107,9 +112,8 @@ void test("Queue body pans, row actions tap, and only its handle owns drag", () 
     source.indexOf("const beginReorder"),
     source.indexOf('handle.addEventListener("pointerdown", beginReorder)'),
   );
-  const activate = begin.indexOf("const activate");
   const capture = begin.indexOf("handle.setPointerCapture");
-  assert.ok(activate >= 0 && capture > activate);
+  assert.ok(capture >= 0 && capture < begin.indexOf("const activate"));
   assert.match(begin, /pointercancel/);
   assert.doesNotMatch(
     source.slice(
@@ -154,7 +158,7 @@ void test("scrollable modal bodies contain touch overscroll and keep visible bar
   assert.match(layout, /::-webkit-scrollbar-thumb/);
 });
 
-void test("no global gesture blocker or JavaScript scroll engine is introduced", () => {
+void test("Raspberry fallback remains local and adds no document touch blocker", () => {
   const combinedCss = [base, layout, components, screens].join("\n");
   assert.doesNotMatch(
     combinedCss,
@@ -171,11 +175,86 @@ void test("no global gesture blocker or JavaScript scroll engine is introduced",
   );
 });
 
-void test("native click suppression remains authoritative without a swipe guard", () => {
+void test("fallback click suppression is local and cover click remains intact", () => {
   const sources = sourceFiles("apps/ui/src").map(read).join("\n");
-  assert.doesNotMatch(sources, /swipeGuard|suppressNextClick|antiClick/i);
+  assert.equal(sources.match(/let suppressNextClick/g)?.length, 1);
+  assert.match(
+    read("apps/ui/src/utils/reliable-touch-scroll.ts"),
+    /event\.detail === 0/,
+  );
   assert.match(
     read("apps/ui/src/screens/now-playing.ts"),
     /artworkButton\.addEventListener\("click", options\.onOpenLibrary\)/,
   );
+});
+
+void test("Raspberry fallback maps finger motion to direct-manipulation scroll", () => {
+  assert.equal(touchScrollTarget(100, 300, 240), 160);
+  assert.equal(touchScrollTarget(100, 300, 360), 40);
+  assert.ok(touchScrollVelocity(300, 240, 30) > 0);
+  assert.ok(touchScrollVelocity(300, 360, 30) < 0);
+
+  const source = read("apps/ui/src/utils/reliable-touch-scroll.ts");
+  assert.match(source, /pointerdown|pointermove|pointercancel/);
+  assert.doesNotMatch(source, /event\.pointerType === "touch"/);
+  assert.doesNotMatch(source, /navigator\.platform/);
+  assert.match(source, /setPointerCapture/);
+  assert.match(source, /requestAnimationFrame/);
+  assert.match(source, /preventDefault/);
+  assert.match(source, /suppressNextClick/);
+  assert.doesNotMatch(source, /document\.addEventListener\("touchmove"/);
+
+  assert.match(
+    read("apps/ui/src/components/app-shell.ts"),
+    /createReliableTouchScroller\(screenRegion\)/,
+  );
+  assert.match(
+    read("apps/ui/src/components/side-menu.ts"),
+    /createReliableTouchScroller\(nav\)/,
+  );
+  assert.match(
+    read("apps/ui/src/components/queue-drawer.ts"),
+    /createReliableTouchScroller\(list\)/,
+  );
+});
+
+void test("Queue handle captures immediately and keeps symmetric drop geometry", () => {
+  const source = read("apps/ui/src/components/queue-drawer.ts");
+  const begin = source.slice(
+    source.indexOf("const beginReorder"),
+    source.indexOf('handle.addEventListener("pointerdown", beginReorder)'),
+  );
+  assert.ok(
+    begin.indexOf("handle.setPointerCapture(pointerId)") <
+      begin.indexOf("const activate"),
+  );
+
+  assert.equal(queueDropIndex([100, 200, 300], 50), 0);
+  assert.equal(queueDropIndex([100, 200, 300], 150), 1);
+  assert.equal(queueDropIndex([100, 200, 300], 250), 2);
+  assert.equal(queueDropIndex([100, 200, 300], 350), 3);
+});
+
+void test("pickers and long dialogs reuse and destroy the shared fallback", () => {
+  for (const path of [
+    "apps/ui/src/components/playlist-picker.ts",
+    "apps/ui/src/components/removable-device-picker.ts",
+    "apps/ui/src/components/playlist-name-dialog.ts",
+    "apps/ui/src/components/power-menu.ts",
+    "apps/ui/src/screens/usb-storage.ts",
+    "apps/ui/src/screens/sources.ts",
+    "apps/ui/src/screens/network-settings-panel.ts",
+  ]) {
+    const source = read(path);
+    assert.match(source, /createReliableTouchScroller/);
+    assert.match(source, /\.destroy\(\)/);
+  }
+
+  const utility = read("apps/ui/src/utils/reliable-touch-scroll.ts");
+  assert.equal(
+    utility.match(/requestAnimationFrame\(/g)?.length,
+    2,
+    "one self-scheduling inertia loop plus its initial request",
+  );
+  assert.doesNotMatch(utility, /document\.addEventListener/);
 });

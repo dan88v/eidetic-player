@@ -297,12 +297,15 @@ scrollbars move only their owning content while app chrome and overlay
 backgrounds stay fixed.
 
 Windows mouse input and synthetic pointer diagnostics do not certify Raspberry
-touch. After the exact commit passes CI and the normal updater installs it,
+touch. In Windows, drag canonical content in both directions and prove that
+finger-up semantics increase `scrollTop`, swipe-generated clicks are
+suppressed, and Queue reorder succeeds downward before restoring the exact
+order. After the exact commit passes CI and the normal updater installs it,
 validate slow pan, flick inertia, row-originated pan, tap, list bounds, modal
 containment, timeline, volume, reorder handles, and OSK with a physical finger.
-Do not substitute browser fallback screenshots for that device test. Pointer
-capture for reorder must begin only after its drag threshold and must release
-on both `pointerup` and `pointercancel`.
+Do not substitute browser fallback screenshots for that device test. Queue
+handle capture begins immediately and must release on both `pointerup` and
+`pointercancel`; ordinary Queue rows must never capture.
 
 ## Performance verification
 

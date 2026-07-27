@@ -1,14 +1,20 @@
 # Step 2.17.4 — Native Touch Scrolling Corrective
 
-## Esito locale
+## Esito
 
-Implementazione e validazione locale: PASS. Lo scrolling resta interamente
-nativo del browser/WebView; non sono stati aggiunti inerzia, momentum,
-overscroll o gesture engine JavaScript.
+La prima implementazione locale ha superato CI ed è stata installata sul
+Raspberry. La successiva prova fisica con dito è FALLITA:
 
-`READY FOR CI VALIDATION — RASPBERRY TOUCH VALIDATION NOT STARTED`
+- il pan verticale ha direzione da scrollbar/mouse, non da superficie touch:
+  per avanzare verso il contenuto inferiore occorre trascinare verso il basso;
+- il reorder Queue verso l'alto risponde, mentre verso il basso non completa
+  lo spostamento.
 
-Nessun commit, push, SSH o intervento sul Raspberry è stato eseguito.
+`RASPBERRY NATIVE TOUCH SCROLLING VALIDATION — FAILED`
+
+Lo Step 2.17.4 è stato riaperto. Il precedente vincolo “solo scrolling nativo”
+è stato superato dall'autorizzazione esplicita dell'utente a usare un fallback
+JavaScript se necessario, purché deterministico e affidabile.
 
 ## Baseline Git e CI
 
@@ -43,38 +49,50 @@ provenienza riportavano `454c187-dev`. Il codice Build ID non è stato toccato.
 
 ## Audit touch/scroll
 
-| Superficie             | Proprietario overflow | `touch-action`           | Pointer capture  | `preventDefault` | Stato finale          |
-| ---------------------- | --------------------- | ------------------------ | ---------------- | ---------------- | --------------------- |
-| `html/body/#app`       | nessuno, root fissa   | nessun `none`            | no               | no               | overscroll bloccato   |
-| `.app-root`            | nessuno               | default                  | no               | no               | chrome fisso          |
-| `.content-shell`       | nessuno               | default                  | no               | no               | `min-height: 0`       |
-| `.screen-region`       | pagina canonica       | `pan-y`                  | no               | no               | scroll nativo         |
-| screen lunghe          | `.screen-region`      | `pan-y` anche sui target | no               | no               | scroll nativo         |
-| drawer                 | nav centrale          | chrome non scrollabile   | no               | no               | overflow nascosto     |
-| `.side-menu__nav`      | nav                   | `pan-y` anche sui target | no               | no               | scroll nativo         |
-| Queue                  | `.queue-list`         | `pan-y`                  | no               | no               | header fisso          |
-| Queue row/body         | `.queue-list`         | `pan-y`                  | no               | no               | tap/pan nativi        |
-| Queue reorder handle   | handle                | `none`                   | solo dopo soglia | locale           | drag dedicato         |
-| backdrop modali        | nessuno               | default                  | no               | no               | background fermo      |
-| dialog/picker body     | body interno          | `pan-y`                  | no               | no               | overscroll contenuto  |
-| Playlist picker        | body                  | `pan-y`                  | no               | no               | footer esterno        |
-| Power                  | dialog                | `pan-y`                  | no               | no               | scroll interno        |
-| source/name dialog     | dialog                | `pan-y`                  | no               | no               | altezza limitata      |
-| timeline/mini timeline | controllo             | `none`                   | locale           | locale           | invariato             |
-| volume                 | controllo             | `none`                   | locale           | locale           | invariato             |
-| cover Now Playing      | screen                | `pan-y`                  | no               | no               | tap Library invariato |
-| OSK                    | controller esistente  | locale                   | no globale       | locale           | invariato             |
+| Superficie             | Proprietario overflow | `touch-action`         | Pointer capture | `preventDefault` | Stato finale          |
+| ---------------------- | --------------------- | ---------------------- | --------------- | ---------------- | --------------------- |
+| `html/body/#app`       | nessuno, root fissa   | nessun `none`          | no              | no               | overscroll bloccato   |
+| `.app-root`            | nessuno               | default                | no              | no               | chrome fisso          |
+| `.content-shell`       | nessuno               | default                | no              | no               | `min-height: 0`       |
+| `.screen-region`       | pagina canonica       | fallback: `none`       | dopo 8 px       | durante drag     | direct manipulation   |
+| screen lunghe          | `.screen-region`      | fallback condiviso     | dopo 8 px       | durante drag     | direzione determinata |
+| drawer                 | nav centrale          | chrome non scrollabile | no              | no               | overflow nascosto     |
+| `.side-menu__nav`      | nav                   | fallback condiviso     | dopo 8 px       | durante drag     | header/footer fissi   |
+| Queue                  | `.queue-list`         | `pan-y`                | no              | no               | header fisso          |
+| Queue row/body         | `.queue-list`         | fallback condiviso     | dopo 8 px       | durante drag     | pan, no playback      |
+| Queue reorder handle   | handle                | `none`                 | immediata       | locale           | drag dedicato         |
+| backdrop modali        | nessuno               | default                | no              | no               | background fermo      |
+| dialog/picker body     | body interno          | `pan-y`                | no              | no               | overscroll contenuto  |
+| Playlist picker        | body                  | `pan-y`                | no              | no               | footer esterno        |
+| Power                  | dialog                | `pan-y`                | no              | no               | scroll interno        |
+| source/name dialog     | dialog                | `pan-y`                | no              | no               | altezza limitata      |
+| timeline/mini timeline | controllo             | `none`                 | locale          | locale           | invariato             |
+| volume                 | controllo             | `none`                 | locale          | locale           | invariato             |
+| cover Now Playing      | screen                | `pan-y`                | no              | no               | tap Library invariato |
+| OSK                    | controller esistente  | locale                 | no globale      | locale           | invariato             |
 
-L'audit completo non ha trovato `touchmove` globale, `preventDefault` globale,
-capture su liste/righe/screen, body scrollabile o `touch-action: none` globale.
+Non esistono `touchmove` o `preventDefault` globali. Il fallback usa soltanto
+Pointer Events locali sullo scroller proprietario; la capture parte dopo la
+soglia e termina su `pointerup`/`pointercancel`. Body e root non scorrono.
 
 ## Root cause e correzione
 
-La catena principale introdotta in Step 2.14.1 era già corretta sul contenitore,
-ma il target effettivo di molti gesti è un button/row action con la policy
-globale generica `manipulation`. La correzione rende esplicito `pan-y` anche sui
-target interattivi interni agli scroller canonici, così il gesto iniziato su
-testo, icona o padding conserva l'ownership verticale del contenitore.
+La prima correzione CSS era corretta secondo il modello browser, ma la prova
+fisica ha dimostrato che WebKitGTK espone sul dispositivo una semantica da
+scrollbar: trascinare verso il basso aumenta l'avanzamento, opposto alla
+manipolazione diretta di una UI touch. La classificazione del device non è
+abbastanza affidabile per scegliere tra touch e mouse.
+
+La seconda correzione usa quindi un unico fallback condiviso e deterministico:
+
+- `scrollTop = startScrollTop + startPointerY - currentPointerY`;
+- finger-up aumenta `scrollTop`, finger-down lo diminuisce;
+- soglia verticale 8 px e rifiuto del gesto prevalentemente orizzontale;
+- inerzia limitata a un solo `requestAnimationFrame` per gesto attivo;
+- velocità limitata, decadimento finito e stop immediato ai bordi;
+- nessuna distinzione `pointerType`, così funziona anche se GTK presenta il
+  touchscreen come mouse;
+- opt-out per input, timeline, volume e handle di reorder.
 
 Sono stati corretti anche difetti strutturali misurabili:
 
@@ -82,42 +100,43 @@ Sono stati corretti anche difetti strutturali misurabili:
 - Queue: pannello confinato e lista unico scroller;
 - root: overscroll bloccato su tutta la tripletta `html/body/#app`;
 - Power e source dialog: altezza limitata, pan e overscroll contenuti;
-- Queue e Playlist: `setPointerCapture` spostato da `pointerdown` all'effettivo
-  superamento della soglia di drag.
+- Queue: la capture del handle è ora immediata perché il primo test fisico ha
+  dimostrato perdita direzionale prima della soglia. La riga non cattura.
+- Playlist: conserva il modello precedente con capture dopo soglia.
 
-La causa fisica completa nel runtime WebKitGTK del Raspberry potrà essere
-certificata soltanto dal test con dito post-CI. La fase locale dimostra la
-catena CSS/DOM e rimuove i conflitti di gesture presenti nel codice.
+Un test MPV reale ha spostato la stessa entry verso il fondo e poi verso l'alto:
+il comando backend è corretto; il difetto fisico era nell'acquisizione UI.
 
 ## Modello e policy
 
 - Root e app chrome non scorrono.
 - Top bar e mini-player restano fissi.
-- `.screen-region` è lo scroller delle pagine.
+- `.screen-region` è lo scroller gestito delle pagine.
 - Drawer: header e footer fuori dalla nav scrollabile.
 - Queue: header fuori dalla lista scrollabile.
 - Modali/picker: scorre soltanto il body interno previsto.
 - Scroller: `overflow-y: auto`, `overflow-x: hidden`, `min-height: 0`,
-  `touch-action: pan-y`, `overscroll-behavior-y: contain`.
+  `overscroll-behavior-y: contain` e fallback Pointer Events condiviso.
 - `touch-action: none` resta solo su timeline, volume e handle di reorder.
 - Nessun cambio a OSK, focus trap, Tab, Escape, Enter, Space o ARIA.
 
 ## Tap, swipe e gesture guard
 
-Non è stata aggiunta una soglia anti-click. Nella vera app Windows wheel,
-scrollbar e click sono rimasti distinti; il click accidentale dopo pan non è
-stato riprodotto e il WebView conserva la soppressione click nativa.
+Il fallback introduce la soglia minima necessaria di 8 px. Un tap sotto soglia
+resta nativo; dopo un drag viene soppresso soltanto il click immediatamente
+generato dallo stesso gesto. Il guard è locale, one-shot, preserva i click
+tastiera (`detail === 0`) e scade dopo 100 ms. Non esistono listener
+`touchmove`, delay di navigazione o blocchi globali.
 
-Non esistono delay, `suppressNextClick`, listener `touchmove` o
-`preventDefault` generali. Il riordino usa la soglia esistente di 8 px e parte
-soltanto dal handle dedicato; la capture avviene solo dopo l'attivazione reale e
-viene rilasciata su `pointerup`/`pointercancel`.
+Il reorder Queue parte soltanto dal handle dedicato, cattura subito il pointer e
+rilascia su `pointerup`/`pointercancel`.
 
 ## Scrollbar
 
 Gli scroller canonici condividono scrollbar visibili e discrete:
 `scrollbar-width: thin`, colori coerenti e thumb WebKit/Chromium da 8 px con
-track trasparente. Nessuna scrollbar JavaScript.
+track trasparente. Le scrollbar restano native; il drag del contenuto usa il
+fallback condiviso.
 
 ## Test automatici
 
@@ -126,23 +145,30 @@ target interattivi, struttura drawer/Queue, capture anticipata e modali.
 
 Test mirati finali:
 
-- Step 2.17.4, Step 2.14.1, Step 2.10 e track transition: 57/57 PASS.
+- Seconda correzione Step 2.17.4/2.14.1/2.10 + MPV reale: 34/34 PASS
+  nell'ultima selezione mirata.
 - Copertura CSS/DOM per root, screen, drawer, Queue, handle, modali, scrollbar,
-  assenza di gesture blocker e preservazione cover.
-- Copertura Pointer Events/gesture per soglia Queue/Playlist, handle-only,
-  capture successiva alla soglia, `pointercancel`, midpoint, autoscroll e
-  persistenza singola.
-
-Il pan touch e l'inerzia sono deliberatamente nativi e non vengono simulati
-dalla suite Node.
+  fallback locale e preservazione cover.
+- Copertura Pointer Events per segno della direzione, velocità, soglia,
+  click-guard, cleanup, opt-out, assenza di listener document, handle-only,
+  capture Queue immediata, `pointercancel`, midpoint e autoscroll.
+- MPV reale: move verso il fondo e ritorno verso l'alto PASS.
 
 ## QA Windows reale
 
 Comando obbligatorio: `npm.cmd run dev`.
 
 - Drawer: wheel e scrollbar muovono solo la nav; header/footer fissi.
+- Drawer direct drag da una voce: trascinamento verso l'alto mostra le voci
+  inferiori, nessuna navigazione accidentale, header/footer fissi.
 - Queue lunga: wheel e scrollbar muovono solo la lista; header fisso; footer
   azioni raggiungibile.
+- Queue row direct drag verso l'alto: lista avanza, current/ordine/revision
+  invariati.
+- Queue handle: spostamento UI reale dall'indice 5 all'indice 8 PASS; revision
+  1→2. Ripristino esatto all'indice 5 PASS; current invariato, pausa e volume
+  invariati.
+- Library direct drag verso l'alto: contenuto avanza e mini-player resta fisso.
 - Settings e Audio: layout e navigazione invariati.
 - Library e Favorites: contenuto lungo e scroller canonico corretti.
 - Power: overlay centrato, background fermo, Escape funzionante.
@@ -151,9 +177,10 @@ Comando obbligatorio: `npm.cmd run dev`.
 - Quit: Neutralino code 0, backend SIGTERM; dopo il normale tempo di teardown
   nessun Neutralino, backend, Vite, MPV, FFmpeg o listener 4310/5173 residuo.
 
-Touch sintetico Win32: non certificato; Windows ha rifiutato l'iniezione al
-primo `DOWN` con errore 87. Il browser controllabile non era disponibile. Non è
-stato usato un browser fallback al posto della vera app.
+La seconda correzione è stata provata con Pointer Events mouse nella vera app;
+non dipende da `pointerType`, quindi esercita lo stesso percorso usato quando
+GTK classifica il touch come mouse. Questo non sostituisce il nuovo test fisico
+post-CI.
 
 ### Viewport
 
@@ -169,7 +196,7 @@ Client area verificata nella vera app:
 Nessun overflow orizzontale, white flash, layout shift, doppio scrollbar o
 clipping osservato.
 
-## Gate finali
+## Gate prima iterazione
 
 - `npm.cmd run format:check`: PASS
 - `npm.cmd run typecheck`: PASS
@@ -188,15 +215,55 @@ clipping osservato.
 - `npm.cmd run test:ffmpeg`: 3/3 PASS
 - `git diff --check`: PASS
 
+## Gate seconda correzione
+
+- Primo `format:check`: ha rilevato il report non formattato; corretto
+  automaticamente con Prettier.
+- Primo lint: ha rilevato tre problemi nel nuovo helper; corretti
+  automaticamente.
+- `npm.cmd run format:check`: PASS
+- `npm.cmd run typecheck`: PASS
+- `npm.cmd run lint`: PASS
+- `npm.cmd run build`: PASS
+- `npm.cmd run build:linux`: PASS
+- `npm.cmd test`: 538 totali, 528 PASS, 10 SKIP previsti
+- `npm.cmd run test:posix`: 3 PASS, 2 SKIP previsti
+- `npm.cmd run verify:network:deployment`: PASS
+- `npm.cmd run verify:linux:executables`: PASS, 41 file
+- `npm.cmd run verify:linux:installer`: PASS
+- `npm.cmd run verify:linux:release -- --root . --arch x64 --phase build`: PASS
+- `npm.cmd run mpv:doctor`: PASS
+- `npm.cmd run test:mpv`: 9/9 PASS
+- `npm.cmd run ffmpeg:doctor`: PASS
+- `npm.cmd run test:ffmpeg`: 3/3 PASS
+- `git diff --check`: PASS
+
+La UI production passa da 333,41 kB/85,31 kB gzip a 336,38 kB/86,40 kB
+gzip: circa +2,97 kB raw e +1,09 kB gzip per il fallback e i relativi
+lifecycle hook. Non sono state aggiunte dipendenze, observer, timer periodici o
+loop inattivi.
+
 ## File modificati
 
 - `apps/ui/src/components/queue-drawer.ts`
+- `apps/ui/src/components/app-shell.ts`
+- `apps/ui/src/components/side-menu.ts`
+- `apps/ui/src/components/playlist-picker.ts`
+- `apps/ui/src/components/removable-device-picker.ts`
+- `apps/ui/src/components/playlist-name-dialog.ts`
+- `apps/ui/src/components/power-menu.ts`
 - `apps/ui/src/screens/playlists.ts`
+- `apps/ui/src/screens/network-settings-panel.ts`
+- `apps/ui/src/screens/sources.ts`
+- `apps/ui/src/screens/usb-storage.ts`
 - `apps/ui/src/styles/base.css`
 - `apps/ui/src/styles/components.css`
 - `apps/ui/src/styles/layout.css`
 - `apps/ui/src/styles/screens.css`
+- `apps/ui/src/utils/reliable-touch-scroll.ts`
 - `apps/ui/test/step2.17.4.test.ts`
+- `apps/ui/test/step2.14.1.test.ts`
+- `apps/backend/test/mpv.integration.ts`
 - `docs/development/ui-ux.md`
 - `docs/development/testing.md`
 - `prompts/step2.17.4_output.md`
@@ -205,7 +272,8 @@ clipping osservato.
 
 - `package.json` e `package-lock.json`: invariati; nessuna dipendenza.
 - Package/runtime plan: invariato.
-- `.github/workflows`, `deploy`, backend e shared: invariati.
+- `.github/workflows`, `deploy`, backend runtime e shared: invariati; è stato
+  aggiunto soltanto un test MPV di reorder bidirezionale.
 - Installer, updater, current/previous e Raspberry: invariati.
 - Now Playing, mini-player, timeline, volume e Power menu: invariati.
 - Queue, current item, playback, volume, mute, shuffle, repeat, Audio Output e
@@ -216,16 +284,35 @@ clipping osservato.
 
 ## Checkpoint pre-CI e fase remota
 
-Stato corrente:
+Prima iterazione:
+
+- commit manuale e push: `262ee74942ae10585cb4be0d5b31a5a8cc9e0cc4`;
+- CI esatta: `Eidetic Player CI` run `30271221950`, PASS;
+- update remoto tramite `scripts/remote-rpi-update.ps1`: completato, confermato
+  dall'utente;
+- Build ID target: `262ee74`; Build ID prima/dopo e output doctor/no-op non
+  sono stati acquisiti nel thread, quindi non vengono inventati;
+- prova fisica drawer/pagine: FAIL per direzione del pan;
+- prova fisica reorder Queue: FAIL verso il basso;
+- stato Queue/volume: nessuna alterazione permanente segnalata.
+
+È necessaria una seconda correzione locale, seguita nuovamente da commit
+manuale, push, CI verde sull'esatto commit, update e validazione fisica.
+
+## Secondo checkpoint pre-CI
+
+La seconda correzione locale è completa e tutti i gate sono verdi.
 
 `READY FOR CI VALIDATION — RASPBERRY TOUCH VALIDATION NOT STARTED`
 
-Attendere commit manuale, push manuale e CI verde sull'esatto commit. Solo
-dopo, usare `scripts/remote-rpi-update.ps1` con sessione visibile e verificare
-Build ID prima/dopo, update, doctor, no-op e tutte le 23 prove fisiche previste.
+La frase indica il secondo tentativo fisico: il primo è documentato sopra come
+FAIL. Non sono stati eseguiti commit, push, SSH o update automatici per questa
+seconda correzione. Dopo commit/push manuali e CI verde sull'esatto nuovo SHA,
+rieseguire l'updater remoto e verificare almeno:
 
-- Commit/CI successivi: non ancora avvenuti.
-- Raspberry Build ID prima/dopo: non letto/non aggiornato.
-- Update/no-op: non iniziati.
-- Validazione fisica touch: non iniziata.
-- Nessun commit o push automatico.
+1. drawer: swipe up mostra contenuto inferiore, swipe down contenuto superiore;
+2. Queue row: stessa direzione, nessun playback dopo swipe;
+3. flick: inerzia finita e nessun click fantasma;
+4. Queue handle: move verso il basso e verso l'alto, poi ripristino ordine;
+5. pagine lunghe e modali: stesso verso, background fermo;
+6. timeline, volume, input/OSK e tap cover: invariati.

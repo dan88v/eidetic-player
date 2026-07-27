@@ -42,6 +42,11 @@
     touch-action: pan-y;
   }
 
+  .touch-scroll-fallback,
+  .touch-scroll-fallback :where(button, [role="button"]) {
+    touch-action: none;
+  }
+
   :is(
     .screen-region,
     .side-menu__nav,

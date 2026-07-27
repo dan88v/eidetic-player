@@ -9,6 +9,7 @@ import type { ComponentView } from "../components/types";
 import { icon } from "../components/icons";
 import { usbStorageSession } from "../state/folders-session";
 import { createFoldersScreen } from "./folders";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 export function createUsbStorageScreen(options: {
   readonly api: RemovableStorageApiClient;
@@ -54,6 +55,7 @@ export function createUsbStorageScreen(options: {
   );
   if (!description || !cancel || !confirm)
     throw new Error("USB safe removal dialog is incomplete");
+  const dialogTouchScroller = createReliableTouchScroller(dialog);
   const closeDialog = (): void => {
     dialog.classList.remove("source-dialog--open");
     backdrop.classList.remove("source-dialog-backdrop--open");
@@ -266,6 +268,7 @@ export function createUsbStorageScreen(options: {
     updateRemovableDevices: updateDevices,
     destroy: () => {
       closeDialog();
+      dialogTouchScroller.destroy();
       browser.destroy();
     },
   };

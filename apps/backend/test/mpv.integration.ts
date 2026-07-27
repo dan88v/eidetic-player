@@ -169,6 +169,52 @@ void test("MPV loads the selected fifth item without flashing the first", async 
   }
 });
 
+void test("MPV moves a Queue item both downward to the end and upward", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-mpv-reorder-"));
+  const controller = new MpvController();
+  try {
+    const paths = await Promise.all(
+      Array.from({ length: 4 }, async (_, index) => {
+        const path = join(folder, `${String(index + 1)}.wav`);
+        await writeFile(path, silentWav());
+        return path;
+      }),
+    );
+    await controller.start({
+      executable: discovery.executable,
+      extraArguments: ["--ao=null"],
+    });
+    await controller.loadPlaylist(paths);
+    await controller.command(["playlist-move", 0, paths.length]);
+    const downward = (await controller.getProperty("playlist")) as {
+      readonly filename: string;
+    }[];
+    assert.deepEqual(
+      downward.map((item) => item.filename),
+      [paths[1], paths[2], paths[3], paths[0]],
+    );
+
+    await controller.command(["playlist-move", paths.length - 1, 0]);
+    const upward = (await controller.getProperty("playlist")) as {
+      readonly filename: string;
+    }[];
+    assert.deepEqual(
+      upward.map((item) => item.filename),
+      paths,
+    );
+  } finally {
+    await controller.stop().catch(() => {
+      // Cleanup continues with the temporary directory.
+    });
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 void test("PlayerService disables Shuffle without losing current identity or position", async (context) => {
   const discovery = await discoverMpv();
   if (!discovery) {

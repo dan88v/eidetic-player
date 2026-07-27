@@ -5,6 +5,7 @@ import { navigationItems } from "../navigation/routes";
 import type { ScreenId } from "../state/types";
 import type { MusicBrowsingVisibility } from "../state/types";
 import type { BuildInfo } from "../../../../packages/shared/src/system";
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
 
 export interface SideMenu {
   readonly element: HTMLElement;
@@ -14,6 +15,7 @@ export interface SideMenu {
   setActiveScreen(screen: ScreenId): void;
   focusInitialControl(): void;
   containFocus(event: KeyboardEvent): void;
+  destroy(): void;
   setMusicBrowsingVisibility(value: MusicBrowsingVisibility): void;
   readonly powerButton: HTMLButtonElement | null;
 }
@@ -67,7 +69,9 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
 
   const closeButton =
     element.querySelector<HTMLButtonElement>(".side-menu__close");
-  if (!closeButton) throw new Error("Menu close button is missing");
+  const nav = element.querySelector<HTMLElement>(".side-menu__nav");
+  if (!closeButton || !nav) throw new Error("Menu is incomplete");
+  const touchScroller = createReliableTouchScroller(nav);
   closeButton.addEventListener("click", options.onClose);
   const powerButton =
     element.querySelector<HTMLButtonElement>(".side-menu__power");
@@ -123,6 +127,9 @@ export function createSideMenu(options: SideMenuOptions): SideMenu {
         event.preventDefault();
         first.focus();
       }
+    },
+    destroy() {
+      touchScroller.destroy();
     },
     setMusicBrowsingVisibility(value) {
       const folders = element.querySelector<HTMLElement>(

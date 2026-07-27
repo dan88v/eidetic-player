@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
+import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
+
 export interface PlaylistNameDialogOptions {
   readonly title: string;
   readonly confirmLabel: string;
@@ -48,6 +50,7 @@ export function createPlaylistNameDialog(): PlaylistNameDialog {
   const confirm = element.querySelector<HTMLButtonElement>(
     '[data-action="confirm"]',
   )!;
+  const touchScroller = createReliableTouchScroller(element);
   let current: PlaylistNameDialogOptions | null = null;
   let submitting = false;
 
@@ -154,6 +157,7 @@ export function createPlaylistNameDialog(): PlaylistNameDialog {
     close,
     destroy() {
       close();
+      touchScroller.destroy();
       document.removeEventListener("keydown", handleKeydown);
       element.remove();
       backdrop.remove();
