@@ -190,6 +190,12 @@ when available. Otherwise use `EIDETIC_SMB_FIXTURE=1`, state clearly that real
 Windows SMB/Credential Manager and Linux CIFS runtime are NOT TESTED, and never
 turn fixture coverage into a native SMB PASS.
 
+Linux SMB regression coverage must keep backend-generated 32-hex connection
+IDs aligned with the fixed root helper and must prove that a rejected helper
+call leaves no empty runtime mountpoint. A successful fixture or direct
+`mount.cifs` probe does not replace the real UI → API → credential store →
+`pkexec` helper → kernel CIFS path.
+
 For SMB Library integration, add both a share root and a nested folder and
 confirm exact/parent/child segment coverage, sibling allowance, and
 `Music`/`MusicBackup` separation per connection. Verify one targeted first

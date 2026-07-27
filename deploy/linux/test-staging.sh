@@ -77,7 +77,7 @@ fixture_fail() {
 assert_smb_helper_exit() {
   local share="$1" expected="$2" caller_uid target status
   caller_uid="$(id -u "$runtime_user")"
-  target="/run/user/$caller_uid/eidetic-player/smb/smb-0123456789abcdef"
+  target="/run/user/$caller_uid/eidetic-player/smb/smb-0123456789abcdef0123456789abcdef"
   if PKEXEC_UID="$caller_uid" "$SCRIPT_DIR/runtime/eidetic-player-smb-helper" \
     mount "$target" "$share" invalid-option; then
     status=0

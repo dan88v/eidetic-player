@@ -43,6 +43,12 @@ not arguments. The backend never invokes sudo or prompts in a terminal.
 Production mount authorization and Raspberry Pi hardware validation remain
 Step 2.13.2.
 
+The Linux privilege helper and backend share the same opaque connection-ID
+contract: `smb-` followed by exactly 32 lowercase hexadecimal characters.
+Rejected mounts remove their empty per-connection runtime directory with
+`rmdir`; cleanup is deliberately non-recursive and never follows or removes
+share content.
+
 Guest is always explicit. There is no automatic Guest fallback, SMB1 option,
 `vers=1.0`, signing downgrade, discovery, or protocol selector.
 

@@ -20,6 +20,7 @@ import {
 import { SmbConnectionService } from "../src/smb/smb-connection-service.js";
 import {
   FixtureSmbAdapter,
+  LinuxSmbAdapter,
   type SmbPlatformAdapter,
 } from "../src/smb/smb-platform-adapter.js";
 import type {
@@ -204,6 +205,43 @@ void test("Linux credential files are private mode 0600 and removable", async ()
     await assert.rejects(stat(reference), /ENOENT/u);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("Linux adapter removes an empty runtime target after helper rejection", async () => {
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "eidetic-smb-runtime-"));
+  const id = "smb-0123456789abcdef0123456789abcdef";
+  const adapter = new LinuxSmbAdapter(runtimeRoot, (executable, arguments_) => {
+    assert.equal(executable, "pkexec");
+    assert.equal(arguments_[1], "mount");
+    assert.equal(arguments_[2], `${runtimeRoot}/${id}`);
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 65 });
+  });
+  try {
+    await assert.rejects(
+      adapter.connect(
+        {
+          id,
+          displayName: "Rejected",
+          server: "10.0.0.2",
+          share: "music",
+          authMode: "account",
+          username: "moode",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          username: "moode",
+          password: "fixture-only",
+          filePath: join(runtimeRoot, "credential"),
+        },
+      ),
+      /Unable to mount this share/u,
+    );
+    await assert.rejects(stat(join(runtimeRoot, id)), /ENOENT/u);
+  } finally {
+    await adapter.close();
+    await rm(runtimeRoot, { recursive: true, force: true });
   }
 });
 

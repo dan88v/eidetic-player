@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, readdir, rm } from "node:fs/promises";
+import { access, chmod, mkdir, readdir, rmdir } from "node:fs/promises";
 import { posix, win32 } from "node:path";
 import { resolveAppDirectories } from "../platform/app-directories.js";
 import { runBoundedProcess } from "../network/bounded-process.js";
@@ -177,6 +177,7 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
       resolveAppDirectories("linux").runtime,
       "smb",
     ),
+    private readonly runProcess = runBoundedProcess,
   ) {}
 
   async connect(
@@ -190,9 +191,7 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
     if (record.authMode === "guest") options.push("guest");
     else {
       if (!credential?.filePath) {
-        await rm(root, { recursive: false, force: true }).catch(
-          () => undefined,
-        );
+        await rmdir(root).catch(() => undefined);
         throw new SmbError(
           "authentication-required",
           "SMB credentials are required.",
@@ -200,7 +199,7 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
       }
       options.push(`credentials=${credential.filePath}`);
     }
-    const result = await runBoundedProcess(
+    const result = await this.runProcess(
       "pkexec",
       [
         "/usr/libexec/eidetic-player-smb-helper",
@@ -224,7 +223,7 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
       );
     });
     if (result.exitCode !== 0) {
-      await rm(root, { recursive: false, force: true }).catch(() => undefined);
+      await rmdir(root).catch(() => undefined);
       const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
       if (output.includes("permission") || output.includes("not permitted"))
         throw new SmbError(
@@ -248,15 +247,13 @@ export class LinuxSmbAdapter implements SmbPlatformAdapter {
   async disconnect(record: SmbConnectionRecord, root?: string): Promise<void> {
     const mountPoint = root ?? this.mounted.get(record.id);
     if (!mountPoint) return;
-    await runBoundedProcess(
+    await this.runProcess(
       "pkexec",
       ["/usr/libexec/eidetic-player-smb-helper", "unmount", mountPoint],
       { timeoutMs: 10_000 },
     ).catch(() => undefined);
     this.mounted.delete(record.id);
-    await rm(mountPoint, { recursive: false, force: true }).catch(
-      () => undefined,
-    );
+    await rmdir(mountPoint).catch(() => undefined);
   }
 
   close(): Promise<void> {

@@ -471,6 +471,7 @@ void test("SMB privilege is constrained to the Eidetic helper", async () => {
   assert.match(adapter, /pkexec/);
   assert.match(helper, /ro\|nosuid\|nodev\|noexec/);
   assert.match(helper, /PKEXEC_UID/);
+  assert.match(helper, /smb-\[0-9a-f\]\{32\}/u);
   assert.match(
     helper,
     /share_pattern='\^\/\/\[A-Za-z0-9\._-\]\+\/\[A-Za-z0-9\._\$\[:space:\]-\]\+\$'/,

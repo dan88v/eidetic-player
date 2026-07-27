@@ -5,8 +5,9 @@ caller_uid="${PKEXEC_UID:-}"
 [[ "$caller_uid" =~ ^[0-9]+$ && "$caller_uid" -ne 0 ]] || exit 77
 runtime="/run/user/$caller_uid/eidetic-player/smb"
 target="$2"
+target_pattern="^${runtime}/smb-[0-9a-f]{32}$"
 share_pattern='^//[A-Za-z0-9._-]+/[A-Za-z0-9._$[:space:]-]+$'
-case "$target" in "$runtime"/smb-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) exit 65;; esac
+[[ "$target" =~ $target_pattern ]] || exit 65
 [[ ! -L "$target" ]] || exit 65
 case "$1" in
   mount)
