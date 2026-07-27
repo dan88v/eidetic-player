@@ -198,6 +198,23 @@ The follow-up also passed focused BuildInfo/drawer tests, format checking,
 typecheck, lint and a production build. A second real Neutralino smoke verified
 `Build 39af42f-dev` in the drawer and clean Power → Quit shutdown.
 
+The subsequent Linux CI staging run reached its intentional unsupported-Debian
+fixture, then failed only because ShellCheck promotes warnings to a non-zero
+exit. The four reported findings were corrected without changing deployment
+behavior:
+
+- doctor fallback literals are explicitly quoted as `"unset"`;
+- the updater's unused `update_committed` assignments were removed;
+- the shared official-source constant has a narrowly scoped `SC2034`
+  annotation because it is consumed only by scripts sourcing `common.sh`;
+- the Linux installer contract test now protects all three corrections.
+
+Post-fix format checking, typecheck, lint, the focused 16-test Linux deployment
+suite and the complete `verify:linux:installer` profile passed. ShellCheck is
+not installed in the Windows/WSL environment, so the exact ShellCheck rerun
+remains for CI; the corrected lines correspond directly to all four reported
+diagnostics.
+
 The first final attempt stopped at lint before build because ESLint tried to
 apply a typed rule to an added `.d.mts` shim. The shim was removed, the sole
 JavaScript CLI test import was explicitly documented for TypeScript, and the

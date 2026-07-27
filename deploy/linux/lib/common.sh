@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 EIDETIC_COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# This public constant is consumed by scripts that source this library.
+# shellcheck disable=SC2034
 EIDETIC_SOURCE_REMOTE=https://github.com/dan88v/eidetic-player.git
 # shellcheck source=lib/console-ui.sh
 . "$EIDETIC_COMMON_DIR/console-ui.sh"

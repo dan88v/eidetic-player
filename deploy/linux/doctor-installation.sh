@@ -184,7 +184,7 @@ eidetic_build_info_read() {
       "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ &&
       "$built" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T &&
       "$source" =~ ^(ci|git|explicit)$ ]] || return 1
-    [[ -n "$dirty" ]] || dirty=unset
+    [[ -n "$dirty" ]] || dirty="unset"
     printf '%s\n' \
       "commitSha=$commit" "shortCommitSha=$short" "ref=$ref" \
       "packageVersion=$package" "builtAt=$built" "source=$source" \
@@ -300,7 +300,7 @@ build_ref=unknown
 build_package_version=unknown
 build_built_at=unknown
 build_source=unknown
-build_dirty=unset
+build_dirty="unset"
 if build_info_lines="$(eidetic_build_info_read "$node_path" "$build_manifest")"; then
   while IFS='=' read -r key value; do
     case "$key" in

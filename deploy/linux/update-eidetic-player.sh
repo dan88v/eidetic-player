@@ -72,7 +72,6 @@ fi
 eidetic_console_init update "Linux Updater" "$EIDETIC_ROOT" \
   "$(eidetic_project_version)" || exit 1
 export EIDETIC_CONSOLE_PHASE_TOTAL=$((rollback ? 5 : 7))
-update_committed=0
 rollback_result="not required"
 cleanup() {
   local status="$1"
@@ -392,7 +391,6 @@ args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref"
 eidetic_console_phase_begin "Build, stage and activate"
 BACKEND_HOST="$backend_host" BACKEND_PORT="$backend_port" \
   "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
-update_committed=1
 eidetic_console_phase_done
 
 if ((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]]; then

@@ -497,10 +497,11 @@ void test("restore, update, uninstall and doctor expose the required safe modes"
 });
 
 void test("guided updater pins Build IDs and separates hard health from soft MPV readiness", async () => {
-  const [update, installer, doctor] = await Promise.all([
+  const [update, installer, doctor, common] = await Promise.all([
     read("deploy/linux/update-eidetic-player.sh"),
     read("deploy/linux/install-eidetic-player.sh"),
     read("deploy/linux/doctor-installation.sh"),
+    read("deploy/linux/lib/common.sh"),
   ]);
   assert.match(update, /Already up to date\./);
   assert.match(update, /exit 64/);
@@ -516,6 +517,14 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
   assert.match(installer, /NODE_ENV=production/);
   assert.match(doctor, /Build provenance/);
   assert.match(doctor, /API coherence/);
+  assert.match(doctor, /dirty="unset"/);
+  assert.match(doctor, /build_dirty="unset"/);
+  assert.doesNotMatch(doctor, /(?:^|\s)(?:build_)?dirty=unset(?:\s|$)/m);
+  assert.doesNotMatch(update, /update_committed/);
+  assert.match(
+    common,
+    /# shellcheck disable=SC2034\s+EIDETIC_SOURCE_REMOTE=https:\/\/github\.com\/dan88v\/eidetic-player\.git/,
+  );
 });
 
 void test("installer writes a shared MPV path for all install modes", async () => {
