@@ -2,11 +2,11 @@
 
 ## Stato
 
-Diagnosi reale Raspberry completata, fix minimo implementato localmente, test
-Windows e gate finali completati. Commit, push, CI, update Raspberry e
-validazione NAS post-fix non sono ancora stati eseguiti.
+Diagnosi, fix minimo, test Windows e gate finali completati. Commit e push
+manuali, exact-head CI e update Raspberry sono completati. L'utente ha
+confermato sul dispositivo reale che il problema SMB è risolto.
 
-`READY FOR CI VALIDATION — RASPBERRY NAS FIX NOT DEPLOYED`
+`RASPBERRY SMB CORRECTIVE CONFIRMED — FULL ACCEPTANCE MATRIX PARTIAL`
 
 ## Baseline Git e CI
 
@@ -289,10 +289,33 @@ Diff esplicitamente vuoti:
 - player;
 - shared contracts.
 
-La build installata sul Raspberry non è stata patchata. I quattro mountpoint
-vuoti misurati appartengono ai tentativi effettuati con il vecchio helper:
-sono smontati, non contengono credenziali e saranno eliminati durante il
-cleanup della validazione post-CI. Mount e credenziali residue attuali: zero.
+La vecchia build installata non è stata patchata manualmente. I quattro
+mountpoint vuoti misurati appartenevano ai tentativi effettuati con il vecchio
+helper: erano smontati e privi di credenziali. La loro rimozione dopo l'update
+non è stata nuovamente auditata.
+
+## Checkpoint CI, update e prova Raspberry
+
+- Commit manuale e push:
+  `6a4197015af3e1872575f900b49436502dae4441`.
+- Commit: `Step 2.17.5 — Raspberry LAN/NAS Reachability Corrective`.
+- Working tree pulito e `main` allineato a `origin/main` prima dell'update.
+- Exact-head `Eidetic Player CI`: run `30292306546`, PASS.
+- Update remoto tramite `scripts/remote-rpi-update.ps1`: completato con
+  successo e confermato dall'utente.
+- Build precedente osservata durante l'audit: `6f49d17`.
+- Build target: `6a41970`.
+- Reboot automatico: non richiesto.
+- Prova fisica Raspberry: problema SMB risolto, confermato dall'utente.
+- Il raw output finale dell'updater non è stato incollato nel thread; service,
+  readiness, doctor e no-op fanno parte del controller, ma i singoli valori
+  finali non vengono ricostruiti o inventati nel report.
+
+La conferma utente dimostra che il corrective consente ora l'uso SMB reale
+attraverso Eidetic sul Raspberry. Non sono stati riportati come esiti separati
+il browse nested, playback, reconnect, app restart, conteggio dei mountpoint
+legacy e credential leak audit post-update. Per questo il report non usa il
+PASS finale dell'intera matrice di acceptance.
 
 ## File modificati
 
@@ -310,16 +333,15 @@ cleanup della validazione post-CI. Mount e credenziali residue attuali: zero.
 `package.json` e `package-lock.json` invariati. Nessuna dipendenza o package di
 runtime aggiunto.
 
-## Fasi ancora richieste
+## Verifiche finali non riportate separatamente
 
-1. commit e push manuali;
-2. exact-head CI verde;
-3. update Raspberry normale;
-4. test completo UI Connect, Quick Browse root/nested, playback, reconnect e
-   restart;
-5. updater no-op;
-6. credential leak audit e cleanup finale.
+1. Quick Browse nested;
+2. playback SMB;
+3. disconnect/reconnect;
+4. app/service restart;
+5. updater no-op con output acquisito;
+6. credential leak audit e cleanup dei mountpoint legacy.
 
 Nessun commit o push automatico.
 
-`READY FOR CI VALIDATION — RASPBERRY NAS FIX NOT DEPLOYED`
+`RASPBERRY SMB CORRECTIVE CONFIRMED — FULL ACCEPTANCE MATRIX PARTIAL`
