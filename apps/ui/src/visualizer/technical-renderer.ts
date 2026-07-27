@@ -82,23 +82,31 @@ export function renderTechnical(
   const horizontalPadding = Math.max(20, Math.min(28, size.width * 0.035));
   const right = size.width - horizontalPadding;
   const compact = size.height < 120 || size.width < 520;
-  const valueSize = Math.round(
-    Math.max(compact ? 48 : 56, Math.min(compact ? 50 : 58, size.width * 0.09)),
-  );
+  const lowHeight = size.height < 120;
+  const valueSize = lowHeight
+    ? 24
+    : Math.round(
+        Math.max(
+          compact ? 48 : 56,
+          Math.min(compact ? 50 : 58, size.width * 0.09),
+        ),
+      );
+  const labelY = lowHeight ? 1 : 4;
+  const valueY = lowHeight ? 14 : 25;
   context.textBaseline = "top";
-  context.font = "650 17px system-ui";
+  context.font = `650 ${String(lowHeight ? 11 : 17)}px system-ui`;
   context.fillStyle = "#9ca6b7";
   context.textAlign = "left";
-  context.fillText("CREST (dB)", horizontalPadding, 4);
+  context.fillText("CREST (dB)", horizontalPadding, labelY);
   context.textAlign = "right";
-  context.fillText("LUFS-S (dB)", right, 4);
+  context.fillText("LUFS-S (dB)", right, labelY);
 
   context.font = `650 ${String(valueSize)}px ui-monospace, SFMono-Regular, Consolas, monospace`;
   context.fillStyle = "#e8edf7";
   context.textAlign = "left";
-  context.fillText(numberText(values.crestDb), horizontalPadding, 25);
+  context.fillText(numberText(values.crestDb), horizontalPadding, valueY);
   context.textAlign = "right";
-  context.fillText(numberText(values.shortTermLufs), right, 25);
+  context.fillText(numberText(values.shortTermLufs), right, valueY);
 
   renderCompactStereoMeter(context, size, values.meterDb, values.peakHoldDb);
 }

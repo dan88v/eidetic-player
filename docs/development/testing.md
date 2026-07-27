@@ -20,6 +20,18 @@ can expose the reported problem.
 Browser headless checks cannot replace Neutralino or real-media verification
 when native integration, playback, artwork, or realtime rendering is involved.
 
+For metadata integrity regressions, trace the same value from the real media
+tag through MPV raw properties, `MetadataService`, player/API state, Library
+indexing, the shared presentation snapshot, and DOM `textContent`. Include
+slash, backslash, punctuation, Unicode, markup-like text, control characters,
+and bounded oversized input. ID3v2.3 tests must cover leading, trailing,
+repeated, and spaced slash values without hardcoded artist names.
+
+For an interactive Now Playing cover, verify the native button name and focus,
+click/touch, Enter, Space, placeholder/no-artwork behavior, one navigation
+callback, and unchanged playback, current Queue item, Queue order, volume,
+mute, shuffle, repeat, and Favorite state.
+
 ## Mandatory Windows visual QA command
 
 Every Windows UI or visual regression check must start the real application

@@ -25,6 +25,10 @@ import {
   MetadataService,
   normalizeMetadata,
 } from "../src/metadata/metadata-service.js";
+import {
+  METADATA_TEXT_MAX_LENGTH,
+  normalizeMetadataText,
+} from "../src/metadata/metadata-text.js";
 
 function rawMetadata(): IAudioMetadata {
   return {
@@ -144,6 +148,97 @@ void test("normalized model retains future metadata fields", () => {
   assert.equal(normalized.year, 2026);
   assert.deepEqual(normalized.genre, ["Electronic"]);
   assert.equal(normalized.lossless, true);
+});
+
+void test("ID3v2.3 artist text remains atomic when the parser splits a slash", () => {
+  const parsed = normalizeMetadata({
+    ...rawMetadata(),
+    common: {
+      ...rawMetadata().common,
+      artist: "AC",
+      artists: ["AC", "DC"],
+      albumartist: "AC",
+    },
+    native: {
+      "ID3v2.3": [
+        { id: "TPE1", value: "AC" },
+        { id: "TPE1", value: "DC" },
+        { id: "TPE2", value: "AC" },
+        { id: "TPE2", value: "DC" },
+      ],
+    },
+  });
+
+  assert.equal(parsed.artist, "AC/DC");
+  assert.deepEqual(parsed.artists, ["AC/DC"]);
+  assert.equal(parsed.albumArtist, "AC/DC");
+});
+
+void test("ID3v2.3 reconstruction preserves leading, trailing and repeated slash", () => {
+  for (const [values, expected] of [
+    [["", "Artist"], "/Artist"],
+    [["Artist", ""], "Artist/"],
+    [["A", "", "B"], "A//B"],
+    [["Artist A ", " Artist B"], "Artist A/Artist B"],
+  ] as const) {
+    const raw = rawMetadata();
+    raw.common.artist = values[0];
+    raw.common.artists = [...values];
+    raw.native = {
+      "ID3v2.3": values.map((value) => ({ id: "TPE1", value })),
+    };
+    const parsed = normalizeMetadata(raw);
+    assert.equal(parsed.artist, expected);
+    assert.deepEqual(parsed.artists, [expected]);
+  }
+});
+
+void test("metadata text preserves punctuation and Unicode while bounding unsafe input", () => {
+  const preserved = [
+    "AC/DC",
+    "AC",
+    "DC",
+    "/Artist",
+    "Artist/",
+    "A//B",
+    "Artist A / Artist B",
+    "AC\\DC",
+    "Guns N' Roses",
+    "Simon & Garfunkel",
+    "Earth, Wind & Fire",
+    "Sigur Rós",
+    "Björk",
+    "<b>Artist</b>",
+    "A & B < C",
+    "Cafe\u0301",
+  ];
+  for (const value of preserved)
+    assert.equal(normalizeMetadataText(value), value);
+  assert.equal(normalizeMetadataText("A\0B\nC\tD"), "A B C D");
+  assert.equal(normalizeMetadataText(null), null);
+  assert.equal(normalizeMetadataText(42), null);
+  assert.equal(normalizeMetadataText("  "), null);
+  assert.equal(
+    normalizeMetadataText("x".repeat(METADATA_TEXT_MAX_LENGTH + 20))?.length,
+    METADATA_TEXT_MAX_LENGTH,
+  );
+});
+
+void test("real artist metadata wins over fallback values and survives API JSON", () => {
+  const merged = mergeTrackMetadata(
+    { ...mpvTrack(), artist: "Path fallback" },
+    {
+      ...normalized,
+      artist: "AC/DC",
+      artists: ["AC/DC"],
+    },
+    null,
+  );
+  assert.equal(merged.artist, "AC/DC");
+  assert.equal(
+    (JSON.parse(JSON.stringify(merged)) as PlayerTrack).artist,
+    "AC/DC",
+  );
 });
 
 void test("metadata cache hits unchanged files and invalidates changed files", async () => {

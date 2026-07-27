@@ -34,6 +34,7 @@ export interface CompactMeterGeometry {
   readonly rowGap: number;
   readonly startY: number;
   readonly graphicBottom: number;
+  readonly showScale: boolean;
 }
 
 const gradients = new WeakMap<
@@ -148,17 +149,18 @@ export function renderCompactStereoMeter(
   peakHoldsDb: ArrayLike<number>,
 ): CompactMeterGeometry {
   const labelWidth = 24;
-  const barHeight = 14;
-  const rowGap = 8;
-  const startY = size.height - (barHeight * 2 + rowGap + 5);
+  const geometry = getCompactMeterGeometry(size);
+  const { barHeight, rowGap, startY, showScale } = geometry;
   const meterWidth = size.width - labelWidth;
-  context.fillStyle = "#7f899a";
-  context.font = "500 9px system-ui";
-  context.textBaseline = "bottom";
-  for (const db of [-60, -24, -12, -6, 0] as const) {
-    const x = labelWidth + meterWidth * meterPositionForDb(db);
-    context.textAlign = db === -60 ? "left" : db === 0 ? "right" : "center";
-    context.fillText(String(db), x, startY - 4);
+  if (showScale) {
+    context.fillStyle = "#7f899a";
+    context.font = "500 9px system-ui";
+    context.textBaseline = "bottom";
+    for (const db of [-60, -24, -12, -6, 0] as const) {
+      const x = labelWidth + meterWidth * meterPositionForDb(db);
+      context.textAlign = db === -60 ? "left" : db === 0 ? "right" : "center";
+      context.fillText(String(db), x, startY - 4);
+    }
   }
   context.font = "600 12px system-ui";
   context.textBaseline = "middle";
@@ -198,10 +200,22 @@ export function renderCompactStereoMeter(
     context.fillStyle = "#dce8ff";
     context.fillRect(Math.max(labelWidth, holdX - 1), y, 2, barHeight);
   }
+  return geometry;
+}
+
+export function getCompactMeterGeometry(
+  size: CanvasSize,
+): CompactMeterGeometry {
+  const showScale = size.height >= 84;
+  const barHeight = showScale ? 14 : 9;
+  const rowGap = showScale ? 8 : 4;
+  const bottomPadding = showScale ? 5 : 3;
+  const startY = size.height - (barHeight * 2 + rowGap + bottomPadding);
   return {
     barHeight,
     rowGap,
     startY,
     graphicBottom: startY + barHeight * 2 + rowGap,
+    showScale,
   };
 }

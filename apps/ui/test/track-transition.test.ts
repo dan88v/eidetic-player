@@ -100,6 +100,31 @@ void test("metadata snapshot commits title, artist, album and technical data tog
   assert.match(snapshot.technical, /FLAC/);
 });
 
+void test("presentation preserves slash, Unicode and HTML-like artist text literally", () => {
+  for (const artist of [
+    "AC/DC",
+    "Artist A / Artist B",
+    "AC\\DC",
+    "Guns N' Roses",
+    "Simon & Garfunkel",
+    "Earth, Wind & Fire",
+    "Sigur Rós",
+    "Björk",
+    "<b>Artist</b>",
+    "A & B < C",
+    "Cafe\u0301",
+  ]) {
+    const input = state(1, "literal");
+    const snapshot = createTrackPresentationSnapshot({
+      ...input,
+      currentTrack: input.currentTrack
+        ? { ...input.currentTrack, artist }
+        : null,
+    });
+    assert.equal(snapshot.artist, artist);
+  }
+});
+
 void test("normal track changes never synthesize an intermediate Unknown title", () => {
   const coordinator = new TrackTransitionCoordinator();
   coordinator.accept(state(1, "one"));
@@ -281,6 +306,64 @@ void test("artist, album and technical geometry reserves descender space", async
   assert.match(css, /\.now-playing__album[\s\S]*?height: 1\.35em/);
   assert.match(css, /\.now-playing__technical[\s\S]*?height: 1\.45em/);
   assert.equal((css.match(/padding-bottom: 0\.1em/g) ?? []).length >= 4, true);
+});
+
+void test("Now Playing artist and album use the approved readable one-line ranges", async () => {
+  const css = await readFile("apps/ui/src/styles/screens.css", "utf8");
+  assert.match(
+    css,
+    /\.now-playing__artist[\s\S]*?font-size:\s*clamp\(1\.9375rem,[^;]+,\s*2rem\)/,
+  );
+  assert.match(
+    css,
+    /\.now-playing__album[\s\S]*?font-size:\s*clamp\(1\.5rem,[^;]+,\s*1\.625rem\)/,
+  );
+});
+
+void test("compact Now Playing grows square artwork to at most 40vw and reduces the visualizer", async () => {
+  const css = await readFile("apps/ui/src/styles/responsive.css", "utf8");
+  assert.match(
+    css,
+    /@media \(max-width: 68\.75rem\)[\s\S]*?--now-playing-artwork-size:\s*clamp\(18rem,\s*40vw,\s*25rem\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 68\.75rem\)[\s\S]*?--now-playing-visualizer-height:\s*clamp\(5rem,\s*12vh,\s*6rem\)/,
+  );
+  assert.match(
+    await readFile("apps/ui/src/styles/screens.css", "utf8"),
+    /\.now-playing__artwork[\s\S]*?aspect-ratio:\s*1\s*\/\s*1/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 68\.75rem\) and \(max-height: 40rem\)[\s\S]*?--now-playing-artwork-size:\s*clamp\(16rem,\s*36vw,\s*20rem\)[\s\S]*?--now-playing-visualizer-height:\s*clamp\(4rem,\s*10vh,\s*5rem\)/,
+  );
+  assert.doesNotMatch(
+    css,
+    /@media \(max-width: 68\.75rem\) and \(max-height: 40rem\)[\s\S]*?\.now-playing__technical\s*\{\s*display:\s*none/,
+  );
+});
+
+void test("Now Playing artwork is a native Library navigation button", async () => {
+  const source = await readFile("apps/ui/src/screens/now-playing.ts", "utf8");
+  assert.match(
+    source,
+    /const artworkButton = document\.createElement\("button"\)/,
+  );
+  assert.match(source, /artworkButton\.type = "button"/);
+  assert.match(
+    source,
+    /artworkButton\.setAttribute\("aria-label", t\("nav\.openLibrary"\)\)/,
+  );
+  assert.match(source, /artworkButton\.append\(artwork\.element\)/);
+  assert.match(
+    source,
+    /artworkButton\.addEventListener\("click", options\.onOpenLibrary\)/,
+  );
+  assert.doesNotMatch(source, /artworkButton\.addEventListener\("pointer/);
+  assert.doesNotMatch(source, /artworkButton\.addEventListener\("key/);
+  assert.match(source, /else element\.textContent = value/);
+  assert.doesNotMatch(source, /artist\.innerHTML|album\.innerHTML/);
 });
 
 void test("Animations Off removes artwork transition duration", async () => {

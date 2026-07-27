@@ -6,6 +6,7 @@ import type {
   NormalizedMetadata,
   PictureCandidate,
 } from "./types.js";
+import { normalizeMetadataText } from "./metadata-text.js";
 
 export type MetadataParser = (path: string) => Promise<IAudioMetadata>;
 
@@ -16,10 +17,14 @@ interface CacheEntry {
   artwork: ArtworkRef | null;
 }
 
-function text(value: string | undefined): string | null {
-  const normalized = value?.trim();
-  if (!normalized) return null;
-  return normalized;
+function id3v23LiteralText(
+  raw: IAudioMetadata,
+  frameId: "TPE1" | "TPE2",
+): string | null {
+  const values = (raw.native["ID3v2.3"] ?? [])
+    .filter((tag) => tag.id.toUpperCase() === frameId)
+    .map((tag) => normalizeMetadataText(tag.value) ?? "");
+  return values.length > 0 ? normalizeMetadataText(values.join("/")) : null;
 }
 
 function positive(value: number | null | undefined): number | null {
@@ -34,25 +39,34 @@ function positiveInteger(value: number | null | undefined): number | null {
 }
 
 export function normalizeMetadata(raw: IAudioMetadata): NormalizedMetadata {
+  const literalId3v23Artist = id3v23LiteralText(raw, "TPE1");
+  const artist =
+    literalId3v23Artist ?? normalizeMetadataText(raw.common.artist);
   return {
-    title: text(raw.common.title),
-    artist: text(raw.common.artist),
-    artists: (raw.common.artists ?? [])
-      .map((artist) => artist.trim())
-      .filter(Boolean),
-    album: text(raw.common.album),
-    albumArtist: text(raw.common.albumartist),
+    title: normalizeMetadataText(raw.common.title),
+    artist,
+    artists: literalId3v23Artist
+      ? [literalId3v23Artist]
+      : (raw.common.artists ?? []).flatMap((value) => {
+          const normalized = normalizeMetadataText(value);
+          return normalized ? [normalized] : [];
+        }),
+    album: normalizeMetadataText(raw.common.album),
+    albumArtist:
+      id3v23LiteralText(raw, "TPE2") ??
+      normalizeMetadataText(raw.common.albumartist),
     trackNumber: positive(raw.common.track.no),
     trackTotal: positive(raw.common.track.of),
     discNumber: positive(raw.common.disk.no),
     discTotal: positive(raw.common.disk.of),
     year: positive(raw.common.year),
-    genre: (raw.common.genre ?? [])
-      .map((genre) => genre.trim())
-      .filter(Boolean),
+    genre: (raw.common.genre ?? []).flatMap((genre) => {
+      const normalized = normalizeMetadataText(genre);
+      return normalized ? [normalized] : [];
+    }),
     durationSeconds: positive(raw.format.duration),
-    codec: text(raw.format.codec),
-    container: text(raw.format.container),
+    codec: normalizeMetadataText(raw.format.codec),
+    container: normalizeMetadataText(raw.format.container),
     sampleRate: positiveInteger(raw.format.sampleRate),
     bitDepth: positiveInteger(raw.format.bitsPerSample),
     bitrate: positiveInteger(raw.format.bitrate),
@@ -67,8 +81,8 @@ function pictures(raw: IAudioMetadata): PictureCandidate[] {
   return (raw.common.picture ?? []).map((picture) => ({
     data: picture.data,
     mimeType: picture.format,
-    type: text(picture.type),
-    description: text(picture.description),
+    type: normalizeMetadataText(picture.type),
+    description: normalizeMetadataText(picture.description),
   }));
 }
 

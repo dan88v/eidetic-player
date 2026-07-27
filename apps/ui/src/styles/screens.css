@@ -83,6 +83,11 @@
     object-fit: cover;
     overflow: hidden;
   }
+  .now-playing__artwork-button {
+    width: var(--now-playing-artwork-size);
+    height: var(--now-playing-artwork-size);
+    padding: 0;
+  }
   .now-playing__artwork .artwork__placeholder,
   .now-playing__artwork .artwork__image {
     border-radius: 0;
@@ -131,7 +136,7 @@
     overflow: hidden;
     margin-top: var(--now-playing-title-artist-gap);
     color: var(--color-text-secondary);
-    font-size: 1.8125rem;
+    font-size: clamp(1.9375rem, 2.45vw, 2rem);
     line-height: 1.25;
     height: 1.35em;
     padding-bottom: 0.1em;
@@ -144,7 +149,7 @@
     overflow: hidden;
     margin-top: var(--now-playing-artist-album-gap);
     color: var(--color-text-muted);
-    font-size: 1.4375rem;
+    font-size: clamp(1.5rem, 2vw, 1.625rem);
     line-height: 1.25;
     height: 1.35em;
     padding-bottom: 0.1em;

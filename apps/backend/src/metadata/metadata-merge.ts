@@ -3,11 +3,10 @@ import type {
   PlayerTrack,
 } from "../../../../packages/shared/src/player.js";
 import type { NormalizedMetadata } from "./types.js";
+import { normalizeMetadataText } from "./metadata-text.js";
 
 function usable(value: string | null | undefined): string | null {
-  const normalized = value?.trim();
-  if (!normalized) return null;
-  return normalized;
+  return normalizeMetadataText(value);
 }
 
 export function fallbackTitle(

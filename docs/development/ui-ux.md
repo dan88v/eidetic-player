@@ -120,11 +120,25 @@ interpolation should be reduced.
 - Use the reusable artwork component in Now Playing, mini-player, and Queue.
 - Keep `object-fit: cover`, explicit dimensions, and `draggable="false"`.
 - Keep the main Now Playing cover square with `border-radius: 0`.
+- The Default Now Playing cover is a native button named `Open Library`; its
+  full square opens Library through the canonical navigation callback for
+  touch, mouse, Enter, and Space without changing playback or Queue state.
 - Queue and mini-player artwork are decorative when nearby text is sufficient.
 - Keep a stable, visually empty dark placeholder under every image.
 - Tie each request to stable track/Queue IDs and a generation token.
 - Lazy-load Queue artwork with one managed observer and limited concurrency.
 - Do not expose paths or use remote artwork.
+
+Default Now Playing renders artist and album as safe one-line text nodes.
+Artist uses `clamp(1.9375rem, 2.45vw, 2rem)` and album uses
+`clamp(1.5rem, 2vw, 1.625rem)`, with the established secondary/muted colors and
+CSS ellipsis. Metadata is assigned with `textContent`; markup-like tag content
+must remain visible literal text.
+
+At compact widths the square cover may grow only to 40vw while the visualizer
+shrinks. At the combined compact-width/reduced-height fallback, artwork remains
+at most 36vw, the visualizer shrinks again, and artist, album, and technical
+metadata stay visible.
 
 Track changes use one presentation generation. Metadata text, current Queue
 identity, position/duration, artwork, waveform, and visualizer frames must all

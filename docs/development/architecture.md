@@ -185,6 +185,21 @@ Every async result that can outlive its target must be guarded:
 Correct content with a placeholder is preferable to stale content that looks
 complete.
 
+## Metadata text contract
+
+Artist, album artist, album, and title metadata are presentation text, not
+paths or delimiter-encoded application data. The backend trims outer
+whitespace, replaces control characters and multiline whitespace, and applies
+the bounded metadata-text limit while preserving meaningful punctuation and
+Unicode. In particular, `/` and `\` remain literal characters and never
+implicitly split an artist.
+
+`music-metadata` exposes ID3v2.3 `TPE1`/`TPE2` slash-delimited frame parts
+separately. `MetadataService` reconstructs that frame's literal text at the
+parser boundary before playback enrichment, directory browsing, or Library
+indexing can persist a truncated value. ID3v2.4 and formats that provide real
+repeated artist values retain their existing multi-value semantics.
+
 ## Bootstrap and player-session ownership
 
 The backend owns the durable player session. `PlayerSessionService` observes

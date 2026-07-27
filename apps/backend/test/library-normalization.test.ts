@@ -41,6 +41,20 @@ void test("multiple artists preserve display values and remove normalized duplic
   );
 });
 
+void test("Library treats slash artist text as one literal identity", () => {
+  const artists = trackArtists({
+    ...emptyMetadata,
+    artist: "AC/DC",
+    artists: ["AC/DC"],
+  });
+  assert.deepEqual(
+    artists.map((artist) => artist.displayName),
+    ["AC/DC"],
+  );
+  assert.equal(artists[0]?.id, artistIdentity("AC/DC")?.id);
+  assert.notEqual(artists[0]?.id, artistIdentity("AC")?.id);
+});
+
 void test("album identity handles album artist, compilation and source-local unknown ownership", () => {
   const albumArtist = albumIdentity("source-a", {
     ...emptyMetadata,

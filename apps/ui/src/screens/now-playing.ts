@@ -129,7 +129,12 @@ export function createNowPlayingScreen(
     className: "now-playing__artwork",
     decorative: false,
   });
-  section.querySelector(".now-playing__artwork")?.replaceWith(artwork.element);
+  const artworkButton = document.createElement("button");
+  artworkButton.type = "button";
+  artworkButton.className = "now-playing__artwork-button";
+  artworkButton.setAttribute("aria-label", t("nav.openLibrary"));
+  artworkButton.append(artwork.element);
+  section.querySelector(".now-playing__artwork")?.replaceWith(artworkButton);
   section
     .querySelector(".now-playing__visualizer-slot")
     ?.append(visualizer.element);
@@ -202,6 +207,7 @@ export function createNowPlayingScreen(
   repeatButton.addEventListener("click", () => {
     options.actions.repeat(nextRepeat(playerState.repeatMode));
   });
+  artworkButton.addEventListener("click", options.onOpenLibrary);
   libraryButton.addEventListener("click", options.onOpenLibrary);
   foldersButton.addEventListener("click", options.onOpenFolders);
   usbNavigation.addEventListener("click", () => {

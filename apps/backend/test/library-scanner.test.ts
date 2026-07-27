@@ -210,6 +210,57 @@ void test("scanner recursively indexes supported files and preserves normalized 
   }
 });
 
+void test("scanner persists ID3v2.3 slash artist as one Library entity", async () => {
+  const context = await fixture();
+  await writeFile(join(context.root, "03 Slash.mp3"), "slash");
+  const metadata = new MetadataService((path) => {
+    const raw = metadataFor(path);
+    if (basename(path) === "03 Slash.mp3") {
+      raw.common.artist = "AC";
+      raw.common.artists = ["AC", "DC"];
+      raw.common.albumartist = "AC";
+      raw.native = {
+        "ID3v2.3": [
+          { id: "TPE1", value: "AC" },
+          { id: "TPE1", value: "DC" },
+          { id: "TPE2", value: "AC" },
+          { id: "TPE2", value: "DC" },
+        ],
+      };
+    }
+    return Promise.resolve(raw);
+  });
+  const scanner = new LibraryScanner(
+    context.provider,
+    context.paths,
+    context.sources,
+    context.repository,
+    { metadata },
+  );
+  try {
+    await scanner.scan(
+      context.sourceId,
+      "99999999-9999-4999-8999-999999999999",
+      new AbortController().signal,
+      () => undefined,
+    );
+    const slashTrack = context.repository
+      .tracks(null, 100)
+      .items.find((track) => track.title === "03 Slash");
+    assert.equal(slashTrack?.artist, "AC/DC");
+    const names = context.repository
+      .artists(null, 100)
+      .items.map((artist) => artist.name);
+    assert.equal(names.includes("AC/DC"), true);
+    assert.equal(names.includes("AC"), false);
+    assert.equal(names.includes("DC"), false);
+  } finally {
+    scanner.clear();
+    context.database.close();
+    await rm(context.temporary, { recursive: true, force: true });
+  }
+});
+
 void test("metadata failure is recorded per file and does not stop the scan", async () => {
   const context = await fixture();
   const scanner = new LibraryScanner(

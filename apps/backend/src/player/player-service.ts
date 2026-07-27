@@ -16,6 +16,7 @@ import {
 import { mergeTrackMetadata } from "../metadata/metadata-merge.js";
 import { isCurrentEnrichment } from "../metadata/enrichment-guard.js";
 import { MetadataService } from "../metadata/metadata-service.js";
+import { normalizeMetadataText } from "../metadata/metadata-text.js";
 import type { NormalizedMetadata } from "../metadata/types.js";
 import { discoverMpv } from "./mpv-discovery.js";
 import { MpvController } from "./mpv-controller.js";
@@ -1548,12 +1549,10 @@ export class PlayerService implements AudioOutputMpvAdapter {
         : {};
     const getMetadata = (...names: string[]): string | null => {
       for (const [key, value] of Object.entries(metadata)) {
-        if (
-          names.some((name) => key.toLowerCase() === name.toLowerCase()) &&
-          typeof value === "string" &&
-          value.trim()
-        )
-          return value.trim();
+        if (!names.some((name) => key.toLowerCase() === name.toLowerCase()))
+          continue;
+        const normalized = normalizeMetadataText(value);
+        if (normalized) return normalized;
       }
       return null;
     };

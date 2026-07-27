@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { getCompactMeterGeometry } from "../src/visualizer/meter-renderer.js";
 import { crestFactorDb } from "../src/visualizer/technical-renderer.js";
 import { nextVisualizerMode } from "../src/visualizer/visualizer-mode.js";
 
@@ -51,15 +52,41 @@ void test("Technical compact layout exposes Crest Factor and LUFS-S", async () =
   assert.doesNotMatch(technical, /fillText\("dB"/);
   assert.doesNotMatch(technical, /fillText\("LUFS"/);
   assert.match(technical, /ui-monospace/);
-  assert.match(technical, /compact \? 48 : 56/);
+  assert.match(technical, /lowHeight \? 11 : 17/);
+  assert.match(technical, /lowHeight[\s\S]*\? 24/);
   assert.match(technical, /renderCompactStereoMeter/);
-  assert.match(meter, /barHeight = 14/);
+  assert.match(meter, /showScale = size\.height >= 84/);
   assert.match(meter, /meterPositionForDb\(-18\)/);
   assert.match(meter, /meterPositionForDb\(-3\)/);
   assert.match(meter, /"#f29a3f"/);
   assert.match(meter, /"#ff4d5a"/);
   assert.match(component, /crestFactorDb\([\s\S]*frame\.meter\.leftRms/);
   assert.doesNotMatch(technical, /true.?peak|dBTP/i);
+});
+
+void test("Technical meter reserves non-overlapping ultra-compact geometry", () => {
+  const compact = getCompactMeterGeometry({
+    width: 976,
+    height: 64,
+    pixelRatio: 1,
+  });
+  assert.deepEqual(compact, {
+    barHeight: 9,
+    rowGap: 4,
+    startY: 39,
+    graphicBottom: 61,
+    showScale: false,
+  });
+  assert.ok(compact.startY > 14 + 24);
+
+  const regular = getCompactMeterGeometry({
+    width: 976,
+    height: 96,
+    pixelRatio: 1,
+  });
+  assert.equal(regular.showScale, true);
+  assert.equal(regular.startY, 55);
+  assert.ok(regular.startY - 4 > 14 + 24);
 });
 
 void test("Crest Factor is channel-aware, bounded, and neutral for silence", () => {
