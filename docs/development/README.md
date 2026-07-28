@@ -6,6 +6,9 @@ These documents expand the mandatory rules in the repository
 - [Architecture](architecture.md) — component boundaries and state ownership.
 - [Touch UI and UX](ui-ux.md) — physical touch, stable geometry, loading, and
   transitions.
+- [Settings UI contract](settings-ui.md) — canonical rows, selection controls,
+  state feedback, dialogs, and Audio hierarchy. Read it before every Settings
+  panel change.
 - [Reusable on-screen keyboard](on-screen-keyboard.md) — opt-in profiles,
   touch-only policy, editing, layout, and lifecycle ownership.
 - [Network](network.md) — global status, platform Wi-Fi adapters, security,

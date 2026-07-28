@@ -401,19 +401,24 @@ void test("Raspberry Pi OS detection uses Device Tree plus narrow OS markers", a
 });
 
 void test("maintenance API has a fixed command and no frontend arguments", async () => {
-  const [backend, adapter, client, settings] = await Promise.all([
-    read("apps/backend/src/index.ts"),
-    read("apps/backend/src/system/linux-power-adapter.ts"),
-    read("apps/ui/src/api/system-api-client.ts"),
-    read("apps/ui/src/screens/settings.ts"),
-  ]);
+  const [backend, adapter, client, settings, confirmationDialog] =
+    await Promise.all([
+      read("apps/backend/src/index.ts"),
+      read("apps/backend/src/system/linux-power-adapter.ts"),
+      read("apps/ui/src/api/system-api-client.ts"),
+      read("apps/ui/src/screens/settings.ts"),
+      read("apps/ui/src/components/confirmation-dialog.ts"),
+    ]);
   assert.match(
     adapter,
     /maintenance: "\/usr\/local\/bin\/eidetic-player-maintenance"/,
   );
   assert.match(backend, /url\.pathname === "\/api\/system\/maintenance"/);
   assert.match(client, /body: "\{\}"/);
-  assert.match(settings, /showModal\(\)/);
+  assert.match(settings, /createConfirmationDialog\(\)/);
+  assert.match(settings, /confirmationDialog\.open\(/);
+  assert.match(confirmationDialog, /source-dialog/);
+  assert.match(confirmationDialog, /event\.key === "Escape"/);
   assert.match(settings, /systemCapabilities\.maintenanceMode/);
 });
 

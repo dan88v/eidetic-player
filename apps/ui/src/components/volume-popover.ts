@@ -7,6 +7,7 @@ export interface VolumePopover {
   setOpen(open: boolean): void;
   setReturnFocus(element: HTMLElement): void;
   setState(volume: number, muted: boolean): void;
+  setPolicy(locked: boolean, maximum: number): void;
   containFocus(event: KeyboardEvent): void;
 }
 
@@ -22,6 +23,8 @@ export function createVolumePopover(options: {
   let lastSentAt = 0;
   let returnFocus: HTMLElement | null = null;
   let activePointerId: number | null = null;
+  let locked = false;
+  let maximum = 100;
   const backdrop = document.createElement("div");
   backdrop.className = "volume-backdrop";
   const element = document.createElement("section");
@@ -49,6 +52,7 @@ export function createVolumePopover(options: {
     const percent = `${String(Math.round(volume))}%`;
     value.textContent = percent;
     slider.setAttribute("aria-valuenow", String(Math.round(volume)));
+    slider.setAttribute("aria-valuemax", String(maximum));
     slider.setAttribute("aria-valuetext", percent);
     fill.style.height = percent;
     thumb.style.bottom = `calc(${percent} - 0.625rem)`;
@@ -58,12 +62,19 @@ export function createVolumePopover(options: {
       t(muted ? "volume.unmute" : "volume.mute"),
     );
     muteButton.setAttribute("aria-pressed", String(muted));
+    slider.setAttribute("aria-disabled", String(locked));
+    slider.tabIndex = locked ? -1 : 0;
+    muteButton.disabled = locked;
+    element.dataset.locked = String(locked);
   };
   const fromPointer = (event: PointerEvent): number => {
     const bounds = slider.getBoundingClientRect();
     return Math.max(
       0,
-      Math.min(100, ((bounds.bottom - event.clientY) / bounds.height) * 100),
+      Math.min(
+        maximum,
+        ((bounds.bottom - event.clientY) / bounds.height) * maximum,
+      ),
     );
   };
   const preview = (next: number, final: boolean): void => {
@@ -76,6 +87,7 @@ export function createVolumePopover(options: {
     }
   };
   slider.addEventListener("pointerdown", (event) => {
+    if (locked) return;
     activePointerId = event.pointerId;
     slider.setPointerCapture(event.pointerId);
     preview(fromPointer(event), false);
@@ -100,6 +112,7 @@ export function createVolumePopover(options: {
     render();
   });
   slider.addEventListener("keydown", (event) => {
+    if (locked) return;
     let next = volume;
     if (event.key === "ArrowUp" || event.key === "ArrowRight") next += 2;
     else if (event.key === "ArrowDown" || event.key === "ArrowLeft") next -= 2;
@@ -109,10 +122,11 @@ export function createVolumePopover(options: {
     else if (event.key === "End") next = 100;
     else return;
     event.preventDefault();
-    preview(Math.max(0, Math.min(100, next)), true);
+    preview(Math.max(0, Math.min(maximum, next)), true);
     options.onVolumeCommit?.();
   });
   muteButton.addEventListener("click", () => {
+    if (locked) return;
     options.onMute(!muted);
   });
   backdrop.addEventListener("pointerup", options.onClose);
@@ -166,6 +180,12 @@ export function createVolumePopover(options: {
       confirmedVolume = nextVolume;
       if (activePointerId === null) volume = nextVolume;
       muted = nextMuted;
+      render();
+    },
+    setPolicy(nextLocked, nextMaximum) {
+      locked = nextLocked;
+      maximum = Math.max(0, Math.min(100, nextMaximum));
+      if (!locked && volume > maximum) volume = maximum;
       render();
     },
     containFocus(event) {

@@ -106,6 +106,23 @@ must not render text, icons, borders, shadows, or loading chrome.
   sticky through the reusable `library-sticky-back-header` contract. New
   Library subpages with Back must adopt the same contract.
 
+### Top-bar status indicators
+
+The right-side system indicators share one touch-target size, icon geometry,
+gap, and status popover. Ethernet is passive and is present only while a wired
+adapter is connected. Wi-Fi remains present at all times: muted means
+disconnected, white means connected, and its popover reports the current SSID,
+IPv4 address, and signal percentage from the existing global Network snapshot.
+
+The audio-output icon remains solid white because it identifies a route rather
+than connectivity. Its popover names the effective physical output and active
+MPV interface from the existing audio-output state. SMB retains its
+connected/error/connecting color states and uses the same trigger and popover
+geometry as Wi-Fi and audio. Only one status popover may be open; tapping its
+trigger again, tapping outside, or pressing Escape closes it. These indicators
+must consume the app shell's existing state streams and must not add polling,
+timers, observers, or component-owned EventSources.
+
 History defaults to Recent and preserves its active segment and per-segment
 scroll for the app session. Recent follows the established Track-row geometry, groups rows by
 local Today/Yesterday/full-date headings, and keeps its red confirmed Clear
@@ -307,14 +324,35 @@ not navigate. Music browsing can expose Folders, Library, or both without
 hiding Sources.
 
 Settings exposes an `Audio` row with a general description. Its internal Audio
-screen owns the `Output` row and shows the selected output below the label;
-activating it opens the device-selection screen. Output remains always
+screen owns the `Output Device` row and shows the selected output below the
+label; activating it opens the device-selection screen. Output remains always
 openable, including with only `System default`, an empty MPV list, an
 unavailable preferred device, or MPV unavailable. Selection keeps
-`System default` first, shows descriptions and opaque technical IDs as text,
-and distinguishes the persistent `Preferred` indicator from `In use`.
-Selection and manual Refresh remain on the page and report transient outcomes
-through the shared toast.
+physical outputs separate from their routes: one route selects directly,
+multiple routes open a route subpage, and raw MPV identifiers live only in
+Advanced Outputs.
+
+The complete reusable contract is
+[`settings-ui.md`](settings-ui.md). The canonical Audio root owns Output Device,
+Software Volume, Maximum Software Volume when effective, Channels, Balance,
+Sound Processing, Parametric EQ, Parametric EQ Bands, Headroom, and Advanced.
+Fixed output always uses the canonical explicit confirmation. Device
+preferences use a right-side checkmark; runtime activation uses a pill.
+Parametric EQ uses a sticky response graph and six touch-sized editable bands.
+Bands 1 and 6 default to low- and high-shelving filters and expose a
+`Shelving / Bell` field; the four middle bands remain bell filters. New
+profiles default both Sound Processing and Parametric EQ to `Bypass`, while a
+persisted explicit choice remains authoritative.
+The graph fills the response area to the neutral axis, reports the
+authoritative headroom compensation in plain text, and lets touch users drag a
+band point for frequency and gain without changing Q. Bypassed descendants
+remain subdued and editable without redundant `Bypassed` pills. Fixed Software
+Volume hides the volume trigger from both Default and Cassette main players.
+Audio also provides an inline `Gain Compensation — On / Off` control: On maps
+to automatic headroom and Off maps to Headroom Off; the Headroom subpage keeps
+Auto, Manual, and Off for detailed control.
+Advanced exposes a read-only signal path even when Eidetic processing is
+bypassed. Selection, refresh, success, and error outcomes use the shared toast.
 
 The optional global inactivity timer returns to Now Playing without changing
 playback. It closes transient overlays and is suspended for every route in the

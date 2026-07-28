@@ -289,6 +289,20 @@ export class PlayerService implements AudioOutputMpvAdapter {
     await this.requireController().setProperty("audio-device", deviceId);
   }
 
+  commandMpv(command: readonly unknown[]): Promise<unknown> {
+    return this.requireController().command(command);
+  }
+
+  async pauseForAudioPolicy(): Promise<void> {
+    const controller = this.requireController();
+    await controller.setProperty("pause", true);
+    this.commandIntents.observePaused(true);
+    this.update({
+      paused: true,
+      status: this.state.currentTrack ? "paused" : this.state.status,
+    });
+  }
+
   subscribeAudioOutputProperties(
     listener: (name: AudioOutputPropertyName, value: unknown) => void,
   ): () => void {

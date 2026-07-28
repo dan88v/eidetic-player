@@ -41,6 +41,17 @@ future Raspberry shell.
   output state, `current-ao` diagnostics, rollback, and its versioned preference
   repository. It uses the persistent `PlayerService` MPV adapter and never owns
   a second MPV process. On Linux Appliance only, bootstrap waits up to exactly
+  five seconds for the initial MPV enumeration before continuing safely.
+- Audio output canonicalization groups only routes with concrete hardware
+  evidence (for example GPIO/I2S DAC, HDMI, or analog). `System default` stays
+  first, route choice remains explicit when a physical output has multiple
+  routes, and the raw MPV list remains available under Advanced outputs.
+- `AudioProcessingService` owns Fixed/Variable level policy and persisted DSP
+  preferences. `dsp-config.ts` computes the TypeScript EQ response/headroom
+  graph, while `MpvDspFilterAdapter` serializes one labelled
+  `@eidetic-dsp` chain, preserves foreign MPV filters, coalesces stale
+  generations, and rolls back its own chain on failure. It never starts MPV
+  or external FFmpeg.
   five seconds for the first valid raw `audio-device-list` observation before
   applying the preference and restoring the player session. The wait is
   event-driven: an empty raw array is ready, malformed values do not complete

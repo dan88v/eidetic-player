@@ -98,8 +98,8 @@ void test("touch ownership stays local and global listeners remain passive", () 
   const combinedCss = [base, layout, components, screens].join("\n");
   assert.equal(
     (combinedCss.match(/touch-action:\s*none;/g) ?? []).length,
-    6,
-    "only the two timelines, volume, two reorder handles and Linux fallback own gestures",
+    7,
+    "only the two timelines, volume, two reorder handles, EQ graph and Linux fallback own gestures",
   );
   for (const [source, selector] of [
     [components, ".mini-player__timeline"],
@@ -107,6 +107,7 @@ void test("touch ownership stays local and global listeners remain passive", () 
     [components, ".volume-slider"],
     [screens, ".timeline__slider"],
     [screens, ".playlist-track__handle"],
+    [screens, ".parametric-eq-graph__canvas"],
   ] as const)
     assert.match(declarationBlock(source, selector), /touch-action: none;/);
 
@@ -134,6 +135,7 @@ void test("captured gesture owners release pointer cancellation", () => {
     "apps/ui/src/components/mini-player.ts",
     "apps/ui/src/components/volume-popover.ts",
     "apps/ui/src/components/queue-drawer.ts",
+    "apps/ui/src/components/parametric-eq-editor.ts",
     "apps/ui/src/screens/playlists.ts",
   ])
     assert.match(

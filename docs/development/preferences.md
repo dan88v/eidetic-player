@@ -13,17 +13,25 @@ Neither path is inside an installed release, `current`, or `previous`.
 Installer updates, release rollback, and ordinary uninstall preserve it.
 Only the existing strongly confirmed purge-data flow removes the config root.
 
-The file does not contain Audio Output selection, SMB records or credentials,
+The file does not contain the selected physical Audio Output route, SMB records or credentials,
 Library/Favorites/Recently Played/Playlist data, Queue, current media, media
 paths, or player-session state. Those stores retain their existing owners.
 
 ## Schema and writes
 
-Schema version 1 contains a monotonic revision, the closed set of UI
-preferences, and the legacy-import state. Each known field is validated
+Schema version 2 contains a monotonic revision, the original 18 UI
+preferences, the typed audio level/DSP preferences, and the legacy-import
+state. Schema 1 migrates in memory to schema 2 and is committed only on the
+next legitimate write. Each known field is validated
 independently. An invalid known value falls back only in memory; unknown
 top-level, migration, and preference fields are preserved on an unrelated
 patch.
+
+For a new or reset profile, `audioProcessingEnabled` and `equalizerEnabled`
+default to `false` (the two Settings pills read `Bypass`). Persisted values are
+not overwritten. Equalizer bands 1 and 6 resolve to low- and high-shelf when
+an older schema-v2 record has no filter type; new records store those shelf
+types explicitly, while selecting Bell stores `peaking`.
 
 Writes are serialized and use a same-directory private temporary file, file
 `fsync`, atomic rename, and parent-directory `fsync` on POSIX. The previous
@@ -36,6 +44,12 @@ store is degraded and read-only; the original files remain untouched.
 `POST /api/preferences/migrate-legacy` expose only the typed snapshot and
 known preference fields. PATCH uses optimistic revision checks. It never
 returns a filesystem path or raw invalid data.
+
+Audio processing fields are written through
+`PATCH /api/audio-processing/settings`, which applies the MPV policy and
+labelled filter chain as one serialized operation. The generic preferences
+PATCH rejects those fields so persistence cannot bypass Fixed-output safety
+or runtime DSP application.
 
 ## Bootstrap and saving
 
@@ -53,10 +67,15 @@ dirty values and shows one warning:
 
 `Settings could not be saved. They will be retried.`
 
-Volume remains immediate through PlayerService while its preference write is
+Variable volume remains immediate through PlayerService while its preference write is
 debounced and flushed at gesture commit. Preferences also flush on Power
 actions, `pagehide`, hidden visibility, app teardown, and test teardown. Flush
 waits are bounded and never hold Quit indefinitely.
+
+Fixed output pauses playback, forces MPV volume to 100 and mute off, and
+rejects ordinary volume/mute commands with a typed conflict. Returning to
+Variable restores `lastVariableVolume`, clamped by
+`maximumSoftwareVolume`, without restoring a hidden mute state.
 
 ## Legacy migration and rollback
 

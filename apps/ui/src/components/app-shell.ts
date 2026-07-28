@@ -77,6 +77,7 @@ import { createPlaylistPicker } from "./playlist-picker";
 import { createRemovableDevicePicker } from "./removable-device-picker";
 import { createPowerMenu } from "./power-menu";
 import type { PreferencesController } from "../state/preferences-controller";
+import type { AudioProcessingState } from "../../../../packages/shared/src/audio-processing";
 
 export interface MountedApp {
   destroy(): void;
@@ -282,6 +283,30 @@ export function mountApp(
       runIntent("mute", metadata, api.mute(muted, metadata));
     },
   });
+  let latestAudioProcessingState: AudioProcessingState | null = null;
+  const applyAudioLevelPolicy = (state: AudioProcessingState): void => {
+    latestAudioProcessingState = state;
+    const locked = state.preferences.outputLevelMode === "fixed";
+    root.dataset.audioLevelMode = state.preferences.outputLevelMode;
+    volumePopover.setPolicy(locked, state.preferences.maximumSoftwareVolume);
+    for (const trigger of root.querySelectorAll<HTMLButtonElement>(
+      '[data-control="volume"]',
+    )) {
+      trigger.hidden = locked;
+      trigger.disabled = locked;
+      trigger.setAttribute("aria-disabled", String(locked));
+    }
+    if (locked) store.setVolumeOpen(false);
+  };
+  const onAudioProcessing = (event: Event): void => {
+    const detail = (event as CustomEvent<AudioProcessingState>).detail;
+    applyAudioLevelPolicy(detail);
+  };
+  window.addEventListener("eidetic-audio-processing", onAudioProcessing);
+  void audioOutputApi
+    .processingState()
+    .then(applyAudioLevelPolicy)
+    .catch(() => undefined);
   const contentShell = document.createElement("div");
   contentShell.className = "content-shell";
   const screenRegion = document.createElement("main");
@@ -663,6 +688,8 @@ export function mountApp(
     });
     if (screen === "library") pendingLibraryEntity = null;
     screenRegion.replaceChildren(currentScreen.element);
+    if (latestAudioProcessingState)
+      applyAudioLevelPolicy(latestAudioProcessingState);
     sideMenu.setActiveScreen(screen);
     if (import.meta.env.DEV && screen === "nowPlaying")
       queueMicrotask(() => {
@@ -849,6 +876,7 @@ export function mountApp(
   const receiveAudioOutputState = (snapshot: AudioOutputState): void => {
     if (appDestroyed || snapshot.revision < audioOutputState.revision) return;
     audioOutputState = snapshot;
+    topBar.updateAudioOutput(snapshot);
     currentScreen?.updateAudioOutputState?.(snapshot);
     if (snapshot.noticeRevision > lastAudioOutputNoticeRevision) {
       lastAudioOutputNoticeRevision = snapshot.noticeRevision;
@@ -859,6 +887,7 @@ export function mountApp(
         );
     }
   };
+  topBar.updateAudioOutput(audioOutputState);
   const receiveSmbSnapshot = (snapshot: SmbSnapshot): void => {
     if (appDestroyed || snapshot.revision < smbSnapshot.revision) return;
     const previouslyReadable = new Set(
@@ -1109,6 +1138,7 @@ export function mountApp(
       keyboardAdapter.destroy();
       screenTouchScroller.destroy();
       preferencesController?.destroy();
+      window.removeEventListener("eidetic-audio-processing", onAudioProcessing);
       window.clearTimeout(inactivityTimer);
       window.clearTimeout(pointerTimer);
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])

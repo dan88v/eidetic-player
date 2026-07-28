@@ -65,6 +65,8 @@ See [touch UI and seamless rendering](docs/development/ui-ux.md).
 
 - Every new page must name and reuse its canonical surface for the header,
   introductory row, list or grid, dialog, menu, and empty state.
+- Before every Settings panel change, read and follow
+  [`docs/development/settings-ui.md`](docs/development/settings-ui.md).
 - Validate the real application visually at 1280 x 800 and its relevant
   responsive viewports; source review and automated tests alone are not a
   visual PASS.

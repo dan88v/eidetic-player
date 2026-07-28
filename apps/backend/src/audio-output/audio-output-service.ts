@@ -1,11 +1,13 @@
 import {
   audioOutputDevicesEqual,
+  canonicalizeAudioOutputs,
   defaultAudioOutputPreference,
   disconnectedAudioOutputState,
   isAudioOutputDeviceId,
   normalizeAudioOutputDescription,
   normalizeMpvCurrentAo,
   normalizeMpvAudioOutputDevices,
+  physicalOutputIdForRoute,
   systemDefaultAudioOutputDevice,
   type AudioOutputDevice,
   type AudioOutputInitialEnumerationStatus,
@@ -553,8 +555,14 @@ export class AudioOutputService {
       ...this.state,
       ...patch,
     };
+    const canonicalOutputs = canonicalizeAudioOutputs(merged.devices);
     const next = {
       ...merged,
+      canonicalOutputs,
+      selectedPhysicalOutputId: physicalOutputIdForRoute(
+        canonicalOutputs,
+        merged.preferredDevice.deviceId,
+      ),
       diagnostics: {
         ...merged.diagnostics,
         normalizedDeviceCount: merged.devices.length,

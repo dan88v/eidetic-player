@@ -1,4 +1,9 @@
 import { icon } from "../components/icons";
+import { createConfirmationDialog } from "../components/confirmation-dialog";
+import {
+  createParametricEqEditor,
+  type ParametricEqEditor,
+} from "../components/parametric-eq-editor";
 import { createSegmentedControl } from "../components/segmented-control";
 import type { ComponentView } from "../components/types";
 import { t } from "../i18n";
@@ -16,8 +21,17 @@ import type { SystemCapabilities } from "../../../../packages/shared/src/system"
 import type {
   AudioOutputDevice,
   AudioOutputState,
+  CanonicalAudioOutput,
 } from "../../../../packages/shared/src/audio-output";
 import type { AudioOutputApiClient } from "../api/audio-output-api-client";
+import {
+  disconnectedAudioProcessingState,
+  maximumSoftwareVolumeChoices,
+  type AudioChannelMode,
+  type AudioProcessingPatch,
+  type AudioProcessingState,
+  type EqualizerBand,
+} from "../../../../packages/shared/src/audio-processing";
 import {
   createNetworkSettingsPanel,
   networkSummary,
@@ -64,6 +78,13 @@ type SettingsPage =
   | "network"
   | "audio"
   | "audio-output"
+  | "audio-output-routes"
+  | "audio-output-advanced"
+  | "audio-maximum-volume"
+  | "audio-channels"
+  | "audio-equalizer"
+  | "audio-headroom"
+  | "audio-advanced"
   | "keyboard"
   | "browsing"
   | "visualizer"
@@ -84,12 +105,28 @@ export function createSettingsScreen(
   let onScreenKeyboard = options.onScreenKeyboardMode;
   let networkSnapshot = options.networkSnapshot;
   let audioOutputState = options.audioOutputState;
+  let audioProcessingState: AudioProcessingState =
+    disconnectedAudioProcessingState;
+  let selectedPhysicalOutput: CanonicalAudioOutput | null = null;
+  let selectedEqualizerBand = 0;
+  let audioProcessingBusy = false;
+  let pendingAudioRouteId: string | null = null;
+  let pendingPhysicalOutputId: string | null = null;
   let networkPanel: NetworkSettingsPanel | null = null;
+  let parametricEqEditor: ParametricEqEditor | null = null;
   let audioSelectionBusy = false;
   let audioRefreshBusy = false;
+  const confirmationDialog = createConfirmationDialog();
 
   const chevron = (): string =>
     `<span class="settings-chevron" aria-hidden="true">${icon("chevronRight")}</span>`;
+
+  const resetSettingsScroll = (): void => {
+    queueMicrotask(() => {
+      const scrollRegion = section.closest<HTMLElement>(".screen-region");
+      if (scrollRegion) scrollRegion.scrollTop = 0;
+    });
+  };
 
   const navigateBack = (): void => {
     if (
@@ -97,10 +134,21 @@ export function createSettingsScreen(
       networkPanel?.requestLeave(() => {
         page = "root";
         render();
+        resetSettingsScroll();
       })
     )
       return;
-    if (page === "audio-output") page = "audio";
+    if (
+      page === "audio-output" ||
+      page === "audio-maximum-volume" ||
+      page === "audio-channels" ||
+      page === "audio-equalizer" ||
+      page === "audio-headroom" ||
+      page === "audio-advanced"
+    )
+      page = "audio";
+    else if (page === "audio-output-routes" || page === "audio-output-advanced")
+      page = "audio-output";
     else
       page =
         page === "interface" ||
@@ -110,6 +158,44 @@ export function createSettingsScreen(
           ? "root"
           : "interface";
     render();
+    resetSettingsScroll();
+  };
+
+  const patchAudioProcessing = (
+    patch: AudioProcessingPatch,
+    successMessage?: string,
+    returnPage?: SettingsPage,
+  ): void => {
+    if (audioProcessingBusy) return;
+    audioProcessingBusy = true;
+    render();
+    void options.audioOutputApi
+      .patchProcessing(patch)
+      .then((result) => {
+        audioProcessingState = result.state;
+        window.dispatchEvent(
+          new CustomEvent("eidetic-audio-processing", {
+            detail: result.state,
+          }),
+        );
+        if (successMessage) options.showToast(successMessage, "success");
+        if (returnPage) {
+          page = returnPage;
+          resetSettingsScroll();
+        }
+      })
+      .catch((error: unknown) => {
+        options.showToast(
+          error instanceof Error
+            ? error.message
+            : "Audio settings could not be changed.",
+          "error",
+        );
+      })
+      .finally(() => {
+        audioProcessingBusy = false;
+        render();
+      });
   };
 
   const selectionRow = (
@@ -126,34 +212,51 @@ export function createSettingsScreen(
       render();
       page = "interface";
       render();
+      resetSettingsScroll();
     });
     return button;
   };
 
-  const audioDeviceDescription = (deviceId: string): string =>
-    audioOutputState.devices.find((device) => device.id === deviceId)
-      ?.description ?? (deviceId === "auto" ? "System default" : deviceId);
+  const statePill = (
+    label: string,
+    tone: "active" | "pending" | "muted" = "muted",
+  ): HTMLSpanElement => {
+    const pill = document.createElement("span");
+    pill.className = `settings-state-pill settings-state-pill--${tone}`;
+    pill.textContent = label;
+    return pill;
+  };
 
-  const audioStatusText = (): string => {
-    switch (audioOutputState.status) {
-      case "mpv-unavailable":
-        return "MPV unavailable. Audio outputs cannot be changed.";
-      case "preferred-unavailable":
-        return "Preferred output unavailable. Using System default.";
-      case "pending-playback":
-        return audioOutputState.preferredDevice.deviceId ===
-          audioOutputState.effectiveDeviceId
-          ? "Will be used on next playback."
-          : `Will be used on next playback. Using ${audioDeviceDescription(audioOutputState.effectiveDeviceId)}.`;
-      case "switching":
-        return "Changing audio output…";
-      case "error":
-        return "The preferred output could not be applied.";
-      case "system-default":
-        return "Using System default.";
-      case "active":
-        return `In use: ${audioDeviceDescription(audioOutputState.effectiveDeviceId)}.`;
-    }
+  const selectAudioRoute = (
+    device: AudioOutputDevice,
+    physicalOutputId: string | null,
+  ): void => {
+    if (audioSelectionBusy) return;
+    audioSelectionBusy = true;
+    pendingAudioRouteId = device.id;
+    pendingPhysicalOutputId = physicalOutputId;
+    render();
+    void options.audioOutputApi
+      .select(device.id)
+      .then(() => options.audioOutputApi.state())
+      .then((state) => {
+        audioOutputState = state;
+        options.showToast(
+          device.id === "auto"
+            ? "Using System default."
+            : "Audio output selected.",
+          "success",
+        );
+      })
+      .catch(() => {
+        options.showToast("Audio output could not be changed.", "error");
+      })
+      .finally(() => {
+        audioSelectionBusy = false;
+        pendingAudioRouteId = null;
+        pendingPhysicalOutputId = null;
+        render();
+      });
   };
 
   const audioDeviceRow = (
@@ -172,28 +275,22 @@ export function createSettingsScreen(
     copy.append(description, identifier);
     const indicators = document.createElement("span");
     indicators.className = "audio-output-row__indicators";
-    if (audioOutputState.preferredDevice.deviceId === device.id) {
-      const preferred = document.createElement("span");
-      preferred.className = "audio-output-badge audio-output-badge--preferred";
-      preferred.textContent = "✓ Preferred";
-      indicators.append(preferred);
-    }
-    if (audioOutputState.effectiveDeviceId === device.id) {
-      if (indicators.childElementCount > 0)
-        indicators.append(document.createTextNode(" "));
-      const effective = document.createElement("span");
-      effective.className = "audio-output-badge";
-      effective.textContent = "In use";
-      indicators.append(effective);
-    }
-    if (unavailable) {
-      if (indicators.childElementCount > 0)
-        indicators.append(document.createTextNode(" "));
-      const status = document.createElement("span");
-      status.className = "audio-output-badge audio-output-badge--unavailable";
-      status.textContent = "Unavailable";
-      indicators.append(status);
-    }
+    const selected =
+      pendingAudioRouteId === device.id ||
+      (pendingAudioRouteId === null &&
+        audioOutputState.preferredDevice.deviceId === device.id);
+    if (pendingAudioRouteId === device.id)
+      indicators.append(statePill("Activating", "pending"));
+    else if (unavailable) indicators.append(statePill("Unavailable"));
+    else if (audioOutputState.effectiveDeviceId === device.id)
+      indicators.append(statePill("In use", "active"));
+    else if (selected && audioOutputState.status === "pending-playback")
+      indicators.append(statePill("On next playback", "pending"));
+    const check = document.createElement("span");
+    check.className = "setting-choice__check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = selected ? "✓" : "";
+    indicators.append(check);
     row.append(copy, indicators);
     const disabled =
       unavailable ||
@@ -201,41 +298,133 @@ export function createSettingsScreen(
       audioSelectionBusy ||
       audioOutputState.switching;
     row.disabled = disabled;
-    row.setAttribute(
-      "aria-pressed",
-      String(audioOutputState.preferredDevice.deviceId === device.id),
-    );
+    row.setAttribute("aria-pressed", String(selected));
     if (!disabled) {
       row.addEventListener("click", () => {
-        if (audioSelectionBusy) return;
-        const selection = options.audioOutputApi.select(device.id);
-        audioSelectionBusy = true;
-        render();
-        void selection
-          .then((result) => {
-            if (!result.changed) return;
-            options.showToast(
-              device.id === "auto"
-                ? "Using System default."
-                : "Audio output changed.",
-              "success",
-            );
-          })
-          .catch(() => {
-            options.showToast("Audio output could not be changed.", "error");
-          })
-          .finally(() => {
-            audioSelectionBusy = false;
-            render();
-          });
+        selectAudioRoute(device, selectedPhysicalOutput?.id ?? null);
       });
     }
+    return row;
+  };
+
+  const navigationRow = (
+    label: string,
+    summary: string,
+    target: SettingsPage,
+  ): HTMLButtonElement => {
+    const row = document.createElement("button");
+    row.className = "settings-row-base setting-navigation";
+    row.type = "button";
+    const copy = document.createElement("span");
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    const small = document.createElement("small");
+    small.textContent = summary;
+    copy.append(strong, small);
+    row.innerHTML = "";
+    row.append(copy);
+    row.insertAdjacentHTML("beforeend", chevron());
+    row.addEventListener("click", () => {
+      page = target;
+      render();
+      resetSettingsScroll();
+    });
+    return row;
+  };
+
+  const channelModeLabel = (mode: AudioChannelMode): string => {
+    const labels: Record<AudioChannelMode, string> = {
+      stereo: "Stereo",
+      mono: "Mono",
+      "left-to-both": "Left to both",
+      "right-to-both": "Right to both",
+      swap: "Swap left / right",
+    };
+    return labels[mode];
+  };
+
+  const balanceLabel = (balance: number): string =>
+    balance === 0
+      ? "Center"
+      : `${balance < 0 ? "L" : "R"} +${String(Math.abs(balance))}`;
+
+  const segmentedSettingRow = <Value extends string>(optionsForRow: {
+    readonly label: string;
+    readonly description: string;
+    readonly value: Value;
+    readonly items: readonly {
+      readonly value: Value;
+      readonly label: string;
+    }[];
+    readonly bypassed?: boolean;
+    readonly onChange: (
+      value: Value,
+      control: ReturnType<typeof createSegmentedControl<Value>>,
+    ) => void;
+  }): HTMLDivElement => {
+    const row = document.createElement("div");
+    row.className = "settings-row-base setting-row";
+    row.classList.toggle(
+      "setting-row--bypassed",
+      optionsForRow.bypassed === true,
+    );
+    const copy = document.createElement("span");
+    copy.className = "setting-row__copy";
+    const label = document.createElement("span");
+    label.className = "setting-row__label";
+    label.textContent = optionsForRow.label;
+    const description = document.createElement("span");
+    description.className = "setting-row__description";
+    description.textContent = optionsForRow.description;
+    copy.append(label, description);
+    const control = createSegmentedControl<Value>({
+      label: optionsForRow.label,
+      value: optionsForRow.value,
+      items: optionsForRow.items,
+      onChange: (value) => {
+        optionsForRow.onChange(value, control);
+      },
+    });
+    control.element.classList.add("segmented-control--compact");
+    row.append(copy, control.element);
+    return row;
+  };
+
+  const processingChoice = (
+    label: string,
+    selected: boolean,
+    changes: AudioProcessingPatch["changes"],
+    optionsForChoice: {
+      confirmFixedOutput?: boolean;
+      returnPage?: SettingsPage;
+    } = {},
+  ): HTMLButtonElement => {
+    const row = document.createElement("button");
+    row.className = "settings-row-base setting-choice";
+    row.type = "button";
+    row.disabled = audioProcessingBusy;
+    row.innerHTML = `<span>${label}</span><span class="setting-choice__check" aria-hidden="true">${selected ? "✓" : ""}</span>`;
+    row.addEventListener("click", () => {
+      patchAudioProcessing(
+        {
+          changes,
+          ...(optionsForChoice.confirmFixedOutput
+            ? { confirmFixedOutput: true }
+            : {}),
+        },
+        undefined,
+        optionsForChoice.returnPage,
+      );
+    });
     return row;
   };
 
   function render(): void {
     networkPanel?.destroy();
     networkPanel = null;
+    parametricEqEditor?.destroy();
+    parametricEqEditor = null;
+    confirmationDialog.close();
     section.dataset.settingsPage = page;
     section.replaceChildren();
     if (page === "network") {
@@ -266,49 +455,79 @@ export function createSettingsScreen(
     }
     const header = document.createElement("header");
     header.className = "screen-header screen-header--compact";
+    const audioPageCopy: Partial<
+      Record<SettingsPage, { title: string; description: string }>
+    > = {
+      audio: {
+        title: "Audio",
+        description: "Manage audio playback, output, and sound processing.",
+      },
+      "audio-output": {
+        title: "Output Device",
+        description: "Choose the physical audio output.",
+      },
+      "audio-output-routes": {
+        title: "Output routes",
+        description: "Choose an explicit route for this physical output.",
+      },
+      "audio-output-advanced": {
+        title: "Advanced outputs",
+        description:
+          "Raw MPV output routes for diagnostics and manual selection.",
+      },
+      "audio-maximum-volume": {
+        title: "Maximum Software Volume",
+        description: "Limit the highest software-controlled listening level.",
+      },
+      "audio-channels": {
+        title: "Channels",
+        description: "Choose how the source channels reach the output.",
+      },
+      "audio-equalizer": {
+        title: "Parametric EQ Bands",
+        description: "Shape six touch-adjustable parametric bands.",
+      },
+      "audio-headroom": {
+        title: "Headroom",
+        description: "Control gain protection before the audio output.",
+      },
+      "audio-advanced": {
+        title: "Advanced",
+        description: "Inspect the effective audio signal path.",
+      },
+    };
+    const audioCopy = audioPageCopy[page];
     const title =
-      page === "root"
+      audioCopy?.title ??
+      (page === "root"
         ? t("screen.settings.title")
         : page === "interface"
           ? t("settings.interface")
-          : page === "audio"
-            ? "Audio"
-            : page === "audio-output"
-              ? "Output"
-              : page === "system"
-                ? "System"
-                : page === "keyboard"
-                  ? t("settings.onScreenKeyboard")
-                  : page === "browsing"
-                    ? t("settings.musicBrowsing")
-                    : page === "visualizer"
-                      ? t("settings.visualizer")
-                      : t("settings.returnToNowPlaying");
+          : page === "system"
+            ? "System"
+            : page === "keyboard"
+              ? t("settings.onScreenKeyboard")
+              : page === "browsing"
+                ? t("settings.musicBrowsing")
+                : page === "visualizer"
+                  ? t("settings.visualizer")
+                  : t("settings.returnToNowPlaying"));
     const description =
-      page === "root"
+      audioCopy?.description ??
+      (page === "root"
         ? t("screen.settings.description")
         : page === "interface"
           ? t("settings.interfaceDescription")
-          : page === "audio"
-            ? "Manage audio playback and output."
-            : page === "audio-output"
-              ? "Choose where Eidetic Player plays audio."
-              : page === "system"
-                ? "Appliance maintenance and local recovery."
-                : page === "keyboard"
-                  ? t("settings.onScreenKeyboardDescription")
-                  : page === "browsing"
-                    ? t("settings.musicBrowsingDescription")
-                    : page === "visualizer"
-                      ? t("settings.visualizerDescription")
-                      : t("settings.returnToNowPlayingDescription");
-    options.setScreenTitle(
-      page === "audio"
-        ? "Audio"
-        : page === "audio-output"
-          ? "Output"
-          : t("screen.settings.title"),
-    );
+          : page === "system"
+            ? "Appliance maintenance and local recovery."
+            : page === "keyboard"
+              ? t("settings.onScreenKeyboardDescription")
+              : page === "browsing"
+                ? t("settings.musicBrowsingDescription")
+                : page === "visualizer"
+                  ? t("settings.visualizerDescription")
+                  : t("settings.returnToNowPlayingDescription"));
+    options.setScreenTitle(audioCopy?.title ?? t("screen.settings.title"));
     header.setAttribute("aria-label", title);
     header.innerHTML = `<p class="screen-header__description">${description}</p>`;
     if (page !== "root") {
@@ -362,6 +581,7 @@ export function createSettingsScreen(
       interfaceButton.addEventListener("click", () => {
         page = "interface";
         render();
+        resetSettingsScroll();
       });
       const audioButton = document.createElement("button");
       audioButton.className =
@@ -381,6 +601,7 @@ export function createSettingsScreen(
       audioButton.addEventListener("click", () => {
         page = "audio";
         render();
+        resetSettingsScroll();
       });
       const networkButton = document.createElement("button");
       networkButton.className = "settings-row-base setting-navigation";
@@ -391,6 +612,7 @@ export function createSettingsScreen(
       networkButton.addEventListener("click", () => {
         page = "network";
         render();
+        resetSettingsScroll();
       });
       panel.append(interfaceButton, audioButton, networkButton);
       if (options.systemCapabilities.maintenanceMode) {
@@ -401,6 +623,7 @@ export function createSettingsScreen(
         systemButton.addEventListener("click", () => {
           page = "system";
           render();
+          resetSettingsScroll();
         });
         panel.append(systemButton);
       }
@@ -414,7 +637,7 @@ export function createSettingsScreen(
       outputButton.type = "button";
       const outputCopy = document.createElement("span");
       const outputTitle = document.createElement("strong");
-      outputTitle.textContent = "Output";
+      outputTitle.textContent = "Output Device";
       const outputDetails = document.createElement("small");
       outputDetails.className = "audio-output-navigation__summary";
       outputDetails.textContent =
@@ -430,41 +653,466 @@ export function createSettingsScreen(
       outputButton.addEventListener("click", () => {
         page = "audio-output";
         render();
+        resetSettingsScroll();
       });
-      panel.append(outputButton);
+      const processing = audioProcessingState.preferences;
+      const softwareVolume = segmentedSettingRow<"variable" | "fixed">({
+        label: "Software Volume",
+        description:
+          processing.outputLevelMode === "fixed"
+            ? "Locked at 100%. Control listening level with an external amplifier."
+            : "Control listening level in Eidetic Player.",
+        value: processing.outputLevelMode,
+        items: [
+          { value: "variable", label: "Variable" },
+          { value: "fixed", label: "Fixed 100%" },
+        ],
+        onChange: (value, control) => {
+          if (value === processing.outputLevelMode) return;
+          if (value === "variable") {
+            patchAudioProcessing(
+              { changes: { outputLevelMode: "variable" } },
+              "Variable software volume enabled.",
+            );
+            return;
+          }
+          control.setValue(processing.outputLevelMode);
+          section.append(
+            confirmationDialog.backdrop,
+            confirmationDialog.element,
+          );
+          confirmationDialog.open({
+            title: "Enable fixed output?",
+            description:
+              "Playback will pause. Software volume and mute will be disabled and output will be fixed at 100%. Control listening level with an external amplifier.",
+            confirmLabel: "Enable Fixed",
+            returnFocus:
+              softwareVolume.querySelector<HTMLButtonElement>(
+                '[data-value="fixed"]',
+              ) ?? softwareVolume,
+            onConfirm: () => {
+              patchAudioProcessing(
+                {
+                  changes: { outputLevelMode: "fixed" },
+                  confirmFixedOutput: true,
+                },
+                "Fixed output enabled. Playback remains paused.",
+              );
+            },
+          });
+        },
+      });
+      const channels = navigationRow(
+        "Channels",
+        channelModeLabel(processing.channelMode),
+        "audio-channels",
+      );
+      if (!processing.audioProcessingEnabled)
+        channels.classList.add("setting-row--bypassed");
+      const balance = document.createElement("label");
+      balance.className = "settings-row-base setting-row balance-setting";
+      balance.classList.toggle(
+        "setting-row--bypassed",
+        processing.channelMode !== "stereo" ||
+          !processing.audioProcessingEnabled,
+      );
+      const balanceCopy = document.createElement("span");
+      balanceCopy.className = "setting-row__copy";
+      const balanceTitle = document.createElement("span");
+      balanceTitle.className = "setting-row__label";
+      balanceTitle.textContent = "Balance";
+      const balanceValue = document.createElement("span");
+      balanceValue.className =
+        "setting-row__description balance-setting__value";
+      balanceValue.textContent =
+        processing.channelMode === "stereo"
+          ? balanceLabel(processing.balanceDb)
+          : "Available in Stereo";
+      balanceCopy.append(balanceTitle, balanceValue);
+      const balanceSlider = document.createElement("span");
+      balanceSlider.className = "balance-slider";
+      const centerMark = document.createElement("span");
+      centerMark.className = "balance-slider__center";
+      centerMark.setAttribute("aria-hidden", "true");
+      const balanceInput = document.createElement("input");
+      balanceInput.type = "range";
+      balanceInput.min = "-12";
+      balanceInput.max = "12";
+      balanceInput.step = "1";
+      balanceInput.value = String(Math.round(processing.balanceDb));
+      balanceInput.disabled =
+        processing.channelMode !== "stereo" || audioProcessingBusy;
+      balanceInput.setAttribute("aria-label", "Stereo balance");
+      balanceInput.setAttribute(
+        "aria-valuetext",
+        balanceLabel(Number(balanceInput.value)),
+      );
+      balanceInput.addEventListener("input", () => {
+        const label = balanceLabel(Number(balanceInput.value));
+        balanceValue.textContent = label;
+        balanceInput.setAttribute("aria-valuetext", label);
+      });
+      balanceInput.addEventListener("change", () => {
+        patchAudioProcessing({
+          changes: { balanceDb: Number(balanceInput.value) },
+        });
+      });
+      balanceSlider.append(centerMark, balanceInput);
+      balance.append(balanceCopy, balanceSlider);
+      const soundProcessing = segmentedSettingRow<"on" | "bypass">({
+        label: "Sound Processing",
+        description: processing.audioProcessingEnabled
+          ? "Eidetic channel, EQ, and headroom processing is active."
+          : "Settings remain editable and will apply when processing is On.",
+        value: processing.audioProcessingEnabled ? "on" : "bypass",
+        items: [
+          { value: "on", label: "On" },
+          { value: "bypass", label: "Bypass" },
+        ],
+        onChange: (value) => {
+          patchAudioProcessing({
+            changes: { audioProcessingEnabled: value === "on" },
+          });
+        },
+      });
+      const parametricEq = segmentedSettingRow<"on" | "bypass">({
+        label: "Parametric EQ",
+        description: !processing.audioProcessingEnabled
+          ? "Bypassed by Sound Processing; settings remain editable."
+          : processing.equalizerEnabled
+            ? "Six parametric bands are active."
+            : "Bands remain editable and will apply when EQ is On.",
+        value: processing.equalizerEnabled ? "on" : "bypass",
+        items: [
+          { value: "on", label: "On" },
+          { value: "bypass", label: "Bypass" },
+        ],
+        bypassed: !processing.audioProcessingEnabled,
+        onChange: (value) => {
+          patchAudioProcessing({
+            changes: { equalizerEnabled: value === "on" },
+          });
+        },
+      });
+      const eqBands = navigationRow(
+        "Parametric EQ Bands",
+        !processing.audioProcessingEnabled || !processing.equalizerEnabled
+          ? "Six bands · currently bypassed"
+          : audioProcessingState.signalPath.equalizer === "active"
+            ? "Six bands · custom"
+            : "Six bands · flat",
+        "audio-equalizer",
+      );
+      if (!processing.audioProcessingEnabled || !processing.equalizerEnabled)
+        eqBands.classList.add("setting-row--bypassed");
+      const gainCompensation = segmentedSettingRow<"on" | "off">({
+        label: "Gain Compensation",
+        description:
+          processing.headroomMode === "off"
+            ? "Off. Positive EQ gain can clip."
+            : processing.headroomMode === "manual"
+              ? `Manual preamp · ${String(audioProcessingState.signalPath.preampDb)} dB`
+              : `Automatic · ${String(audioProcessingState.signalPath.preampDb)} dB`,
+        value: processing.headroomMode === "off" ? "off" : "on",
+        items: [
+          { value: "on", label: "On" },
+          { value: "off", label: "Off" },
+        ],
+        bypassed:
+          !processing.audioProcessingEnabled || !processing.equalizerEnabled,
+        onChange: (value) => {
+          patchAudioProcessing({
+            changes: { headroomMode: value === "on" ? "auto" : "off" },
+          });
+        },
+      });
+      const headroom = navigationRow(
+        "Headroom",
+        processing.headroomMode === "manual"
+          ? `Manual · ${String(processing.manualPreampDb)} dB`
+          : `${processing.headroomMode.charAt(0).toUpperCase()}${processing.headroomMode.slice(1)}`,
+        "audio-headroom",
+      );
+      if (!processing.audioProcessingEnabled)
+        headroom.classList.add("setting-row--bypassed");
+      panel.append(outputButton, softwareVolume);
+      if (processing.outputLevelMode === "variable")
+        panel.append(
+          navigationRow(
+            "Maximum Software Volume",
+            `${String(processing.maximumSoftwareVolume)}%`,
+            "audio-maximum-volume",
+          ),
+        );
+      panel.append(
+        channels,
+        balance,
+        soundProcessing,
+        parametricEq,
+        eqBands,
+        gainCompensation,
+        headroom,
+        navigationRow(
+          "Advanced",
+          "Signal path and diagnostics",
+          "audio-advanced",
+        ),
+      );
       return;
     }
 
     if (page === "audio-output") {
-      const status = document.createElement("p");
-      status.className = "screen-header__description audio-output-status";
-      status.textContent = audioStatusText();
-      panel.before(status);
-      const orderedDevices = [
-        audioOutputState.devices.find((device) => device.id === "auto") ?? {
-          id: "auto",
-          description: "System default",
-          available: true,
-          systemDefault: true,
-        },
-        ...audioOutputState.devices.filter((device) => device.id !== "auto"),
-      ];
-      for (const device of orderedDevices) panel.append(audioDeviceRow(device));
-      const preferred = audioOutputState.preferredDevice;
-      if (
-        preferred.deviceId !== "auto" &&
-        !orderedDevices.some((device) => device.id === preferred.deviceId)
-      )
+      const devicesLabel = document.createElement("p");
+      devicesLabel.className = "settings-section-label";
+      devicesLabel.textContent = "Devices";
+      panel.append(devicesLabel);
+      for (const output of audioOutputState.canonicalOutputs) {
+        const row = document.createElement("button");
+        row.className = "settings-row-base audio-output-row";
+        row.type = "button";
+        const copy = document.createElement("span");
+        copy.className = "audio-output-row__copy";
+        const name = document.createElement("strong");
+        name.textContent = output.description;
+        const detail = document.createElement("small");
+        detail.textContent =
+          output.routes.length > 1
+            ? `${String(output.routes.length)} available routes`
+            : (output.routes[0]?.description ?? "Unavailable");
+        copy.append(name, detail);
+        const indicators = document.createElement("span");
+        indicators.className = "audio-output-row__indicators";
+        const selected =
+          pendingPhysicalOutputId === output.id ||
+          (pendingPhysicalOutputId === null &&
+            output.id === audioOutputState.selectedPhysicalOutputId);
+        if (pendingPhysicalOutputId === output.id)
+          indicators.append(statePill("Activating", "pending"));
+        else if (!output.available) indicators.append(statePill("Unavailable"));
+        else if (
+          output.routes.some(
+            (route) => route.id === audioOutputState.effectiveDeviceId,
+          )
+        )
+          indicators.append(statePill("In use", "active"));
+        else if (selected && audioOutputState.status === "pending-playback")
+          indicators.append(statePill("On next playback", "pending"));
+        const check = document.createElement("span");
+        check.className = "setting-choice__check";
+        check.setAttribute("aria-hidden", "true");
+        check.textContent = selected ? "✓" : "";
+        indicators.append(check);
+        if (output.routes.length > 1) {
+          const routeChevron = document.createElement("span");
+          routeChevron.className = "settings-chevron";
+          routeChevron.setAttribute("aria-hidden", "true");
+          routeChevron.innerHTML = icon("chevronRight");
+          indicators.append(routeChevron);
+        }
+        row.append(copy, indicators);
+        row.setAttribute("aria-pressed", String(selected));
+        row.disabled =
+          !output.available || audioSelectionBusy || audioOutputState.switching;
+        row.addEventListener("click", () => {
+          selectedPhysicalOutput = output;
+          const route = output.routes[0];
+          if (output.routes.length === 1 && route)
+            selectAudioRoute(
+              {
+                id: route.id,
+                description: route.description,
+                available: route.available,
+              },
+              output.id,
+            );
+          else {
+            page = "audio-output-routes";
+            render();
+            resetSettingsScroll();
+          }
+        });
+        panel.append(row);
+      }
+      const advancedLabel = document.createElement("p");
+      advancedLabel.className =
+        "settings-section-label settings-section-label--separated";
+      advancedLabel.textContent = "Advanced";
+      panel.append(
+        advancedLabel,
+        navigationRow(
+          "Advanced Outputs",
+          "View raw MPV routes",
+          "audio-output-advanced",
+        ),
+      );
+      return;
+    }
+
+    if (page === "audio-output-routes") {
+      const output =
+        selectedPhysicalOutput ??
+        audioOutputState.canonicalOutputs.find(
+          (candidate) =>
+            candidate.id === audioOutputState.selectedPhysicalOutputId,
+        );
+      if (!output) {
+        page = "audio-output";
+        render();
+        resetSettingsScroll();
+        return;
+      }
+      selectedPhysicalOutput = output;
+      for (const route of output.routes)
         panel.append(
-          audioDeviceRow(
-            {
-              id: preferred.deviceId,
-              description: preferred.description,
-              available: false,
-            },
-            true,
+          audioDeviceRow({
+            id: route.id,
+            description: route.description,
+            available: route.available,
+          }),
+        );
+      return;
+    }
+
+    if (page === "audio-output-advanced") {
+      for (const device of audioOutputState.devices)
+        panel.append(audioDeviceRow(device, !device.available));
+      return;
+    }
+
+    if (page === "audio-maximum-volume") {
+      const processing = audioProcessingState.preferences;
+      for (const maximum of maximumSoftwareVolumeChoices)
+        panel.append(
+          processingChoice(
+            `${String(maximum)}%`,
+            processing.maximumSoftwareVolume === maximum,
+            { maximumSoftwareVolume: maximum },
+            { returnPage: "audio" },
           ),
         );
+      return;
+    }
+
+    if (page === "audio-channels") {
+      const processing = audioProcessingState.preferences;
+      const modes: readonly [AudioChannelMode, string][] = [
+        ["stereo", "Stereo"],
+        ["mono", "Mono · normalized dual mono"],
+        ["left-to-both", "Left to both"],
+        ["right-to-both", "Right to both"],
+        ["swap", "Swap left / right"],
+      ];
+      for (const [mode, label] of modes)
+        panel.append(
+          processingChoice(
+            label,
+            processing.channelMode === mode,
+            {
+              channelMode: mode,
+            },
+            { returnPage: "audio" },
+          ),
+        );
+      return;
+    }
+
+    if (page === "audio-headroom") {
+      const processing = audioProcessingState.preferences;
+      for (const mode of ["auto", "manual", "off"] as const)
+        panel.append(
+          processingChoice(
+            `${mode.charAt(0).toUpperCase()}${mode.slice(1)}`,
+            processing.headroomMode === mode,
+            { headroomMode: mode },
+            mode === "manual" ? {} : { returnPage: "audio" },
+          ),
+        );
+      if (processing.headroomMode === "manual") {
+        const manual = document.createElement("label");
+        manual.className = "settings-row-base setting-row audio-range-row";
+        manual.innerHTML = `<span class="setting-row__copy"><strong>Manual Gain</strong><small>${String(processing.manualPreampDb)} dB</small></span>`;
+        const slider = document.createElement("input");
+        slider.type = "range";
+        slider.min = "-12";
+        slider.max = "0";
+        slider.step = "0.5";
+        slider.value = String(processing.manualPreampDb);
+        slider.disabled = audioProcessingBusy;
+        slider.addEventListener("change", () => {
+          patchAudioProcessing({
+            changes: { manualPreampDb: Number(slider.value) },
+          });
+        });
+        manual.append(slider);
+        panel.append(manual);
+      }
+      if (audioProcessingState.signalPath.warning === "positive-gain") {
+        const warning = document.createElement("p");
+        warning.className = "settings-warning";
+        warning.textContent =
+          "Headroom is Off while EQ has positive gain. Clipping is possible.";
+        panel.append(warning);
+      }
+      return;
+    }
+
+    if (page === "audio-equalizer") {
+      panel.remove();
+      const processing = audioProcessingState.preferences;
+      const updateBand = (
+        bandIndex: number,
+        changes: Partial<EqualizerBand>,
+      ): void => {
+        const bands = audioProcessingState.preferences.equalizerBands.map(
+          (candidate, index) =>
+            index === bandIndex ? { ...candidate, ...changes } : candidate,
+        );
+        patchAudioProcessing({ changes: { equalizerBands: bands } });
+      };
+      parametricEqEditor = createParametricEqEditor({
+        bands: processing.equalizerBands,
+        selectedBand: selectedEqualizerBand,
+        bypassed:
+          !processing.audioProcessingEnabled || !processing.equalizerEnabled,
+        busy: audioProcessingBusy,
+        compensationDb: audioProcessingState.signalPath.preampDb,
+        headroomMode: processing.headroomMode,
+        onSelectBand: (index) => {
+          selectedEqualizerBand = index;
+        },
+        onUpdateBand: updateBand,
+      });
+      section.append(parametricEqEditor.element);
+      return;
+    }
+
+    if (page === "audio-advanced") {
+      const path = audioProcessingState.signalPath;
+      const entries = [
+        ["Output Device", audioOutputState.preferredDevice.description],
+        ["Software Volume Mode", path.outputLevel],
+        [
+          "Software volume",
+          path.outputLevel === "fixed"
+            ? "100% · locked"
+            : `${String(path.softwareVolume)}% / ${String(path.maximumSoftwareVolume)}%`,
+        ],
+        ["Eidetic processing", path.processing],
+        ["Channels", path.channels],
+        ["Balance", `${String(path.balanceDb)} dB`],
+        ["Parametric EQ", path.equalizer],
+        ["Headroom", `${path.headroomMode} · ${String(path.preampDb)} dB`],
+        ["Projected peak gain", `${String(path.projectedPeakGainDb)} dB`],
+        ["MPV filter label", path.filterLabel],
+      ] as const;
+      for (const [label, value] of entries) {
+        const row = document.createElement("div");
+        row.className = "settings-row-base setting-row";
+        row.innerHTML = `<span class="setting-row__copy"><strong>${label}</strong><small></small></span>`;
+        const small = row.querySelector("small");
+        if (small) small.textContent = value;
+        panel.append(row);
+      }
       return;
     }
 
@@ -478,31 +1126,26 @@ export function createSettingsScreen(
       action.type = "button";
       action.textContent = "Enter maintenance";
       action.addEventListener("click", () => {
-        const dialog = document.createElement("dialog");
-        dialog.className = "confirmation-dialog";
-        dialog.innerHTML =
-          '<form method="dialog"><h2>Enter maintenance mode?</h2><p>Playback will stop and Eidetic Player will close. Use “Return to Eidetic Player” from the desktop when finished.</p><div class="confirmation-dialog__actions"><button class="button button--secondary" value="cancel">Cancel</button><button class="button button--primary" value="confirm">Continue</button></div></form>';
-        dialog.addEventListener(
-          "close",
-          () => {
-            if (dialog.returnValue === "confirm") {
-              action.disabled = true;
-              void options.enterMaintenanceMode().catch((error: unknown) => {
-                action.disabled = false;
-                options.showToast(
-                  error instanceof Error
-                    ? error.message
-                    : "Maintenance mode is unavailable.",
-                  "error",
-                );
-              });
-            }
-            dialog.remove();
+        section.append(confirmationDialog.backdrop, confirmationDialog.element);
+        confirmationDialog.open({
+          title: "Enter maintenance mode?",
+          description:
+            "Playback will stop and Eidetic Player will close. Use “Return to Eidetic Player” from the desktop when finished.",
+          confirmLabel: "Continue",
+          returnFocus: action,
+          onConfirm: () => {
+            action.disabled = true;
+            void options.enterMaintenanceMode().catch((error: unknown) => {
+              action.disabled = false;
+              options.showToast(
+                error instanceof Error
+                  ? error.message
+                  : "Maintenance mode is unavailable.",
+                "error",
+              );
+            });
           },
-          { once: true },
-        );
-        section.append(dialog);
-        dialog.showModal();
+        });
       });
       row.append(action);
       panel.append(row);
@@ -690,6 +1333,15 @@ export function createSettingsScreen(
     );
   }
 
+  void options.audioOutputApi
+    .processingState()
+    .then((state) => {
+      audioProcessingState = state;
+      if (page.startsWith("audio")) render();
+    })
+    .catch(() => {
+      options.showToast("Audio processing status is unavailable.", "error");
+    });
   render();
   return {
     element: section,
@@ -702,7 +1354,7 @@ export function createSettingsScreen(
     updateAudioOutputState(snapshot) {
       if (snapshot.revision < audioOutputState.revision) return;
       audioOutputState = snapshot;
-      if (page === "audio" || page === "audio-output") render();
+      if (page.startsWith("audio")) render();
     },
     requestLeave(leave) {
       return page === "network"
@@ -711,6 +1363,8 @@ export function createSettingsScreen(
     },
     destroy() {
       networkPanel?.destroy();
+      parametricEqEditor?.destroy();
+      confirmationDialog.destroy();
       options.setHeaderActions(null, null);
       section.replaceChildren();
     },

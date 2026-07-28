@@ -1,4 +1,10 @@
 import type { RepeatMode } from "./player.js";
+import {
+  defaultEqualizerBands,
+  isEqualizerBandForIndex,
+  maximumSoftwareVolumeChoices,
+  type AudioProcessingPreferences,
+} from "./audio-processing.js";
 
 export const uiPreferenceKeys = [
   "animationsEnabled",
@@ -19,11 +25,21 @@ export const uiPreferenceKeys = [
   "favoriteSegment",
   "favoriteAlbumViewMode",
   "onScreenKeyboardMode",
+  "outputLevelMode",
+  "lastVariableVolume",
+  "maximumSoftwareVolume",
+  "audioProcessingEnabled",
+  "channelMode",
+  "balanceDb",
+  "equalizerEnabled",
+  "equalizerBands",
+  "headroomMode",
+  "manualPreampDb",
 ] as const;
 
 export type UiPreferenceKey = (typeof uiPreferenceKeys)[number];
 
-export interface UiPreferences {
+export interface UiPreferences extends AudioProcessingPreferences {
   readonly animationsEnabled: boolean;
   readonly visualizerMode:
     "meter" | "spectrumMono" | "spectrumStereo" | "technical" | "none";
@@ -65,6 +81,16 @@ export const defaultUiPreferences: UiPreferences = Object.freeze({
   favoriteSegment: "tracks",
   favoriteAlbumViewMode: "grid",
   onScreenKeyboardMode: "auto",
+  outputLevelMode: "variable",
+  lastVariableVolume: 100,
+  maximumSoftwareVolume: 100,
+  audioProcessingEnabled: false,
+  channelMode: "stereo",
+  balanceDb: 0,
+  equalizerEnabled: false,
+  equalizerBands: defaultEqualizerBands,
+  headroomMode: "auto",
+  manualPreampDb: 0,
 });
 
 export type PreferencesPersistence =
@@ -74,7 +100,7 @@ export type LegacyPreferencesImport =
   "required" | "imported" | "not-found" | "manual-required" | "manual";
 
 export interface PreferencesSnapshot {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly revision: number;
   readonly preferences: UiPreferences;
   readonly persistence: PreferencesPersistence;
@@ -112,6 +138,8 @@ export function isValidUiPreferenceValue<K extends UiPreferenceKey>(
     case "animationsEnabled":
     case "muted":
     case "shuffleEnabled":
+    case "audioProcessingEnabled":
+    case "equalizerEnabled":
       return typeof value === "boolean";
     case "visualizerMode":
       return isOneOf(value, [
@@ -157,11 +185,48 @@ export function isValidUiPreferenceValue<K extends UiPreferenceKey>(
     case "onScreenKeyboardMode":
       return isOneOf(value, ["auto", "always", "off"]);
     case "volume":
+    case "lastVariableVolume":
       return (
         typeof value === "number" &&
         Number.isFinite(value) &&
         value >= 0 &&
         value <= 100
+      );
+    case "maximumSoftwareVolume":
+      return maximumSoftwareVolumeChoices.includes(
+        value as (typeof maximumSoftwareVolumeChoices)[number],
+      );
+    case "outputLevelMode":
+      return isOneOf(value, ["variable", "fixed"]);
+    case "channelMode":
+      return isOneOf(value, [
+        "stereo",
+        "mono",
+        "left-to-both",
+        "right-to-both",
+        "swap",
+      ]);
+    case "balanceDb":
+      return (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        value >= -12 &&
+        value <= 12
+      );
+    case "equalizerBands":
+      return (
+        Array.isArray(value) &&
+        value.length === 6 &&
+        value.every((band, index) => isEqualizerBandForIndex(band, index))
+      );
+    case "headroomMode":
+      return isOneOf(value, ["auto", "manual", "off"]);
+    case "manualPreampDb":
+      return (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        value >= -12 &&
+        value <= 0
       );
   }
 }

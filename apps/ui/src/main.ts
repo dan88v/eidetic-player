@@ -77,7 +77,7 @@ async function bootstrap(): Promise<void> {
   let systemCapabilities = defaultSystemCapabilities;
   let buildInfo = developmentBuildInfo;
   let preferencesSnapshot: PreferencesSnapshot = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 0,
     preferences: defaultUiPreferences,
     persistence: "degraded",

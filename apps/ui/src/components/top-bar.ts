@@ -2,6 +2,7 @@ import { icon } from "./icons";
 import { t } from "../i18n";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { SmbSnapshot } from "../../../../packages/shared/src/smb";
+import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 
 export interface TopBar {
   readonly element: HTMLElement;
@@ -12,9 +13,17 @@ export interface TopBar {
     more: ((trigger: HTMLButtonElement) => void) | null,
   ): void;
   updateNetwork(snapshot: NetworkSnapshot): void;
+  updateAudioOutput(snapshot: AudioOutputState): void;
   updateSmb(snapshot: SmbSnapshot): void;
   destroy(): void;
 }
+
+interface StatusCopy {
+  readonly summary: string;
+  readonly detail: string;
+}
+
+type StatusKind = "wifi" | "audio" | "smb";
 
 function formatTime(): string {
   return new Intl.DateTimeFormat("en", {
@@ -24,6 +33,55 @@ function formatTime(): string {
   }).format(new Date());
 }
 
+export function wifiStatusCopy(snapshot: NetworkSnapshot): StatusCopy {
+  const network = snapshot.wifi.currentNetwork;
+  const adapter = snapshot.wifiAdapters.find(
+    (candidate) => candidate.connected,
+  );
+  if (!network || !adapter)
+    return {
+      summary: "Wi-Fi · Disconnected",
+      detail:
+        snapshot.operationState === "connecting"
+          ? "Connecting…"
+          : "Not connected to a network",
+    };
+  return {
+    summary: `Wi-Fi · ${network.ssid}`,
+    detail: `${adapter.ipv4Address ?? "No IPv4 address"} · Signal ${String(network.signalPercent)}%`,
+  };
+}
+
+export function audioOutputStatusCopy(snapshot: AudioOutputState): StatusCopy {
+  const output =
+    snapshot.canonicalOutputs.find((candidate) =>
+      candidate.routes.some((route) => route.id === snapshot.effectiveDeviceId),
+    ) ??
+    snapshot.canonicalOutputs.find(
+      (candidate) => candidate.id === snapshot.selectedPhysicalOutputId,
+    );
+  const route = output?.routes.find(
+    (candidate) => candidate.id === snapshot.effectiveDeviceId,
+  );
+  const description =
+    output?.description ?? snapshot.preferredDevice.description;
+  let detail = "System-selected output";
+  if (!snapshot.mpvAvailable) detail = "Audio engine unavailable";
+  else if (snapshot.switching) detail = "Switching output…";
+  else if (route && route.kind !== "system") {
+    const interfaceName =
+      route.kind === "other"
+        ? (route.id.split("/", 1)[0] ?? "audio").toUpperCase()
+        : route.kind.toUpperCase();
+    detail = `${interfaceName} · ${route.description}`;
+  } else if (snapshot.diagnostics.currentAo)
+    detail = `Interface · ${snapshot.diagnostics.currentAo.toUpperCase()}`;
+  return {
+    summary: `Audio · ${description}`,
+    detail,
+  };
+}
+
 export function createTopBar(onMenuToggle: () => void): TopBar {
   const element = document.createElement("header");
   element.className = "top-bar";
@@ -31,13 +89,13 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
     <button class="top-bar__menu icon-button" type="button" aria-label="${t("nav.openMenu")}" aria-expanded="false" aria-controls="side-menu">${icon("menu")}</button>
     <h1 class="top-bar__title"></h1>
     <div class="top-bar__info">
-      <span class="top-bar__system-icons" aria-hidden="true">
-        <span class="top-bar__system-icon" data-network-indicator="wired">${icon("ethernet")}</span>
-        <span class="top-bar__system-icon" data-network-indicator="wifi">${icon("wifi")}</span>
-        <span class="top-bar__system-icon">${icon("usb")}</span>
+      <span class="top-bar__system-icons">
+        <span class="top-bar__system-icon" data-network-indicator="wired" aria-hidden="true" hidden>${icon("ethernet")}</span>
+        <button class="top-bar__system-icon top-bar__system-button" data-status-trigger="wifi" type="button" aria-label="Wi-Fi status" aria-expanded="false" aria-controls="top-bar-status-popover">${icon("wifi")}</button>
+        <button class="top-bar__system-icon top-bar__system-button top-bar__system-icon--active" data-status-trigger="audio" type="button" aria-label="Audio output status" aria-expanded="false" aria-controls="top-bar-status-popover">${icon("usb")}</button>
+        <button class="top-bar__system-icon top-bar__system-button top-bar__smb" data-status-trigger="smb" type="button" aria-label="SMB connection status" aria-expanded="false" aria-controls="top-bar-status-popover" hidden>${icon("sources")}</button>
       </span>
-      <button class="top-bar__smb" type="button" aria-label="SMB connection status" aria-expanded="false" hidden>${icon("sources")}</button>
-      <div class="top-bar__smb-popover" role="status" hidden><strong></strong><span></span></div>
+      <div class="top-bar__status-popover" id="top-bar-status-popover" role="status" hidden><strong></strong><span></span></div>
       <time class="top-bar__clock" aria-label="${t("topBar.clockLabel")}"></time>
     </div>`;
   const menuButton = element.querySelector<HTMLButtonElement>(".top-bar__menu");
@@ -47,26 +105,30 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
   const wiredIndicator = element.querySelector<HTMLElement>(
     '[data-network-indicator="wired"]',
   );
-  const wifiIndicator = element.querySelector<HTMLElement>(
-    '[data-network-indicator="wifi"]',
+  const wifiButton = element.querySelector<HTMLButtonElement>(
+    '[data-status-trigger="wifi"]',
+  );
+  const audioButton = element.querySelector<HTMLButtonElement>(
+    '[data-status-trigger="audio"]',
   );
   const smbButton = element.querySelector<HTMLButtonElement>(".top-bar__smb");
-  const smbPopover = element.querySelector<HTMLElement>(
-    ".top-bar__smb-popover",
+  const statusPopover = element.querySelector<HTMLElement>(
+    ".top-bar__status-popover",
   );
-  const smbSummary = smbPopover?.querySelector<HTMLElement>("strong");
-  const smbDetail = smbPopover?.querySelector<HTMLElement>("span");
+  const statusSummary = statusPopover?.querySelector<HTMLElement>("strong");
+  const statusDetail = statusPopover?.querySelector<HTMLElement>("span");
   if (
     !menuButton ||
     !title ||
     !clock ||
     !info ||
     !wiredIndicator ||
-    !wifiIndicator ||
+    !wifiButton ||
+    !audioButton ||
     !smbButton ||
-    !smbPopover ||
-    !smbSummary ||
-    !smbDetail
+    !statusPopover ||
+    !statusSummary ||
+    !statusDetail
   )
     throw new Error("Top bar is incomplete");
   const moreButton = document.createElement("button");
@@ -90,31 +152,76 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
     else onMenuToggle();
   });
   moreButton.addEventListener("click", () => moreAction?.(moreButton));
-  const closeSmbPopover = (): void => {
-    smbPopover.hidden = true;
-    smbButton.setAttribute("aria-expanded", "false");
+
+  let activeStatus: StatusKind | null = null;
+  const statusCopy: Record<StatusKind, StatusCopy> = {
+    wifi: {
+      summary: "Wi-Fi · Disconnected",
+      detail: "Not connected to a network",
+    },
+    audio: {
+      summary: "Audio · System default",
+      detail: "System-selected output",
+    },
+    smb: { summary: "SMB", detail: "" },
   };
-  smbButton.addEventListener("click", () => {
-    smbPopover.hidden = !smbPopover.hidden;
-    smbButton.setAttribute("aria-expanded", String(!smbPopover.hidden));
-  });
-  const closeSmbOutside = (event: PointerEvent): void => {
+  const renderStatusPopover = (): void => {
+    if (!activeStatus) return;
+    const copy = statusCopy[activeStatus];
+    statusSummary.textContent = copy.summary;
+    statusDetail.textContent = copy.detail;
+    statusDetail.hidden = copy.detail === "";
+  };
+  const closeStatusPopover = (): void => {
+    statusPopover.hidden = true;
+    activeStatus = null;
+    for (const trigger of [wifiButton, audioButton, smbButton])
+      trigger.setAttribute("aria-expanded", "false");
+  };
+  const toggleStatusPopover = (
+    kind: StatusKind,
+    trigger: HTMLButtonElement,
+  ): void => {
+    if (activeStatus === kind && !statusPopover.hidden) {
+      closeStatusPopover();
+      return;
+    }
+    activeStatus = kind;
+    renderStatusPopover();
+    statusPopover.hidden = false;
+    for (const candidate of [wifiButton, audioButton, smbButton])
+      candidate.setAttribute("aria-expanded", String(candidate === trigger));
+  };
+  for (const trigger of [wifiButton, audioButton, smbButton])
+    trigger.addEventListener("click", () => {
+      toggleStatusPopover(trigger.dataset.statusTrigger as StatusKind, trigger);
+    });
+  const closeStatusOutside = (event: PointerEvent): void => {
     if (
-      !smbPopover.hidden &&
-      !smbPopover.contains(event.target as Node) &&
-      !smbButton.contains(event.target as Node)
+      !statusPopover.hidden &&
+      !statusPopover.contains(event.target as Node) &&
+      ![wifiButton, audioButton, smbButton].some((trigger) =>
+        trigger.contains(event.target as Node),
+      )
     )
-      closeSmbPopover();
+      closeStatusPopover();
   };
-  const closeSmbEscape = (event: KeyboardEvent): void => {
-    if (event.key === "Escape" && !smbPopover.hidden) {
+  const closeStatusEscape = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && !statusPopover.hidden) {
       event.preventDefault();
-      closeSmbPopover();
-      smbButton.focus();
+      const trigger =
+        activeStatus === "wifi"
+          ? wifiButton
+          : activeStatus === "audio"
+            ? audioButton
+            : smbButton;
+      closeStatusPopover();
+      trigger.focus();
     }
   };
-  document.addEventListener("pointerdown", closeSmbOutside);
-  document.addEventListener("keydown", closeSmbEscape);
+  document.addEventListener("pointerdown", closeStatusOutside);
+  document.addEventListener("keydown", closeStatusEscape);
+
   return {
     element,
     menuButton,
@@ -130,23 +237,33 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
       moreButton.hidden = more === null;
     },
     updateNetwork(snapshot) {
+      const wiredConnected = snapshot.wiredAdapters.some(
+        (adapter) => adapter.connected,
+      );
+      wiredIndicator.hidden = !wiredConnected;
       wiredIndicator.classList.toggle(
         "top-bar__system-icon--active",
-        snapshot.wiredAdapters.some((adapter) => adapter.connected),
+        wiredConnected,
       );
-      wifiIndicator.classList.toggle(
+      wifiButton.classList.toggle(
         "top-bar__system-icon--active",
         snapshot.wifiAdapters.some((adapter) => adapter.connected),
       );
-      wifiIndicator.classList.toggle(
+      wifiButton.classList.toggle(
         "top-bar__system-icon--connecting",
         snapshot.operationState === "connecting",
       );
+      statusCopy.wifi = wifiStatusCopy(snapshot);
+      if (activeStatus === "wifi") renderStatusPopover();
+    },
+    updateAudioOutput(snapshot) {
+      statusCopy.audio = audioOutputStatusCopy(snapshot);
+      if (activeStatus === "audio") renderStatusPopover();
     },
     updateSmb(snapshot) {
       smbButton.hidden = snapshot.configuredCount === 0;
       if (smbButton.hidden) {
-        closeSmbPopover();
+        if (activeStatus === "smb") closeStatusPopover();
         return;
       }
       const hasError = snapshot.unavailableCount > 0;
@@ -166,27 +283,32 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
         (connection) => connection.state === "authentication-required",
       );
       if (authentication) {
-        smbSummary.textContent = "SMB · Authentication required";
-        smbDetail.textContent = authentication.displayName;
+        statusCopy.smb = {
+          summary: "SMB · Authentication required",
+          detail: authentication.displayName,
+        };
       } else if (snapshot.unavailableCount > 0) {
-        smbSummary.textContent = `SMB · ${String(snapshot.unavailableCount)} of ${String(snapshot.configuredCount)} unavailable`;
-        smbDetail.textContent =
-          snapshot.unavailableCount === 1
-            ? `${unavailable[0]?.displayName ?? "Network share"} is offline`
-            : "";
+        statusCopy.smb = {
+          summary: `SMB · ${String(snapshot.unavailableCount)} of ${String(snapshot.configuredCount)} unavailable`,
+          detail:
+            snapshot.unavailableCount === 1
+              ? `${unavailable[0]?.displayName ?? "Network share"} is offline`
+              : "",
+        };
       } else if (snapshot.connectingCount > 0) {
-        smbSummary.textContent = "SMB · Connecting…";
-        smbDetail.textContent = "";
+        statusCopy.smb = { summary: "SMB · Connecting…", detail: "" };
       } else {
-        smbSummary.textContent = `SMB · ${String(snapshot.connectedCount)} connected`;
-        smbDetail.textContent = "";
+        statusCopy.smb = {
+          summary: `SMB · ${String(snapshot.connectedCount)} connected`,
+          detail: "",
+        };
       }
-      smbDetail.hidden = smbDetail.textContent === "";
+      if (activeStatus === "smb") renderStatusPopover();
     },
     destroy() {
       window.clearInterval(clockTimer);
-      document.removeEventListener("pointerdown", closeSmbOutside);
-      document.removeEventListener("keydown", closeSmbEscape);
+      document.removeEventListener("pointerdown", closeStatusOutside);
+      document.removeEventListener("keydown", closeStatusEscape);
     },
   };
 }

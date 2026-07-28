@@ -121,10 +121,14 @@ void test("atomic patch preserves unknown and invalid raw fields", async () => {
     const raw = JSON.parse(
       await readFile(join(testFixture.root, "preferences.json"), "utf8"),
     ) as {
+      schemaVersion: number;
       preferences: Record<string, unknown>;
       migration: Record<string, unknown>;
       futureTopLevel: number;
     };
+    assert.equal(raw.schemaVersion, 2);
+    assert.equal(saved.preferences.outputLevelMode, "variable");
+    assert.equal(saved.preferences.equalizerBands.length, 6);
     assert.equal(raw.preferences.visualizerMode, "future-visualizer");
     assert.deepEqual(raw.preferences.futurePreference, { enabled: true });
     assert.equal(raw.migration.futureMigrationField, "keep");
@@ -211,10 +215,10 @@ void test("future schema is preserved in degraded read-only mode", async () => {
   try {
     await mkdir(testFixture.root, { recursive: true });
     const future = JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       revision: 9,
       preferences: { volume: 12, futureSetting: true },
-      migration: { legacyLocalStorage: "imported", sourceSchema: 2 },
+      migration: { legacyLocalStorage: "imported", sourceSchema: 3 },
     });
     await writeFile(join(testFixture.root, "preferences.json"), future, "utf8");
     const store = new PreferencesStore(testFixture.root);

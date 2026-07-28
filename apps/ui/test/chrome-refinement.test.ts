@@ -68,13 +68,14 @@ void test("7. Hamburger target and SVG are enlarged", async () => {
   assert.match(css, /\.top-bar \.top-bar__menu \.icon\s*\{[\s\S]*?2\.25rem/);
 });
 
-void test("8. audio device chrome is not rendered", async () => {
+void test("8. audio device chrome reuses the header status popover", async () => {
   const [topBar, shell] = await Promise.all([
     read("components/top-bar.ts"),
     read("components/app-shell.ts"),
   ]);
-  assert.doesNotMatch(topBar, /top-bar__audio|setAudioDevice/);
-  assert.doesNotMatch(shell, /setAudioDevice/);
+  assert.match(topBar, /data-status-trigger="audio"/);
+  assert.match(topBar, /audioOutputStatusCopy/);
+  assert.match(shell, /topBar\.updateAudioOutput\(snapshot\)/);
 });
 
 void test("9. Ethernet placeholder is present", async () => {
@@ -85,19 +86,30 @@ void test("10. Wi-Fi placeholder is present", async () => {
   assert.match(await read("components/top-bar.ts"), /icon\("wifi"\)/);
 });
 
-void test("11. USB/DAC placeholder is present", async () => {
-  assert.match(await read("components/top-bar.ts"), /icon\("usb"\)/);
+void test("11. USB/DAC icon is always rendered as active", async () => {
+  assert.match(
+    await read("components/top-bar.ts"),
+    /top-bar__system-icon--active" data-status-trigger="audio"/,
+  );
 });
 
-void test("12. system placeholders are hidden from assistive technology", async () => {
+void test("12. passive Ethernet is hidden from assistive technology", async () => {
   const topBar = await read("components/top-bar.ts");
-  assert.match(topBar, /top-bar__system-icons" aria-hidden="true"/);
+  assert.match(
+    topBar,
+    /data-network-indicator="wired" aria-hidden="true" hidden/,
+  );
 });
 
-void test("13. system placeholders are non-interactive spans", async () => {
+void test("13. Wi-Fi, audio, and SMB share one interactive popover", async () => {
   const topBar = await read("components/top-bar.ts");
-  assert.doesNotMatch(topBar, /<button[^>]+top-bar__system/);
-  assert.match(topBar, /<span class="top-bar__system-icon">/);
+  assert.equal(
+    (topBar.match(/<button class="[^"]+" data-status-trigger=/g) ?? []).length,
+    3,
+  );
+  assert.equal((topBar.match(/top-bar__status-popover" id=/g) ?? []).length, 1);
+  assert.match(topBar, /closeStatusOutside/);
+  assert.match(topBar, /closeStatusEscape/);
 });
 
 void test("14. clock retains minute cadence and 25 px typography", async () => {

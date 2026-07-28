@@ -3,6 +3,11 @@ import type {
   AudioOutputState,
 } from "../../../../packages/shared/src/audio-output";
 import type { ApiResponse } from "../../../../packages/shared/src/player";
+import type {
+  AudioProcessingPatch,
+  AudioProcessingPatchResult,
+  AudioProcessingState,
+} from "../../../../packages/shared/src/audio-processing";
 import { config } from "../config";
 import { PlayerApiError } from "./player-api-client";
 
@@ -28,6 +33,20 @@ export class AudioOutputApiClient {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
+    });
+  }
+
+  processingState(): Promise<AudioProcessingState> {
+    return this.request("/api/audio-processing/state");
+  }
+
+  patchProcessing(
+    patch: AudioProcessingPatch,
+  ): Promise<AudioProcessingPatchResult> {
+    return this.request("/api/audio-processing/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
     });
   }
 

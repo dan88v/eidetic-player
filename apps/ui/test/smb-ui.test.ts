@@ -61,6 +61,8 @@ void test("Sources separates indexed Library Sources from live resources", async
 void test("top bar hides zero SMB state and exposes green/red/neutral summaries", async () => {
   const text = await source("components/top-bar.ts");
   assert.match(text, /smbButton\.hidden = snapshot\.configuredCount === 0/u);
+  assert.match(text, /data-status-trigger="smb"/u);
+  assert.match(text, /top-bar__status-popover/u);
   assert.match(text, /"connected"/u);
   assert.match(text, /"error"/u);
   assert.match(text, /"connecting"/u);

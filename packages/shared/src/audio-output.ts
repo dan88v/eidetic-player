@@ -31,6 +31,24 @@ export interface AudioOutputDevice {
   readonly systemDefault?: boolean;
 }
 
+export type AudioOutputRouteKind =
+  "system" | "pipewire" | "pulse" | "alsa" | "other";
+
+export interface AudioOutputRoute {
+  readonly id: string;
+  readonly description: string;
+  readonly kind: AudioOutputRouteKind;
+  readonly available: boolean;
+}
+
+export interface CanonicalAudioOutput {
+  readonly id: string;
+  readonly description: string;
+  readonly available: boolean;
+  readonly systemDefault?: boolean;
+  readonly routes: readonly AudioOutputRoute[];
+}
+
 export interface AudioOutputPreference {
   readonly deviceId: string;
   readonly description: string;
@@ -54,6 +72,8 @@ export interface AudioOutputState {
   readonly notice: "preferred-unavailable" | null;
   readonly noticeRevision: number;
   readonly diagnostics: AudioOutputDiagnostics;
+  readonly canonicalOutputs: readonly CanonicalAudioOutput[];
+  readonly selectedPhysicalOutputId: string;
 }
 
 export interface AudioOutputSelectionResult {
@@ -89,6 +109,23 @@ export const disconnectedAudioOutputState: AudioOutputState = {
     preferredDeviceAvailable: false,
     initialEnumerationStatus: "unavailable",
   },
+  canonicalOutputs: [
+    {
+      id: "system-default",
+      description: "System default",
+      available: true,
+      systemDefault: true,
+      routes: [
+        {
+          id: "auto",
+          description: "System default",
+          kind: "system",
+          available: true,
+        },
+      ],
+    },
+  ],
+  selectedPhysicalOutputId: "system-default",
 };
 
 function boundedText(value: unknown, maximumLength: number): string | null {
@@ -149,6 +186,81 @@ export function normalizeMpvAudioOutputDevices(
     });
   }
   return devices;
+}
+
+function routeKind(id: string): AudioOutputRouteKind {
+  const prefix = id.split("/", 1)[0];
+  if (prefix === "pipewire" || prefix === "pulse" || prefix === "alsa")
+    return prefix;
+  return id === "auto" ? "system" : "other";
+}
+
+function physicalIdentity(device: AudioOutputDevice): {
+  readonly id: string;
+  readonly description: string;
+} {
+  if (device.id === "auto")
+    return { id: "system-default", description: "System default" };
+  const evidence = `${device.id} ${device.description}`.toLowerCase();
+  if (/sndrpirpidac|soc_sound|rpi[- ]?dac|pcm1794/.test(evidence))
+    return { id: "gpio-i2s-dac", description: "GPIO / I2S DAC" };
+  if (/vc4hdmi|hdmi|digital stereo/.test(evidence))
+    return { id: "hdmi", description: "HDMI" };
+  if (/headphones|mailbox|analog/.test(evidence))
+    return { id: "analog-output", description: "Analog output" };
+  if (device.id === "pipewire" || device.id === "pulse" || device.id === "alsa")
+    return {
+      id: `backend-default:${device.id}`,
+      description: device.description,
+    };
+  return {
+    id: `raw:${device.id}`,
+    description: device.description,
+  };
+}
+
+export function canonicalizeAudioOutputs(
+  devices: readonly AudioOutputDevice[],
+): readonly CanonicalAudioOutput[] {
+  const groups = new Map<string, CanonicalAudioOutput>();
+  for (const device of devices) {
+    if (/^(?:pipewire|pulse|alsa|openal|jack|sdl|sndio)$/u.test(device.id))
+      continue;
+    const identity = physicalIdentity(device);
+    const route: AudioOutputRoute = {
+      id: device.id,
+      description: device.description,
+      kind: routeKind(device.id),
+      available: device.available,
+    };
+    const existing = groups.get(identity.id);
+    groups.set(identity.id, {
+      id: identity.id,
+      description: identity.description,
+      available: (existing?.available ?? false) || device.available,
+      ...(device.id === "auto" ? { systemDefault: true } : {}),
+      routes: [...(existing?.routes ?? []), route],
+    });
+  }
+  return [...groups.values()].sort((left, right) => {
+    if (left.systemDefault) return -1;
+    if (right.systemDefault) return 1;
+    return left.description.localeCompare(right.description, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+  });
+}
+
+export function physicalOutputIdForRoute(
+  outputs: readonly CanonicalAudioOutput[],
+  routeId: string,
+): string {
+  return (
+    outputs.find((output) =>
+      output.routes.some((route) => route.id === routeId),
+    )?.id ?? "system-default"
+  );
 }
 
 export function audioOutputDevicesEqual(

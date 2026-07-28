@@ -114,6 +114,9 @@ import type {
   LegacyPreferencesMigration,
   PreferencesPatch,
 } from "../../../packages/shared/src/preferences.js";
+import type { AudioProcessingPatch } from "../../../packages/shared/src/audio-processing.js";
+import { AudioProcessingService } from "./audio-processing/audio-processing-service.js";
+import { AudioProcessingError } from "./audio-processing/audio-processing-error.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -143,6 +146,7 @@ const buildInfo = loadBuildInfo(config.environment);
 const preferences = new PreferencesStore();
 
 const player = new PlayerService();
+const audioProcessing = new AudioProcessingService(player, preferences);
 const audioOutput = new AudioOutputService(player);
 player.setBeforePlaybackHook(() => audioOutput.prepareForPlayback());
 const filesystemProvider = new LocalFilesystemProvider();
@@ -480,6 +484,7 @@ const bootstrapPromise = Promise.all([
       installationMode,
     );
     const restore = await playerSession.restore();
+    await audioProcessing.initialize(preferences.snapshot());
     playerSession.start();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);
     const bootstrapState = player.getState();
@@ -614,10 +619,10 @@ async function execute(command: PlayerCommand): Promise<void> {
       analyzer.restartAtCurrentPosition();
       break;
     case "volume":
-      await player.setVolume(command.volume, command.metadata);
+      await audioProcessing.setVolume(command.volume, command.metadata);
       break;
     case "mute":
-      await player.setMuted(command.muted, command.metadata);
+      await audioProcessing.setMuted(command.muted, command.metadata);
       break;
     case "play-pause":
       await player.playPause(command.metadata);
@@ -731,6 +736,41 @@ function preferencesPatchBody(value: unknown): PreferencesPatch {
       ? { expectedRevision: body.expectedRevision }
       : {}),
     changes: body.changes,
+  };
+}
+
+const audioProcessingPreferenceNames = new Set([
+  "outputLevelMode",
+  "lastVariableVolume",
+  "maximumSoftwareVolume",
+  "audioProcessingEnabled",
+  "channelMode",
+  "balanceDb",
+  "equalizerEnabled",
+  "equalizerBands",
+  "headroomMode",
+  "manualPreampDb",
+]);
+
+function audioProcessingPatchBody(value: unknown): AudioProcessingPatch {
+  const body = objectBody(value);
+  if (
+    !hasOnlyKeys(body, ["changes", "confirmFixedOutput"]) ||
+    !body.changes ||
+    typeof body.changes !== "object" ||
+    Array.isArray(body.changes) ||
+    (body.confirmFixedOutput !== undefined &&
+      typeof body.confirmFixedOutput !== "boolean")
+  )
+    throw new AudioProcessingError(
+      "INVALID_AUDIO_PROCESSING",
+      "Audio processing settings are invalid.",
+    );
+  return {
+    changes: body.changes,
+    ...(typeof body.confirmFixedOutput === "boolean"
+      ? { confirmFixedOutput: body.confirmFixedOutput }
+      : {}),
   };
 }
 
@@ -1138,9 +1178,18 @@ async function handleRequest(
     if (request.method === "PATCH" && url.pathname === "/api/preferences") {
       requireJson(request);
       await bootstrapPromise;
-      const snapshot = await preferences.patch(
-        preferencesPatchBody(await readBody(request, 16 * 1024)),
-      );
+      const patch = preferencesPatchBody(await readBody(request, 16 * 1024));
+      if (
+        Object.keys(patch.changes).some((key) =>
+          audioProcessingPreferenceNames.has(key),
+        )
+      )
+        throw new AudioProcessingError(
+          "INVALID_AUDIO_PROCESSING",
+          "Use the audio processing settings endpoint for audio changes.",
+          409,
+        );
+      const snapshot = await preferences.patch(patch);
       sendJson(response, 200, { ok: true, data: snapshot });
       return;
     }
@@ -1161,6 +1210,28 @@ async function handleRequest(
       url.pathname === "/api/audio-output/state"
     ) {
       sendJson(response, 200, { ok: true, data: audioOutput.snapshot() });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/audio-processing/state"
+    ) {
+      await bootstrapPromise;
+      sendJson(response, 200, { ok: true, data: audioProcessing.snapshot() });
+      return;
+    }
+    if (
+      request.method === "PATCH" &&
+      url.pathname === "/api/audio-processing/settings"
+    ) {
+      requireJson(request);
+      await bootstrapPromise;
+      sendJson(response, 200, {
+        ok: true,
+        data: await audioProcessing.patch(
+          audioProcessingPatchBody(await readBody(request, 32 * 1024)),
+        ),
+      });
       return;
     }
     if (
@@ -2993,6 +3064,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof AudioProcessingError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof AudioOutputError) {
       sendJson(response, error.statusCode, {
         ok: false,
@@ -3062,6 +3140,7 @@ function shutdown(signal: NodeJS.Signals): void {
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
   audioOutput.close();
+  audioProcessing.close();
   removableEvents.close();
   networkEvents.close();
   smbEvents.close();

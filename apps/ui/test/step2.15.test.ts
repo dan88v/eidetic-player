@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-void test("Settings nests always-open Output selection under Audio without a modal", async () => {
+void test("Settings nests always-open Output Device selection under Audio", async () => {
   const settings = await readFile("apps/ui/src/screens/settings.ts", "utf8");
   assert.match(settings, /\| "audio"/);
   assert.match(settings, /\| "audio-output"/);
@@ -13,10 +13,13 @@ void test("Settings nests always-open Output selection under Audio without a mod
   );
   assert.match(settings, /audioButton\.addEventListener\("click"/);
   assert.match(settings, /page = "audio"/);
-  assert.match(settings, /outputTitle\.textContent = "Output"/);
+  assert.match(settings, /outputTitle\.textContent = "Output Device"/);
   assert.match(settings, /outputButton\.addEventListener\("click"/);
   assert.match(settings, /page = "audio-output"/);
-  assert.match(settings, /if \(page === "audio-output"\) page = "audio"/);
+  assert.match(
+    settings,
+    /page === "audio-output" \|\|[\s\S]*page === "audio-advanced"[\s\S]*page = "audio"/,
+  );
   assert.match(settings, /page === "audio-output"/);
   assert.doesNotMatch(
     settings,
@@ -24,20 +27,28 @@ void test("Settings nests always-open Output selection under Audio without a mod
   );
   const audioSection = settings.slice(
     settings.lastIndexOf('if (page === "audio-output")'),
-    settings.indexOf('if (page === "system")'),
+    settings.indexOf('if (page === "audio-output-routes")'),
   );
-  assert.doesNotMatch(audioSection, /showModal\(\)/);
+  assert.doesNotMatch(audioSection, /showModal\(\)|createElement\("dialog"\)/);
 });
 
 void test("Audio Output renders System default first with safe device text and distinct state indicators", async () => {
-  const settings = await readFile("apps/ui/src/screens/settings.ts", "utf8");
-  assert.match(settings, /id: "auto"/);
-  assert.match(settings, /description: "System default"/);
+  const [settings, audioOutput] = await Promise.all([
+    readFile("apps/ui/src/screens/settings.ts", "utf8"),
+    readFile("packages/shared/src/audio-output.ts", "utf8"),
+  ]);
+  assert.match(audioOutput, /id: "system-default"/);
+  assert.match(audioOutput, /description: "System default"/);
+  assert.match(
+    settings,
+    /for \(const output of audioOutputState\.canonicalOutputs\)/,
+  );
   assert.match(settings, /description\.textContent = device\.description/);
   assert.match(settings, /identifier\.textContent = device\.id/);
-  assert.match(settings, /✓ Preferred/);
-  assert.match(settings, /effective\.textContent = "In use"/);
-  assert.match(settings, /status\.textContent = "Unavailable"/);
+  assert.match(settings, /check\.textContent = selected \? "✓" : ""/);
+  assert.match(settings, /statePill\("In use", "active"\)/);
+  assert.match(settings, /statePill\("Unavailable"\)/);
+  assert.match(settings, /statePill\("Activating", "pending"\)/);
   assert.doesNotMatch(settings, /device\.description[^;]*innerHTML/);
 });
 
@@ -50,7 +61,7 @@ void test("Audio Output refresh and selection use the existing toast callback", 
   assert.match(settings, /aria-label", "Refresh audio outputs"/);
   assert.match(settings, /Audio outputs refreshed\./);
   assert.match(settings, /Audio outputs could not be refreshed\./);
-  assert.match(settings, /Audio output changed\./);
+  assert.match(settings, /Audio output selected\./);
   assert.match(settings, /Using System default\./);
   assert.match(settings, /Audio output could not be changed\./);
   assert.match(settings, /options\.showToast/);

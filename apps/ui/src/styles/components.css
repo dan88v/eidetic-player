@@ -63,17 +63,25 @@
     display: inline-flex;
     flex: none;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-1);
     color: var(--color-text-muted);
   }
 
   .top-bar__system-icon {
-    display: inline-flex;
-    width: 1.625rem;
-    height: 1.625rem;
+    display: inline-grid;
+    width: 2.75rem;
+    height: 2.75rem;
     flex: none;
-    align-items: center;
-    justify-content: center;
+    place-items: center;
+    border-radius: var(--radius-pill);
+  }
+
+  .top-bar__system-icon[hidden] {
+    display: none;
+  }
+
+  .top-bar__system-button {
+    color: inherit;
   }
 
   .top-bar__system-icon--active {
@@ -90,20 +98,6 @@
     height: 1.625rem;
   }
 
-  .top-bar__smb {
-    display: inline-grid;
-    width: 2.75rem;
-    height: 2.75rem;
-    flex: none;
-    place-items: center;
-    border-radius: var(--radius-pill);
-    color: var(--color-text-muted);
-  }
-
-  .top-bar__smb[hidden] {
-    display: none;
-  }
-
   .top-bar__smb[data-state="connected"] {
     color: #49b675;
   }
@@ -117,12 +111,7 @@
     opacity: 0.72;
   }
 
-  .top-bar__smb .icon {
-    width: 1.5rem;
-    height: 1.5rem;
-  }
-
-  .top-bar__smb-popover {
+  .top-bar__status-popover {
     position: absolute;
     top: calc(100% - var(--space-1));
     right: 5.5rem;
@@ -140,11 +129,11 @@
     line-height: 1.35;
   }
 
-  .top-bar__smb-popover[hidden] {
+  .top-bar__status-popover[hidden] {
     display: none;
   }
 
-  .top-bar__smb-popover span {
+  .top-bar__status-popover span {
     overflow: hidden;
     color: var(--color-text-secondary);
     text-overflow: ellipsis;
@@ -1234,6 +1223,10 @@
     width: var(--touch-min);
     height: var(--touch-min);
     background: var(--color-surface);
+  }
+  .volume-popover[data-locked="true"] .volume-slider {
+    opacity: 0.45;
+    pointer-events: none;
   }
 
   .drop-overlay {

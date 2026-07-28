@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { emptyNetworkSnapshot } from "../../../packages/shared/src/network";
+import { disconnectedAudioOutputState } from "../../../packages/shared/src/audio-output";
 import { networkSummary } from "../src/screens/network-settings-panel";
+import {
+  audioOutputStatusCopy,
+  wifiStatusCopy,
+} from "../src/components/top-bar";
 
 void test("Settings Network summary chooses the most informative stable value", () => {
   assert.equal(
@@ -62,14 +67,77 @@ void test("Network dialogs opt password fields into the reusable private profile
   assert.doesNotMatch(panel, /localStorage|sessionStorage|console\./);
 });
 
-void test("top-bar network indicators remain passive and geometry-stable", () => {
+void test("top-bar exposes connected network detail without another stream", () => {
   const topBar = readFileSync(
     new URL("../src/components/top-bar.ts", import.meta.url),
     "utf8",
   );
-  assert.match(topBar, /top-bar__system-icons" aria-hidden="true"/);
   assert.match(topBar, /data-network-indicator="wired"/);
-  assert.match(topBar, /data-network-indicator="wifi"/);
+  assert.match(topBar, /data-status-trigger="wifi"/);
+  assert.match(topBar, /wiredIndicator\.hidden = !wiredConnected/);
+  assert.match(topBar, /adapter\.ipv4Address/);
+  assert.match(topBar, /network\.signalPercent/);
+  assert.doesNotMatch(topBar, /EventSource|setTimeout|requestAnimationFrame/);
+});
+
+void test("top-bar Wi-Fi copy includes SSID, IPv4 address, and signal", () => {
+  const copy = wifiStatusCopy({
+    ...emptyNetworkSnapshot,
+    wifiAdapters: [
+      {
+        id: "wifi-1",
+        type: "wifi",
+        displayName: "Wi-Fi",
+        present: true,
+        enabled: true,
+        connected: true,
+        ipv4Method: "dhcp",
+        ipv4Address: "10.0.0.112",
+        subnetMask: "255.255.255.0",
+        gateway: "10.0.0.1",
+        dnsServers: ["10.0.0.1"],
+      },
+    ],
+    wifi: {
+      ...emptyNetworkSnapshot.wifi,
+      currentNetwork: {
+        id: "wifi-network-1",
+        ssid: "Listening Room",
+        signalPercent: 73,
+        security: "wpa2-personal",
+        connected: true,
+        supported: true,
+      },
+    },
+  });
+  assert.equal(copy.summary, "Wi-Fi · Listening Room");
+  assert.equal(copy.detail, "10.0.0.112 · Signal 73%");
+});
+
+void test("top-bar audio copy identifies physical output and effective interface", () => {
+  const copy = audioOutputStatusCopy({
+    ...disconnectedAudioOutputState,
+    mpvAvailable: true,
+    effectiveDeviceId: "alsa/sysdefault:CARD=sndrpirpidac",
+    selectedPhysicalOutputId: "gpio-i2s-dac",
+    canonicalOutputs: [
+      {
+        id: "gpio-i2s-dac",
+        description: "GPIO / I2S DAC",
+        available: true,
+        routes: [
+          {
+            id: "alsa/sysdefault:CARD=sndrpirpidac",
+            description: "snd_rpi_rpi_dac",
+            kind: "alsa",
+            available: true,
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(copy.summary, "Audio · GPIO / I2S DAC");
+  assert.equal(copy.detail, "ALSA · snd_rpi_rpi_dac");
 });
 
 void test("Network reuses the Interface content header and keeps the hamburger", () => {

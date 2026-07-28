@@ -26,14 +26,14 @@ import {
 } from "../../../../packages/shared/src/preferences.js";
 import { resolveAppDirectories } from "../platform/app-directories.js";
 
-const schemaVersion = 1 as const;
+const schemaVersion = 2 as const;
 const preferencesFilename = "preferences.json";
 const backupFilename = "preferences.json.bak";
 
 type JsonObject = Record<string, unknown>;
 
 interface StoredPreferencesDocument extends JsonObject {
-  schemaVersion: 1;
+  schemaVersion: 2;
   revision: number;
   preferences: JsonObject;
   migration: JsonObject;
@@ -100,7 +100,8 @@ function parseDocument(value: unknown): LoadedDocument {
       "PREFERENCES_CORRUPT",
       "Settings storage is invalid.",
     );
-  if (value.schemaVersion === 0) {
+  if (value.schemaVersion === 0 || value.schemaVersion === 1) {
+    const sourceSchema = value.schemaVersion;
     const legacyPreferences = isObject(value.preferences)
       ? value.preferences
       : value;
@@ -112,7 +113,16 @@ function parseDocument(value: unknown): LoadedDocument {
           ? value.revision
           : 0,
       preferences: legacyPreferences,
-      migration: { legacyLocalStorage: "imported", sourceSchema: 0 },
+      migration: {
+        ...(isObject(value.migration) ? value.migration : {}),
+        legacyLocalStorage:
+          sourceSchema === 0
+            ? "imported"
+            : isObject(value.migration)
+              ? (value.migration.legacyLocalStorage ?? "pending")
+              : "pending",
+        sourceSchema,
+      },
     };
   }
   if (!isObject(value)) throw new Error("unreachable");
@@ -150,7 +160,7 @@ function defaultDocument(): StoredPreferencesDocument {
     preferences: { ...defaultUiPreferences },
     migration: {
       legacyLocalStorage: "pending",
-      sourceSchema: 1,
+      sourceSchema: 2,
     },
   };
 }
@@ -335,7 +345,7 @@ export class PreferencesStore {
       migration: {
         ...this.raw.migration,
         legacyLocalStorage: storedMigrationState(legacyImport),
-        sourceSchema: 1,
+        sourceSchema: 2,
       },
     };
     if (this.persistence === "persisted" || this.persistence === "recovered")

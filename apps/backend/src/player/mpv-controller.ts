@@ -145,11 +145,17 @@ export class MpvController {
     let currentIndex: unknown;
     let currentPath: unknown;
     do {
-      [currentIndex, currentPath] = await Promise.all([
-        this.getProperty("playlist-pos"),
-        this.getProperty("path"),
-      ]);
-      if (currentIndex === selectedIndex && currentPath === selected) return;
+      try {
+        [currentIndex, currentPath] = await Promise.all([
+          this.getProperty("playlist-pos"),
+          this.getProperty("path"),
+        ]);
+        if (currentIndex === selectedIndex && currentPath === selected) return;
+      } catch {
+        // During an exact replacement MPV can briefly expose no current path.
+        // Keep the existing bounded readiness wait instead of failing the
+        // whole open operation on that transient property state.
+      }
       await new Promise((resolve) => setTimeout(resolve, 20));
     } while (Date.now() < deadline);
     throw new Error(

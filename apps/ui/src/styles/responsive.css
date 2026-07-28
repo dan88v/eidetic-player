@@ -102,6 +102,21 @@
       width: 100%;
     }
 
+    .balance-slider {
+      width: 100%;
+    }
+
+    .parametric-eq-control,
+    .parametric-eq-controls__header,
+    .parametric-eq-type {
+      grid-template-columns: 1fr;
+    }
+
+    .parametric-eq-controls__header .segmented-control,
+    .parametric-eq-type .segmented-control {
+      width: 100%;
+    }
+
     .network-details {
       grid-template-columns: 1fr;
     }
