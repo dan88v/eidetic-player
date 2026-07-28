@@ -210,6 +210,32 @@ fi
 eidetic_console_phase_done
 
 eidetic_console_phase_begin "Managed system restore"
+update_state_path="$(eidetic_target /var/lib/eidetic-player/update)"
+[[ "$update_state_path" == */var/lib/eidetic-player/update &&
+  "$update_state_path" != "/" ]] || eidetic_die "unsafe update state path"
+if ((dry_run)); then
+  eidetic_log \
+    "Would remove the Software Update runner, helper, policy, unit, and runtime state."
+  ((!purge)) ||
+    eidetic_log "Would remove /etc/eidetic-player/update.conf."
+else
+  if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    systemctl stop eidetic-player-update.service 2>/dev/null || true
+  fi
+  for update_path in \
+    /etc/systemd/system/eidetic-player-update.service \
+    /usr/libexec/eidetic-player-update-helper \
+    /usr/libexec/eidetic-player-update-runner \
+    /usr/libexec/eidetic-player-update-journal.mjs \
+    /etc/polkit-1/rules.d/49-eidetic-player-update.rules; do
+    target_update_path="$(eidetic_target "$update_path")"
+    [[ ! -L "$target_update_path" ]] ||
+      eidetic_die "unsafe update integration path"
+    rm -f -- "$target_update_path"
+  done
+  rm -rf -- "$update_state_path"
+  ((!purge)) || rm -f -- "$(eidetic_target /etc/eidetic-player/update.conf)"
+fi
 restore_args=()
 [[ "$EIDETIC_ROOT" == "/" ]] || restore_args+=(--root "$EIDETIC_ROOT")
 ((dry_run)) && restore_args+=(--dry-run)

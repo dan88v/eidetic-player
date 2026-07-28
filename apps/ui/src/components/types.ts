@@ -4,6 +4,7 @@ import type { RemovableDeviceListResponse } from "../../../../packages/shared/sr
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { SmbSnapshot } from "../../../../packages/shared/src/smb";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
+import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 
 export interface ComponentView<T extends HTMLElement = HTMLElement> {
   readonly element: T;
@@ -14,6 +15,7 @@ export interface ComponentView<T extends HTMLElement = HTMLElement> {
   updateNetworkSnapshot?(snapshot: NetworkSnapshot): void;
   updateSmbSnapshot?(snapshot: SmbSnapshot): void;
   updateAudioOutputState?(snapshot: AudioOutputState): void;
+  updateSoftwareUpdateState?(snapshot: SoftwareUpdateSnapshot): void;
   requestLeave?(leave: () => void): boolean;
   destroy(): void;
 }

@@ -3,6 +3,7 @@ import { t } from "../i18n";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { SmbSnapshot } from "../../../../packages/shared/src/smb";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
+import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 
 export interface TopBar {
   readonly element: HTMLElement;
@@ -15,6 +16,7 @@ export interface TopBar {
   updateNetwork(snapshot: NetworkSnapshot): void;
   updateAudioOutput(snapshot: AudioOutputState): void;
   updateSmb(snapshot: SmbSnapshot): void;
+  updateSoftwareUpdate(snapshot: SoftwareUpdateSnapshot): void;
   destroy(): void;
 }
 
@@ -23,7 +25,7 @@ interface StatusCopy {
   readonly detail: string;
 }
 
-type StatusKind = "wifi" | "audio" | "smb";
+type StatusKind = "wifi" | "audio" | "smb" | "update";
 
 function formatTime(): string {
   return new Intl.DateTimeFormat("en", {
@@ -94,6 +96,7 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
         <button class="top-bar__system-icon top-bar__system-button" data-status-trigger="wifi" type="button" aria-label="Wi-Fi status" aria-expanded="false" aria-controls="top-bar-status-popover">${icon("wifi")}</button>
         <button class="top-bar__system-icon top-bar__system-button top-bar__system-icon--active" data-status-trigger="audio" type="button" aria-label="Audio output status" aria-expanded="false" aria-controls="top-bar-status-popover">${icon("usb")}</button>
         <button class="top-bar__system-icon top-bar__system-button top-bar__smb" data-status-trigger="smb" type="button" aria-label="SMB connection status" aria-expanded="false" aria-controls="top-bar-status-popover" hidden>${icon("sources")}</button>
+        <button class="top-bar__system-icon top-bar__system-button top-bar__update" data-status-trigger="update" data-visible="false" type="button" aria-label="Software update status" aria-expanded="false" aria-controls="top-bar-status-popover" aria-hidden="true" tabindex="-1"><span role="status">${icon("refresh")}</span></button>
       </span>
       <div class="top-bar__status-popover" id="top-bar-status-popover" role="status" hidden><strong></strong><span></span></div>
       <time class="top-bar__clock" aria-label="${t("topBar.clockLabel")}"></time>
@@ -112,6 +115,8 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
     '[data-status-trigger="audio"]',
   );
   const smbButton = element.querySelector<HTMLButtonElement>(".top-bar__smb");
+  const updateButton =
+    element.querySelector<HTMLButtonElement>(".top-bar__update");
   const statusPopover = element.querySelector<HTMLElement>(
     ".top-bar__status-popover",
   );
@@ -126,6 +131,7 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
     !wifiButton ||
     !audioButton ||
     !smbButton ||
+    !updateButton ||
     !statusPopover ||
     !statusSummary ||
     !statusDetail
@@ -164,19 +170,63 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
       detail: "System-selected output",
     },
     smb: { summary: "SMB", detail: "" },
+    update: { summary: "Software update", detail: "" },
+  };
+  let updateSnapshot: SoftwareUpdateSnapshot | null = null;
+  let updateElapsedTimer: number | null = null;
+  let updatePointerFocus = false;
+  const refreshUpdateCopy = (): void => {
+    if (!updateSnapshot) return;
+    const job = updateSnapshot.job;
+    const active = [
+      "queued",
+      "running",
+      "activating",
+      "restarting",
+      "verifying",
+    ].includes(job.state);
+    const startedAt = job.startedAt ? Date.parse(job.startedAt) : Number.NaN;
+    const elapsedMs =
+      active && Number.isFinite(startedAt)
+        ? Math.max(job.elapsedMs, Date.now() - startedAt)
+        : job.elapsedMs;
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    statusCopy.update = {
+      summary: `Update · ${job.branch} · ${job.targetCommitSha?.slice(0, 7) ?? "checking"}`,
+      detail: `${job.phase?.label ?? job.state}${job.phase?.substep ? ` · ${job.phase.substep}` : ""} · ${String(Math.floor(elapsedSeconds / 60))}:${String(elapsedSeconds % 60).padStart(2, "0")}${job.warningCount > 0 ? ` · ${String(job.warningCount)} warning` : ""}`,
+    };
   };
   const renderStatusPopover = (): void => {
     if (!activeStatus) return;
+    if (activeStatus === "update") refreshUpdateCopy();
     const copy = statusCopy[activeStatus];
     statusSummary.textContent = copy.summary;
     statusDetail.textContent = copy.detail;
     statusDetail.hidden = copy.detail === "";
   };
   const closeStatusPopover = (): void => {
+    if (updateElapsedTimer !== null) {
+      window.clearInterval(updateElapsedTimer);
+      updateElapsedTimer = null;
+    }
     statusPopover.hidden = true;
     activeStatus = null;
-    for (const trigger of [wifiButton, audioButton, smbButton])
+    for (const trigger of [wifiButton, audioButton, smbButton, updateButton])
       trigger.setAttribute("aria-expanded", "false");
+  };
+  const openStatusPopover = (
+    kind: StatusKind,
+    trigger: HTMLButtonElement,
+  ): void => {
+    activeStatus = kind;
+    renderStatusPopover();
+    statusPopover.hidden = false;
+    if (kind === "update" && updateElapsedTimer === null)
+      updateElapsedTimer = window.setInterval(() => {
+        if (activeStatus === "update") renderStatusPopover();
+      }, 1_000);
+    for (const candidate of [wifiButton, audioButton, smbButton, updateButton])
+      candidate.setAttribute("aria-expanded", String(candidate === trigger));
   };
   const toggleStatusPopover = (
     kind: StatusKind,
@@ -186,21 +236,53 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
       closeStatusPopover();
       return;
     }
-    activeStatus = kind;
-    renderStatusPopover();
-    statusPopover.hidden = false;
-    for (const candidate of [wifiButton, audioButton, smbButton])
-      candidate.setAttribute("aria-expanded", String(candidate === trigger));
+    openStatusPopover(kind, trigger);
   };
-  for (const trigger of [wifiButton, audioButton, smbButton])
+  for (const trigger of [wifiButton, audioButton, smbButton, updateButton])
     trigger.addEventListener("click", () => {
       toggleStatusPopover(trigger.dataset.statusTrigger as StatusKind, trigger);
     });
+  updateButton.addEventListener("pointerenter", (event) => {
+    if (
+      event.pointerType === "mouse" &&
+      updateButton.dataset.visible === "true"
+    )
+      openStatusPopover("update", updateButton);
+  });
+  updateButton.addEventListener("pointerdown", () => {
+    updatePointerFocus = true;
+  });
+  updateButton.addEventListener("click", () => {
+    updatePointerFocus = false;
+  });
+  updateButton.addEventListener("pointerleave", (event) => {
+    if (
+      event.pointerType === "mouse" &&
+      event.relatedTarget !== statusPopover &&
+      document.activeElement !== updateButton
+    )
+      closeStatusPopover();
+  });
+  updateButton.addEventListener("focus", () => {
+    if (!updatePointerFocus && updateButton.dataset.visible === "true")
+      openStatusPopover("update", updateButton);
+  });
+  updateButton.addEventListener("blur", (event) => {
+    if (event.relatedTarget !== statusPopover) closeStatusPopover();
+  });
+  statusPopover.addEventListener("pointerleave", (event) => {
+    if (
+      activeStatus === "update" &&
+      event.pointerType === "mouse" &&
+      event.relatedTarget !== updateButton
+    )
+      closeStatusPopover();
+  });
   const closeStatusOutside = (event: PointerEvent): void => {
     if (
       !statusPopover.hidden &&
       !statusPopover.contains(event.target as Node) &&
-      ![wifiButton, audioButton, smbButton].some((trigger) =>
+      ![wifiButton, audioButton, smbButton, updateButton].some((trigger) =>
         trigger.contains(event.target as Node),
       )
     )
@@ -214,7 +296,9 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
           ? wifiButton
           : activeStatus === "audio"
             ? audioButton
-            : smbButton;
+            : activeStatus === "smb"
+              ? smbButton
+              : updateButton;
       closeStatusPopover();
       trigger.focus();
     }
@@ -305,8 +389,32 @@ export function createTopBar(onMenuToggle: () => void): TopBar {
       }
       if (activeStatus === "smb") renderStatusPopover();
     },
+    updateSoftwareUpdate(snapshot) {
+      updateSnapshot = snapshot;
+      const active = [
+        "queued",
+        "running",
+        "activating",
+        "restarting",
+        "verifying",
+      ].includes(snapshot.job.state);
+      updateButton.dataset.visible = String(active);
+      updateButton.setAttribute("aria-hidden", String(!active));
+      updateButton.tabIndex = active ? 0 : -1;
+      updateButton.classList.toggle("top-bar__update--active", active);
+      updateButton.setAttribute(
+        "aria-label",
+        active
+          ? `Software update: ${snapshot.job.phase?.label ?? snapshot.job.state}`
+          : "Software update status",
+      );
+      if (!active && activeStatus === "update") closeStatusPopover();
+      refreshUpdateCopy();
+      if (activeStatus === "update") renderStatusPopover();
+    },
     destroy() {
       window.clearInterval(clockTimer);
+      if (updateElapsedTimer !== null) window.clearInterval(updateElapsedTimer);
       document.removeEventListener("pointerdown", closeStatusOutside);
       document.removeEventListener("keydown", closeStatusEscape);
     },

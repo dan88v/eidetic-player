@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+conf=/etc/eidetic-player/install.conf
+update_conf=/etc/eidetic-player/update.conf
+state_dir=/var/lib/eidetic-player/update
+remote=https://github.com/dan88v/eidetic-player.git
+[[ -r "$conf" ]] || exit 69
+# shellcheck disable=SC1090
+. "$conf"
+[[ -n "${EIDETIC_RUNTIME_USER:-}" ]] || exit 69
+invoker="$(id -nu "${PKEXEC_UID:?}" 2>/dev/null)" || exit 77
+[[ "$invoker" == "$EIDETIC_RUNTIME_USER" ]] || exit 77
+
+valid_branch() {
+  [[ ${#1} -le 128 && "$1" != -* && "$1" != *$'\n'* &&
+    "$1" != *$'\r'* && "$1" != *$'\t'* ]] &&
+    git check-ref-format --branch "$1" >/dev/null 2>&1
+}
+
+atomic_config() {
+  local branch="$1" temporary
+  install -d -m 0755 /etc/eidetic-player
+  temporary="$(mktemp /etc/eidetic-player/.update.conf.XXXXXX)"
+  printf 'EIDETIC_UPDATE_CONFIG_SCHEMA=1\nEIDETIC_UPDATE_BRANCH=%s\nEIDETIC_UPDATE_REMOTE=%s\n' \
+    "$branch" "$remote" >"$temporary"
+  chown root:root "$temporary"
+  chmod 0644 "$temporary"
+  mv -Tf "$temporary" "$update_conf"
+}
+
+case "${1:-}" in
+  select-branch)
+    [[ $# -eq 2 ]] || exit 64
+    valid_branch "$2" || exit 64
+    timeout 15 git ls-remote --exit-code --heads "$remote" \
+      "refs/heads/$2" >/dev/null 2>&1 || exit 65
+    atomic_config "$2"
+    ;;
+  start)
+    [[ $# -eq 6 ]] || exit 64
+    plan_id="$2" branch="$3" current="$4" target="$5" expires="$6"
+    [[ "$plan_id" =~ ^[0-9a-f]{32}$ &&
+      "$current" =~ ^[0-9a-f]{40}$ &&
+      "$target" =~ ^[0-9a-f]{40}$ ]] || exit 64
+    valid_branch "$branch" || exit 64
+    [[ "$(date -u -d "$expires" +%s 2>/dev/null)" -gt "$(date -u +%s)" ]] ||
+      exit 65
+    [[ -r "$update_conf" ]] || atomic_config "$branch"
+    grep -Fxq "EIDETIC_UPDATE_BRANCH=$branch" "$update_conf" || exit 65
+    [[ ! -L "$state_dir" ]]
+    install -d -o root -g "$EIDETIC_RUNTIME_USER" -m 2750 "$state_dir" \
+      "$state_dir/history"
+    [[ ! -e "$state_dir/request.json" ]] ||
+      ! systemctl is-active --quiet eidetic-player-update.service ||
+      exit 75
+    installed="$(
+      /opt/eidetic-player/node/current/bin/node -e \
+        'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).commitSha)' \
+        /opt/eidetic-player/current/build-info.json
+    )"
+    [[ "$installed" == "$current" ]] || exit 65
+    timeout 15 git ls-remote --exit-code --heads "$remote" \
+      "refs/heads/$branch" >/dev/null 2>&1 || exit 65
+    temporary="$(mktemp "$state_dir/.request.XXXXXX")"
+    /opt/eidetic-player/node/current/bin/node -e '
+const fs=require("node:fs");
+const value={schemaVersion:1,planId:process.argv[2],branch:process.argv[3],
+ currentCommitSha:process.argv[4],targetCommitSha:process.argv[5],
+ expiresAt:process.argv[6],createdAt:new Date().toISOString()};
+fs.writeFileSync(process.argv[1],JSON.stringify(value)+"\n",{mode:0o600});
+' "$temporary" "$plan_id" "$branch" "$current" "$target" "$expires"
+    chown root:root "$temporary"
+    chmod 0600 "$temporary"
+    mv -Tf "$temporary" "$state_dir/request.json"
+    systemctl start --no-block eidetic-player-update.service
+    ;;
+  *)
+    exit 64
+    ;;
+esac

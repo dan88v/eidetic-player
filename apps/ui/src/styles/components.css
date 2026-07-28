@@ -111,6 +111,31 @@
     opacity: 0.72;
   }
 
+  .top-bar__update--active {
+    color: var(--color-accent);
+  }
+
+  .top-bar__update[data-visible="false"] {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .app-root[data-animations="true"] .top-bar__update--active .icon {
+    animation: software-update-spin 1.1s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-root .top-bar__update--active .icon {
+      animation: none;
+    }
+  }
+
+  @keyframes software-update-spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+
   .top-bar__status-popover {
     position: absolute;
     top: calc(100% - var(--space-1));
@@ -134,10 +159,9 @@
   }
 
   .top-bar__status-popover span {
-    overflow: hidden;
     color: var(--color-text-secondary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .top-bar__clock {
@@ -147,6 +171,30 @@
     font-weight: 600;
     line-height: 1.1;
     text-align: right;
+  }
+
+  .applying-update {
+    position: fixed;
+    z-index: calc(var(--z-top-bar) + 20);
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: var(--space-2);
+    background: var(--color-bg);
+    color: var(--color-text);
+    text-align: center;
+  }
+
+  .applying-update[hidden] {
+    display: none;
+  }
+
+  .applying-update strong {
+    font-size: var(--font-size-xl);
+  }
+
+  .applying-update span {
+    color: var(--color-text-secondary);
   }
 
   .icon-button {

@@ -37,6 +37,8 @@ import {
   networkSummary,
   type NetworkSettingsPanel,
 } from "./network-settings-panel";
+import type { UpdateApiClient } from "../api/update-api-client";
+import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 
 export interface SettingsScreenOptions {
   readonly animationsEnabled: boolean;
@@ -48,6 +50,8 @@ export interface SettingsScreenOptions {
   readonly onScreenKeyboardMode: OnScreenKeyboardMode;
   readonly systemCapabilities: SystemCapabilities;
   readonly enterMaintenanceMode: () => Promise<void>;
+  readonly updateApi: UpdateApiClient;
+  readonly softwareUpdateState: SoftwareUpdateSnapshot;
   readonly networkApi: NetworkApiClient;
   readonly networkSnapshot: NetworkSnapshot;
   readonly audioOutputApi: AudioOutputApiClient;
@@ -89,7 +93,9 @@ type SettingsPage =
   | "browsing"
   | "visualizer"
   | "inactivity"
-  | "system";
+  | "system"
+  | "software-update"
+  | "update-branch";
 
 export function createSettingsScreen(
   options: SettingsScreenOptions,
@@ -98,6 +104,8 @@ export function createSettingsScreen(
   section.className = "screen settings-screen";
   let page: SettingsPage = "root";
   let animations = options.animationsEnabled;
+  let updateState = options.softwareUpdateState;
+  let updateBusy = false;
   let visualizer = options.visualizerMode;
   let mainPlayer = options.mainPlayerMode;
   let browsing = options.musicBrowsingVisibility;
@@ -149,6 +157,8 @@ export function createSettingsScreen(
       page = "audio";
     else if (page === "audio-output-routes" || page === "audio-output-advanced")
       page = "audio-output";
+    else if (page === "update-branch") page = "software-update";
+    else if (page === "software-update") page = "system";
     else
       page =
         page === "interface" ||
@@ -494,6 +504,15 @@ export function createSettingsScreen(
       "audio-advanced": {
         title: "Advanced",
         description: "Inspect the effective audio signal path.",
+      },
+      "software-update": {
+        title: "Software update",
+        description:
+          "Choose a branch, check its exact build, and install it safely.",
+      },
+      "update-branch": {
+        title: "Update branch",
+        description: "Choose from branches loaded from the installed source.",
       },
     };
     const audioCopy = audioPageCopy[page];
@@ -1117,6 +1136,32 @@ export function createSettingsScreen(
     }
 
     if (page === "system") {
+      const activeJob = [
+        "queued",
+        "running",
+        "activating",
+        "restarting",
+        "verifying",
+      ].includes(updateState.job.state);
+      if (updateState.available) {
+        const updateRow = document.createElement("button");
+        updateRow.className = "settings-row-base setting-navigation";
+        updateRow.type = "button";
+        const updateSummary = activeJob
+          ? `Updating · ${updateState.job.phase?.label ?? updateState.job.state}`
+          : updateState.job.state === "failed"
+            ? "Last update failed"
+            : updateState.plan?.updateAvailable
+              ? `Update available · ${updateState.plan.targetShortCommitSha}`
+              : `Build ${updateState.currentShortCommitSha} · ${updateState.selectedBranch}`;
+        updateRow.innerHTML = `<span><strong>Software update</strong><small>${updateSummary}</small></span>${chevron()}`;
+        updateRow.addEventListener("click", () => {
+          page = "software-update";
+          render();
+          resetSettingsScroll();
+        });
+        panel.append(updateRow);
+      }
       const row = document.createElement("div");
       row.className = "settings-row-base setting-row";
       row.innerHTML =
@@ -1125,6 +1170,7 @@ export function createSettingsScreen(
       action.className = "button button--secondary";
       action.type = "button";
       action.textContent = "Enter maintenance";
+      action.disabled = activeJob;
       action.addEventListener("click", () => {
         section.append(confirmationDialog.backdrop, confirmationDialog.element);
         confirmationDialog.open({
@@ -1149,6 +1195,205 @@ export function createSettingsScreen(
       });
       row.append(action);
       panel.append(row);
+      return;
+    }
+
+    if (page === "update-branch") {
+      const updateActive = [
+        "queued",
+        "running",
+        "activating",
+        "restarting",
+        "verifying",
+      ].includes(updateState.job.state);
+      if (!updateState.branchesLoaded) {
+        const unloaded = document.createElement("div");
+        unloaded.className = "settings-row-base setting-row";
+        unloaded.innerHTML =
+          '<span class="setting-row__copy"><strong>Branches not loaded</strong><small>Use Refresh branches to load the remote branch list.</small></span>';
+        panel.append(unloaded);
+      } else {
+        for (const branch of updateState.branches) {
+          const row = document.createElement("button");
+          row.className = "settings-row-base setting-choice";
+          row.type = "button";
+          const selected = branch.name === updateState.selectedBranch;
+          row.disabled = updateActive;
+          const copy = document.createElement("span");
+          copy.className = "setting-row__copy";
+          const name = document.createElement("strong");
+          name.textContent = branch.name;
+          const detail = document.createElement("small");
+          detail.className = "update-branch__detail";
+          detail.append(
+            statePill(
+              branch.channel === "stable" ? "Stable" : "Development",
+              branch.channel === "stable" ? "active" : "muted",
+            ),
+            document.createTextNode(`Build ${branch.shortCommitSha}`),
+          );
+          copy.append(name, detail);
+          const checkmark = document.createElement("span");
+          checkmark.className = "setting-choice__check";
+          checkmark.setAttribute("aria-hidden", "true");
+          checkmark.textContent = selected ? "✓" : "";
+          row.append(copy, checkmark);
+          row.addEventListener("click", () => {
+            if (selected || updateBusy) return;
+            updateBusy = true;
+            void options.updateApi
+              .selectBranch(branch.name)
+              .then((snapshot) => {
+                updateState = snapshot;
+                options.showToast(
+                  `Update branch set to ${branch.name}.`,
+                  "success",
+                );
+              })
+              .catch((error: unknown) => {
+                options.showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "The branch could not be selected.",
+                  "error",
+                );
+              })
+              .finally(() => {
+                updateBusy = false;
+                render();
+              });
+          });
+          panel.append(row);
+        }
+      }
+      const refresh = document.createElement("button");
+      refresh.className = "settings-row-base setting-navigation";
+      refresh.type = "button";
+      refresh.disabled = updateBusy || updateActive;
+      refresh.innerHTML =
+        "<span><strong>Refresh branches</strong><small>Load remote branches on demand.</small></span>";
+      refresh.addEventListener("click", () => {
+        updateBusy = true;
+        render();
+        void options.updateApi
+          .refreshBranches()
+          .then((snapshot) => {
+            updateState = snapshot;
+          })
+          .catch((error: unknown) => {
+            options.showToast(
+              error instanceof Error
+                ? error.message
+                : "Branches could not be refreshed.",
+              "error",
+            );
+          })
+          .finally(() => {
+            updateBusy = false;
+            render();
+          });
+      });
+      panel.append(refresh);
+      return;
+    }
+
+    if (page === "software-update") {
+      const active = [
+        "queued",
+        "running",
+        "activating",
+        "restarting",
+        "verifying",
+      ].includes(updateState.job.state);
+      const branch = navigationRow(
+        "Update branch",
+        updateState.selectedBranch,
+        "update-branch",
+      );
+      branch.classList.toggle("setting-row--disabled", active);
+      branch.disabled = active;
+      const current = document.createElement("div");
+      current.className = "settings-row-base setting-row";
+      current.innerHTML = `<span class="setting-row__copy"><strong>Current build</strong><small>${updateState.currentShortCommitSha}</small></span>`;
+      const target = document.createElement("div");
+      target.className = "settings-row-base setting-row";
+      target.innerHTML = `<span class="setting-row__copy"><strong>Target build</strong><small>${updateState.plan?.targetShortCommitSha ?? "Check required"}</small></span>`;
+      const check = document.createElement("button");
+      check.className = "settings-row-base setting-navigation";
+      check.type = "button";
+      check.disabled = updateBusy || active;
+      check.innerHTML =
+        "<span><strong>Check for updates</strong><small>Resolve the selected branch to an exact build.</small></span>";
+      check.addEventListener("click", () => {
+        updateBusy = true;
+        render();
+        void options.updateApi
+          .check()
+          .then((snapshot) => {
+            updateState = snapshot;
+            options.showToast(
+              snapshot.plan?.updateAvailable
+                ? "Update available."
+                : `Eidetic Player is up to date. Build ${snapshot.currentShortCommitSha}.`,
+              snapshot.plan?.updateAvailable ? "success" : "neutral",
+            );
+          })
+          .catch((error: unknown) => {
+            options.showToast(
+              error instanceof Error ? error.message : "Update check failed.",
+              "error",
+            );
+          })
+          .finally(() => {
+            updateBusy = false;
+            render();
+          });
+      });
+      const start = document.createElement("button");
+      start.className = "settings-row-base setting-navigation";
+      start.type = "button";
+      start.disabled =
+        updateBusy || active || updateState.plan?.updateAvailable !== true;
+      start.innerHTML =
+        "<span><strong>Start update</strong><small>The player remains available while the update is prepared.</small></span>";
+      start.addEventListener("click", () => {
+        const plan = updateState.plan;
+        if (!plan) return;
+        section.append(confirmationDialog.backdrop, confirmationDialog.element);
+        confirmationDialog.open({
+          title: "Install update?",
+          description: `Branch: ${plan.branch}\nCurrent build: ${plan.currentShortCommitSha}\nTarget build: ${plan.targetShortCommitSha}\n\nEidetic Player will remain available while the update is prepared and will restart briefly during activation.`,
+          confirmLabel: "Start update",
+          returnFocus: start,
+          onConfirm: () => {
+            updateBusy = true;
+            void options.updateApi
+              .start(plan.id, plan.targetCommitSha)
+              .then((snapshot) => {
+                updateState = snapshot;
+                render();
+              })
+              .catch((error: unknown) => {
+                options.showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "The update could not be started.",
+                  "error",
+                );
+              })
+              .finally(() => {
+                updateBusy = false;
+              });
+          },
+        });
+      });
+      panel.append(branch, current, target, check, start);
+      if (active || updateState.job.completedAt) {
+        const status = document.createElement("div");
+        status.className = "settings-row-base setting-row";
+        status.innerHTML = `<span class="setting-row__copy"><strong>${active ? "Update in progress" : updateState.job.state === "succeeded" ? "Update completed" : "Last update failed"}</strong><small>${updateState.job.phase?.label ?? updateState.job.result ?? updateState.job.state}</small></span>`;
+        panel.append(status);
+      }
       return;
     }
 
@@ -1355,6 +1600,17 @@ export function createSettingsScreen(
       if (snapshot.revision < audioOutputState.revision) return;
       audioOutputState = snapshot;
       if (page.startsWith("audio")) render();
+    },
+    updateSoftwareUpdateState(snapshot) {
+      if (snapshot.revision < updateState.revision) return;
+      updateState = snapshot;
+      if (
+        page === "root" ||
+        page === "system" ||
+        page === "software-update" ||
+        page === "update-branch"
+      )
+        render();
     },
     requestLeave(leave) {
       return page === "network"

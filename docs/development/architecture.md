@@ -263,6 +263,14 @@ the HTTP 202 can be sent before systemd replaces the application or the device
 power action starts. A preflight failure is sanitized and unlocks the
 coordinator; an accepted action remains locked.
 
+Software Update uses a fourth, separate host path. The backend performs
+read-only branch discovery and exact-SHA planning, then asks one fixed
+root-owned helper to start a system oneshot runner. The runner, journal, and
+privileged update process live outside the user application service so they
+survive backend, GUI, and release replacement. The UI receives only the typed
+backend snapshot and its single SSE stream. See
+[Software Update](software-update.md).
+
 ## Cross-platform behavior
 
 Keep OS-specific IPC endpoints, executable discovery, native file dialogs, and

@@ -189,6 +189,48 @@ assert_power_installed() {
     fixture_fail "a staging test attempted a destructive power action"
 }
 
+assert_update_installed() {
+  local root="$1"
+  for path in \
+    usr/libexec/eidetic-player-update-helper \
+    usr/libexec/eidetic-player-update-runner \
+    usr/libexec/eidetic-player-update-journal.mjs; do
+    [[ -x "$root/$path" && ! -L "$root/$path" ]] ||
+      fixture_fail "software-update runtime is missing: $path"
+  done
+  [[ -r "$root/etc/systemd/system/eidetic-player-update.service" ]] ||
+    fixture_fail "software-update systemd unit is missing"
+  [[ -r "$root/etc/polkit-1/rules.d/49-eidetic-player-update.rules" ]] ||
+    fixture_fail "software-update Polkit rule is missing"
+  grep -Fq "subject.user !== \"$runtime_user\"" \
+    "$root/etc/polkit-1/rules.d/49-eidetic-player-update.rules" ||
+    fixture_fail "software-update Polkit rule does not contain the runtime user"
+  grep -Eq '^EIDETIC_UPDATE_BRANCH=[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' \
+    "$root/etc/eidetic-player/update.conf" ||
+    fixture_fail "software-update branch config is invalid"
+  [[ "$(stat -c '%a' "$root/etc/eidetic-player/update.conf")" == 644 &&
+    "$(stat -c '%a' "$root/etc/systemd/system/eidetic-player-update.service")" == 644 &&
+    "$(stat -c '%a' "$root/etc/polkit-1/rules.d/49-eidetic-player-update.rules")" == 644 ]] ||
+    fixture_fail "software-update config, unit, or policy mode is invalid"
+  [[ "$(stat -c '%a' "$root/var/lib/eidetic-player/update")" == 2750 ]] ||
+    fixture_fail "software-update state directory mode is not 2750"
+}
+
+assert_update_branch() {
+  local root="$1" branch="$2"
+  grep -Fxq "EIDETIC_UPDATE_BRANCH=$branch" \
+    "$root/etc/eidetic-player/update.conf" ||
+    fixture_fail "software-update branch config was not preserved"
+}
+
+assert_update_not_installed() {
+  local root="$1"
+  [[ ! -e "$root/usr/libexec/eidetic-player-update-helper" &&
+    ! -e "$root/etc/systemd/system/eidetic-player-update.service" &&
+    ! -e "$root/var/lib/eidetic-player/update" ]] ||
+    fixture_fail "Software Update integration was installed outside Appliance mode"
+}
+
 install_root() {
   local name="$1" os="$2" arch="$3" desktop="$4"
   local compatible="${5:-none}" marker="${6:-none}"
@@ -275,6 +317,8 @@ fixture() {
     --mode standard --unattended --rpi-onscreen-keyboard keep
   assert_standard_conf "$root"
   assert_power_installed "$root"
+  assert_update_not_installed "$root"
+  assert_update_branch "$root" main
   if grep -q '^EIDETIC_FULL_VERIFY=' "$root/etc/eidetic-player/install.conf"; then
     fixture_fail "ordinary install persisted the per-operation full verification flag"
   fi
@@ -285,6 +329,7 @@ fixture() {
       --mode standard --unattended --rpi-onscreen-keyboard keep
     assert_standard_conf "$root"
     assert_power_installed "$root"
+    assert_update_not_installed "$root"
   fi
 
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
@@ -296,12 +341,17 @@ fixture() {
     --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
   assert_appliance_conf "$root" 1 1 0 0 0 0 1
   assert_power_installed "$root"
+  assert_update_installed "$root"
+  printf 'EIDETIC_UPDATE_CONFIG_SCHEMA=1\nEIDETIC_UPDATE_BRANCH=development/staging\nEIDETIC_UPDATE_REMOTE=%s\n' \
+    "$EIDETIC_SOURCE_REMOTE" >"$root/etc/eidetic-player/update.conf"
 
   "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart no --fullscreen no --borderless no \
     --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
   assert_appliance_conf "$root" 0 0 0 0 0 0 0
   assert_power_installed "$root"
+  assert_update_installed "$root"
+  assert_update_branch "$root" development/staging
 
   current_before_noop="$(readlink "$root/opt/eidetic-player/current")"
   releases_before_noop="$(find "$root/opt/eidetic-player/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)"
@@ -378,7 +428,16 @@ fixture() {
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
   assert_power_installed "$root"
   [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended --dry-run
+  assert_update_installed "$root"
+  [[ -r "$root/etc/eidetic-player/update.conf" &&
+    -d "$root/var/lib/eidetic-player/update" ]] ||
+    fixture_fail "dry-run uninstall changed Software Update state"
   "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
+  [[ -r "$root/etc/eidetic-player/update.conf" ]] ||
+    fixture_fail "normal uninstall did not preserve update branch config"
+  [[ ! -e "$root/var/lib/eidetic-player/update" ]] ||
+    fixture_fail "normal uninstall left software-update runtime state"
   grep -qx 'original power helper' "$root/usr/libexec/eidetic-player-power-helper" ||
     fixture_fail "uninstall did not restore the original power helper"
   grep -qx 'original power policy' "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules" ||
@@ -388,7 +447,10 @@ fixture() {
   [[ "$(stat -c '%a' "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules")" == 600 ]] ||
     fixture_fail "uninstall did not restore the original policy mode"
   [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
-  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
+  "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended \
+    --purge-data --yes-really-purge-data
+  [[ ! -e "$root/etc/eidetic-player/update.conf" ]] ||
+    fixture_fail "purge did not remove update branch config"
   [[ "$name" != raspios ]] || assert_rpi_cmdline_original "$root"
 }
 
@@ -422,6 +484,7 @@ all_yes_fixture() {
     --rpi-onscreen-keyboard keep
   assert_all_yes_common "$root"
   assert_power_installed "$root"
+  assert_update_installed "$root"
 
   if [[ "$name" == raspios-all-yes ]]; then
     [[ -f "$root/etc/lightdm/lightdm.conf.d/90-eidetic-player.conf" ]] ||
@@ -446,6 +509,7 @@ all_yes_fixture() {
   "$SCRIPT_DIR/update-eidetic-player.sh" --root "$root" --no-restart
   assert_all_yes_common "$root"
   assert_power_installed "$root"
+  assert_update_installed "$root"
   [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_augmented "$root"
 
   "$SCRIPT_DIR/restore-system-ui.sh" --root "$root"
@@ -455,6 +519,8 @@ all_yes_fixture() {
   assert_power_installed "$root"
   [[ "$name" != raspios-all-yes ]] || assert_rpi_cmdline_original "$root"
   "$SCRIPT_DIR/uninstall-eidetic-player.sh" --root "$root" --unattended
+  [[ ! -e "$root/usr/libexec/eidetic-player-update-helper" ]] ||
+    fixture_fail "uninstall left an orphaned software-update helper"
   [[ ! -e "$root/usr/libexec/eidetic-player-power-helper" ]] ||
     fixture_fail "uninstall left an orphaned power helper"
   [[ ! -e "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules" ]] ||

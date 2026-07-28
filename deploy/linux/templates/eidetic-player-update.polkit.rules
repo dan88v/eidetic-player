@@ -1,0 +1,11 @@
+polkit.addRule(function(action, subject) {
+  if (action.id !== "org.freedesktop.policykit.exec")
+    return polkit.Result.NOT_HANDLED;
+  if (action.lookup("program") !== "/usr/libexec/eidetic-player-update-helper")
+    return polkit.Result.NOT_HANDLED;
+  if (!subject.local || !subject.active)
+    return polkit.Result.NO;
+  if (subject.user !== "__EIDETIC_RUNTIME_USER__")
+    return polkit.Result.NO;
+  return polkit.Result.YES;
+});

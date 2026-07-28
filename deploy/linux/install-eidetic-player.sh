@@ -345,6 +345,7 @@ tmp="$(mktemp -d)"
 build_workspace=
 build_runtime=
 release_stage=
+update_conf_stage=
 keyboard_changed=0
 install_committed=0
 keyboard_attempt_state=
@@ -379,6 +380,8 @@ cleanup() {
     rm -rf -- "$build_runtime"
   [[ -z "$build_workspace" || ! -e "$build_workspace" ]] ||
     rm -rf -- "$build_workspace"
+  [[ -z "$update_conf_stage" || ! -e "$update_conf_stage" ]] ||
+    rm -f -- "$update_conf_stage"
   rm -rf -- "$tmp"
   if ((status != 0)); then
     if [[ "$installation_cancelled" == 1 ]]; then
@@ -612,6 +615,12 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   # package.json rende i file compilati .js moduli ESM.
   cp "$build_source/package.json" "$release_stage/package.json"
   cp "$build_source/package-lock.json" "$release_stage/package-lock.json"
+  install -d -m 0755 "$release_stage/deploy"
+  cp -a "$SCRIPT_DIR" "$release_stage/deploy/linux"
+  find "$release_stage/deploy/linux" -type d -name __pycache__ -prune \
+    -exec rm -rf -- {} +
+  find "$release_stage/deploy/linux" -type f \( -name '*.pyc' -o -name '*.pyo' \) \
+    -delete
 
   # Installa nella release solamente le dipendenze necessarie in produzione.
   PATH="$node_release/bin:$PATH" "$node_release/bin/npm" ci \
@@ -651,6 +660,9 @@ else
 
   install -d -m 0755 \
     "$release_stage/node_modules/music-metadata"
+  install -d -m 0755 "$release_stage/deploy/linux"
+  install -m 0755 "$SCRIPT_DIR/update-eidetic-player.sh" \
+    "$release_stage/deploy/linux/update-eidetic-player.sh"
 fi
 
 install -m 0755 "$SCRIPT_DIR/runtime/eidetic-player-launch" \
@@ -708,12 +720,16 @@ eidetic_console_phase_done
 eidetic_console_phase_begin "System integration"
 conf="$tmp/install.conf"
 power_policy="$tmp/eidetic-player-power.polkit.rules"
+update_policy="$tmp/eidetic-player-update.polkit.rules"
+update_conf="$tmp/update.conf"
 power_policy_placeholder=__EIDETIC_RUNTIME_USER__
 [[ "$(grep -Foc "$power_policy_placeholder" \
   "$SCRIPT_DIR/templates/eidetic-player-power.polkit.rules")" == 1 ]] ||
   eidetic_die "Power policy template must contain exactly one runtime-user placeholder"
 sed "s/$power_policy_placeholder/$runtime_user/" \
   "$SCRIPT_DIR/templates/eidetic-player-power.polkit.rules" >"$power_policy"
+sed "s/$power_policy_placeholder/$runtime_user/" \
+  "$SCRIPT_DIR/templates/eidetic-player-update.polkit.rules" >"$update_policy"
 if grep -Fq "$power_policy_placeholder" "$power_policy"; then
   eidetic_die "Power policy runtime-user placeholder was not replaced"
 fi
@@ -738,6 +754,33 @@ NODE_ENV=production
 PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin
 EOF
 eidetic_install_managed "$conf" /etc/eidetic-player/install.conf 0644
+installed_update_conf="$(eidetic_target /etc/eidetic-player/update.conf)"
+if [[ -f "$installed_update_conf" && ! -L "$installed_update_conf" ]] &&
+  grep -Eq '^EIDETIC_UPDATE_BRANCH=[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' \
+    "$installed_update_conf"; then
+  cp "$installed_update_conf" "$update_conf"
+else
+  update_default_branch=main
+  if [[ "$EIDETIC_ROOT" == "/" && -z "$resolved_commit" &&
+    -r "$build_source/.git/FETCH_HEAD" ]] &&
+    grep -Fq "branch '$git_ref' of $SOURCE_REMOTE" \
+      "$build_source/.git/FETCH_HEAD"; then
+    update_default_branch="$git_ref"
+  fi
+  printf 'EIDETIC_UPDATE_CONFIG_SCHEMA=1\nEIDETIC_UPDATE_BRANCH=%s\nEIDETIC_UPDATE_REMOTE=%s\n' \
+    "$update_default_branch" "$EIDETIC_SOURCE_REMOTE" >"$update_conf"
+fi
+[[ ! -L "$installed_update_conf" ]] ||
+  eidetic_die "Software Update config path must not be a symbolic link"
+update_conf_dir="$(dirname "$installed_update_conf")"
+install -d -m 0755 "$update_conf_dir"
+update_conf_stage="$(mktemp "$update_conf_dir/.update.conf.XXXXXX")"
+install -m 0644 "$update_conf" "$update_conf_stage"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  chown root:root "$update_conf_stage"
+fi
+mv -Tf "$update_conf_stage" "$installed_update_conf"
+update_conf_stage=
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.service" /etc/systemd/user/eidetic-player.service 0644
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.desktop" /usr/share/applications/eidetic-player.desktop 0644
 eidetic_install_managed "$SCRIPT_DIR/templates/return-to-eidetic-player.desktop" /usr/share/applications/return-to-eidetic-player.desktop 0644
@@ -749,6 +792,20 @@ eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-smb-helper" /usr/lib
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-smb.polkit.rules" /etc/polkit-1/rules.d/49-eidetic-player-smb.rules 0644
 eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-power-helper" /usr/libexec/eidetic-player-power-helper 0755
 eidetic_install_managed "$power_policy" /etc/polkit-1/rules.d/49-eidetic-player-power.rules 0644
+if [[ "$mode" == appliance ]]; then
+  eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-update.service" /etc/systemd/system/eidetic-player-update.service 0644
+  eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-helper" /usr/libexec/eidetic-player-update-helper 0755
+  eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-runner" /usr/libexec/eidetic-player-update-runner 0755
+  eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-journal.mjs" /usr/libexec/eidetic-player-update-journal.mjs 0755
+  eidetic_install_managed "$update_policy" /etc/polkit-1/rules.d/49-eidetic-player-update.rules 0644
+  update_state="$(eidetic_target /var/lib/eidetic-player/update)"
+  if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    install -d -m 2750 -o root -g "$runtime_user" \
+      "$update_state" "$update_state/history"
+  else
+    install -d -m 2750 "$update_state" "$update_state/history"
+  fi
+fi
 
 pkexec_target="$(eidetic_target /usr/bin/pkexec)"
 power_helper_target="$(eidetic_target /usr/libexec/eidetic-player-power-helper)"
@@ -879,6 +936,13 @@ if ((gpio_i2s_dac)); then
 fi
 eidetic_console_phase_done
 eidetic_console_phase_begin "Release activation"
+if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
+  printf 'EIDETIC_PROGRESS_V1\tupdate\tactivation-imminent\t5\t7\tApplying update\n' \
+    >&"$EIDETIC_UPDATE_JOB_FD"
+  renice -n 0 -p "$$" "$PPID" >/dev/null 2>&1 || true
+  command -v ionice >/dev/null 2>&1 &&
+    ionice -c 2 -n 4 -p "$$" "$PPID" >/dev/null 2>&1 || true
+fi
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=
 if [[ "$gpio_dac_changed" == 1 ]]; then

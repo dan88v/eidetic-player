@@ -291,6 +291,107 @@ case "$installation_mode" in
     check power-capabilities fail
     ;;
 esac
+update_config="$(eidetic_target /etc/eidetic-player/update.conf)"
+check update-config "$(
+  if [[ -f "$update_config" && ! -L "$update_config" &&
+    "$(stat -c '%a' "$update_config")" == 644 ]] &&
+    grep -qx 'EIDETIC_UPDATE_CONFIG_SCHEMA=1' "$update_config" &&
+    grep -Eq '^EIDETIC_UPDATE_BRANCH=[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' \
+      "$update_config" &&
+    grep -Fxq "EIDETIC_UPDATE_REMOTE=$EIDETIC_SOURCE_REMOTE" "$update_config"; then
+    printf pass
+  else
+    printf fail
+  fi
+)"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  check update-config-owner "$(
+    if [[ -f "$update_config" &&
+      "$(stat -c '%u:%g' "$update_config")" == 0:0 ]]; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+else
+  check update-config-owner pass
+fi
+if [[ "$installation_mode" == appliance ]]; then
+  update_helper="$(eidetic_target /usr/libexec/eidetic-player-update-helper)"
+  update_runner="$(eidetic_target /usr/libexec/eidetic-player-update-runner)"
+  update_journal="$(eidetic_target /usr/libexec/eidetic-player-update-journal.mjs)"
+  update_unit="$(eidetic_target /etc/systemd/system/eidetic-player-update.service)"
+  update_policy="$(eidetic_target /etc/polkit-1/rules.d/49-eidetic-player-update.rules)"
+  update_state="$(eidetic_target /var/lib/eidetic-player/update)"
+  check update-helper "$(
+    if [[ -x "$update_helper" && ! -L "$update_helper" &&
+      "$(stat -c '%a' "$update_helper")" == 755 ]]; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+  check update-runner "$(
+    if [[ -x "$update_runner" && ! -L "$update_runner" &&
+      "$(stat -c '%a' "$update_runner")" == 755 ]]; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+  check update-journal "$(
+    if [[ -x "$update_journal" && ! -L "$update_journal" &&
+      "$(stat -c '%a' "$update_journal")" == 755 ]]; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+  check update-unit "$(
+    if [[ -r "$update_unit" && ! -L "$update_unit" &&
+      "$(stat -c '%a' "$update_unit")" == 644 ]]; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+  check update-policy "$(
+    if [[ -r "$update_policy" && ! -L "$update_policy" &&
+      "$(stat -c '%a' "$update_policy")" == 644 ]] &&
+      ! grep -Fq '__EIDETIC_RUNTIME_USER__' "$update_policy"; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+  check update-state "$(
+    if [[ -d "$update_state" && ! -L "$update_state" &&
+      "$(stat -c '%a' "$update_state")" == 2750 ]]; then
+      printf pass
+    else
+      printf fail
+    fi
+  )"
+  if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    check update-integration-owner "$(
+      if [[ -f "$update_helper" && -f "$update_runner" &&
+        -f "$update_journal" && -f "$update_unit" &&
+        -f "$update_policy" && -d "$update_state" &&
+        "$(stat -c '%u:%g' "$update_helper")" == 0:0 &&
+        "$(stat -c '%u:%g' "$update_runner")" == 0:0 &&
+        "$(stat -c '%u:%g' "$update_journal")" == 0:0 &&
+        "$(stat -c '%u:%g' "$update_unit")" == 0:0 &&
+        "$(stat -c '%u:%g' "$update_policy")" == 0:0 &&
+        "$(stat -c '%u' "$update_state")" == 0 ]]; then
+        printf pass
+      else
+        printf fail
+      fi
+    )"
+  else
+    check update-integration-owner pass
+  fi
+fi
 check manifest "$([[ -r "$(eidetic_target /var/lib/eidetic-player/system-ui-manifest-v1.tsv)" ]] && printf pass || printf fail)"
 node_path="$(eidetic_target /opt/eidetic-player/node/current/bin/node)"
 build_manifest="$(eidetic_target /opt/eidetic-player/current/build-info.json)"

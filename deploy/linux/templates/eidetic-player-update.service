@@ -1,0 +1,20 @@
+[Unit]
+Description=Eidetic Player software update
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/eidetic-player/update/request.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/eidetic-player-update-runner
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=false
+ProtectSystem=false
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+TimeoutStartSec=infinity

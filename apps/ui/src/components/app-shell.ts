@@ -19,6 +19,11 @@ import { NetworkApiClient } from "../api/network-api-client";
 import { SmbApiClient } from "../api/smb-api-client";
 import { SystemApiClient } from "../api/system-api-client";
 import { AudioOutputApiClient } from "../api/audio-output-api-client";
+import { UpdateApiClient } from "../api/update-api-client";
+import {
+  defaultSoftwareUpdateSnapshot,
+  type SoftwareUpdateSnapshot,
+} from "../../../../packages/shared/src/update";
 import {
   disconnectedAudioOutputState,
   type AudioOutputState,
@@ -102,6 +107,7 @@ export function mountApp(
   const smbApi = new SmbApiClient();
   const systemApi = new SystemApiClient();
   const audioOutputApi = new AudioOutputApiClient();
+  const updateApi = new UpdateApiClient();
   if (systemCapabilities.hidePointerWhenInactive)
     root.dataset.pointerPolicy = "hide-when-inactive";
   const favorites = new FavoriteTrackStore(libraryApi);
@@ -317,6 +323,12 @@ export function mountApp(
   screenRegion.id = "main-content";
   const screenTouchScroller = createReliableTouchScroller(screenRegion);
   contentShell.append(screenRegion);
+  const applyingUpdate = document.createElement("section");
+  applyingUpdate.className = "applying-update";
+  applyingUpdate.hidden = true;
+  applyingUpdate.setAttribute("role", "status");
+  applyingUpdate.innerHTML =
+    "<strong>Applying update…</strong><span>Eidetic Player will restart in a moment.</span>";
   const powerMenu = createPowerMenu({
     actions: systemCapabilities.availablePowerActions,
     onOpenChange: (open) => {
@@ -325,6 +337,15 @@ export function mountApp(
       document.body.classList.toggle("overlay-open", open);
     },
     onAction: async (action) => {
+      if (
+        ["queued", "running", "activating", "restarting", "verifying"].includes(
+          softwareUpdateState.job.state,
+        )
+      ) {
+        throw new Error(
+          "Power actions are unavailable while an update is in progress.",
+        );
+      }
       await preferencesController?.flush();
       await systemApi.requestPowerAction(action);
       if (action === "quit")
@@ -356,6 +377,7 @@ export function mountApp(
     volumePopover.element,
     powerMenu.backdrop,
     powerMenu.element,
+    applyingUpdate,
     dropOverlay,
     toastHost.element,
   );
@@ -376,6 +398,9 @@ export function mountApp(
   let networkSnapshot: NetworkSnapshot = emptyNetworkSnapshot;
   let audioOutputState = initialAudioOutputState;
   let smbSnapshot: SmbSnapshot = emptySmbSnapshot;
+  let softwareUpdateState: SoftwareUpdateSnapshot =
+    defaultSoftwareUpdateSnapshot;
+  let softwareUpdateReceived = false;
   let selectedSmbConnection: SmbConnection | null = null;
   let smbReturnScreen: ScreenId = "sources";
   let usbReturnScreen: ScreenId = "nowPlaying";
@@ -496,6 +521,8 @@ export function mountApp(
       networkSnapshot,
       audioOutputApi,
       audioOutputState,
+      updateApi,
+      softwareUpdateState,
       smbApi,
       smbSnapshot,
       selectedSmbConnection,
@@ -875,6 +902,84 @@ export function mountApp(
         // EventSource reconnects automatically; the last snapshot remains.
       });
     });
+  const receiveSoftwareUpdate = (snapshot: SoftwareUpdateSnapshot): void => {
+    if (appDestroyed) return;
+    const previousState = softwareUpdateState.job.state;
+    const previousActive = [
+      "queued",
+      "running",
+      "activating",
+      "restarting",
+      "verifying",
+    ].includes(previousState);
+    const completedAt = snapshot.job.completedAt
+      ? Date.parse(snapshot.job.completedAt)
+      : Number.NaN;
+    const recentTerminal =
+      !softwareUpdateReceived &&
+      Number.isFinite(completedAt) &&
+      Date.now() - completedAt >= 0 &&
+      Date.now() - completedAt <= 5 * 60_000;
+    softwareUpdateReceived = true;
+    softwareUpdateState = snapshot;
+    topBar.updateSoftwareUpdate(snapshot);
+    currentScreen?.updateSoftwareUpdateState?.(snapshot);
+    const applying = ["activating", "restarting"].includes(snapshot.job.state);
+    applyingUpdate.hidden = !applying;
+    applyingUpdate.inert = !applying;
+    if (applying && !["activating", "restarting"].includes(previousState)) {
+      closeOverlays();
+      void preferencesController?.flush();
+    }
+    if (
+      (previousActive || recentTerminal) &&
+      previousState !== snapshot.job.state &&
+      snapshot.job.state === "succeeded"
+    )
+      showMessage(
+        `Update completed. Build ${snapshot.job.targetCommitSha?.slice(0, 7) ?? "verified"}.`,
+        "success",
+      );
+    if (
+      (previousActive || recentTerminal) &&
+      previousState !== snapshot.job.state
+    ) {
+      if (snapshot.job.state === "rolled-back")
+        showMessage(
+          "Update failed. The previous build was restored and verified.",
+          "error",
+        );
+      else if (snapshot.job.state === "interrupted")
+        showMessage(
+          "Update interrupted. Check Software update before trying again.",
+          "error",
+        );
+      else if (snapshot.job.state === "failed")
+        showMessage(
+          snapshot.job.rollback === "failed"
+            ? "Update failed and automatic recovery could not be verified."
+            : "Update failed before activation.",
+          "error",
+        );
+    }
+  };
+  topBar.updateSoftwareUpdate(softwareUpdateState);
+  let unsubscribeSoftwareUpdate = (): void => undefined;
+  void updateApi
+    .state()
+    .then(receiveSoftwareUpdate)
+    .catch((error: unknown) => {
+      console.warn("[software-update] initial snapshot unavailable", error);
+    })
+    .finally(() => {
+      if (appDestroyed) return;
+      unsubscribeSoftwareUpdate = updateApi.subscribe(
+        receiveSoftwareUpdate,
+        () => {
+          // EventSource reconnects after the expected backend restart.
+        },
+      );
+    });
   let lastAudioOutputNoticeRevision = audioOutputState.noticeRevision;
   const receiveAudioOutputState = (snapshot: AudioOutputState): void => {
     if (appDestroyed || snapshot.revision < audioOutputState.revision) return;
@@ -1129,6 +1234,7 @@ export function mountApp(
       unsubscribeRemovable();
       unsubscribeNetwork();
       unsubscribeSmb();
+      unsubscribeSoftwareUpdate();
       unsubscribeDrops();
       unsubscribePlayer();
       unsubscribeApp();

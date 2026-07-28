@@ -117,6 +117,14 @@ import type {
 import type { AudioProcessingPatch } from "../../../packages/shared/src/audio-processing.js";
 import { AudioProcessingService } from "./audio-processing/audio-processing-service.js";
 import { AudioProcessingError } from "./audio-processing/audio-processing-error.js";
+import { SoftwareUpdateService } from "./update/update-service.js";
+import { UpdateSseHub } from "./update/update-sse-hub.js";
+import { UpdateError } from "./update/update-errors.js";
+import {
+  emptyUpdateBody,
+  selectBranchBody,
+  startUpdateBody,
+} from "./update/update-validation.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -143,6 +151,11 @@ const systemCapabilities: SystemCapabilities = {
   hidePointerWhenInactive: process.env.EIDETIC_HIDE_POINTER === "1",
 };
 const buildInfo = loadBuildInfo(config.environment);
+const softwareUpdate = new SoftwareUpdateService(
+  buildInfo,
+  installationMode === "appliance",
+);
+const softwareUpdateInitialization = softwareUpdate.initialize();
 const preferences = new PreferencesStore();
 
 const player = new PlayerService();
@@ -322,6 +335,7 @@ const events = new SseHub(player, audioOutput);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
 const networkEvents = new NetworkSseHub(network);
 const smbEvents = new SmbSseHub(smb);
+const updateEvents = new UpdateSseHub(softwareUpdate);
 let previousSmbStates = new Map<string, boolean>();
 let previousSmbConnectionVersions = new Map<string, string>();
 let smbLibraryRefresh: Promise<void> = Promise.resolve();
@@ -1121,12 +1135,18 @@ async function handleRequest(
       return;
     }
     const origin = request.headers.origin;
+    const updateRoute = url.pathname.startsWith("/api/system/update");
+    let localOrigin = true;
     if (origin) {
-      const originUrl = new URL(origin);
-      if (
-        originUrl.hostname === "127.0.0.1" ||
-        originUrl.hostname === "localhost"
-      ) {
+      try {
+        const originUrl = new URL(origin);
+        localOrigin =
+          originUrl.hostname === "127.0.0.1" ||
+          originUrl.hostname === "localhost";
+      } catch {
+        localOrigin = false;
+      }
+      if (localOrigin) {
         response.setHeader("access-control-allow-origin", origin);
         response.setHeader("vary", "Origin");
         response.setHeader("access-control-allow-headers", "content-type");
@@ -1136,6 +1156,12 @@ async function handleRequest(
         );
       }
     }
+    if (updateRoute && !localOrigin)
+      throw new UpdateError(
+        "preparation-failed",
+        "Software Update is available only in the local appliance interface.",
+        403,
+      );
     if (request.method === "OPTIONS") {
       response.writeHead(204);
       response.end();
@@ -1164,6 +1190,81 @@ async function handleRequest(
         bootstrapReadiness === "starting" ? 503 : 200,
         payload,
       );
+      return;
+    }
+    if (
+      updateRoute &&
+      !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(
+        request.socket.remoteAddress ?? "",
+      )
+    )
+      throw new UpdateError(
+        "preparation-failed",
+        "Software Update is available only in the local appliance interface.",
+        403,
+      );
+    if (updateRoute) await softwareUpdateInitialization;
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/system/update/state"
+    ) {
+      sendJson(response, 200, { ok: true, data: softwareUpdate.snapshot() });
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/system/update/events"
+    ) {
+      updateEvents.add(response);
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/system/update/branches/refresh"
+    ) {
+      requireJson(request);
+      emptyUpdateBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await softwareUpdate.refreshBranches(),
+      });
+      return;
+    }
+    if (
+      request.method === "PATCH" &&
+      url.pathname === "/api/system/update/branch"
+    ) {
+      requireJson(request);
+      const body = selectBranchBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await softwareUpdate.selectBranch(body.branch),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/system/update/check"
+    ) {
+      requireJson(request);
+      emptyUpdateBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await softwareUpdate.check(),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/system/update/start"
+    ) {
+      requireJson(request);
+      const body = startUpdateBody(await readBody(request, 2048));
+      await softwareUpdate.start(body.planId, body.expectedTargetCommitSha);
+      sendJson(response, 202, {
+        ok: true,
+        data: softwareUpdate.snapshot(),
+      });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/player/state") {
@@ -3064,6 +3165,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof UpdateError) {
+      sendJson(response, error.status, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof AudioProcessingError) {
       sendJson(response, error.statusCode, {
         ok: false,
@@ -3144,6 +3252,8 @@ function shutdown(signal: NodeJS.Signals): void {
   removableEvents.close();
   networkEvents.close();
   smbEvents.close();
+  updateEvents.close();
+  softwareUpdate.close();
   unsubscribeRemovablePlayer();
   unsubscribeSmbPlayer();
   unsubscribeNetworkSmb();

@@ -52,6 +52,16 @@ for record in "${records[@]}"; do
         ;;
     esac
   fi
+  case "$logical" in
+    /usr/libexec/eidetic-player-update-helper | \
+      /usr/libexec/eidetic-player-update-runner | \
+      /usr/libexec/eidetic-player-update-journal.mjs | \
+      /etc/systemd/system/eidetic-player-update.service | \
+      /etc/polkit-1/rules.d/49-eidetic-player-update.rules)
+      preserved_records+=("$record")
+      continue
+      ;;
+  esac
   target="$(eidetic_target "$logical")"
   [[ ! -L "$target" ]] || eidetic_die "refusing administrative symlink: $logical"
   if [[ -z "${managed_hash:-}" || "$managed_hash" == - ]]; then

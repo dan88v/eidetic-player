@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+state_dir=/var/lib/eidetic-player/update
+request="$state_dir/request.json"
+lock="$state_dir/update.lock"
+journal=/usr/libexec/eidetic-player-update-journal.mjs
+node=/opt/eidetic-player/node/current/bin/node
+updater=/opt/eidetic-player/current/deploy/linux/update-eidetic-player.sh
+
+[[ -d "$state_dir" && ! -L "$state_dir" &&
+  "$(stat -c '%u:%g' "$state_dir")" == 0:* ]] || exit 66
+exec 9>"$lock"
+flock -n 9 || exit 75
+[[ -f "$request" && ! -L "$request" &&
+  "$(stat -c '%u:%g:%a' "$request")" == 0:0:600 &&
+  -x "$node" && -x "$updater" ]] || exit 66
+mapfile -t fields < <("$node" -e '
+const r=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));
+for (const key of ["planId","branch","currentCommitSha","targetCommitSha","expiresAt"])
+  console.log(r[key]);
+' "$request")
+((${#fields[@]} == 5)) || exit 65
+plan_id="${fields[0]}" branch="${fields[1]}" current="${fields[2]}"
+target="${fields[3]}" expires="${fields[4]}"
+[[ "$plan_id" =~ ^[0-9a-f]{32}$ && "$current" =~ ^[0-9a-f]{40}$ &&
+  "$target" =~ ^[0-9a-f]{40}$ ]] || exit 65
+git check-ref-format --branch "$branch" >/dev/null 2>&1 || exit 65
+[[ "$(date -u -d "$expires" +%s 2>/dev/null)" -gt "$(date -u +%s)" ]] ||
+  exit 65
+grep -Fxq "EIDETIC_UPDATE_BRANCH=$branch" /etc/eidetic-player/update.conf ||
+  exit 65
+installed="$(
+  "$node" -e \
+    'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).commitSha)' \
+    /opt/eidetic-player/current/build-info.json
+)"
+[[ "$installed" == "$current" ]] || exit 65
+
+"$node" "$journal" initialize
+fifo_dir="$(mktemp -d "$state_dir/.progress.XXXXXX")"
+fifo="$fifo_dir/events"
+mkfifo -m 0600 "$fifo"
+finalized=0
+cleanup() {
+  if ((finalized == 0)) && [[ -f "$request" ]]; then
+    "$node" "$journal" interrupt >/dev/null 2>&1 || true
+  fi
+  rm -f -- "$fifo" "$request"
+  rmdir -- "$fifo_dir" 2>/dev/null || true
+}
+trap cleanup EXIT
+(
+  while IFS= read -r line; do
+    ((${#line} <= 4096)) || continue
+    "$node" "$journal" event "$line" || true
+  done <"$fifo"
+) &
+consumer=$!
+exec 7>"$fifo"
+rm -f -- "$fifo"
+rmdir -- "$fifo_dir"
+
+status=0
+EIDETIC_PROGRESS_FD=7 EIDETIC_UPDATE_JOB_FD=7 \
+  nice -n 10 ionice -c 2 -n 7 \
+  "$updater" --ref "$target" --unattended --no-color || status=$?
+exec 7>&-
+wait "$consumer" || true
+"$node" "$journal" finish "$status"
+finalized=1
+history="$state_dir/history/${plan_id}.json"
+cp -- "$state_dir/current.json" "$history"
+chmod 0640 "$history"
+find "$state_dir/history" -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' |
+  sort -nr | awk 'NR > 10 { sub(/^[^ ]+ /, ""); print }' |
+  while IFS= read -r old; do rm -f -- "$old"; done
+exit "$status"

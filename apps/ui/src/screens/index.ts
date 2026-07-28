@@ -15,6 +15,8 @@ import type { SmbApiClient } from "../api/smb-api-client";
 import type { SystemCapabilities } from "../../../../packages/shared/src/system";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 import type { AudioOutputApiClient } from "../api/audio-output-api-client";
+import type { UpdateApiClient } from "../api/update-api-client";
+import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -126,6 +128,8 @@ export interface ScreenContext {
   ) => void;
   readonly systemCapabilities: SystemCapabilities;
   readonly enterMaintenanceMode: () => Promise<void>;
+  readonly updateApi: UpdateApiClient;
+  readonly softwareUpdateState: SoftwareUpdateSnapshot;
 }
 
 function staticView(element: HTMLElement): ComponentView {
@@ -274,6 +278,8 @@ export function createScreen(
         onScreenKeyboardMode: context.state.onScreenKeyboardMode,
         systemCapabilities: context.systemCapabilities,
         enterMaintenanceMode: context.enterMaintenanceMode,
+        updateApi: context.updateApi,
+        softwareUpdateState: context.softwareUpdateState,
         networkApi: context.networkApi,
         networkSnapshot: context.networkSnapshot,
         audioOutputApi: context.audioOutputApi,

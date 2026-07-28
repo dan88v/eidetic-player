@@ -220,8 +220,16 @@ rollback_after_hard_failure() {
     else
       rollback_result="previous legacy release restored; service and backend verified"
     fi
+    if [[ -n "${EIDETIC_UPDATE_JOB_FD:-}" ]]; then
+      printf 'EIDETIC_PROGRESS_V1\tupdate\trollback-completed\t7\t7\tPrevious release restored and verified\n' \
+        >&"$EIDETIC_UPDATE_JOB_FD"
+    fi
   else
     rollback_result="automatic rollback could not be verified; manual recovery is required"
+    if [[ -n "${EIDETIC_UPDATE_JOB_FD:-}" ]]; then
+      printf 'EIDETIC_PROGRESS_V1\tupdate\trollback-failed\t7\t7\tAutomatic rollback could not be verified\n' \
+        >&"$EIDETIC_UPDATE_JOB_FD"
+    fi
   fi
   exit 1
 }
@@ -428,11 +436,19 @@ if ((no_restart)) || [[ "$EIDETIC_ROOT" != "/" ]]; then
 fi
 
 eidetic_console_phase_begin "Service restart"
+if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
+  printf 'EIDETIC_PROGRESS_V1\tupdate\trestarting\t5\t7\tRestarting Eidetic Player\n' \
+    >&"$EIDETIC_UPDATE_JOB_FD"
+fi
 systemctl_user restart eidetic-player.service ||
   rollback_after_hard_failure "new release service could not be restarted"
 eidetic_console_phase_done
 
 eidetic_console_phase_begin "Hard health verification"
+if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
+  printf 'EIDETIC_PROGRESS_V1\tupdate\tverifying\t6\t7\tVerifying new build\n' \
+    >&"$EIDETIC_UPDATE_JOB_FD"
+fi
 if ! wait_for_build "$target_sha" 60 0; then
   rollback_after_hard_failure "new release failed hard health verification"
 fi
@@ -443,6 +459,10 @@ if wait_for_build "$target_sha" 120 1; then
   eidetic_console_phase_done
 else
   eidetic_console_abort_active_phase
+  if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
+    printf 'EIDETIC_PROGRESS_V1\tupdate\twarning\t7\t7\tPlayer readiness warning\tMPV was not ready within 120 seconds\n' \
+      >&"$EIDETIC_UPDATE_JOB_FD"
+  fi
   eidetic_console_warning \
     "MPV was not ready within 120 seconds; backend health and Build ID are valid, so the new release remains active."
 fi

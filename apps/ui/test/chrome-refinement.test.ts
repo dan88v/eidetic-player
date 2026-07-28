@@ -101,11 +101,11 @@ void test("12. passive Ethernet is hidden from assistive technology", async () =
   );
 });
 
-void test("13. Wi-Fi, audio, and SMB share one interactive popover", async () => {
+void test("13. Wi-Fi, audio, SMB, and Update share one interactive popover", async () => {
   const topBar = await read("components/top-bar.ts");
   assert.equal(
     (topBar.match(/<button class="[^"]+" data-status-trigger=/g) ?? []).length,
-    3,
+    4,
   );
   assert.equal((topBar.match(/top-bar__status-popover" id=/g) ?? []).length, 1);
   assert.match(topBar, /closeStatusOutside/);

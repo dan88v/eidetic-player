@@ -601,6 +601,34 @@ The helper and policy are host integration rather than release contents, so
 rollback leaves them installed; a pre-Step-B release neither detects nor
 exposes the new actions.
 
+### In-app Software Update
+
+On an appliance, `Settings > System > Software update` exposes the same
+transactional updater through a narrower interface. Branches are fetched only
+after an explicit refresh from the fixed official remote. A check pins the
+selected branch to a full commit for 30 minutes; Start accepts that exact plan
+only.
+
+The runtime backend never runs the update itself. Polkit authorizes the fixed
+`/usr/libexec/eidetic-player-update-helper` for the configured runtime user.
+The helper writes a validated private request and starts the root system unit
+`eidetic-player-update.service`. Its external runner is singleton, uses
+reduced CPU/I/O priority during preparation, and remains alive while the
+application service and active release are replaced.
+
+Progress uses only versioned records on a dedicated inherited descriptor.
+Human updater output is not parsed. The runner atomically maintains a bounded
+journal under `/var/lib/eidetic-player/update`; the backend exposes its
+sanitized state only to the loopback application API and one SSE stream.
+Activation restores normal priority, retains the existing Build ID health
+gate and automatic rollback, and requires no reboot.
+
+The selected branch lives separately in
+`/etc/eidetic-player/update.conf`. Install and update preserve it. Normal
+uninstall preserves this small configuration but removes the system runner,
+helper, policy, active journal, and job state; purge removes the configuration
+too.
+
 ## Restore system UI
 
 Preview exactly which Eidetic-managed files would be restored:
