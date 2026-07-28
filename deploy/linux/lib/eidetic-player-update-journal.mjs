@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Installed as a privileged runtime helper; kept outside runtime/ because that
+// source directory is reserved for Bash-parseable deployment entrypoints.
 import {
   closeSync,
   fsyncSync,

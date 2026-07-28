@@ -796,7 +796,7 @@ if [[ "$mode" == appliance ]]; then
   eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-update.service" /etc/systemd/system/eidetic-player-update.service 0644
   eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-helper" /usr/libexec/eidetic-player-update-helper 0755
   eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-runner" /usr/libexec/eidetic-player-update-runner 0755
-  eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-journal.mjs" /usr/libexec/eidetic-player-update-journal.mjs 0755
+  eidetic_install_managed "$SCRIPT_DIR/lib/eidetic-player-update-journal.mjs" /usr/libexec/eidetic-player-update-journal.mjs 0755
   eidetic_install_managed "$update_policy" /etc/polkit-1/rules.d/49-eidetic-player-update.rules 0644
   update_state="$(eidetic_target /var/lib/eidetic-player/update)"
   if [[ "$EIDETIC_ROOT" == "/" ]]; then

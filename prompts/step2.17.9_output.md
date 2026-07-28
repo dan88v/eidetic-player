@@ -380,6 +380,17 @@ Final gate execution:
 - `bash -n` on every changed/new shell executable: PASS
 - `git diff --check`: PASS
 
+Post-checkpoint CI corrections:
+
+- the helper, runner, and journal Git modes were corrected to `100755`;
+- the Node journal source was moved from `deploy/linux/runtime/` to
+  `deploy/linux/lib/`, because the CI contract intentionally parses every
+  deployment `runtime/` entrypoint as Bash;
+- the installed journal path remains
+  `/usr/libexec/eidetic-player-update-journal.mjs`;
+- the exact CI `find ... | xargs bash -n` command, executable-mode verifier,
+  full test suite, and Linux installer gate pass after the correction.
+
 ShellCheck was not installed in Windows or the existing WSL Debian environment
 and was not installed for this step. `bash -n` covers every modified shell
 file.

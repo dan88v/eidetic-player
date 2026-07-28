@@ -170,7 +170,7 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
     readFile("deploy/linux/runtime/eidetic-player-update-runner", "utf8"),
     readFile("deploy/linux/runtime/eidetic-player-update-helper", "utf8"),
     readFile("deploy/linux/templates/eidetic-player-update.service", "utf8"),
-    readFile("deploy/linux/runtime/eidetic-player-update-journal.mjs", "utf8"),
+    readFile("deploy/linux/lib/eidetic-player-update-journal.mjs", "utf8"),
     readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
   ]);
   assert.match(unit, /Type=oneshot/u);
