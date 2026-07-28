@@ -940,8 +940,9 @@ if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
   printf 'EIDETIC_PROGRESS_V1\tupdate\tactivation-imminent\t5\t7\tApplying update\n' \
     >&"$EIDETIC_UPDATE_JOB_FD"
   renice -n 0 -p "$$" "$PPID" >/dev/null 2>&1 || true
-  command -v ionice >/dev/null 2>&1 &&
+  if command -v ionice >/dev/null 2>&1; then
     ionice -c 2 -n 4 -p "$$" "$PPID" >/dev/null 2>&1 || true
+  fi
 fi
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=

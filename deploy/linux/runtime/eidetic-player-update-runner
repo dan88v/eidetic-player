@@ -41,6 +41,8 @@ fifo_dir="$(mktemp -d "$state_dir/.progress.XXXXXX")"
 fifo="$fifo_dir/events"
 mkfifo -m 0600 "$fifo"
 finalized=0
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2317
 cleanup() {
   if ((finalized == 0)) && [[ -f "$request" ]]; then
     "$node" "$journal" interrupt >/dev/null 2>&1 || true

@@ -390,6 +390,11 @@ Post-checkpoint CI corrections:
   `/usr/libexec/eidetic-player-update-journal.mjs`;
 - the exact CI `find ... | xargs bash -n` command, executable-mode verifier,
   full test suite, and Linux installer gate pass after the correction.
+- a later ShellCheck CI pass identified an ambiguous optional `ionice`
+  `&&`/`||` chain and the indirect `EXIT`-trap cleanup callback;
+- the `ionice` probe now uses an explicit `if`, while the trap-only cleanup has
+  a narrowly scoped documented `SC2317` suppression with unchanged lifecycle
+  behavior.
 
 ShellCheck was not installed in Windows or the existing WSL Debian environment
 and was not installed for this step. `bash -n` covers every modified shell
