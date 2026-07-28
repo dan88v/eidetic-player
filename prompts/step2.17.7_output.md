@@ -2,10 +2,14 @@
 
 ## Status
 
-`READY FOR CI VALIDATION — RASPBERRY COMMAND/SETTINGS VALIDATION NOT STARTED`
+`RASPBERRY PLAYBACK COMMAND RESPONSIVENESS — PASS`
+
+`RASPBERRY SETTINGS PERSISTENCE ACROSS UPDATE — HOLD — DEFERRED TO NEXT UPDATE`
 
 No commit, push, merge, rebase, reset, restore, stash, clean, Raspberry update,
-or Raspberry mutation was performed.
+or Raspberry mutation was performed automatically by Codex during the local
+implementation checkpoint. The commit/push and subsequent Raspberry update
+were explicitly initiated after that checkpoint.
 
 ## Git and CI baseline
 
@@ -344,45 +348,62 @@ PCM5102A, HDMI, and Raspberry files are unchanged.
 
 ## Post-CI Raspberry matrices
 
-These are intentionally pending and must use one update only after manual
-commit/push and exact-head CI green.
+Post-checkpoint execution:
+
+- Step commit manually created and pushed:
+  `0828396e131cf2d698e6a752530a79611137c3cb`.
+- Local `main` and `origin/main` are aligned on that exact head.
+- Exact-head GitHub Actions run `30309872262`: completed successfully.
+- One guided Raspberry update: completed successfully, reported by the user.
+- Physical Raspberry command responsiveness: reported `ok` by the user after
+  the update.
+- Settings persistence validation: intentionally placed on hold by the user
+  and reserved for the next update.
+- No second update was started for Settings validation.
+- No detailed per-command timing log or three-audio-path comparison was
+  supplied, so those rows remain explicitly deferred rather than inferred.
 
 ### Settings persistence
 
-| Check                         | Result      |
-| ----------------------------- | ----------- |
-| Migration result              | NOT STARTED |
-| Full Settings test vector     | NOT STARTED |
-| Service restart               | NOT STARTED |
-| Updater no-op                 | NOT STARTED |
-| Original Settings restoration | NOT STARTED |
+| Check                         | Result                             |
+| ----------------------------- | ---------------------------------- |
+| Migration result              | HOLD — next update                 |
+| Full Settings test vector     | HOLD — next update                 |
+| Service restart               | HOLD — next update                 |
+| Updater no-op                 | Not recorded separately            |
+| Original Settings restoration | Not required; test was not started |
 
 ### Audio paths
 
-| Path        | Responsiveness | Stability   | Distortion at 100% | Notes                          |
-| ----------- | -------------- | ----------- | ------------------ | ------------------------------ |
-| PipeWire    | NOT STARTED    | NOT STARTED | NOT STARTED        | Device not selected or changed |
-| ALSA/dmix   | NOT STARTED    | NOT STARTED | NOT STARTED        | Device not selected or changed |
-| ALSA direct | NOT STARTED    | NOT STARTED | NOT STARTED        | Device not selected or changed |
+| Path        | Responsiveness | Stability | Distortion at 100% | Notes                           |
+| ----------- | -------------- | --------- | ------------------ | ------------------------------- |
+| PipeWire    | DEFERRED       | DEFERRED  | DEFERRED           | No path comparison was recorded |
+| ALSA/dmix   | DEFERRED       | DEFERRED  | DEFERRED           | No path comparison was recorded |
+| ALSA direct | DEFERRED       | DEFERRED  | DEFERRED           | No path comparison was recorded |
 
 ### Playback commands and restoration
 
-| Check                                        | Result      |
-| -------------------------------------------- | ----------- |
-| Volume after Next at 0–100/250/500 ms        | NOT STARTED |
-| Pause/Play after Next                        | NOT STARTED |
-| Multiple Next                                | NOT STARTED |
-| Previous restart/previous/loading            | NOT STARTED |
-| Queue latest selection                       | NOT STARTED |
-| Mute/Unmute during transition                | NOT STARTED |
-| Slow/fast slider and release                 | NOT STARTED |
-| Volume persistence after restart             | NOT STARTED |
-| DAC 80/95/100% user observation              | NOT STARTED |
-| Original Audio Output restoration            | NOT STARTED |
-| Original Settings/playback state restoration | NOT STARTED |
-| Raspberry cleanup                            | NOT STARTED |
+| Check                                        | Result                              |
+| -------------------------------------------- | ----------------------------------- |
+| Overall physical command responsiveness      | USER-VALIDATED PASS                 |
+| Volume after Next at 0–100/250/500 ms        | Not recorded separately             |
+| Pause/Play after Next                        | Not recorded separately             |
+| Multiple Next                                | Not recorded separately             |
+| Previous restart/previous/loading            | Not recorded separately             |
+| Queue latest selection                       | Not recorded separately             |
+| Mute/Unmute during transition                | Not recorded separately             |
+| Slow/fast slider and release                 | Not recorded separately             |
+| Volume persistence after restart             | HOLD — next update                  |
+| DAC 80/95/100% user observation              | DEFERRED                            |
+| Original Audio Output restoration            | No test-path change recorded        |
+| Original Settings/playback state restoration | Settings test was not started       |
+| Raspberry cleanup                            | Update completed; no issue reported |
 
-Do not declare either Raspberry PASS state until these matrices are completed:
+Current hardware status:
 
 - `RASPBERRY PLAYBACK COMMAND RESPONSIVENESS — PASS`
-- `RASPBERRY SETTINGS PERSISTENCE ACROSS UPDATE — PASS`
+- `RASPBERRY SETTINGS PERSISTENCE ACROSS UPDATE — HOLD — DEFERRED TO NEXT UPDATE`
+
+The responsiveness PASS records the user's physical post-update evaluation. It
+does not claim that the deferred PipeWire/ALSA matrices, DAC distortion checks,
+or Settings migration/restart/no-op vector were executed.
