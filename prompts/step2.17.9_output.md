@@ -395,6 +395,12 @@ Post-checkpoint CI corrections:
 - the `ionice` probe now uses an explicit `if`, while the trap-only cleanup has
   a narrowly scoped documented `SC2317` suppression with unchanged lifecycle
   behavior.
+- Linux CI then exposed that the deterministic Windows updater fixture was
+  selected through process-global platform/environment state; fixture mode,
+  duration, and target resolution are now injected per service instance;
+- the exact-SHA branch-advance and non-Appliance tests are therefore
+  cross-platform and isolated from concurrent environment mutation. They pass
+  ten repeated focused runs and the complete 599-test suite.
 
 ShellCheck was not installed in Windows or the existing WSL Debian environment
 and was not installed for this step. `bash -n` covers every modified shell

@@ -30,6 +30,11 @@ const activeJobStates = [
 ] as const;
 
 type Listener = (snapshot: SoftwareUpdateSnapshot) => void;
+interface SoftwareUpdateServiceOptions {
+  fixtureMode?: boolean;
+  fixtureDurationMs?: number;
+  fixtureTarget?: (branch: string) => string | undefined;
+}
 
 function idleJob(branch: string): UpdateJob {
   const now = new Date().toISOString();
@@ -127,18 +132,34 @@ export class SoftwareUpdateService {
   private lastError: UpdateReasonCode | null = null;
   private readonly listeners = new Set<Listener>();
   private journalTimer: NodeJS.Timeout | null = null;
+  private readonly fixtureMode: boolean;
+  private readonly fixtureDurationMs: number;
+  private readonly fixtureTarget: (branch: string) => string | undefined;
 
   constructor(
     private readonly buildInfo: BuildInfo,
     private readonly available = process.platform === "win32",
-  ) {}
+    options: SoftwareUpdateServiceOptions = {},
+  ) {
+    this.fixtureMode = options.fixtureMode ?? process.platform === "win32";
+    const configuredDuration =
+      options.fixtureDurationMs ??
+      Number(process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS ?? 1_200);
+    this.fixtureDurationMs =
+      Number.isFinite(configuredDuration) && configuredDuration > 0
+        ? configuredDuration
+        : 1_200;
+    this.fixtureTarget =
+      options.fixtureTarget ??
+      (() => process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA);
+  }
 
   async initialize(): Promise<void> {
     this.selectedBranch = await this.readSelectedBranch();
     this.job = idleJob(this.selectedBranch);
     this.job = await this.readJournal(this.job);
     this.emit();
-    if (process.platform !== "win32") {
+    if (!this.fixtureMode) {
       this.journalTimer = setInterval(() => {
         void this.refreshJournal();
       }, 2_000);
@@ -176,13 +197,12 @@ export class SoftwareUpdateService {
   async refreshBranches(): Promise<SoftwareUpdateSnapshot> {
     this.assertAvailable();
     try {
-      const output =
-        process.platform === "win32"
-          ? [
-              `${this.fixtureSha("main")}\trefs/heads/main`,
-              `${this.fixtureSha("development/ui-fixture")}\trefs/heads/development/ui-fixture`,
-            ].join("\n")
-          : (await run("git", ["ls-remote", "--heads", remote])).stdout;
+      const output = this.fixtureMode
+        ? [
+            `${this.fixtureSha("main")}\trefs/heads/main`,
+            `${this.fixtureSha("development/ui-fixture")}\trefs/heads/development/ui-fixture`,
+          ].join("\n")
+        : (await run("git", ["ls-remote", "--heads", remote])).stdout;
       const deduplicated = new Map<string, UpdateBranch>();
       for (const line of output.split(/\r?\n/u).slice(0, 512)) {
         const match = /^([0-9a-f]{40})\trefs\/heads\/(.+)$/u.exec(line);
@@ -239,8 +259,7 @@ export class SoftwareUpdateService {
         "Refresh branches before selecting that branch.",
         409,
       );
-    if (process.platform !== "win32")
-      await this.runHelper(["select-branch", validated]);
+    if (!this.fixtureMode) await this.runHelper(["select-branch", validated]);
     this.selectedBranch = validated;
     if (this.job.state === "idle")
       this.job = { ...this.job, branch: validated };
@@ -260,19 +279,18 @@ export class SoftwareUpdateService {
       );
     const branch = await validateBranch(this.selectedBranch);
     try {
-      const target =
-        process.platform === "win32"
-          ? (process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA ??
-            this.buildInfo.commitSha ??
-            this.fixtureSha(branch))
-          : (
-              await run("git", [
-                "ls-remote",
-                "--exit-code",
-                remote,
-                `refs/heads/${branch}`,
-              ])
-            ).stdout.split(/\s/u, 1)[0];
+      const target = this.fixtureMode
+        ? (this.fixtureTarget(branch) ??
+          this.buildInfo.commitSha ??
+          this.fixtureSha(branch))
+        : (
+            await run("git", [
+              "ls-remote",
+              "--exit-code",
+              remote,
+              `refs/heads/${branch}`,
+            ])
+          ).stdout.split(/\s/u, 1)[0];
       if (!target || !fullShaPattern.test(target))
         throw new Error("invalid target");
       const current = await this.currentCommitSha();
@@ -343,7 +361,7 @@ export class SoftwareUpdateService {
         "Another update is already running.",
         409,
       );
-    if (process.platform === "win32") {
+    if (this.fixtureMode) {
       this.simulateFixture(plan);
       return;
     }
@@ -359,7 +377,7 @@ export class SoftwareUpdateService {
   }
 
   private async readSelectedBranch(): Promise<string> {
-    if (process.platform === "win32") return "main";
+    if (this.fixtureMode) return "main";
     try {
       const content = await readFile(configPath, "utf8");
       const match = /^EIDETIC_UPDATE_BRANCH=([^\r\n]+)$/mu.exec(content);
@@ -370,7 +388,7 @@ export class SoftwareUpdateService {
   }
 
   private async readJournal(fallback: UpdateJob): Promise<UpdateJob> {
-    if (process.platform === "win32") return fallback;
+    if (this.fixtureMode) return fallback;
     try {
       const metadata = await stat(journalPath);
       if (!metadata.isFile()) return fallback;
@@ -435,7 +453,10 @@ export class SoftwareUpdateService {
   }
 
   private fixtureSha(seed: string): string {
-    return createHash("sha1").update(`eidetic:${seed}`).digest("hex");
+    return (
+      this.fixtureTarget(seed) ??
+      createHash("sha1").update(`eidetic:${seed}`).digest("hex")
+    );
   }
 
   private assertAvailable(): void {
@@ -453,7 +474,7 @@ export class SoftwareUpdateService {
 
   private async currentCommitSha(): Promise<string | null> {
     if (this.buildInfo.commitSha) return this.buildInfo.commitSha;
-    if (process.platform !== "win32") return null;
+    if (!this.fixtureMode) return null;
     const value = (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
     return fullShaPattern.test(value) ? value : null;
   }
@@ -478,9 +499,7 @@ export class SoftwareUpdateService {
       updatedAt: startedAt,
     };
     this.emit();
-    const duration = Number(
-      process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS ?? 1_200,
-    );
+    const duration = this.fixtureDurationMs;
     const advance = (
       state: "activating" | "restarting",
       label: string,

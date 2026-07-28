@@ -58,14 +58,15 @@ void test("start body accepts only a plan id and exact expected SHA", () => {
 });
 
 void test(
-  "Windows fixture keeps discovery explicit, pins the checked SHA and runs one job",
+  "cross-platform fixture keeps discovery explicit, pins the checked SHA and runs one job",
   { concurrency: false },
   async () => {
-    const previous = process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA;
-    const previousDuration = process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS;
-    process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA = targetSha;
-    process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS = "200";
-    const service = new SoftwareUpdateService(buildInfo);
+    let fixtureTarget = targetSha;
+    const service = new SoftwareUpdateService(buildInfo, true, {
+      fixtureMode: true,
+      fixtureDurationMs: 200,
+      fixtureTarget: () => fixtureTarget,
+    });
     await service.initialize();
     const states: string[] = [];
     const unsubscribe = service.subscribe((snapshot) => {
@@ -95,7 +96,7 @@ void test(
         Date.parse(plan.expiresAt) - Date.parse(plan.checkedAt),
         30 * 60 * 1_000,
       );
-      process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA = "b".repeat(40);
+      fixtureTarget = "b".repeat(40);
       await service.start(plan.id, plan.targetCommitSha);
       assert.equal(service.snapshot().job.state, "running");
       assert.equal(service.snapshot().job.targetCommitSha, targetSha);
@@ -122,12 +123,6 @@ void test(
     } finally {
       unsubscribe();
       service.close();
-      if (previous === undefined)
-        delete process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA;
-      else process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA = previous;
-      if (previousDuration === undefined)
-        delete process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS;
-      else process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS = previousDuration;
     }
   },
 );
@@ -136,10 +131,12 @@ void test(
   "up-to-date checks stay no-op and non-appliance services remain unavailable",
   { concurrency: false },
   async () => {
-    const previous = process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA;
-    process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA = currentSha;
-    const service = new SoftwareUpdateService(buildInfo, true);
-    const unavailable = new SoftwareUpdateService(buildInfo, false);
+    const fixture = {
+      fixtureMode: true,
+      fixtureTarget: () => currentSha,
+    };
+    const service = new SoftwareUpdateService(buildInfo, true, fixture);
+    const unavailable = new SoftwareUpdateService(buildInfo, false, fixture);
     await service.initialize();
     await unavailable.initialize();
     try {
@@ -158,9 +155,6 @@ void test(
     } finally {
       service.close();
       unavailable.close();
-      if (previous === undefined)
-        delete process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA;
-      else process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA = previous;
     }
   },
 );
