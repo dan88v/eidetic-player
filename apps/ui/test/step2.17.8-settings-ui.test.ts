@@ -36,6 +36,10 @@ void test("Audio root follows Interface hierarchy and uses inline binary pills",
   assert.match(settings, /segmentedSettingRow<"variable" \| "fixed">/);
   assert.match(settings, /segmentedSettingRow<"on" \| "bypass">/);
   assert.doesNotMatch(settings, /\| "audio-level"|\| "audio-processing"/);
+  assert.match(
+    settings,
+    /panel\.append\(outputButton, softwareVolume\);[\s\S]*?panel\.append\(\s*soundProcessing,\s*channels,\s*balance,/,
+  );
 });
 
 void test("Output Device separates physical and advanced groups with checks, pills, and toasts", async () => {
@@ -88,10 +92,11 @@ void test("Balance is top-level, centered, human-labelled, and Stereo-only", asy
 });
 
 void test("Parametric EQ editor is touch-sized, sticky, and redraws without a loop", async () => {
-  const [editor, response, css] = await Promise.all([
+  const [editor, response, css, touchScroll] = await Promise.all([
     readFile("apps/ui/src/components/parametric-eq-editor.ts", "utf8"),
     readFile("apps/ui/src/utils/equalizer-response.ts", "utf8"),
     readFile("apps/ui/src/styles/screens.css", "utf8"),
+    readFile("apps/ui/src/utils/reliable-touch-scroll.ts", "utf8"),
   ]);
   assert.match(editor, /document\.createElement\("canvas"\)/);
   assert.match(editor, /localBands\.forEach\(\(band, index\)/);
@@ -127,6 +132,7 @@ void test("Parametric EQ editor is touch-sized, sticky, and redraws without a lo
     css,
     /\.parametric-eq-graph__canvas\s*{[\s\S]*touch-action: none/,
   );
+  assert.match(touchScroll, /"\.parametric-eq-graph__canvas"/);
 });
 
 void test("Fixed Software Volume hides Default and Cassette volume triggers", async () => {
@@ -140,6 +146,11 @@ void test("Fixed Software Volume hides Default and Cassette volume triggers", as
     /querySelectorAll<HTMLButtonElement>\(\s*'\[data-control="volume"\]'/,
   );
   assert.match(shell, /trigger\.hidden = locked/);
+  assert.match(shell, /const audioLevelPolicyReady = audioOutputApi/);
+  assert.match(
+    shell,
+    /processingState\?\.preferences\.outputLevelMode === "fixed"\s*\?\s*\[\]/,
+  );
   assert.match(standard, /data-control="volume"/);
   assert.match(cassette, /data-control="volume"/);
 });

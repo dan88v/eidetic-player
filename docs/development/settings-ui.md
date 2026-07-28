@@ -80,7 +80,10 @@ frequency, gain, and Q controls. It must remain Canvas 2D, redraw only on input
 or resize, and must not add an animation loop, analyzer, or audio process.
 The response curve has a restrained accent fill down to the neutral axis.
 Touch-dragging a graph point changes only its frequency and gain and commits
-once on release; Q remains in its dedicated slider. The graph header exposes
+once on release; Q remains in its dedicated slider. The graph Canvas is
+excluded from the shared page-scroll fallback and uses `touch-action: none`; a
+band drag must never hand capture to the Settings scroller, move the page, or
+restore the pre-gesture value. The graph header exposes
 the authoritative automatic compensation, manual preamp, Off, or inactive
 state as plain text rather than a status pill.
 The Audio root also exposes `Gain Compensation — On / Off`: On selects

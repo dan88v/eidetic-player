@@ -845,9 +845,9 @@ export function createSettingsScreen(
           ),
         );
       panel.append(
+        soundProcessing,
         channels,
         balance,
-        soundProcessing,
         parametricEq,
         eqBands,
         gainCompensation,

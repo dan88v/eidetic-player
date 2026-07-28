@@ -128,6 +128,27 @@ preamp`, `Compensation off`, or inactive state as plain text.
   streams. No polling, timer, observer, EventSource, or backend endpoint was
   added.
 
+### Final Raspberry touch corrective
+
+- Sound Processing now follows the Software Volume group and its conditional
+  Maximum Software Volume row, before Channels and Balance.
+- Physical Raspberry testing exposed a gesture-ownership collision: the EQ
+  Canvas captured the selected band, but the shared Settings scroll fallback
+  also registered the same pointer. After its 8 px threshold the page scroller
+  could take capture, causing `lostpointercapture` to restore the original band
+  and move the page.
+- The Parametric EQ Canvas is now an explicit exclusion from the shared
+  page-scroll fallback. Its existing `touch-action: none`, Pointer Capture,
+  live frequency/gain preview, and single persistence commit on Pointer Up
+  remain authoritative.
+- Dragging a band therefore owns the complete touch gesture and cannot start
+  page scroll or be rolled back by the scroll fallback. Touches outside the
+  graph retain normal Settings scrolling.
+- Startup now resolves the authoritative Software Volume policy before
+  restoring session level commands. In Fixed mode it skips the prohibited
+  volume/mute writes while still restoring Shuffle and Repeat, removing the
+  redundant `Software volume is disabled while Output level is Fixed` toast.
+
 ### Output-level policy
 
 - Added `Variable` and explicitly confirmed `Fixed` modes.
@@ -247,6 +268,19 @@ real application:
   formatter now derives the concrete `WASAPI` label from the effective route,
   while Raspberry ALSA routes remain labelled `ALSA`
 
+The final Audio-order and Fixed-startup corrective was then rechecked in the
+real application:
+
+- at `1280 × 800` and `1024 × 800`, Sound Processing appeared after the
+  Software Volume group and before Channels, with no overflow or geometry
+  regression
+- restarting the complete Neutralino/backend/MPV path while Software Volume
+  remained Fixed produced no redundant fixed-volume toast
+- the EQ graph retained its existing stable geometry, Pointer Capture owner,
+  and non-scrolling Canvas contract; the post-fix physical touch proof remains
+  intentionally deferred until this exact build passes CI and reaches the
+  Raspberry
+
 All preferences changed only for these QA proofs were restored afterward.
 
 The canonical surfaces remained dark and stable, with no observed white flash,
@@ -309,6 +343,11 @@ visibility, Wi-Fi detail formatting, effective audio-interface formatting,
 shared popover ownership, existing stream reuse, and SMB geometry. The focused
 header/Network/SMB group passed 60 of 60 tests.
 
+The final Raspberry touch corrective extended the closed Settings regression
+guard with the new row order, explicit EQ Canvas exclusion from the page-scroll
+fallback, retained Pointer Up commit, and Fixed-startup policy barrier. Its
+focused Audio/Settings group passed 13 of 13 tests before the complete suite.
+
 The unparameterized release-verifier invocation correctly rejected missing
 `--root`; the required parameterized build verification then passed.
 
@@ -322,7 +361,8 @@ Post-implementation Raspberry audio and Settings validation has not started.
 After manual review, commit, push, and green CI, the next Raspberry session
 should explicitly compare the PipeWire and ALSA DAC routes, verify Variable and
 Fixed behavior, confirm persistence across the update/restart boundary, inspect
-the canonical route hierarchy at `1280 × 800`, and repeat the one-MPV/zero-idle-
-FFmpeg lifecycle checks.
+the canonical route hierarchy at `1280 × 800`, verify that a predominantly
+vertical EQ-node touch drag neither scrolls nor rolls back and survives
+navigation away/back, and repeat the one-MPV/zero-idle-FFmpeg lifecycle checks.
 
 Status: READY FOR CI VALIDATION — RASPBERRY AUDIO/SETTINGS VALIDATION NOT STARTED

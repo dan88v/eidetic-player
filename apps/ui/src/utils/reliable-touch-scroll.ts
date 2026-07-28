@@ -12,6 +12,7 @@ const IGNORE_SELECTOR = [
   ".volume-slider",
   ".queue-item__handle",
   ".playlist-track__handle",
+  ".parametric-eq-graph__canvas",
 ].join(",");
 
 export interface ReliableTouchScroller {

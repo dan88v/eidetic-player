@@ -303,10 +303,13 @@ export function mountApp(
     applyAudioLevelPolicy(detail);
   };
   window.addEventListener("eidetic-audio-processing", onAudioProcessing);
-  void audioOutputApi
+  const audioLevelPolicyReady = audioOutputApi
     .processingState()
-    .then(applyAudioLevelPolicy)
-    .catch(() => undefined);
+    .then((state) => {
+      applyAudioLevelPolicy(state);
+      return state;
+    })
+    .catch(() => null);
   const contentShell = document.createElement("div");
   contentShell.className = "content-shell";
   const screenRegion = document.createElement("main");
@@ -1063,9 +1066,13 @@ export function mountApp(
   void Promise.resolve(initialPlayerState)
     .then(async (state) => {
       if (!state.mpvAvailable) return;
+      const processingState = await audioLevelPolicyReady;
+      const variableLevelCommands =
+        processingState?.preferences.outputLevelMode === "fixed"
+          ? []
+          : [api.volume(preferences.volume), api.mute(preferences.muted)];
       await Promise.all([
-        api.volume(preferences.volume),
-        api.mute(preferences.muted),
+        ...variableLevelCommands,
         api.shuffle(preferences.shuffleEnabled),
         api.repeat(preferences.repeatMode),
       ]);
