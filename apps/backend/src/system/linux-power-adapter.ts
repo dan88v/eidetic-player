@@ -23,7 +23,6 @@ export const POWER_PREFLIGHT_TIMEOUT_MS = 2_000;
 
 export interface PowerIntegrationProbe {
   executable(path: string): boolean;
-  readable(path: string): boolean;
 }
 
 export interface PowerExecResult {
@@ -79,7 +78,6 @@ export function createFilesystemPowerProbe(): PowerIntegrationProbe {
   };
   return {
     executable: (path) => canAccess(path, constants.X_OK),
-    readable: (path) => canAccess(path, constants.R_OK),
   };
 }
 
@@ -94,8 +92,7 @@ export function detectAvailablePowerActions(
 
   const powerIntegrationAvailable =
     probe.executable(linuxPowerPaths.pkexec) &&
-    probe.executable(linuxPowerPaths.helper) &&
-    probe.readable(linuxPowerPaths.policy);
+    probe.executable(linuxPowerPaths.helper);
 
   if (installationMode === "standard")
     return powerIntegrationAvailable

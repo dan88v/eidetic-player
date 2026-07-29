@@ -348,6 +348,18 @@ export class PlayerService implements AudioOutputMpvAdapter {
   }
 
   async initialize(): Promise<void> {
+    await this.recover();
+  }
+
+  async recover(): Promise<boolean> {
+    if (this.shuttingDown) return false;
+    if (this.controller && this.state.mpvAvailable) return true;
+    this.restartAttempted = false;
+    this.update({
+      status: "loading",
+      mpvAvailable: false,
+      error: null,
+    });
     const discovery = await discoverMpv();
     if (!discovery) {
       this.update({
@@ -358,7 +370,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
           message: "MPV was not found. Check EIDETIC_MPV_PATH or your PATH.",
         },
       });
-      return;
+      return false;
     }
     this.executable = discovery.executable;
     this.update({
@@ -375,16 +387,23 @@ export class PlayerService implements AudioOutputMpvAdapter {
     try {
       await this.startController();
       await this.resetQueue();
+      return true;
     } catch (error) {
       await this.controller?.stop().catch(() => {
         // Preserve the original startup error.
       });
       this.controller = null;
-      this.updateError(
-        "MPV_START_FAILED",
-        "MPV could not be started or its IPC endpoint was unavailable.",
-      );
+      this.update({
+        status: "unavailable",
+        mpvAvailable: false,
+        error: {
+          code: "MPV_START_FAILED",
+          message:
+            "MPV could not be started or its IPC endpoint was unavailable.",
+        },
+      });
       console.error("[player] MPV startup failed", error);
+      return false;
     }
   }
 
@@ -1401,14 +1420,20 @@ export class PlayerService implements AudioOutputMpvAdapter {
     for (const listener of this.audioOutputPropertyListeners)
       listener("current-ao", null);
     if (this.shuttingDown) return;
-    this.updateError("MPV_EXITED", "MPV stopped unexpectedly.");
-    if (this.restartAttempted || !this.executable) return;
+    const canRestart = !this.restartAttempted && this.executable !== null;
+    this.update({
+      status: canRestart ? "loading" : "unavailable",
+      mpvAvailable: false,
+      error: { code: "MPV_EXITED", message: "MPV stopped unexpectedly." },
+    });
+    if (!canRestart) return;
     this.restartAttempted = true;
     try {
       await this.startController();
       this.originalQueue = [];
       this.properties.clear();
       this.update({
+        mpvAvailable: true,
         status: "idle",
         currentTrack: null,
         queue: [],
@@ -1434,6 +1459,14 @@ export class PlayerService implements AudioOutputMpvAdapter {
         listener("current-ao", currentAo);
       }
     } catch (error) {
+      this.update({
+        status: "unavailable",
+        mpvAvailable: false,
+        error: {
+          code: "MPV_RESTART_FAILED",
+          message: "MPV could not be restarted automatically.",
+        },
+      });
       console.error("[player] controlled MPV restart failed", error);
     }
   }

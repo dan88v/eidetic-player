@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join, delimiter } from "node:path";
 import test from "node:test";
 import {
+  classifyMpvProbeError,
   discoverMpv,
   isValidMpvVersionLine,
+  mpvProbeTimeoutMilliseconds,
   resolveMpvCandidates,
 } from "../src/player/mpv-discovery.js";
 
@@ -50,6 +52,20 @@ void test("resolveMpvCandidates deduplicates configured from linux-system", () =
       EIDETIC_MPV_PATH: "/usr/bin/mpv",
     }).map((candidate) => candidate.executable),
     ["/usr/bin/mpv", "mpv"],
+  );
+});
+
+void test("Linux MPV discovery allows Raspberry cold-start latency and reports killed probes as timeouts", () => {
+  assert.equal(mpvProbeTimeoutMilliseconds("linux"), 12_000);
+  assert.equal(mpvProbeTimeoutMilliseconds("win32"), 4_000);
+  assert.equal(
+    classifyMpvProbeError(
+      Object.assign(new Error("Command failed"), {
+        killed: true,
+        signal: "SIGTERM",
+      }),
+    ),
+    "timeout",
   );
 });
 

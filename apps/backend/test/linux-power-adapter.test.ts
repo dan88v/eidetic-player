@@ -18,21 +18,18 @@ import {
   PowerActionError,
 } from "../src/system/power-action-coordinator.js";
 
-function integrationProbe(
-  executable: readonly string[] = [],
-  readable: readonly string[] = [],
-) {
+function integrationProbe(executable: readonly string[] = []) {
   return {
     executable: (path: string) => executable.includes(path),
-    readable: (path: string) => readable.includes(path),
   };
 }
 
 void test("power capabilities follow the exact platform and installation matrix", () => {
-  const complete = integrationProbe(
-    [linuxPowerPaths.pkexec, linuxPowerPaths.helper, linuxPowerPaths.systemctl],
-    [linuxPowerPaths.policy],
-  );
+  const complete = integrationProbe([
+    linuxPowerPaths.pkexec,
+    linuxPowerPaths.helper,
+    linuxPowerPaths.systemctl,
+  ]);
   assert.deepEqual(
     detectAvailablePowerActions("development", "win32", complete),
     ["quit"],
@@ -46,6 +43,15 @@ void test("power capabilities follow the exact platform and installation matrix"
     "reboot",
     "shutdown",
   ]);
+  assert.deepEqual(
+    detectAvailablePowerActions(
+      "standard",
+      "linux",
+      integrationProbe([linuxPowerPaths.pkexec, linuxPowerPaths.helper]),
+    ),
+    ["quit", "reboot", "shutdown"],
+    "the unprivileged app does not need read access to root-owned Polkit rules",
+  );
   assert.deepEqual(
     detectAvailablePowerActions(
       "appliance",

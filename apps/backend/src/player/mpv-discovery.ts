@@ -82,25 +82,34 @@ export function resolveMpvCandidates(
   return deduped;
 }
 
-function classifyExecError(error: unknown): MpvDiscoveryStatus {
+export function classifyMpvProbeError(error: unknown): MpvDiscoveryStatus {
   if (!(error instanceof Error)) return "spawn-failed";
+  if (
+    (error as Error & { killed?: boolean }).killed === true ||
+    (error as NodeJS.ErrnoException).code === "ETIMEDOUT"
+  )
+    return "timeout";
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ENOENT") return "not-found";
   if (code === "EACCES" || code === "EPERM") return "permission-denied";
-  if (code === "ETIMEDOUT") return "timeout";
   return "spawn-failed";
+}
+
+export function mpvProbeTimeoutMilliseconds(platform: NodeJS.Platform): number {
+  return platform === "linux" ? 12_000 : 4_000;
 }
 
 async function verifyCandidate(
   candidate: MpvDiscoveryCandidate,
   environment: NodeJS.ProcessEnv,
+  timeoutMilliseconds: number,
 ): Promise<MpvDiscoveryDiagnostic> {
   try {
     const { stdout } = await execFileAsync(
       candidate.executable,
       ["--version"],
       {
-        timeout: 4_000,
+        timeout: timeoutMilliseconds,
         windowsHide: true,
         maxBuffer: 256 * 1024,
         cwd: dirname(candidate.executable),
@@ -125,7 +134,7 @@ async function verifyCandidate(
     return {
       type: candidate.type,
       candidate: sanitizeCandidate(candidate),
-      status: classifyExecError(error),
+      status: classifyMpvProbeError(error),
     };
   }
 }
@@ -136,6 +145,7 @@ export async function verifyMpv(
   const diagnostic = await verifyCandidate(
     { type: "path", executable },
     process.env,
+    mpvProbeTimeoutMilliseconds(process.platform),
   );
   if (diagnostic.status !== "success" || !diagnostic.version) return null;
   return { executable, version: diagnostic.version, diagnostics: [diagnostic] };
@@ -150,9 +160,14 @@ export async function discoverMpv(
   const normalizedEnvironment =
     environment === process.env ? process.env : environment;
   const diagnostics: MpvDiscoveryDiagnostic[] = [];
+  const timeoutMilliseconds = mpvProbeTimeoutMilliseconds(platform);
 
   for (const candidate of candidates) {
-    const diagnostic = await verifyCandidate(candidate, normalizedEnvironment);
+    const diagnostic = await verifyCandidate(
+      candidate,
+      normalizedEnvironment,
+      timeoutMilliseconds,
+    );
     diagnostics.push(diagnostic);
 
     if (diagnostic.status === "success" && diagnostic.version) {

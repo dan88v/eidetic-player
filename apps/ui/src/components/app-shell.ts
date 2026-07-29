@@ -406,6 +406,7 @@ export function mountApp(
   let usbReturnScreen: ScreenId = "nowPlaying";
   const actions = {
     openFiles,
+    retryMpv: () => api.retryMpv(),
     playPause: () => {
       const targetPaused = !playerStore.getState().paused;
       const metadata = playerStore.beginTransportIntent(targetPaused);

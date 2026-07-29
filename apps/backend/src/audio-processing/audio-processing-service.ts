@@ -97,6 +97,20 @@ export class AudioProcessingService {
           });
       },
     );
+    await this.applyRuntimePolicy();
+    this.revision += 1;
+  }
+
+  async recoverAfterMpvRestart(): Promise<void> {
+    await this.applyRuntimePolicy();
+    this.revision += 1;
+  }
+
+  private async applyRuntimePolicy(): Promise<void> {
+    if (!this.player.isMpvAvailable()) {
+      await this.dsp.apply(buildEideticDspFilter(this.preferences));
+      return;
+    }
     if (this.preferences.outputLevelMode === "fixed") {
       await this.player.pauseForAudioPolicy();
       await this.player.setVolume(100);
@@ -110,7 +124,6 @@ export class AudioProcessingService {
         await this.player.setVolume(target);
     }
     await this.dsp.apply(buildEideticDspFilter(this.preferences));
-    this.revision += 1;
   }
 
   snapshot(): AudioProcessingState {

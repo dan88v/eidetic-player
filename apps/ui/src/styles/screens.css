@@ -169,10 +169,32 @@
     line-height: 1.35;
     padding-bottom: 0.1em;
   }
+  .now-playing__recovery {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-5);
+  }
+  .now-playing__recovery[hidden] {
+    display: none;
+  }
+  .now-playing__recovery p {
+    max-width: 30rem;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    line-height: 1.35;
+  }
+  .now-playing__retry-mpv {
+    min-width: 9.5rem;
+    flex: 0 0 auto;
+  }
   .now-playing__visualizer-slot {
     height: var(--now-playing-visualizer-height);
     min-height: var(--now-playing-visualizer-height);
     margin-top: auto;
+  }
+  .now-playing__visualizer-slot[hidden] {
+    display: none;
   }
   .primary-action {
     min-height: var(--touch-min);

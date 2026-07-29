@@ -58,7 +58,15 @@ export const en = {
     "Premium cassette frame is unavailable. Prototype retained.",
   "nowPlaying.unavailableTitle": "MPV not available",
   "nowPlaying.unavailableDescription":
-    "Check EIDETIC_MPV_PATH or your system PATH, then restart Eidetic Player",
+    "Playback is offline. Library and file browsing remain available.",
+  "nowPlaying.startingTitle": "Starting MPV…",
+  "nowPlaying.recoveryDescription":
+    "Automatic recovery is enabled. You can also retry now.",
+  "nowPlaying.recoveryInProgress": "Starting the playback engine…",
+  "nowPlaying.recoveryFailed":
+    "MPV is still unavailable. Check the installation and try again.",
+  "nowPlaying.retryMpv": "Retry MPV",
+  "nowPlaying.startingMpv": "Starting…",
   "nowPlaying.sourceLabel": "Source",
   "nowPlaying.repeatOff": "Repeat off",
   "nowPlaying.repeatAll": "Repeat all",

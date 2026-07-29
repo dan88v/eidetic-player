@@ -22,6 +22,7 @@ import type { RemovableDeviceListResponse } from "../../../../packages/shared/sr
 
 export interface PlayerActions {
   readonly openFiles: () => void;
+  readonly retryMpv: () => Promise<void>;
   readonly playPause: () => void;
   readonly previous: () => void;
   readonly next: () => void;
@@ -70,6 +71,10 @@ export function createNowPlayingScreen(
         <p class="now-playing__artist"></p>
         <p class="now-playing__album"></p>
         <div class="now-playing__technical"><span></span><span></span></div>
+        <div class="now-playing__recovery" role="status" aria-live="polite" hidden>
+          <p>${t("nowPlaying.recoveryDescription")}</p>
+          <button class="primary-action now-playing__retry-mpv" type="button">${t("nowPlaying.retryMpv")}</button>
+        </div>
         <div class="now-playing__visualizer-slot"></div>
       </div>
     </div>
@@ -135,9 +140,10 @@ export function createNowPlayingScreen(
   artworkButton.setAttribute("aria-label", t("nav.openLibrary"));
   artworkButton.append(artwork.element);
   section.querySelector(".now-playing__artwork")?.replaceWith(artworkButton);
-  section
-    .querySelector(".now-playing__visualizer-slot")
-    ?.append(visualizer.element);
+  const visualizerSlot = section.querySelector<HTMLElement>(
+    ".now-playing__visualizer-slot",
+  );
+  visualizerSlot?.append(visualizer.element);
   section
     .querySelector(".now-playing__timeline-slot")
     ?.append(timeline.element);
@@ -153,6 +159,11 @@ export function createNowPlayingScreen(
   );
   const technicalFormat = technical[0];
   const technicalSource = technical[1];
+  const recovery = section.querySelector<HTMLElement>(".now-playing__recovery");
+  const recoveryDescription = recovery?.querySelector("p");
+  const retryMpvButton = recovery?.querySelector<HTMLButtonElement>(
+    ".now-playing__retry-mpv",
+  );
   const playButton = section.querySelector<HTMLButtonElement>(
     '[data-control="play"]',
   );
@@ -186,6 +197,10 @@ export function createNowPlayingScreen(
     !album ||
     !technicalFormat ||
     !technicalSource ||
+    !recovery ||
+    !recoveryDescription ||
+    !retryMpvButton ||
+    !visualizerSlot ||
     !playButton ||
     !previousButton ||
     !nextButton ||
@@ -198,6 +213,7 @@ export function createNowPlayingScreen(
     !volumeButton
   )
     throw new Error("Now Playing controls are missing");
+  let retryMpvBusy = false;
   playButton.addEventListener("click", options.actions.playPause);
   previousButton.addEventListener("click", options.actions.previous);
   nextButton.addEventListener("click", options.actions.next);
@@ -220,6 +236,22 @@ export function createNowPlayingScreen(
     queueButton.setAttribute("aria-expanded", "true");
     options.onOpenQueue(queueButton);
   });
+  retryMpvButton.addEventListener("click", () => {
+    if (retryMpvBusy) return;
+    retryMpvBusy = true;
+    retryMpvButton.disabled = true;
+    retryMpvButton.textContent = t("nowPlaying.startingMpv");
+    recoveryDescription.textContent = t("nowPlaying.recoveryInProgress");
+    void options.actions
+      .retryMpv()
+      .catch(() => {
+        recoveryDescription.textContent = t("nowPlaying.recoveryFailed");
+      })
+      .finally(() => {
+        retryMpvBusy = false;
+        update(playerState);
+      });
+  });
   const setText = (element: HTMLElement, value: string): void => {
     if (element.textContent === value) return;
     if (element.childNodes.length === 1 && element.firstChild instanceof Text)
@@ -236,19 +268,41 @@ export function createNowPlayingScreen(
     const unavailable =
       state.status === "unavailable" ||
       (!state.mpvAvailable && state.status !== "loading");
+    const starting = !state.mpvAvailable && state.status === "loading";
     setText(
       title,
       presentation.title ??
-        (unavailable ? t("nowPlaying.unavailableTitle") : ""),
+        (starting
+          ? t("nowPlaying.startingTitle")
+          : unavailable
+            ? t("nowPlaying.unavailableTitle")
+            : ""),
     );
     setText(
       artist,
       presentation.artist ??
-        (unavailable ? t("nowPlaying.unavailableDescription") : ""),
+        (starting
+          ? t("nowPlaying.recoveryInProgress")
+          : unavailable
+            ? t("nowPlaying.unavailableDescription")
+            : ""),
     );
     setText(album, presentation.album ?? "");
     setText(technicalFormat, presentation.technical);
     setText(technicalSource, "");
+    recovery.hidden = state.mpvAvailable;
+    visualizerSlot.hidden = !state.mpvAvailable;
+    if (!state.mpvAvailable) {
+      retryMpvButton.disabled = retryMpvBusy || starting;
+      retryMpvButton.textContent =
+        retryMpvBusy || starting
+          ? t("nowPlaying.startingMpv")
+          : t("nowPlaying.retryMpv");
+      if (!retryMpvBusy)
+        recoveryDescription.textContent = starting
+          ? t("nowPlaying.recoveryInProgress")
+          : t("nowPlaying.recoveryDescription");
+    }
     const artworkAlt =
       track?.album && track.artist
         ? t("artwork.albumBy")

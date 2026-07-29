@@ -100,6 +100,10 @@ export class PlayerApiClient {
   playPause(metadata?: PlayerCommandRequestMetadata): Promise<void> {
     return this.post("play-pause", metadata ?? {});
   }
+
+  retryMpv(): Promise<void> {
+    return this.post("retry-mpv", {});
+  }
   play(metadata?: PlayerCommandRequestMetadata): Promise<void> {
     return this.post("play", metadata ?? {});
   }

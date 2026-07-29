@@ -190,6 +190,9 @@ void test("session restore keeps the current item, drops missing secondary files
       ],
     };
     const player = {
+      getState() {
+        return { mpvAvailable: true };
+      },
       restoreResolvedQueue(
         items: readonly ResolvedQueueItem[],
         index: number,
@@ -265,6 +268,9 @@ void test("an unavailable saved current item invalidates the whole session witho
     });
     let restoreCalls = 0;
     const player = {
+      getState() {
+        return { mpvAvailable: true };
+      },
       restoreResolvedQueue() {
         restoreCalls += 1;
         return Promise.resolve();
@@ -288,6 +294,66 @@ void test("an unavailable saved current item invalidates the whole session witho
     assert.equal(result.status, "empty");
     assert.equal(restoreCalls, 0);
     await assert.rejects(readFile(configPath), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("session restore defers without deleting saved state when MPV is temporarily unavailable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-session-mpv-deferred-"));
+  const configPath = join(root, "session.json");
+  const repository = new PlayerSessionRepository(configPath);
+  try {
+    await repository.write({
+      version: 2,
+      positionSeconds: 17,
+      volume: 64,
+      muted: false,
+      shuffleEnabled: false,
+      repeatMode: "off",
+      currentQueueItemId: currentId,
+      queue: [
+        {
+          id: currentId,
+          origin: {
+            kind: "direct",
+            nativePath: join(root, "current.mp3"),
+          },
+          filename: "current.mp3",
+          displayTitle: "Current",
+        },
+      ],
+    });
+    let restoreCalls = 0;
+    const player = {
+      getState() {
+        return { mpvAvailable: false };
+      },
+      restoreResolvedQueue() {
+        restoreCalls += 1;
+        return Promise.resolve();
+      },
+      getSessionSnapshot() {
+        return { currentQueueItemId: null, queue: [] };
+      },
+      subscribe() {
+        return () => undefined;
+      },
+    } as unknown as PlayerService;
+    const provider = new LocalFilesystemProvider();
+    const service = new PlayerSessionService(
+      repository,
+      provider,
+      PathService.forCurrentPlatform(provider),
+      {} as SourceService,
+      player,
+    );
+
+    const result = await service.restore();
+
+    assert.equal(result.status, "empty");
+    assert.equal(restoreCalls, 0);
+    assert.ok((await readFile(configPath, "utf8")).includes(currentId));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

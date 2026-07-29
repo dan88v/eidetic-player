@@ -309,3 +309,52 @@ void test("Fixed output rejects positive projected DSP gain", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+void test("MPV unavailability does not block fixed-output preference bootstrap", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-audio-no-mpv-"));
+  try {
+    const store = new PreferencesStore(join(root, "config"));
+    await store.initialize();
+    const snapshot = store.snapshot();
+    let mpvCommandCalls = 0;
+    const service = new AudioProcessingService(
+      {
+        isMpvAvailable: () => false,
+        getState: () => ({ volume: 100, muted: false, paused: true }),
+        pauseForAudioPolicy() {
+          mpvCommandCalls += 1;
+          return Promise.reject(new Error("MPV unavailable"));
+        },
+        setVolume() {
+          mpvCommandCalls += 1;
+          return Promise.reject(new Error("MPV unavailable"));
+        },
+        setMuted() {
+          mpvCommandCalls += 1;
+          return Promise.reject(new Error("MPV unavailable"));
+        },
+        commandMpv() {
+          mpvCommandCalls += 1;
+          return Promise.reject(new Error("MPV unavailable"));
+        },
+        subscribeAudioOutputProperties() {
+          return () => undefined;
+        },
+      },
+      store,
+    );
+
+    await service.initialize({
+      ...snapshot,
+      preferences: {
+        ...snapshot.preferences,
+        outputLevelMode: "fixed",
+      },
+    });
+
+    assert.equal(mpvCommandCalls, 0);
+    assert.equal(service.snapshot().preferences.outputLevelMode, "fixed");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

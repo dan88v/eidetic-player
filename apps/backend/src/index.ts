@@ -40,6 +40,7 @@ import type {
 import type { ArtworkResource } from "./artwork/artwork-service.js";
 import { PlayerSessionRepository } from "./player-session/player-session-repository.js";
 import { PlayerSessionService } from "./player-session/player-session-service.js";
+import type { PlayerRestoreResult } from "./player-session/player-session-types.js";
 import { IndexedLibraryService } from "./library/library-service.js";
 import { LibraryError } from "./library/library-errors.js";
 import { LibrarySseHub } from "./api/library-sse-hub.js";
@@ -120,6 +121,7 @@ import { AudioProcessingError } from "./audio-processing/audio-processing-error.
 import { SoftwareUpdateService } from "./update/update-service.js";
 import { UpdateSseHub } from "./update/update-sse-hub.js";
 import { UpdateError } from "./update/update-errors.js";
+import { PlayerRecoveryService } from "./player/player-recovery-service.js";
 import {
   emptyUpdateBody,
   selectBranchBody,
@@ -481,15 +483,56 @@ const unsubscribeAnalyzerState = player.subscribe((state) => {
 });
 let bootstrapReadiness: BootstrapReadiness = "starting";
 let bootstrapFailureCode: string | null = null;
+let coreBootstrapReady = false;
+let lastRestoreResult: PlayerRestoreResult = {
+  status: "empty",
+  savedCount: 0,
+  restoredCount: 0,
+  discardedCount: 0,
+  readMilliseconds: 0,
+  verificationMilliseconds: 0,
+  prepareMilliseconds: 0,
+};
 function publicBootstrapErrorCode(error: unknown): string {
   return error instanceof PlayerError ? error.code : "BOOTSTRAP_FAILED";
 }
 
-const bootstrapPromise = Promise.all([
-  player.initialize(),
+const playerRecovery = new PlayerRecoveryService(async () => {
+  if (!(await player.recover())) return false;
+  try {
+    await audioOutput.waitForInitialEnumeration(
+      process.platform === "linux" && installationMode === "appliance",
+    );
+    await audioOutput.applyInitialPreference();
+    await playerSession.restore();
+    await audioProcessing.recoverAfterMpvRestart();
+    bootstrapReadiness = "ready";
+    bootstrapFailureCode = null;
+    preloadWaveforms(true);
+    return true;
+  } catch (error) {
+    bootstrapReadiness = "degraded";
+    bootstrapFailureCode = publicBootstrapErrorCode(error);
+    console.error("[player] recovery initialization failed", error);
+    return false;
+  }
+});
+const unsubscribePlayerRecovery = player.subscribe((state) => {
+  if (!state.mpvAvailable && state.status === "unavailable")
+    playerRecovery.startAutomaticRecovery();
+});
+
+const coreBootstrapPromise = Promise.all([
   removableStorage.start(),
   smb.initialize(),
   preferences.initialize(),
+]).then(() => {
+  coreBootstrapReady = true;
+});
+
+const bootstrapPromise = Promise.all([
+  player.initialize(),
+  coreBootstrapPromise,
 ])
   .then(async () => {
     await prepareAudioOutputForSessionRestore(
@@ -498,6 +541,7 @@ const bootstrapPromise = Promise.all([
       installationMode,
     );
     const restore = await playerSession.restore();
+    lastRestoreResult = restore;
     await audioProcessing.initialize(preferences.snapshot());
     playerSession.start();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);
@@ -505,6 +549,7 @@ const bootstrapPromise = Promise.all([
     if (!bootstrapState.mpvAvailable) {
       bootstrapReadiness = "degraded";
       bootstrapFailureCode = bootstrapState.error?.code ?? "MPV_NOT_AVAILABLE";
+      playerRecovery.startAutomaticRecovery();
       return restore;
     }
     bootstrapReadiness = "ready";
@@ -518,7 +563,8 @@ const bootstrapPromise = Promise.all([
     playerSession.start();
     throw error;
   });
-void bootstrapPromise
+void bootstrapPromise.catch(() => undefined);
+void coreBootstrapPromise
   .then(async () => {
     await (await indexedLibraryPromise).startAutomaticScans();
   })
@@ -1185,11 +1231,7 @@ async function handleRequest(
         playerErrorCode: state.error?.code ?? null,
         buildInfo,
       });
-      sendJson(
-        response,
-        bootstrapReadiness === "starting" ? 503 : 200,
-        payload,
-      );
+      sendJson(response, coreBootstrapReady ? 200 : 503, payload);
       return;
     }
     if (
@@ -1271,14 +1313,35 @@ async function handleRequest(
       sendJson(response, 200, { ok: true, data: player.getPublicState() });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/player/retry-mpv") {
+      requireJson(request);
+      const body = objectBody(await readBody(request, 1024));
+      if (Object.keys(body).length !== 0)
+        throw new PlayerError(
+          "INVALID_MPV_RETRY",
+          "The MPV retry request is invalid.",
+          400,
+        );
+      if (!(await playerRecovery.retryNow()))
+        throw new PlayerError(
+          "MPV_RECOVERY_FAILED",
+          "MPV is still unavailable. Check the installation and try again.",
+          503,
+        );
+      sendJson(response, 200, {
+        ok: true,
+        data: player.getPublicState(),
+      });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/preferences") {
-      await bootstrapPromise;
+      await coreBootstrapPromise;
       sendJson(response, 200, { ok: true, data: preferences.snapshot() });
       return;
     }
     if (request.method === "PATCH" && url.pathname === "/api/preferences") {
       requireJson(request);
-      await bootstrapPromise;
+      await coreBootstrapPromise;
       const patch = preferencesPatchBody(await readBody(request, 16 * 1024));
       if (
         Object.keys(patch.changes).some((key) =>
@@ -1299,7 +1362,7 @@ async function handleRequest(
       url.pathname === "/api/preferences/migrate-legacy"
     ) {
       requireJson(request);
-      await bootstrapPromise;
+      await coreBootstrapPromise;
       const snapshot = await preferences.migrateLegacy(
         legacyPreferencesMigrationBody(await readBody(request, 16 * 1024)),
       );
@@ -1812,7 +1875,8 @@ async function handleRequest(
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
-      const restore = await bootstrapPromise;
+      await coreBootstrapPromise;
+      const restore = lastRestoreResult;
       sendJson(response, 200, {
         ok: true,
         data: {
@@ -3254,6 +3318,8 @@ function shutdown(signal: NodeJS.Signals): void {
   smbEvents.close();
   updateEvents.close();
   softwareUpdate.close();
+  playerRecovery.close();
+  unsubscribePlayerRecovery();
   unsubscribeRemovablePlayer();
   unsubscribeSmbPlayer();
   unsubscribeNetworkSmb();

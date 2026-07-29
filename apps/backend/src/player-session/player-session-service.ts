@@ -35,6 +35,12 @@ export class PlayerSessionService {
   ) {}
 
   async restore(): Promise<PlayerRestoreResult> {
+    if (!this.player.getState().mpvAvailable) {
+      console.warn(
+        "[player-session] restore deferred because MPV is unavailable",
+      );
+      return this.emptyResult(0, 0, 0, 0);
+    }
     const readStart = performance.now();
     const session = await this.repository.read();
     const readMilliseconds = performance.now() - readStart;

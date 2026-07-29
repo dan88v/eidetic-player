@@ -227,14 +227,21 @@ direct native path. A graceful shutdown or accepted system power action flushes
 the current position, volume, mute, shuffle, and repeat state through that same
 atomic repository. Play state is not persisted: restore remains paused.
 
-`GET /api/bootstrap` completes only after MPV discovery/startup, audio-output
-preference loading, the gated Linux Appliance enumeration wait, output
-application, and session restore, in that order. If a preferred output is
-absent, bootstrap temporarily applies `auto` while retaining the preference.
-The UI keeps the static splash visible until this endpoint completes, subject
-to the minimum display interval and safety timeout, then mounts the shell once
-with the returned state. A restored Queue always starts paused at the saved
-position of its current item.
+`GET /api/bootstrap` waits only for the core application services: preferences,
+removable storage, and SMB state. It returns authoritative platform
+capabilities and Build information while MPV discovery/startup continues in
+parallel. The readiness endpoint becomes HTTP-reachable at the same core
+barrier, even while its payload still reports `starting` for the player. This
+keeps navigation, Folders, Library, Settings, software update, and system menus
+independent from playback-engine latency or failure.
+
+After MPV starts, audio-output preference loading, the gated Linux Appliance
+enumeration wait, output application, and session restore still run in that
+order. If a preferred output is absent, startup temporarily applies `auto`
+while retaining the preference. If MPV is unavailable, session restore remains
+durable and is deferred; a bounded automatic recovery and the contextual Now
+Playing retry can complete it later. A restored Queue always starts paused at
+the saved position of its current item.
 If the saved current item belongs to absent removable storage, the existing
 current-item restore rule invalidates that saved session rather than inventing
 a root or auto-resuming. Runtime disconnects preserve the in-memory Queue.
@@ -256,6 +263,10 @@ shutdown use `/usr/bin/pkexec --disable-internal-agent` with the fixed
 root-owned `/usr/libexec/eidetic-player-power-helper`; the helper accepts only
 `probe`, `reboot`, or `shutdown`, and the generated Polkit rule exact-matches
 both that program and the configured local runtime user.
+Capability detection checks the two executable runtime entry points and does
+not require the unprivileged application to read the root-owned Polkit rule.
+The privileged preflight remains authoritative before either destructive
+action is scheduled.
 
 The host adapter performs a bounded, non-destructive preflight after the
 session flush. It then schedules the fixed action after 200 ms and returns, so

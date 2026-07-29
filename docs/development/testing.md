@@ -164,6 +164,13 @@ without the gate. The installation doctor fixtures must distinguish HDMI
 malformed, unreachable, and timed-out app diagnostics without executing MPV,
 audio probes, service mutations, or privileged commands.
 
+Also test cold-start MPV discovery beyond the frontend safety timeout and an
+MPV-unavailable startup. In both cases `/api/bootstrap` must return the real
+installation mode, Build ID, preferences, and navigation capabilities after
+the core barrier; Library automatic scans and preference routes must not await
+the player barrier. Verify bounded automatic recovery plus one coalesced manual
+retry in Now Playing, with no retry control added to Settings.
+
 For Windows Audio Output smoke testing, use the persistent real MPV process.
 Record its PID and Queue/session invariants, switch to a known safe listed
 device and back to `auto` during playback, then verify PID, Queue IDs, current

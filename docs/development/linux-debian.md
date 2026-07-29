@@ -73,6 +73,9 @@ activates only after `build-info.json` validation, restarts without reboot,
 verifies service + HTTP + target Build ID for 60 seconds, and rolls back once
 on a hard failure. MPV readiness has a separate 120-second soft window and
 cannot roll back an otherwise healthy target.
+The HTTP/Build-ID gate represents the MPV-independent core bootstrap. Its JSON
+may still report player status `starting` until MPV discovery and audio-output
+initialization finish.
 
 Updater-to-installer progress uses `EIDETIC_PROGRESS_V1` records on a dedicated
 inherited anonymous-pipe descriptor. Records contain only scope, event, closed
