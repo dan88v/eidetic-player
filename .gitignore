@@ -8,6 +8,7 @@ Thumbs.db
 .neutralino/
 .tmp/
 .codex-tmp/
+.codex-rpi-*.ps1
 bin/
 neutralino.config.json
 resources.neu

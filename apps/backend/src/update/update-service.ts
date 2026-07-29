@@ -96,6 +96,10 @@ function parseJournal(value: unknown, fallback: UpdateJob): UpdateJob {
   };
 }
 
+export function isUpdateServiceRunningState(value: string): boolean {
+  return value === "activating" || value === "active";
+}
+
 function run(
   executable: string,
   args: readonly string[],
@@ -431,45 +435,35 @@ export class SoftwareUpdateService {
         activeJobStates.some((state) => state === fallback.state) &&
         parsed.jobId !== fallback.jobId
       ) {
-        try {
-          await run("systemctl", [
-            "is-active",
-            "--quiet",
-            "eidetic-player-update.service",
-          ]);
+        if (await this.updateServiceIsRunning()) {
           return fallback;
-        } catch {
-          if (Date.now() - Date.parse(fallback.startedAt ?? "") < 5_000)
-            return fallback;
-          const completedAt = new Date().toISOString();
-          return {
-            ...fallback,
-            state: "interrupted",
-            result: "interrupted",
-            phase: null,
-            updatedAt: completedAt,
-            completedAt,
-          };
         }
+        if (Date.now() - Date.parse(fallback.startedAt ?? "") < 5_000)
+          return fallback;
+        const completedAt = new Date().toISOString();
+        return {
+          ...fallback,
+          state: "interrupted",
+          result: "interrupted",
+          phase: null,
+          updatedAt: completedAt,
+          completedAt,
+        };
       }
-      if (activeJobStates.some((state) => state === parsed.state))
-        try {
-          await run("systemctl", [
-            "is-active",
-            "--quiet",
-            "eidetic-player-update.service",
-          ]);
-        } catch {
-          const completedAt = new Date().toISOString();
-          return {
-            ...parsed,
-            state: "interrupted",
-            result: "interrupted",
-            phase: null,
-            updatedAt: completedAt,
-            completedAt,
-          };
-        }
+      if (
+        activeJobStates.some((state) => state === parsed.state) &&
+        !(await this.updateServiceIsRunning())
+      ) {
+        const completedAt = new Date().toISOString();
+        return {
+          ...parsed,
+          state: "interrupted",
+          result: "interrupted",
+          phase: null,
+          updatedAt: completedAt,
+          completedAt,
+        };
+      }
       return parsed;
     } catch {
       return fallback;
@@ -485,6 +479,20 @@ export class SoftwareUpdateService {
       return;
     this.job = next;
     this.emit();
+  }
+
+  private async updateServiceIsRunning(): Promise<boolean> {
+    try {
+      const { stdout } = await run("systemctl", [
+        "show",
+        "--property=ActiveState",
+        "--value",
+        "eidetic-player-update.service",
+      ]);
+      return isUpdateServiceRunningState(stdout.trim());
+    } catch {
+      return false;
+    }
   }
 
   private async runHelper(args: readonly string[]): Promise<void> {

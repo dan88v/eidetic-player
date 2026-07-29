@@ -292,6 +292,8 @@ install -d "$protocol_child_root"
     printf 'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t12\t4\n' \
       >&"$EIDETIC_PROGRESS_FD"
   }
+  exec 6>/dev/null
+  exec 7>/dev/null
   eidetic_runtime_run_protocol_child 0 protocol_fixture_child
   # Called indirectly by the protocol runner.
   # shellcheck disable=SC2317
@@ -301,6 +303,8 @@ install -d "$protocol_child_root"
       'printf "EIDETIC_PROGRESS_V1\truntime\tstart\tinstall-dependencies\t2\t12\n" >&"$EIDETIC_PROGRESS_FD"; printf "EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5\n" >&"$EIDETIC_PROGRESS_FD"'
   }
   eidetic_runtime_run_protocol_child 0 external_protocol_fixture
+  exec 6>&-
+  exec 7>&-
   [[ -z "$EIDETIC_RUNTIME_CHILD_PID" &&
     -z "$EIDETIC_RUNTIME_RELAY_PID" &&
     -z "$EIDETIC_RUNTIME_READ_FD" &&

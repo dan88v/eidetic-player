@@ -444,3 +444,57 @@ No Raspberry mutation or reboot was performed during diagnosis. Because the
 currently installed system unit is the component blocking `runuser`, this unit
 correction must be installed once through the official remote updater before
 the next in-app update test.
+
+## In-app progress-state and descriptor correction
+
+The corrected service unit was installed remotely as Build `8dd3ae3`; the
+official updater, hard health gate, doctor, and same-commit no-op all passed.
+The next in-app target, `5a83c9f`, then appeared to move from `Queued` to
+`Interrupted`.
+
+Two read-only SSH inspections and a persistent systemd monitor proved that
+this first status was false. While the UI said `Interrupted`, the
+`Type=oneshot` unit remained `activating` and continued through dependency
+installation, typecheck, and installer verification. The backend had used
+`systemctl is-active`, which returns non-success while a oneshot service is
+still activating. Reconciliation now reads `ActiveState` directly and treats
+both `activating` and `active` as live. A focused pure-state regression covers
+the exact systemd values.
+
+The real update eventually reached a separate terminal failure after roughly
+eight minutes:
+
+`ERROR: no dedicated runtime progress descriptor is available`
+
+The root runner already owned descriptor 7 for job events, while the nested
+updater/installer path also had descriptor 6 open. The runtime protocol helper
+assumed one of those two fixed descriptors would be free and aborted before
+the application build. It now asks Bash for a free dynamic descriptor, exports
+that exact inherited number to the runtime child, and closes only that owned
+descriptor afterward. The console protocol fixture deliberately occupies both
+6 and 7 and verifies that structured events still cross an external child
+without leaking into human output.
+
+The failed Raspberry attempt did not activate a release and required no
+rollback; Build `8dd3ae3` remained installed. No reboot was performed.
+
+Validation for these two corrections:
+
+- persistent Raspberry systemd monitor: PASS — proved `activating` remained
+  live through the real runtime build and captured the later descriptor
+  failure;
+- occupied-descriptor console protocol regression: PASS;
+- full `deploy/linux/test-staging.sh`: PASS in 193.1 seconds;
+- full `npm test`: PASS — 599 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- `npm run verify:linux:executables`: PASS — all 46 tracked deployment files
+  retain valid Git modes;
+- Bash syntax checks for the affected protocol files: PASS.
+
+No UI structure or styling changed. The next published build must first be
+installed with the official remote updater because Build `8dd3ae3` still
+contains both defects; the following commit can then exercise the corrected
+in-app progress and runtime path.

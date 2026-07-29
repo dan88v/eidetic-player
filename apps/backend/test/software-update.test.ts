@@ -8,7 +8,10 @@ import {
   startUpdateBody,
   validateBranchSyntax,
 } from "../src/update/update-validation.js";
-import { SoftwareUpdateService } from "../src/update/update-service.js";
+import {
+  isUpdateServiceRunningState,
+  SoftwareUpdateService,
+} from "../src/update/update-service.js";
 
 const currentSha = "e76cbe7ed215cb3f898842267378910485e52e9a";
 const targetSha = "a".repeat(40);
@@ -55,6 +58,13 @@ void test("start body accepts only a plan id and exact expected SHA", () => {
   assert.throws(() =>
     startUpdateBody({ ...request, expectedTargetCommitSha: "a".repeat(7) }),
   );
+});
+
+void test("a long-running oneshot updater remains active while systemd is activating", () => {
+  assert.equal(isUpdateServiceRunningState("activating"), true);
+  assert.equal(isUpdateServiceRunningState("active"), true);
+  assert.equal(isUpdateServiceRunningState("inactive"), false);
+  assert.equal(isUpdateServiceRunningState("failed"), false);
 });
 
 void test(

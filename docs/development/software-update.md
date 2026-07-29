@@ -76,6 +76,17 @@ demand-driven updater stream immediately and prevents the short systemd/journal
 creation interval from appearing as an idle no-op. A stale journal belonging
 to an earlier job cannot replace that accepted queued state.
 
+The update unit is `Type=oneshot`, so systemd reports its long-running
+preparation phase as `activating`, not `active`. Backend reconciliation treats
+both states as live and synthesizes `interrupted` only after the unit reaches a
+terminal state without a matching terminal journal.
+
+The runner's job-progress descriptor can already occupy descriptor 7, while
+the updater and embedded installer also keep their protected log and relay
+descriptors open. Runtime progress therefore uses a dynamically allocated
+inherited descriptor rather than assuming descriptor 6 or 7 is free. Human
+output remains separate from the closed structured progress stream.
+
 Software Update keeps branch/build information in the canonical bordered
 Settings panel. `Check for updates` and `Start update` are equal-width sibling
 actions below it. `Refresh branches` is likewise a separate page action below
