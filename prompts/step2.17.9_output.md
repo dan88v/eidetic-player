@@ -1,7 +1,7 @@
 # Step 2.17.9 — Raspberry Pi Bootstrap and MPV Recovery Hotfix
 
 Status: DEPLOYED TO RASPBERRY PI — BOOTSTRAP, MPV RECOVERY, AND HTTP
-CONNECTION-STARVATION HOTFIXES
+CONNECTION-STARVATION HOTFIXES - TEST
 
 ## Reported regression and Raspberry evidence
 
