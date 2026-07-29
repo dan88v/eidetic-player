@@ -468,9 +468,22 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
       "$source_ref" "$SOURCE_REMOTE"
   }
   runtime_npm_ci() {
-    eidetic_run_as_runtime_user \
-      "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
-      "$node_release/bin/npm" --prefix "$build_source" ci
+    local attempt status delay
+    for attempt in 1 2 3; do
+      if eidetic_run_as_runtime_user \
+        "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+        "$node_release/bin/npm" --prefix "$build_source" ci; then
+        return 0
+      else
+        status=$?
+      fi
+      ((attempt < 3)) || return "$status"
+      delay=$((attempt * 5))
+      eidetic_log \
+        "Dependency installation attempt $attempt failed; retrying in $delay seconds."
+      sleep "$delay"
+    done
+    return "$status"
   }
   runtime_npm_run() {
     eidetic_run_as_runtime_user \

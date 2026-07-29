@@ -262,6 +262,12 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
     installer,
     /"\$node_release\/bin\/npm" --prefix "\$build_source" ci/,
   );
+  assert.match(installer, /for attempt in 1 2 3/);
+  assert.match(
+    installer,
+    /Dependency installation attempt \$attempt failed; retrying in \$delay seconds\./,
+  );
+  assert.match(installer, /delay=\$\(\(attempt \* 5\)\)/);
   assert.match(
     installer,
     /"\$node_release\/bin\/npm" --prefix "\$build_source" test/,

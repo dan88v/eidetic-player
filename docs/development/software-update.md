@@ -108,6 +108,11 @@ Structured rollback events record whether the previous release was restored or
 manual recovery is required. Manual rollback is deliberately not exposed in
 Settings.
 
+Production dependency installation retries a failed `npm ci` at most twice,
+with bounded 5- and 10-second backoff. This allows transient registry
+disconnects to recover while keeping deterministic dependency failures finite
+and visible in the same runtime phase.
+
 ## Configuration and removal
 
 `/etc/eidetic-player/update.conf` stores its schema, the fixed canonical source,

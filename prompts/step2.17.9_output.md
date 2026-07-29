@@ -513,3 +513,35 @@ in-app progress and runtime path.
 The failed `c6ebb23` remote attempt did not activate a release and required no
 rollback. Build `8dd3ae3` remained installed and healthy; retrying the same
 commit was intentionally avoided because the EBADF failure is deterministic.
+
+## Dependency-download resilience
+
+Build `3a2ef1d` was subsequently installed successfully with the official
+remote updater; doctor, exact Build ID, and same-commit no-op all passed. The
+next in-app update correctly crossed root authorization, the systemd
+`activating` phase, runtime-user entry, and descriptor 8, but npm received
+`ECONNRESET` while installing production dependencies for target `fa9061d`.
+The job failed before activation, required no rollback, and left Build
+`3a2ef1d` healthy.
+
+The installer now retries a failed `npm ci` up to two times after the initial
+attempt, with bounded 5- and 10-second backoff. Successful retries reuse npm's
+private build cache; a persistent or deterministic failure still terminates
+inside the same visible dependency-installation phase after three total
+attempts. The updater remains root-owned but all npm work continues to run as
+the configured unprivileged runtime user.
+
+Validation for the dependency retry:
+
+- read-only Raspberry diagnosis: PASS — exact `ECONNRESET`, dependency phase,
+  target `fa9061d`, and no-rollback outcome captured;
+- focused installer/updater regressions: PASS — 22 passed, 0 failed;
+- full `deploy/linux/test-staging.sh`: PASS in 249.5 seconds;
+- full `npm test`: PASS — 599 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- `npm run verify:linux:executables`: PASS — all 46 tracked deployment files
+  retain valid Git modes;
+- Bash syntax check for the installer: PASS.
