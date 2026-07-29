@@ -1710,6 +1710,68 @@
     border-bottom: 1px solid var(--color-border);
     font-size: var(--font-size-lg);
   }
+  .settings-page-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+  .settings-page-actions--single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-page-action {
+    display: flex;
+    min-width: 0;
+    min-height: var(--settings-row-min-height);
+    align-items: center;
+    padding: var(--settings-row-padding-block) var(--space-5);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-align: left;
+  }
+  .settings-page-action > span {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+  .settings-page-action strong {
+    font-size: var(--settings-row-title-size);
+    font-weight: 650;
+  }
+  .settings-page-action small {
+    color: var(--color-text-secondary);
+    font-size: var(--settings-row-description-size);
+  }
+  .settings-page-action:not(:disabled):hover {
+    background: var(--color-accent-soft);
+  }
+  .settings-page-action:not(:disabled):active {
+    background: var(--color-surface-pressed);
+  }
+  .settings-page-action:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .settings-page-action--primary {
+    border-color: transparent;
+    background: var(--color-accent);
+    color: #fff;
+  }
+  .settings-page-action--primary small {
+    color: rgb(255 255 255 / 78%);
+  }
+  .settings-page-action--primary:not(:disabled):hover {
+    background: var(--color-accent-strong);
+  }
+  .settings-page-action:disabled {
+    cursor: default;
+    opacity: 0.48;
+  }
+  .settings-page-action[aria-busy="true"] {
+    opacity: 0.78;
+  }
   .settings-row-base {
     width: 100%;
     min-height: var(--settings-row-min-height);

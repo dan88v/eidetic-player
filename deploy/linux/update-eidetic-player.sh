@@ -73,8 +73,28 @@ eidetic_console_init update "Linux Updater" "$EIDETIC_ROOT" \
   "$(eidetic_project_version)" || exit 1
 export EIDETIC_CONSOLE_PHASE_TOTAL=$((rollback ? 5 : 7))
 rollback_result="not required"
+bootstrap_workspace=
+bootstrap_runtime=
+bootstrap_installer="$SCRIPT_DIR/install-eidetic-player.sh"
+cleanup_bootstrap() {
+  if [[ -n "$bootstrap_runtime" ]]; then
+    case "$bootstrap_runtime" in
+      /tmp/ep-r.*) rm -rf -- "$bootstrap_runtime" ;;
+      *) eidetic_log "Warning: refusing to clean unexpected bootstrap runtime path." ;;
+    esac
+    bootstrap_runtime=
+  fi
+  if [[ -n "$bootstrap_workspace" ]]; then
+    case "$bootstrap_workspace" in
+      /tmp/eidetic-player-build-*) rm -rf -- "$bootstrap_workspace" ;;
+      *) eidetic_log "Warning: refusing to clean unexpected bootstrap workspace path." ;;
+    esac
+    bootstrap_workspace=
+  fi
+}
 cleanup() {
   local status="$1"
+  cleanup_bootstrap
   eidetic_console_abort_active_phase
   if ((status != 0)); then
     eidetic_console_failure_panel "UPDATE FAILED" \
@@ -401,6 +421,22 @@ eidetic_runtime_configure "$full_verify"
 EIDETIC_RUNTIME_FULL_VERIFY="$full_verify"
 export EIDETIC_RUNTIME_FULL_VERIFY
 eidetic_runtime_begin
+if [[ ! -d "$SCRIPT_DIR/../../.git" || -L "$SCRIPT_DIR/../../.git" ]]; then
+  eidetic_load_runtime_identity "$EIDETIC_RUNTIME_USER"
+  bootstrap_workspace="$(
+    eidetic_prepare_build_workspace "$EIDETIC_RUNTIME_USER"
+  )" || eidetic_die "could not prepare the updater bootstrap workspace"
+  bootstrap_runtime="$(
+    eidetic_prepare_build_runtime "$EIDETIC_RUNTIME_USER"
+  )" || eidetic_die "could not prepare the updater bootstrap runtime"
+  eidetic_fetch_isolated_source \
+    "$EIDETIC_RUNTIME_USER" "$bootstrap_workspace" "$bootstrap_runtime" \
+    "${node_path%/node}" "$target_sha" "$SOURCE_REMOTE" ||
+    eidetic_die "could not fetch the checked updater source"
+  bootstrap_installer="$bootstrap_workspace/source/deploy/linux/install-eidetic-player.sh"
+  [[ -x "$bootstrap_installer" && ! -L "$bootstrap_installer" ]] ||
+    eidetic_die "checked updater source has no safe installer entry point"
+fi
 exec 5>>"$EIDETIC_LOG_PATH"
 installer_log_fd=5
 run_embedded_installer() {
@@ -409,13 +445,14 @@ run_embedded_installer() {
   export EIDETIC_PARENT_LOG_FD="$installer_log_fd"
   export BACKEND_HOST="$backend_host"
   export BACKEND_PORT="$backend_port"
-  "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
+  "$bootstrap_installer" "${args[@]}"
 }
 embedded_status=0
 eidetic_runtime_run_protocol_child "$full_verify" run_embedded_installer ||
   embedded_status=$?
 exec 5>&-
 eidetic_runtime_finish
+cleanup_bootstrap
 if ((embedded_status != 0)); then
   EIDETIC_FAILURE_REASON="${EIDETIC_FAILURE_REASON:-Embedded installer failed during ${EIDETIC_FAILURE_SUBSTEP_LABEL:-application runtime}.}"
   exit "$embedded_status"

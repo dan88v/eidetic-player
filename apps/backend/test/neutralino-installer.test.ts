@@ -58,8 +58,13 @@ void test("Update delegates to installer with explicit borderless flag", async (
 
   contains(
     update,
-    '"$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"',
+    '"$bootstrap_installer" "${args[@]}"',
     "delegated installer command",
+  );
+  contains(
+    update,
+    'bootstrap_installer="$bootstrap_workspace/source/deploy/linux/install-eidetic-player.sh"',
+    "installed release bootstrap checkout",
   );
   contains(
     update,

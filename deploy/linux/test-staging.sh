@@ -205,6 +205,12 @@ assert_update_installed() {
   grep -Fq "subject.user !== \"$runtime_user\"" \
     "$root/etc/polkit-1/rules.d/49-eidetic-player-update.rules" ||
     fixture_fail "software-update Polkit rule does not contain the runtime user"
+  grep -Fxq "Group=$runtime_user" \
+    "$root/etc/systemd/system/eidetic-player-update.service" ||
+    fixture_fail "software-update unit does not use the runtime group"
+  grep -Fxq 'UMask=0027' \
+    "$root/etc/systemd/system/eidetic-player-update.service" ||
+    fixture_fail "software-update unit does not preserve group-readable journals"
   grep -Eq '^EIDETIC_UPDATE_BRANCH=[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' \
     "$root/etc/eidetic-player/update.conf" ||
     fixture_fail "software-update branch config is invalid"
@@ -212,8 +218,9 @@ assert_update_installed() {
     "$(stat -c '%a' "$root/etc/systemd/system/eidetic-player-update.service")" == 644 &&
     "$(stat -c '%a' "$root/etc/polkit-1/rules.d/49-eidetic-player-update.rules")" == 644 ]] ||
     fixture_fail "software-update config, unit, or policy mode is invalid"
-  [[ "$(stat -c '%a' "$root/var/lib/eidetic-player/update")" == 2750 ]] ||
-    fixture_fail "software-update state directory mode is not 2750"
+  [[ "$(stat -c '%a' "$root/var/lib/eidetic-player")" == 710 &&
+    "$(stat -c '%a' "$root/var/lib/eidetic-player/update")" == 2750 ]] ||
+    fixture_fail "software-update state traversal or directory mode is invalid"
 }
 
 assert_update_branch() {

@@ -43,6 +43,7 @@ export interface UpdatePlan {
   readonly currentShortCommitSha: string;
   readonly targetCommitSha: string;
   readonly targetShortCommitSha: string;
+  readonly targetCommitAt: string | null;
   readonly updateAvailable: boolean;
   readonly checkedAt: string;
   readonly expiresAt: string;
@@ -84,6 +85,7 @@ export interface SoftwareUpdateSnapshot {
   readonly branches: readonly UpdateBranch[];
   readonly currentCommitSha: string | null;
   readonly currentShortCommitSha: string;
+  readonly currentBuiltAt: string | null;
   readonly plan: UpdatePlan | null;
   readonly job: UpdateJob;
   readonly lastError: UpdateReasonCode | null;
@@ -108,6 +110,7 @@ export const defaultSoftwareUpdateSnapshot: SoftwareUpdateSnapshot = {
   branches: [],
   currentCommitSha: null,
   currentShortCommitSha: "unknown",
+  currentBuiltAt: null,
   plan: null,
   job: {
     schemaVersion: 1,

@@ -721,6 +721,7 @@ eidetic_console_phase_begin "System integration"
 conf="$tmp/install.conf"
 power_policy="$tmp/eidetic-player-power.polkit.rules"
 update_policy="$tmp/eidetic-player-update.polkit.rules"
+update_unit="$tmp/eidetic-player-update.service"
 update_conf="$tmp/update.conf"
 power_policy_placeholder=__EIDETIC_RUNTIME_USER__
 [[ "$(grep -Foc "$power_policy_placeholder" \
@@ -730,7 +731,10 @@ sed "s/$power_policy_placeholder/$runtime_user/" \
   "$SCRIPT_DIR/templates/eidetic-player-power.polkit.rules" >"$power_policy"
 sed "s/$power_policy_placeholder/$runtime_user/" \
   "$SCRIPT_DIR/templates/eidetic-player-update.polkit.rules" >"$update_policy"
-if grep -Fq "$power_policy_placeholder" "$power_policy"; then
+sed "s/$power_policy_placeholder/$runtime_user/" \
+  "$SCRIPT_DIR/templates/eidetic-player-update.service" >"$update_unit"
+if grep -Fq "$power_policy_placeholder" \
+  "$power_policy" "$update_policy" "$update_unit"; then
   eidetic_die "Power policy runtime-user placeholder was not replaced"
 fi
 cat >"$conf" <<EOF
@@ -793,16 +797,19 @@ eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-smb.polkit.rules" 
 eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-power-helper" /usr/libexec/eidetic-player-power-helper 0755
 eidetic_install_managed "$power_policy" /etc/polkit-1/rules.d/49-eidetic-player-power.rules 0644
 if [[ "$mode" == appliance ]]; then
-  eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-update.service" /etc/systemd/system/eidetic-player-update.service 0644
+  eidetic_install_managed "$update_unit" /etc/systemd/system/eidetic-player-update.service 0644
   eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-helper" /usr/libexec/eidetic-player-update-helper 0755
   eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-update-runner" /usr/libexec/eidetic-player-update-runner 0755
   eidetic_install_managed "$SCRIPT_DIR/lib/eidetic-player-update-journal.mjs" /usr/libexec/eidetic-player-update-journal.mjs 0755
   eidetic_install_managed "$update_policy" /etc/polkit-1/rules.d/49-eidetic-player-update.rules 0644
   update_state="$(eidetic_target /var/lib/eidetic-player/update)"
+  update_state_parent="$(dirname "$update_state")"
   if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    install -d -m 0710 -o root -g "$runtime_user" "$update_state_parent"
     install -d -m 2750 -o root -g "$runtime_user" \
       "$update_state" "$update_state/history"
   else
+    install -d -m 0710 "$update_state_parent"
     install -d -m 2750 "$update_state" "$update_state/history"
   fi
 fi

@@ -17,6 +17,7 @@ import {
 } from "./update-validation.js";
 
 const remote = "https://github.com/dan88v/eidetic-player.git";
+const commitsApi = "https://api.github.com/repos/dan88v/eidetic-player/commits";
 const configPath = "/etc/eidetic-player/update.conf";
 const journalPath = "/var/lib/eidetic-player/update/current.json";
 const maxRemoteOutput = 256 * 1024;
@@ -34,6 +35,7 @@ interface SoftwareUpdateServiceOptions {
   fixtureMode?: boolean;
   fixtureDurationMs?: number;
   fixtureTarget?: (branch: string) => string | undefined;
+  fixtureTargetCommitAt?: (branch: string) => string | null | undefined;
 }
 
 function idleJob(branch: string): UpdateJob {
@@ -135,6 +137,10 @@ export class SoftwareUpdateService {
   private readonly fixtureMode: boolean;
   private readonly fixtureDurationMs: number;
   private readonly fixtureTarget: (branch: string) => string | undefined;
+  private readonly currentBuiltAt: string | null;
+  private readonly fixtureTargetCommitAt: (
+    branch: string,
+  ) => string | null | undefined;
 
   constructor(
     private readonly buildInfo: BuildInfo,
@@ -142,6 +148,9 @@ export class SoftwareUpdateService {
     options: SoftwareUpdateServiceOptions = {},
   ) {
     this.fixtureMode = options.fixtureMode ?? process.platform === "win32";
+    this.currentBuiltAt =
+      this.buildInfo.builtAt ??
+      (this.fixtureMode ? new Date().toISOString() : null);
     const configuredDuration =
       options.fixtureDurationMs ??
       Number(process.env.EIDETIC_UPDATE_FIXTURE_DURATION_MS ?? 1_200);
@@ -152,6 +161,8 @@ export class SoftwareUpdateService {
     this.fixtureTarget =
       options.fixtureTarget ??
       (() => process.env.EIDETIC_UPDATE_FIXTURE_TARGET_SHA);
+    this.fixtureTargetCommitAt =
+      options.fixtureTargetCommitAt ?? (() => this.currentBuiltAt);
   }
 
   async initialize(): Promise<void> {
@@ -188,6 +199,7 @@ export class SoftwareUpdateService {
       branches: this.branches,
       currentCommitSha: this.buildInfo.commitSha,
       currentShortCommitSha: this.buildInfo.shortCommitSha,
+      currentBuiltAt: this.currentBuiltAt,
       plan: this.plan,
       job: this.job,
       lastError: this.lastError,
@@ -301,6 +313,9 @@ export class SoftwareUpdateService {
           409,
         );
       const checkedAt = new Date();
+      const targetCommitAt = this.fixtureMode
+        ? this.validTimestamp(this.fixtureTargetCommitAt(branch))
+        : await this.resolveTargetCommitAt(target);
       this.plan = {
         id: randomBytes(16).toString("hex"),
         branch,
@@ -308,6 +323,7 @@ export class SoftwareUpdateService {
         currentShortCommitSha: current.slice(0, 7),
         targetCommitSha: target,
         targetShortCommitSha: target.slice(0, 7),
+        targetCommitAt,
         updateAvailable: current !== target,
         checkedAt: checkedAt.toISOString(),
         expiresAt: new Date(checkedAt.getTime() + planLifetimeMs).toISOString(),
@@ -373,7 +389,18 @@ export class SoftwareUpdateService {
       plan.targetCommitSha,
       plan.expiresAt,
     ]);
-    await this.refreshJournal();
+    const startedAt = new Date().toISOString();
+    this.job = {
+      ...idleJob(plan.branch),
+      revision: this.job.revision + 1,
+      jobId: plan.id,
+      state: "queued",
+      currentCommitSha: plan.currentCommitSha,
+      targetCommitSha: plan.targetCommitSha,
+      startedAt,
+      updatedAt: startedAt,
+    };
+    this.emit();
   }
 
   private async readSelectedBranch(): Promise<string> {
@@ -396,6 +423,32 @@ export class SoftwareUpdateService {
         JSON.parse(await readFile(journalPath, "utf8")),
         fallback,
       );
+      if (
+        fallback.jobId &&
+        activeJobStates.some((state) => state === fallback.state) &&
+        parsed.jobId !== fallback.jobId
+      ) {
+        try {
+          await run("systemctl", [
+            "is-active",
+            "--quiet",
+            "eidetic-player-update.service",
+          ]);
+          return fallback;
+        } catch {
+          if (Date.now() - Date.parse(fallback.startedAt ?? "") < 5_000)
+            return fallback;
+          const completedAt = new Date().toISOString();
+          return {
+            ...fallback,
+            state: "interrupted",
+            result: "interrupted",
+            phase: null,
+            updatedAt: completedAt,
+            completedAt,
+          };
+        }
+      }
       if (activeJobStates.some((state) => state === parsed.state))
         try {
           await run("systemctl", [
@@ -457,6 +510,43 @@ export class SoftwareUpdateService {
       this.fixtureTarget(seed) ??
       createHash("sha1").update(`eidetic:${seed}`).digest("hex")
     );
+  }
+
+  private validTimestamp(value: unknown): string | null {
+    if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
+      return null;
+    return new Date(value).toISOString();
+  }
+
+  private async resolveTargetCommitAt(target: string): Promise<string | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, 5_000);
+    timer.unref();
+    try {
+      const response = await fetch(`${commitsApi}/${target}`, {
+        signal: controller.signal,
+        headers: {
+          accept: "application/vnd.github+json",
+          "user-agent": "eidetic-player-updater",
+        },
+      });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as {
+        commit?: {
+          committer?: { date?: unknown };
+          author?: { date?: unknown };
+        };
+      };
+      return this.validTimestamp(
+        payload.commit?.committer?.date ?? payload.commit?.author?.date,
+      );
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private assertAvailable(): void {

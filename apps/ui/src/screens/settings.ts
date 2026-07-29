@@ -97,6 +97,24 @@ type SettingsPage =
   | "software-update"
   | "update-branch";
 
+type UpdateBusyAction = "branch" | "refresh" | "check" | "start";
+
+function formatUpdateBuildDate(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export function createSettingsScreen(
   options: SettingsScreenOptions,
 ): ComponentView {
@@ -106,6 +124,7 @@ export function createSettingsScreen(
   let animations = options.animationsEnabled;
   let updateState = options.softwareUpdateState;
   let updateBusy = false;
+  let updateBusyAction: UpdateBusyAction | null = null;
   let visualizer = options.visualizerMode;
   let mainPlayer = options.mainPlayerMode;
   let browsing = options.musicBrowsingVisibility;
@@ -1241,6 +1260,8 @@ export function createSettingsScreen(
           row.addEventListener("click", () => {
             if (selected || updateBusy) return;
             updateBusy = true;
+            updateBusyAction = "branch";
+            render();
             void options.updateApi
               .selectBranch(branch.name)
               .then((snapshot) => {
@@ -1260,6 +1281,7 @@ export function createSettingsScreen(
               })
               .finally(() => {
                 updateBusy = false;
+                updateBusyAction = null;
                 render();
               });
           });
@@ -1267,13 +1289,17 @@ export function createSettingsScreen(
         }
       }
       const refresh = document.createElement("button");
-      refresh.className = "settings-row-base setting-navigation";
+      refresh.className = "settings-page-action";
       refresh.type = "button";
       refresh.disabled = updateBusy || updateActive;
+      refresh.setAttribute("aria-busy", String(updateBusyAction === "refresh"));
       refresh.innerHTML =
-        "<span><strong>Refresh branches</strong><small>Load remote branches on demand.</small></span>";
+        updateBusyAction === "refresh"
+          ? "<span><strong>Refreshing branches...</strong><small>Loading the remote branch list.</small></span>"
+          : "<span><strong>Refresh branches</strong><small>Load remote branches on demand.</small></span>";
       refresh.addEventListener("click", () => {
         updateBusy = true;
+        updateBusyAction = "refresh";
         render();
         void options.updateApi
           .refreshBranches()
@@ -1290,10 +1316,15 @@ export function createSettingsScreen(
           })
           .finally(() => {
             updateBusy = false;
+            updateBusyAction = null;
             render();
           });
       });
-      panel.append(refresh);
+      const refreshActions = document.createElement("div");
+      refreshActions.className =
+        "settings-page-actions settings-page-actions--single";
+      refreshActions.append(refresh);
+      section.append(refreshActions);
       return;
     }
 
@@ -1314,18 +1345,26 @@ export function createSettingsScreen(
       branch.disabled = active;
       const current = document.createElement("div");
       current.className = "settings-row-base setting-row";
-      current.innerHTML = `<span class="setting-row__copy"><strong>Current build</strong><small>${updateState.currentShortCommitSha}</small></span>`;
+      const currentDate = formatUpdateBuildDate(updateState.currentBuiltAt);
+      current.innerHTML = `<span class="setting-row__copy"><strong>Current build</strong><small>${updateState.currentShortCommitSha}${currentDate ? ` - ${currentDate}` : ""}</small></span>`;
       const target = document.createElement("div");
       target.className = "settings-row-base setting-row";
-      target.innerHTML = `<span class="setting-row__copy"><strong>Target build</strong><small>${updateState.plan?.targetShortCommitSha ?? "Check required"}</small></span>`;
+      const targetDate = formatUpdateBuildDate(
+        updateState.plan?.targetCommitAt,
+      );
+      target.innerHTML = `<span class="setting-row__copy"><strong>Target build</strong><small>${updateState.plan?.targetShortCommitSha ?? "Check required"}${targetDate ? ` - ${targetDate}` : ""}</small></span>`;
       const check = document.createElement("button");
-      check.className = "settings-row-base setting-navigation";
+      check.className = "settings-page-action";
       check.type = "button";
       check.disabled = updateBusy || active;
+      check.setAttribute("aria-busy", String(updateBusyAction === "check"));
       check.innerHTML =
-        "<span><strong>Check for updates</strong><small>Resolve the selected branch to an exact build.</small></span>";
+        updateBusyAction === "check"
+          ? "<span><strong>Checking for updates...</strong><small>Resolving the selected branch.</small></span>"
+          : "<span><strong>Check for updates</strong><small>Resolve the selected branch to an exact build.</small></span>";
       check.addEventListener("click", () => {
         updateBusy = true;
+        updateBusyAction = "check";
         render();
         void options.updateApi
           .check()
@@ -1346,16 +1385,20 @@ export function createSettingsScreen(
           })
           .finally(() => {
             updateBusy = false;
+            updateBusyAction = null;
             render();
           });
       });
       const start = document.createElement("button");
-      start.className = "settings-row-base setting-navigation";
+      start.className = "settings-page-action settings-page-action--primary";
       start.type = "button";
       start.disabled =
         updateBusy || active || updateState.plan?.updateAvailable !== true;
+      start.setAttribute("aria-busy", String(updateBusyAction === "start"));
       start.innerHTML =
-        "<span><strong>Start update</strong><small>The player remains available while the update is prepared.</small></span>";
+        updateBusyAction === "start"
+          ? "<span><strong>Starting update...</strong><small>Authorizing and scheduling the updater.</small></span>"
+          : "<span><strong>Start update</strong><small>The player remains available while the update is prepared.</small></span>";
       start.addEventListener("click", () => {
         const plan = updateState.plan;
         if (!plan) return;
@@ -1367,11 +1410,12 @@ export function createSettingsScreen(
           returnFocus: start,
           onConfirm: () => {
             updateBusy = true;
+            updateBusyAction = "start";
+            render();
             void options.updateApi
               .start(plan.id, plan.targetCommitSha)
               .then((snapshot) => {
                 updateState = snapshot;
-                render();
               })
               .catch((error: unknown) => {
                 options.showToast(
@@ -1383,17 +1427,23 @@ export function createSettingsScreen(
               })
               .finally(() => {
                 updateBusy = false;
+                updateBusyAction = null;
+                render();
               });
           },
         });
       });
-      panel.append(branch, current, target, check, start);
+      panel.append(branch, current, target);
       if (active || updateState.job.completedAt) {
         const status = document.createElement("div");
         status.className = "settings-row-base setting-row";
         status.innerHTML = `<span class="setting-row__copy"><strong>${active ? "Update in progress" : updateState.job.state === "succeeded" ? "Update completed" : "Last update failed"}</strong><small>${updateState.job.phase?.label ?? updateState.job.result ?? updateState.job.state}</small></span>`;
         panel.append(status);
       }
+      const updateActions = document.createElement("div");
+      updateActions.className = "settings-page-actions";
+      updateActions.append(check, start);
+      section.append(updateActions);
       return;
     }
 

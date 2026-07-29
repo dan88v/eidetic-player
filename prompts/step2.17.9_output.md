@@ -266,3 +266,108 @@ Validation for this final correction:
 The update installation action itself was not run for this layout correction;
 the user will exercise it on the Raspberry Pi after committing and pushing the
 reviewed changes.
+
+## In-app update start failure and Settings correction
+
+### Raspberry diagnosis
+
+The first real `Start update` test did execute the privileged path, despite the
+UI appearing to do nothing. Read-only SSH diagnostics found two failed system
+unit invocations at 14:06 and 14:07 CEST:
+
+- installed build `4c32905`;
+- checked target `2e55449`;
+- target resolution completed;
+- both runs failed in step 3, before activation;
+- the protected log reported `invalid Git metadata path in source checkout`;
+- rollback was not required and the installed release remained `4c32905`.
+
+The installed runner invoked
+`/opt/eidetic-player/current/deploy/linux/update-eidetic-player.sh`. A packaged
+release intentionally contains no `.git` directory, but the embedded installer
+preflight correctly requires a real checkout. The in-app path therefore could
+never reach its isolated application build.
+
+The backend also could not observe the failure. The protected
+`/var/lib/eidetic-player` parent was `root:root 0750`, while the root system
+unit used `Group=root` and `UMask=0077`. The `daniele` backend could neither
+traverse the state parent nor read the sanitized journal. In addition, the
+helper used `systemctl start --no-block`; the immediate HTTP 202 snapshot could
+remain `idle`, causing the demand-driven UI stream to close before the runner
+created its first journal entry.
+
+### Updater and journal correction
+
+When the updater runs from an installed release without Git metadata, it now:
+
+- creates bounded private bootstrap workspace/runtime directories;
+- fetches only the already checked exact target SHA from the fixed official
+  remote as the runtime user;
+- invokes the installer from that checkout, preserving the existing checkout
+  preflight and separate isolated build checkout;
+- removes the bootstrap directories on success or failure using guarded exact
+  path families.
+
+The installed update service is rendered with the configured runtime group and
+`UMask=0027`. `/var/lib/eidetic-player` grants that group traverse-only `0710`
+access; the setgid update directory remains `2750`. Root-only requests stay
+`0600`, while atomic current/history journals remain `0640` and become readable
+by the backend. The doctor and staging suite now verify the rendered unit,
+state traversal, ownership, and runtime-user journal readability.
+
+After the helper accepts a job, the backend publishes a job-specific `queued`
+state before returning. It no longer performs the racy immediate journal read,
+and a stale journal from an earlier job cannot replace the newly accepted job.
+This guarantees that the single demand-driven updater EventSource opens
+immediately and later progress or failure remains visible.
+
+### Software Update UI
+
+The requested Settings layout now keeps only Update branch, Current build, the
+Target build, and job status in the bordered information panel.
+
+- `Check for updates` and `Start update` are separate equal-width sibling
+  buttons below the panel.
+- `Refresh branches` is a separate full-width button below the branch list.
+- Current build shows its embedded build timestamp beside the Build ID.
+- Target build shows the canonical GitHub commit timestamp beside the checked
+  Build ID when available. The target has not yet been built locally, so the
+  commit timestamp is the truthful pre-install target time; timestamp lookup is
+  best-effort and never blocks checking or updating.
+- Confirming Start renders `Starting update...` immediately while authorization
+  is pending. Accepted work then renders `Update in progress` from the
+  authoritative queued/running snapshot.
+
+The real Neutralino/WebView2 app was launched at 1280 x 800 with the exact
+`npm.cmd run dev` command and the supported Appliance fixture. The Software
+Update page, confirmation dialog, active job status, adjacent top-bar updater
+indicator, and Update branch page were exercised with real pointer input.
+Both 50% actions fit without overflow or wrapping instability, timestamps fit
+the canonical rows, Refresh branches is visually separate, and Now Playing,
+the top bar, mini-player, and transport retained their established geometry.
+
+This patch itself must be installed once with the official remote updater,
+because the currently installed in-app runner fails before it can repair its
+own bootstrap and journal integration. After that installation, the next
+in-app update can validate the repaired end-to-end path.
+
+Validation for this updater correction:
+
+- focused updater and installation regressions: PASS — 40 passed, 3
+  platform-specific skips, 0 failed;
+- full `npm test`: PASS — 598 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- `npm run verify:linux:executables`: PASS — all 46 tracked deployment files
+  have valid Git modes;
+- `bash -n` on the changed Linux scripts: PASS;
+- `deploy/linux/test-staging.sh`: PASS, including installed-release bootstrap,
+  rendered update-service identity, state-directory access, and journal
+  readability fixtures;
+- real Neutralino/WebView2 visual and interaction QA at 1280 x 800: PASS.
+
+The Raspberry diagnosis was read-only. End-to-end execution of the repaired
+in-app updater remains intentionally pending until this bootstrap correction
+has first been installed through the official remote updater.

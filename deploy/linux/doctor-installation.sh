@@ -274,9 +274,17 @@ check power-policy-mode "$([[ -f "$power_policy" && "$(stat -c '%a' "$power_poli
 check power-policy-rendered "$([[ -f "$power_policy" ]] && ! grep -Fq '__EIDETIC_RUNTIME_USER__' "$power_policy" && printf pass || printf fail)"
 check systemctl-user "$([[ -x "$systemctl_path" ]] && printf pass || printf fail)"
 installation_mode=unknown
+runtime_user=
 install_conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 if [[ -r "$install_conf" ]]; then
-  installation_mode="$(grep '^EIDETIC_INSTALLATION_MODE=' "$install_conf" | cut -d= -f2-)"
+  installation_mode="$(
+    grep '^EIDETIC_INSTALLATION_MODE=' "$install_conf" 2>/dev/null |
+      cut -d= -f2- || true
+  )"
+  runtime_user="$(
+    grep '^EIDETIC_RUNTIME_USER=' "$install_conf" 2>/dev/null |
+      cut -d= -f2- || true
+  )"
 fi
 power_ready=0
 [[ -x "$pkexec_path" && -x "$power_helper" && -r "$power_policy" ]] && power_ready=1
@@ -323,6 +331,7 @@ if [[ "$installation_mode" == appliance ]]; then
   update_unit="$(eidetic_target /etc/systemd/system/eidetic-player-update.service)"
   update_policy="$(eidetic_target /etc/polkit-1/rules.d/49-eidetic-player-update.rules)"
   update_state="$(eidetic_target /var/lib/eidetic-player/update)"
+  update_state_parent="$(dirname "$update_state")"
   check update-helper "$(
     if [[ -x "$update_helper" && ! -L "$update_helper" &&
       "$(stat -c '%a' "$update_helper")" == 755 ]]; then
@@ -349,7 +358,11 @@ if [[ "$installation_mode" == appliance ]]; then
   )"
   check update-unit "$(
     if [[ -r "$update_unit" && ! -L "$update_unit" &&
-      "$(stat -c '%a' "$update_unit")" == 644 ]]; then
+      "$(stat -c '%a' "$update_unit")" == 644 &&
+      -n "$runtime_user" &&
+      "$(grep -Fxc "Group=$runtime_user" "$update_unit")" == 1 &&
+      "$(grep -Fxc 'UMask=0027' "$update_unit")" == 1 ]] &&
+      ! grep -Fq '__EIDETIC_RUNTIME_USER__' "$update_unit"; then
       printf pass
     else
       printf fail
@@ -366,13 +379,16 @@ if [[ "$installation_mode" == appliance ]]; then
   )"
   check update-state "$(
     if [[ -d "$update_state" && ! -L "$update_state" &&
-      "$(stat -c '%a' "$update_state")" == 2750 ]]; then
+      "$(stat -c '%a' "$update_state")" == 2750 &&
+      -d "$update_state_parent" && ! -L "$update_state_parent" &&
+      "$(stat -c '%a' "$update_state_parent")" == 710 ]]; then
       printf pass
     else
       printf fail
     fi
   )"
   if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    runtime_gid="$(id -g "$runtime_user" 2>/dev/null || true)"
     check update-integration-owner "$(
       if [[ -f "$update_helper" && -f "$update_runner" &&
         -f "$update_journal" && -f "$update_unit" &&
@@ -382,7 +398,18 @@ if [[ "$installation_mode" == appliance ]]; then
         "$(stat -c '%u:%g' "$update_journal")" == 0:0 &&
         "$(stat -c '%u:%g' "$update_unit")" == 0:0 &&
         "$(stat -c '%u:%g' "$update_policy")" == 0:0 &&
-        "$(stat -c '%u' "$update_state")" == 0 ]]; then
+        -n "$runtime_gid" &&
+        "$(stat -c '%u:%g' "$update_state_parent")" == "0:$runtime_gid" &&
+        "$(stat -c '%u:%g' "$update_state")" == "0:$runtime_gid" ]]; then
+        printf pass
+      else
+        printf fail
+      fi
+    )"
+    check update-journal-readable "$(
+      if [[ ! -e "$update_state/current.json" ]] ||
+        /usr/sbin/runuser --user "$runtime_user" -- \
+          /usr/bin/test -r "$update_state/current.json"; then
         printf pass
       else
         printf fail
@@ -390,6 +417,7 @@ if [[ "$installation_mode" == appliance ]]; then
     )"
   else
     check update-integration-owner pass
+    check update-journal-readable pass
   fi
 fi
 check manifest "$([[ -r "$(eidetic_target /var/lib/eidetic-player/system-ui-manifest-v1.tsv)" ]] && printf pass || printf fail)"

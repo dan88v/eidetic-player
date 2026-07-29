@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 void test("Software Update follows the canonical System settings hierarchy", async () => {
-  const settings = await readFile("apps/ui/src/screens/settings.ts", "utf8");
+  const [settings, css] = await Promise.all([
+    readFile("apps/ui/src/screens/settings.ts", "utf8"),
+    readFile("apps/ui/src/styles/screens.css", "utf8"),
+  ]);
   for (const copy of [
     "Software update",
     "Update branch",
@@ -26,6 +29,20 @@ void test("Software Update follows the canonical System settings hierarchy", asy
   assert.match(settings, /if \(updateState\.available\)/u);
   assert.match(settings, /branch\.disabled = active/u);
   assert.match(settings, /refresh\.disabled = updateBusy \|\| updateActive/u);
+  assert.match(settings, /section\.append\(refreshActions\)/u);
+  assert.match(settings, /panel\.append\(branch, current, target\)/u);
+  assert.match(settings, /updateActions\.append\(check, start\)/u);
+  assert.match(settings, /currentBuiltAt/u);
+  assert.match(settings, /targetCommitAt/u);
+  assert.match(settings, /updateBusyAction = "start";\s*render\(\)/u);
+  assert.match(
+    css,
+    /\.settings-page-actions\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/u,
+  );
+  assert.match(
+    css,
+    /\.settings-page-actions--single\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/u,
+  );
   assert.doesNotMatch(settings, /input[^>]+branch/iu);
 });
 

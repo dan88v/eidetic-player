@@ -66,6 +66,7 @@ void test(
       fixtureMode: true,
       fixtureDurationMs: 200,
       fixtureTarget: () => fixtureTarget,
+      fixtureTargetCommitAt: () => "2026-07-29T12:00:00.000Z",
     });
     await service.initialize();
     const states: string[] = [];
@@ -90,6 +91,8 @@ void test(
       assert.equal(checked.plan?.targetCommitSha, targetSha);
       assert.ok(checked.plan);
       assert.equal(checked.plan.updateAvailable, true);
+      assert.equal(checked.currentBuiltAt, buildInfo.builtAt);
+      assert.equal(checked.plan.targetCommitAt, "2026-07-29T12:00:00.000Z");
       const plan = checked.plan;
       assert.ok(plan);
       assert.equal(
@@ -160,14 +163,20 @@ void test(
 );
 
 void test("deployment uses systemd, exact SHA argv and structured progress only", async () => {
-  const [runner, helper, unit, journal, updater] = await Promise.all([
-    readFile("deploy/linux/runtime/eidetic-player-update-runner", "utf8"),
-    readFile("deploy/linux/runtime/eidetic-player-update-helper", "utf8"),
-    readFile("deploy/linux/templates/eidetic-player-update.service", "utf8"),
-    readFile("deploy/linux/lib/eidetic-player-update-journal.mjs", "utf8"),
-    readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
-  ]);
+  const [runner, helper, unit, journal, updater, installer, doctor, service] =
+    await Promise.all([
+      readFile("deploy/linux/runtime/eidetic-player-update-runner", "utf8"),
+      readFile("deploy/linux/runtime/eidetic-player-update-helper", "utf8"),
+      readFile("deploy/linux/templates/eidetic-player-update.service", "utf8"),
+      readFile("deploy/linux/lib/eidetic-player-update-journal.mjs", "utf8"),
+      readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/doctor-installation.sh", "utf8"),
+      readFile("apps/backend/src/update/update-service.ts", "utf8"),
+    ]);
   assert.match(unit, /Type=oneshot/u);
+  assert.match(unit, /Group=__EIDETIC_RUNTIME_USER__/u);
+  assert.match(unit, /UMask=0027/u);
   assert.match(runner, /flock -n/u);
   assert.match(runner, /--ref "\$target" --unattended/u);
   assert.doesNotMatch(runner, /eval|sh -c|nohup|tmux|screen/u);
@@ -175,8 +184,29 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
   assert.match(helper, /refs\/heads\/\$branch/u);
   assert.match(helper, /select-branch[\s\S]+ls-remote --exit-code --heads/u);
   assert.match(journal, /EIDETIC_PROGRESS_V1/u);
+  assert.match(journal, /mode: 0o640/u);
   assert.match(journal, /rollback-completed/u);
   assert.match(updater, /rollback-failed/u);
+  assert.match(updater, /eidetic_fetch_isolated_source/u);
+  assert.match(
+    updater,
+    /bootstrap_installer="\$bootstrap_workspace\/source\/deploy\/linux\/install-eidetic-player\.sh"/u,
+  );
+  assert.match(updater, /"\$bootstrap_installer" "\$\{args\[@\]\}"/u);
+  assert.match(installer, /install -d -m 0710 -o root -g "\$runtime_user"/u);
+  assert.match(
+    installer,
+    /"\$update_unit" \/etc\/systemd\/system\/eidetic-player-update\.service/u,
+  );
+  assert.match(doctor, /update-journal-readable/u);
+  const start = service.slice(
+    service.indexOf("async start("),
+    service.indexOf("private async readSelectedBranch"),
+  );
+  assert.match(start, /await this\.runHelper/u);
+  assert.match(start, /state: "queued"/u);
+  assert.match(start, /this\.emit\(\)/u);
+  assert.doesNotMatch(start, /refreshJournal/u);
   assert.doesNotMatch(journal, /stdout|stderr/u);
   assert.match(updater, /EIDETIC_UPDATE_JOB_FD/u);
 });

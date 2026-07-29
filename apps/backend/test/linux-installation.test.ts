@@ -270,7 +270,11 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
     installer,
     /"\$node_release\/bin\/npm" --prefix "\$build_source" run "\$1"/,
   );
-  assert.match(update, /install-eidetic-player\.sh" "\$\{args\[@\]\}"/);
+  assert.match(update, /"\$bootstrap_installer" "\$\{args\[@\]\}"/);
+  assert.match(
+    update,
+    /bootstrap_installer="\$bootstrap_workspace\/source\/deploy\/linux\/install-eidetic-player\.sh"/,
+  );
   assert.match(update, /eidetic_runtime_run_protocol_child/);
 
   const lifecycle = installer.indexOf(
