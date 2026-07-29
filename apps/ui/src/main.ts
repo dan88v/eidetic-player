@@ -22,6 +22,7 @@ import {
 } from "../../../packages/shared/src/preferences";
 import { PreferencesApiClient } from "./api/preferences-api-client";
 import { PreferencesController } from "./state/preferences-controller";
+import { loadAuthoritativeBootstrap } from "./bootstrap/backend-bootstrap";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -68,10 +69,6 @@ async function bootstrap(): Promise<void> {
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => {
-    controller.abort();
-  }, 5_000);
   let playerState = disconnectedPlayerState;
   let audioOutputState = disconnectedAudioOutputState;
   let systemCapabilities = defaultSystemCapabilities;
@@ -85,9 +82,28 @@ async function bootstrap(): Promise<void> {
     warning: true,
   };
   let migrationFailed = false;
+  let bootstrapAvailable = false;
   const preferencesApi = new PreferencesApiClient();
+  const playerApi = new PlayerApiClient();
   try {
-    const initial = await new PlayerApiClient().bootstrap(controller.signal);
+    const initial = config.development
+      ? await playerApi.bootstrap(AbortSignal.timeout(5_000))
+      : await loadAuthoritativeBootstrap(
+          (signal) => playerApi.bootstrap(signal),
+          {
+            onFailure: (error, attempt) => {
+              console.error(
+                `[bootstrap] backend initialization attempt ${String(attempt)} failed`,
+                error,
+              );
+              immediateSplash?.setAttribute(
+                "aria-label",
+                "Connecting to Eidetic Player",
+              );
+            },
+          },
+        );
+    bootstrapAvailable = true;
     playerState = initial.playerState;
     audioOutputState = initial.audioOutput;
     systemCapabilities = initial.system;
@@ -101,7 +117,7 @@ async function bootstrap(): Promise<void> {
             preferences: legacy.preferences,
             sourceAvailable: legacy.sourceAvailable,
           },
-          controller.signal,
+          AbortSignal.timeout(5_000),
         );
       } catch (error) {
         migrationFailed = true;
@@ -110,9 +126,8 @@ async function bootstrap(): Promise<void> {
     }
   } catch (error) {
     console.error("[bootstrap] backend initialization failed", error);
-  } finally {
-    window.clearTimeout(timeout);
   }
+  if (!config.development && !bootstrapAvailable) return;
   let mountedApp: MountedApp | null = null;
   const preferencesController = new PreferencesController(
     preferencesSnapshot,

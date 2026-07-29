@@ -1,6 +1,7 @@
 # Step 2.17.9 — Raspberry Pi Bootstrap and MPV Recovery Hotfix
 
-Status: READY FOR COMMIT AND TARGET DEPLOYMENT
+Status: DEPLOYED TO RASPBERRY PI — BOOTSTRAP, MPV RECOVERY, AND HTTP
+CONNECTION-STARVATION HOTFIXES
 
 ## Reported regression and Raspberry evidence
 
@@ -30,6 +31,48 @@ The captured diagnostic artifacts are local, ignored working files:
 
 - `rpi-diagnostics-20260729-013815.log`;
 - `rpi-restart-probe-20260729-014235.log`.
+
+## Post-deployment regression and corrected diagnosis
+
+The first `a2be5bf` deployment restored the authoritative Build ID and
+Appliance capabilities, but it did not restore application function. A full
+service restart reproduced the same failure with fresh Neutralino, backend,
+and MPV processes:
+
+- Library remained permanently on `Loading`;
+- Sources and file browsing did not complete;
+- REST-backed power actions could not complete;
+- direct Raspberry API probes still returned valid Library, browse, Build,
+  system-capability, and MPV data.
+
+The same defect was then reproduced in the required real Windows application
+with the exact `npm.cmd run dev` command. WebView2 DevTools showed
+`/api/library/albums?limit=48` permanently `Pending`, while a direct request to
+the same backend completed in under one second.
+
+The in-app updater had added a sixth permanent EventSource connection at
+application startup. WebView2's HTTP/1.1 per-host connection budget was
+therefore fully occupied by the player, Library, SMB, network, removable
+storage, and updater SSE streams. Bootstrap completed before saturation, which
+explains the correct Build ID, while subsequent Library, browsing, artwork,
+and system REST requests waited indefinitely.
+
+The Software Update EventSource is now demand-driven:
+
+- the initial update state remains one ordinary REST request;
+- no updater stream is opened for idle or terminal jobs;
+- starting or resuming an active update opens the single updater stream;
+- update progress remains global across navigation;
+- terminal state or the final subscriber closes the stream immediately.
+
+This restores one HTTP connection for normal REST work without polling,
+duplicate streams, or loss of update progress.
+
+The production frontend also no longer turns one transient bootstrap failure
+into permanent development defaults. Production bootstrap requests use a
+bounded five-second attempt and bounded 0.5/1/2/5-second backoff, retaining the
+dark splash until authoritative backend state arrives. Development retains its
+explicit fallback for backend-independent UI work.
 
 ## MPV-independent application bootstrap
 
@@ -118,10 +161,19 @@ Focused tests cover:
 - unchanged privileged power preflight and fixed action arguments.
 
 The real Windows Neutralino/WebView2 app was launched with the required exact
-`npm.cmd run dev` command and inspected at 1280 × 800. The MPV-starting view,
-recovery layout, drawer, navigation to Library, mini-player, transport, top bar,
-and stable dark surfaces passed visual inspection. The development build label
-was correctly limited to this development launch.
+`npm.cmd run dev` command and inspected at 1280 × 800. The original permanent
+Library loading state was reproduced before the correction. After hot reload:
+
+- Library rendered the populated Album grid;
+- Sources rendered the indexed Diskstation source and connected SMB resource;
+- Browse opened `SMB / Diskstation` and rendered its folder grid;
+- the Power dialog opened and exposed the correct Windows Quit action;
+- confirmed Quit closed Neutralino, backend, Vite, MPV, and the development
+  orchestrator cleanly.
+
+The MPV-starting/recovery layout, drawer, mini-player, transport, top bar, and
+stable dark surfaces remained intact. The development build label was
+correctly limited to this development launch.
 
 ## Validation
 
@@ -131,7 +183,7 @@ The completed final validation set is:
 - `npm run typecheck`: PASS;
 - `npm run lint`: PASS;
 - `npm run build`: PASS;
-- `npm test`: PASS — 596 passed, 11 platform skips, 0 failed;
+- `npm test`: PASS — 598 passed, 11 platform skips, 0 failed;
 - `npm run mpv:doctor`: PASS;
 - `npm run test:mpv`: PASS — 10 passed;
 - `npm run ffmpeg:doctor`: PASS;
@@ -141,6 +193,39 @@ The completed final validation set is:
 Final process inspection found no residual MPV, FFmpeg, Neutralino, or Vite
 process.
 
-The Raspberry target still requires installation of this hotfix build followed
-by the real bootstrap, Library, MPV recovery, Build ID, power capability,
-process-singleton, and clean-shutdown checks.
+## Raspberry deployment
+
+GitHub Actions run `30427595601` completed successfully for exact commit
+`a2be5bfa3769fbd7b9068fcf15ead94556325422`. The official interactive remote
+updater then:
+
+- fast-forwarded the clean Raspberry checkout from `05842f9` to `a2be5bf`;
+- preserved application data, configuration, and the pre-existing GPIO/I2S
+  integration;
+- built and staged the release in isolation;
+- activated it and restarted only `eidetic-player.service`;
+- passed hard service, HTTP, and exact Build ID verification;
+- passed the complete read-only installation doctor, including MPV, FFmpeg,
+  power helper, Polkit policy, power capabilities, update integration, and
+  build-info coherence;
+- reported the application reachable with MPV available;
+- passed the same-commit `Already up to date.` proof;
+- performed no Raspberry reboot.
+
+The first post-restart readiness response already returned HTTP success with
+Build `a2be5bf`, `mpvAvailable: true`, and payload status `starting`. This is
+the intended core/player barrier separation: the shell can start with
+authoritative platform and Build information before the remaining player
+initialization completes.
+
+The first deployment did not pass functional acceptance despite its successful
+installer and doctor checks; it is retained above as diagnostic history, not
+as the final product PASS.
+
+The corrective commit was subsequently built by GitHub Actions and installed
+with the official interactive remote updater. The updater preserved data and
+configuration, activated the new release, restarted the full player service,
+and passed exact Build ID, readiness, doctor, and no-op verification. Final
+Raspberry acceptance additionally exercised populated Library loading, Sources
+and SMB folder browsing, and opening the Appliance power menu after the fresh
+service start.

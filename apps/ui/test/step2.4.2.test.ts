@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 void test("bootstrap splash is tied to the backend barrier and reduced motion", async () => {
-  const [html, main, api] = await Promise.all([
+  const [html, main, api, retry] = await Promise.all([
     readFile("apps/ui/index.html", "utf8"),
     readFile("apps/ui/src/main.ts", "utf8"),
     readFile("apps/ui/src/api/player-api-client.ts", "utf8"),
+    readFile("apps/ui/src/bootstrap/backend-bootstrap.ts", "utf8"),
   ]);
   assert.match(html, /id="app-splash"/);
   assert.match(html, /id="app-splash__title">Eidetic Player/);
@@ -14,7 +15,16 @@ void test("bootstrap splash is tied to the backend barrier and reduced motion", 
   assert.match(html, /@keyframes app-splash-progress/);
   assert.doesNotMatch(html, /app-splash__mark|content: "E"/);
   assert.match(main, /700 - \(performance\.now\(\) - startedAt\)/);
-  assert.match(main, /5_000/);
+  assert.match(main, /loadAuthoritativeBootstrap/);
+  assert.match(main, /config\.development/);
+  assert.doesNotMatch(
+    main,
+    /catch \(error\)[\s\S]{0,180}systemCapabilities = defaultSystemCapabilities/,
+  );
+  assert.match(retry, /5_000/);
+  assert.match(retry, /500,\s*1_000,\s*2_000,\s*5_000/);
+  assert.match(retry, /for \(;;\)/);
+  assert.match(retry, /controller\.abort\(\)/);
   assert.match(main, /prefers-reduced-motion: reduce/);
   assert.match(api, /\/api\/bootstrap/);
 });

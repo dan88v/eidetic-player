@@ -29,7 +29,7 @@ void test("Software Update follows the canonical System settings hierarchy", asy
   assert.doesNotMatch(settings, /input[^>]+branch/iu);
 });
 
-void test("global update status survives navigation without a second stream", async () => {
+void test("global update status survives navigation without exhausting REST connections", async () => {
   const [shell, topBar, client] = await Promise.all([
     readFile("apps/ui/src/components/app-shell.ts", "utf8"),
     readFile("apps/ui/src/components/top-bar.ts", "utf8"),
@@ -43,6 +43,15 @@ void test("global update status survives navigation without a second stream", as
     /snapshot\.revision < softwareUpdateState\.revision/u,
   );
   assert.equal((client.match(/new EventSource/gu) ?? []).length, 1);
+  assert.match(client, /if \(this\.lastSnapshot && this\.isActive/u);
+  assert.match(
+    client,
+    /if \(this\.isActive\(snapshot\)\) this\.ensureEventSource\(\);\s*else this\.closeEventSource\(\)/u,
+  );
+  assert.doesNotMatch(
+    shell,
+    /updateApi\.subscribe[\s\S]{0,100}new EventSource/u,
+  );
   assert.match(topBar, /role="status"/u);
   assert.match(topBar, /data-visible="false"/u);
   assert.match(topBar, /updateElapsedTimer/u);
