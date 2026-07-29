@@ -39,6 +39,10 @@ The expected output is hostname `eidetic` and user `daniele`. A password prompt
 or authentication failure is a blocking configuration error; do not silently
 fall back to scripts that capture or pipe credentials.
 
+All repository-owned `remote-rpi-*.ps1` workflows enforce public-key
+authentication with SSH batch mode. They fail immediately if this key setup is
+unavailable; they never fall back to an SSH account-password prompt.
+
 ## Guided update
 
 After the exact `main` CI run is green, run:

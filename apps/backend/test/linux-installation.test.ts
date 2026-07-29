@@ -547,7 +547,10 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
     /# shellcheck disable=SC2034\s+EIDETIC_SOURCE_REMOTE=https:\/\/github\.com\/dan88v\/eidetic-player\.git/,
   );
   assert.match(remoteUpdate, /& ssh\.exe `\s+-tt `/);
-  assert.match(remoteUpdate, /BatchMode=no/);
+  assert.match(remoteUpdate, /BatchMode=yes/);
+  assert.match(remoteUpdate, /PreferredAuthentications=publickey/);
+  assert.match(remoteUpdate, /PubkeyAuthentication=yes/);
+  assert.doesNotMatch(remoteUpdate, /PubkeyAuthentication=no/);
   assert.match(remoteUpdate, /\[Convert\]::ToBase64String/);
   assert.match(remoteUpdate, /\[Text\.Encoding\]::UTF8\.GetBytes/);
   assert.match(remoteUpdate, /base64 -d > \$remote_script/);

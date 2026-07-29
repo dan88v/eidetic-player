@@ -68,9 +68,9 @@ Write-Host (
 
 & ssh.exe `
   -tt `
-  -o "BatchMode=no" `
-  -o "PreferredAuthentications=keyboard-interactive,password" `
-  -o "PubkeyAuthentication=no" `
+  -o "BatchMode=yes" `
+  -o "PreferredAuthentications=publickey" `
+  -o "PubkeyAuthentication=yes" `
   "$RemoteUser@$HostAddress" `
   $remoteCommand
 $remoteExit = $LASTEXITCODE

@@ -142,14 +142,14 @@ $remoteCommand = (
 )
 
 Write-Host "Opening interactive update on $RemoteUser@$HostAddress."
-Write-Host "SSH, sudo, and guided updater prompts remain visible." -ForegroundColor Cyan
+Write-Host "SSH uses the configured key; sudo and updater prompts remain visible." -ForegroundColor Cyan
 Write-Host "The script never stores or pipes a password and never reboots the device." -ForegroundColor Cyan
 
 & ssh.exe `
   -tt `
-  -o "BatchMode=no" `
-  -o "PreferredAuthentications=keyboard-interactive,password" `
-  -o "PubkeyAuthentication=no" `
+  -o "BatchMode=yes" `
+  -o "PreferredAuthentications=publickey" `
+  -o "PubkeyAuthentication=yes" `
   "$RemoteUser@$HostAddress" `
   $remoteCommand
 $remoteExit = $LASTEXITCODE

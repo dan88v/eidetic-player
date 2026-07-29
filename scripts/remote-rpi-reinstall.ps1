@@ -80,13 +80,13 @@ $remoteCommand = $remoteTemplate.
   Replace("__REPOSITORY__", $RepositoryUrl)
 
 Write-Host "Opening interactive SSH session to $RemoteUser@$HostAddress."
-Write-Host "Passwords and all installer prompts remain visible." -ForegroundColor Cyan
+Write-Host "SSH uses the configured key; sudo and installer prompts remain visible." -ForegroundColor Cyan
 
 & ssh.exe `
   -tt `
-  -o "BatchMode=no" `
-  -o "PreferredAuthentications=keyboard-interactive,password" `
-  -o "PubkeyAuthentication=no" `
+  -o "BatchMode=yes" `
+  -o "PreferredAuthentications=publickey" `
+  -o "PubkeyAuthentication=yes" `
   "$RemoteUser@$HostAddress" `
   $remoteCommand
 $remoteExit = $LASTEXITCODE

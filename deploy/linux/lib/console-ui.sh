@@ -655,6 +655,9 @@ eidetic_runtime_run_protocol_child() {
   elif [[ ! -e /proc/"$BASHPID"/fd/20 ]]; then
     exec 20>"/proc/$BASHPID/fd/$relay_write_fd"
     progress_fd=20
+  elif [[ ! -e /proc/"$BASHPID"/fd/30 ]]; then
+    exec 30>"/proc/$BASHPID/fd/$relay_write_fd"
+    progress_fd=30
   elif [[ ! -e /proc/"$BASHPID"/fd/7 ]]; then
     exec 7>"/proc/$BASHPID/fd/$relay_write_fd"
     progress_fd=7
@@ -680,6 +683,8 @@ eidetic_runtime_run_protocol_child() {
     "$@" 8>&8 &
   elif [[ "$progress_fd" == 20 ]]; then
     "$@" 20>&20 &
+  elif [[ "$progress_fd" == 30 ]]; then
+    "$@" 30>&30 &
   elif [[ "$progress_fd" == 7 ]]; then
     "$@" 7>&7 &
   else
@@ -695,6 +700,8 @@ eidetic_runtime_run_protocol_child() {
     exec 8>&-
   elif [[ "$progress_fd" == 20 ]]; then
     exec 20>&-
+  elif [[ "$progress_fd" == 30 ]]; then
+    exec 30>&-
   elif [[ "$progress_fd" == 7 ]]; then
     exec 7>&-
   else

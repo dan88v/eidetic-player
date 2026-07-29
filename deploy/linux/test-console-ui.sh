@@ -286,7 +286,7 @@ install -d "$protocol_child_root"
   # Called indirectly by the protocol runner.
   # shellcheck disable=SC2317
   protocol_fixture_child() {
-    [[ "$EIDETIC_PROGRESS_FD" == 20 ]] || return 71
+    [[ "$EIDETIC_PROGRESS_FD" == 30 ]] || return 71
     printf 'human stdout must not become progress\n'
     printf 'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\n' \
       >&"$EIDETIC_PROGRESS_FD"
@@ -296,18 +296,26 @@ install -d "$protocol_child_root"
   exec 6>/dev/null
   exec 7>/dev/null
   exec 8>/dev/null
+  protocol_owned_fd20=0
+  if [[ ! -e /proc/"$BASHPID"/fd/20 ]]; then
+    exec 20>/dev/null
+    protocol_owned_fd20=1
+  fi
   eidetic_runtime_run_protocol_child 0 protocol_fixture_child
   # Called indirectly by the protocol runner.
   # shellcheck disable=SC2317
   external_protocol_fixture() {
     export EIDETIC_PROGRESS_FD
     bash -c \
-      'test "$EIDETIC_PROGRESS_FD" = 20 || exit 71; printf "EIDETIC_PROGRESS_V1\truntime\tstart\tinstall-dependencies\t2\t12\n" >&"$EIDETIC_PROGRESS_FD"; printf "EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5\n" >&"$EIDETIC_PROGRESS_FD"'
+      'test "$EIDETIC_PROGRESS_FD" = 30 || exit 71; printf "EIDETIC_PROGRESS_V1\truntime\tstart\tinstall-dependencies\t2\t12\n" >&"$EIDETIC_PROGRESS_FD"; printf "EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5\n" >&"$EIDETIC_PROGRESS_FD"'
   }
   eidetic_runtime_run_protocol_child 0 external_protocol_fixture
   exec 6>&-
   exec 7>&-
   exec 8>&-
+  if [[ "$protocol_owned_fd20" == 1 ]]; then
+    exec 20>&-
+  fi
   [[ -z "$EIDETIC_RUNTIME_CHILD_PID" &&
     -z "$EIDETIC_RUNTIME_RELAY_PID" &&
     -z "$EIDETIC_RUNTIME_READ_FD" &&

@@ -604,3 +604,42 @@ then through the alias. Both returned hostname `eidetic` and user `daniele`;
 a final alias-only probe returned `final-auth-ok`. Future SSH diagnostics and
 remote scripts use this method. Interactive `sudo` authorization remains a
 separate privilege boundary.
+
+The repository-owned remote update, reinstall, and verification scripts now
+enforce public-key authentication in SSH batch mode instead of explicitly
+disabling keys and forcing account passwords. A focused deployment-contract
+regression protects the remote updater from reverting to password fallback.
+
+## Real installer-contract nesting
+
+The remote update to `096e9c3` reached the Raspberry installer-contract gate
+but stopped before activation. Build `3a2ef1d` remained installed and healthy;
+rollback was not required. The root log proved that executable validation, the
+static installer contract, and all 72 install-safe tests passed before the
+console fixture reported:
+
+`console UI fixture failed: dedicated protocol pipe was not consumed`
+
+Unlike the standalone Windows fixture, the real contract test inherits
+descriptor 20 from the updater/installer progress relay. The fixture then
+occupied 6, 7, and 8, leaving no candidate and accidentally testing exhaustion
+instead of inheritance. Runtime relay allocation now includes explicit
+descriptor 30 after 20. The fixture preserves an inherited descriptor 20 (or
+occupies it only when running standalone) and requires both its shell function
+and external Bash child to deliver progress through descriptor 30.
+
+Validation for the real installer-contract nesting correction:
+
+- root Raspberry update log: PASS â€” exact failing fixture identified after
+  the preceding 72 install-safe tests passed;
+- focused console protocol fixtures: PASS;
+- `npm run verify:linux:installer`: PASS â€” 72 contracts/tests, 0 failed;
+- full `deploy/linux/test-staging.sh`: PASS in 241 seconds;
+- full `npm test`: PASS â€” 599 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- `npm run verify:linux:executables`: PASS â€” all 46 tracked deployment files
+  retain valid Git modes;
+- Bash syntax checks for the affected protocol files: PASS.

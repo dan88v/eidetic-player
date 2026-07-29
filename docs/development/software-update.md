@@ -86,8 +86,10 @@ the updater and embedded installer also keep their protected log and relay
 descriptors open. Runtime progress therefore reserves descriptor 8 first, with
 explicit child redirection across the `runuser` boundary. A nested updater
 relay reserves descriptor 20 when 8 is already occupied; 7/6 remain guarded
-fallbacks for shallower invocation contexts. Descriptor 10 is deliberately not
-used because Bash commonly allocates it to the relay's dynamic read side.
+fallbacks for shallower invocation contexts. Installer-contract verification
+can add another inherited relay, so descriptor 30 is the next explicit nested
+fallback. Descriptor 10 is deliberately not used because Bash commonly
+allocates it to the relay's dynamic read side.
 Dynamically allocated Bash descriptors are not exported as the progress
 channel because their environment number can outlive the actual descriptor
 across that privileged exec boundary. Human output remains separate from the
