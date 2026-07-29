@@ -361,7 +361,8 @@ if [[ "$installation_mode" == appliance ]]; then
       "$(stat -c '%a' "$update_unit")" == 644 &&
       -n "$runtime_user" &&
       "$(grep -Fxc "Group=$runtime_user" "$update_unit")" == 1 &&
-      "$(grep -Fxc 'UMask=0027' "$update_unit")" == 1 ]] &&
+      "$(grep -Fxc 'UMask=0027' "$update_unit")" == 1 &&
+      "$(grep -Fxc 'NoNewPrivileges=no' "$update_unit")" == 1 ]] &&
       ! grep -Fq '__EIDETIC_RUNTIME_USER__' "$update_unit"; then
       printf pass
     else

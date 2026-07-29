@@ -211,6 +211,9 @@ assert_update_installed() {
   grep -Fxq 'UMask=0027' \
     "$root/etc/systemd/system/eidetic-player-update.service" ||
     fixture_fail "software-update unit does not preserve group-readable journals"
+  grep -Fxq 'NoNewPrivileges=no' \
+    "$root/etc/systemd/system/eidetic-player-update.service" ||
+    fixture_fail "software-update unit cannot enter the runtime build identity"
   grep -Eq '^EIDETIC_UPDATE_BRANCH=[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' \
     "$root/etc/eidetic-player/update.conf" ||
     fixture_fail "software-update branch config is invalid"

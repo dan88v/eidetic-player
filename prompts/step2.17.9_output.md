@@ -397,3 +397,50 @@ Validation for this final semantic correction:
 
 No UI structure or styling changed in this correction; the already validated
 Software Update row geometry remains unchanged.
+
+## In-app runtime-identity correction
+
+The first in-app update after installing the repaired bootstrap reached the
+expected protected system service but failed during preparation. Read-only SSH
+diagnostics captured the exact protected log:
+
+`runuser: cannot set user id: Operation not permitted`
+
+The job had correctly pinned target `db0fb4a`, entered step 3, and required no
+rollback. The service template combined `User=root` with
+`NoNewPrivileges=yes`, but the installer deliberately uses `runuser` to fetch,
+install dependencies, and build as the unprivileged runtime identity. On the
+Raspberry Pi this hardening flag blocked the required root-to-runtime UID
+transition before the checked source could be fetched.
+
+The fixed, root-owned updater unit now declares `NoNewPrivileges=no`
+explicitly. This does not broaden the public authorization surface: the
+Polkit rule still accepts only the exact helper and action, the helper writes a
+closed root-only request, and the runner still validates branch, current SHA,
+target SHA, expiry, origin, paths, and installed provenance. It only permits
+the already required privilege drop inside that fixed workflow.
+
+Focused source, doctor, and staging regressions now require the rendered unit
+to preserve `Group=<runtime user>`, `UMask=0027`, and
+`NoNewPrivileges=no`.
+
+Validation for this runtime-identity correction:
+
+- SSH diagnosis: PASS — exact protected failure and no-rollback state
+  captured;
+- focused Linux/updater regressions: PASS — 27 passed, 0 failed;
+- full `deploy/linux/test-staging.sh`: PASS in 184.5 seconds;
+- full `npm test`: PASS — 598 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- `npm run verify:linux:executables`: PASS — all 46 tracked deployment files
+  retain valid Git modes;
+- Bash syntax checks for the affected updater, doctor, and staging scripts:
+  PASS.
+
+No Raspberry mutation or reboot was performed during diagnosis. Because the
+currently installed system unit is the component blocking `runuser`, this unit
+correction must be installed once through the official remote updater before
+the next in-app update test.

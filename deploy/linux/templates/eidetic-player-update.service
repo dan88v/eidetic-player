@@ -10,7 +10,10 @@ ExecStart=/usr/libexec/eidetic-player-update-runner
 User=root
 Group=__EIDETIC_RUNTIME_USER__
 UMask=0027
-NoNewPrivileges=yes
+# The fixed privileged runner deliberately drops to the runtime UID for every
+# source fetch and application build. NoNewPrivileges blocks that required
+# runuser transition on Raspberry Pi OS.
+NoNewPrivileges=no
 PrivateTmp=yes
 ProtectHome=false
 ProtectSystem=false

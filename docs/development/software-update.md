@@ -55,6 +55,13 @@ the root service runs with the runtime group and a `0027` umask. Request files
 remain root-only; only the sanitized current/history journals are readable by
 the backend.
 
+The fixed root updater service explicitly permits privilege dropping. Its
+runner and installer use `runuser` to execute every source fetch, dependency
+operation, and application build as the configured runtime identity; Raspberry
+Pi OS rejects that required UID transition when the service sets
+`NoNewPrivileges=yes`. Authorization remains limited to the exact root-owned
+helper, runner, request schema, canonical remote, and checked commit.
+
 The backend polls the journal at a low fixed cadence and owns one SSE stream
 for the application. Reconnection accepts a new backend generation even when
 its revision counter restarts. During preparation the app remains usable and a

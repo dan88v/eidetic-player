@@ -178,6 +178,8 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
   assert.match(unit, /Type=oneshot/u);
   assert.match(unit, /Group=__EIDETIC_RUNTIME_USER__/u);
   assert.match(unit, /UMask=0027/u);
+  assert.match(unit, /NoNewPrivileges=no/u);
+  assert.doesNotMatch(unit, /NoNewPrivileges=yes/u);
   assert.match(runner, /flock -n/u);
   assert.match(runner, /--ref "\$target" --unattended/u);
   assert.doesNotMatch(runner, /eval|sh -c|nohup|tmux|screen/u);
