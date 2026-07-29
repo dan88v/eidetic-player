@@ -649,7 +649,16 @@ eidetic_runtime_run_protocol_child() {
   relay_read_fd="${EIDETIC_PROGRESS_RELAY[0]}"
   relay_write_fd="${EIDETIC_PROGRESS_RELAY[1]}"
   exec {read_fd}<&"$relay_read_fd"
-  if ! exec {progress_fd}>"/proc/$BASHPID/fd/$relay_write_fd"; then
+  if [[ ! -e /proc/"$BASHPID"/fd/8 ]]; then
+    exec 8>"/proc/$BASHPID/fd/$relay_write_fd"
+    progress_fd=8
+  elif [[ ! -e /proc/"$BASHPID"/fd/7 ]]; then
+    exec 7>"/proc/$BASHPID/fd/$relay_write_fd"
+    progress_fd=7
+  elif [[ ! -e /proc/"$BASHPID"/fd/6 ]]; then
+    exec 6>"/proc/$BASHPID/fd/$relay_write_fd"
+    progress_fd=6
+  else
     exec {read_fd}<&-
     exec {relay_read_fd}<&-
     exec {relay_write_fd}>&-
@@ -664,14 +673,26 @@ eidetic_runtime_run_protocol_child() {
   EIDETIC_RUNTIME_WRITE_FD="$progress_fd"
   EIDETIC_RUNTIME_RELAY_PID="$EIDETIC_PROGRESS_RELAY_PID"
   export EIDETIC_PROGRESS_FD="$progress_fd"
-  "$@" &
+  if [[ "$progress_fd" == 8 ]]; then
+    "$@" 8>&8 &
+  elif [[ "$progress_fd" == 7 ]]; then
+    "$@" 7>&7 &
+  else
+    "$@" 6>&6 &
+  fi
   EIDETIC_RUNTIME_CHILD_PID=$!
   if [[ "$had_progress_fd" == 1 ]]; then
     export EIDETIC_PROGRESS_FD="$previous_progress_fd"
   else
     unset EIDETIC_PROGRESS_FD
   fi
-  exec {progress_fd}>&-
+  if [[ "$progress_fd" == 8 ]]; then
+    exec 8>&-
+  elif [[ "$progress_fd" == 7 ]]; then
+    exec 7>&-
+  else
+    exec 6>&-
+  fi
   EIDETIC_RUNTIME_WRITE_FD=
   while IFS= read -r line <&"$read_fd"; do
     eidetic_runtime_accept_line "$line" "$full" ||

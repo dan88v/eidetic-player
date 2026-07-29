@@ -469,11 +469,22 @@ eight minutes:
 The root runner already owned descriptor 7 for job events, while the nested
 updater/installer path also had descriptor 6 open. The runtime protocol helper
 assumed one of those two fixed descriptors would be free and aborted before
-the application build. It now asks Bash for a free dynamic descriptor, exports
-that exact inherited number to the runtime child, and closes only that owned
-descriptor afterward. The console protocol fixture deliberately occupies both
-6 and 7 and verifies that structured events still cross an external child
-without leaking into human output.
+the application build.
+
+The first correction used a Bash-allocated dynamic descriptor. Local console
+and full staging fixtures passed, but the next real remote update exposed the
+missing privileged-boundary case after another runtime verification pass:
+
+`[build-orchestrator] EBADF: bad file descriptor, write`
+
+The dynamic descriptor number survived in the environment but the descriptor
+itself did not remain open across the real `runuser` exec boundary. The final
+implementation reserves low descriptor 8 first and explicitly duplicates it
+into the child command; guarded 7 and 6 fallbacks remain for other invocation
+contexts. The console protocol fixture deliberately occupies both 6 and 7,
+requires the child and its external Bash descendant to see descriptor 8, and
+verifies that structured events cross the exec boundary without leaking into
+human output.
 
 The failed Raspberry attempt did not activate a release and required no
 rollback; Build `8dd3ae3` remained installed. No reboot was performed.
@@ -498,3 +509,7 @@ No UI structure or styling changed. The next published build must first be
 installed with the official remote updater because Build `8dd3ae3` still
 contains both defects; the following commit can then exercise the corrected
 in-app progress and runtime path.
+
+The failed `c6ebb23` remote attempt did not activate a release and required no
+rollback. Build `8dd3ae3` remained installed and healthy; retrying the same
+commit was intentionally avoided because the EBADF failure is deterministic.

@@ -83,9 +83,12 @@ terminal state without a matching terminal journal.
 
 The runner's job-progress descriptor can already occupy descriptor 7, while
 the updater and embedded installer also keep their protected log and relay
-descriptors open. Runtime progress therefore uses a dynamically allocated
-inherited descriptor rather than assuming descriptor 6 or 7 is free. Human
-output remains separate from the closed structured progress stream.
+descriptors open. Runtime progress therefore reserves descriptor 8 first, with
+explicit child redirection across the `runuser` boundary, and retains 7/6 only
+as guarded fallbacks. Dynamically allocated Bash descriptors are not used
+because their inherited environment number can outlive the actual descriptor
+across that privileged exec boundary. Human output remains separate from the
+closed structured progress stream.
 
 Software Update keeps branch/build information in the canonical bordered
 Settings panel. `Check for updates` and `Start update` are equal-width sibling
