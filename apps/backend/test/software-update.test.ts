@@ -148,6 +148,7 @@ void test(
       assert.equal(snapshot.plan?.updateAvailable, false);
       assert.equal(snapshot.lastError, "already-up-to-date");
       assert.ok(snapshot.plan);
+      assert.equal(snapshot.plan.targetCommitAt, snapshot.currentBuiltAt);
       await assert.rejects(
         service.start(snapshot.plan.id, snapshot.plan.targetCommitSha),
         /already up to date/u,

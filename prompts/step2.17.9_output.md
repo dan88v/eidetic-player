@@ -368,6 +368,32 @@ Validation for this updater correction:
   readability fixtures;
 - real Neutralino/WebView2 visual and interaction QA at 1280 x 800: PASS.
 
-The Raspberry diagnosis was read-only. End-to-end execution of the repaired
-in-app updater remains intentionally pending until this bootstrap correction
-has first been installed through the official remote updater.
+The bootstrap correction was subsequently installed successfully through the
+official remote updater. End-to-end execution of the repaired in-app path
+remains intentionally pending for the next published commit.
+
+## Identical-build timestamp correction
+
+After the repaired release was installed remotely, an up-to-date check showed
+the same Build ID twice but paired it with two different instants: Current
+build used the embedded release build time, while Target build used the GitHub
+commit time. Both values were individually valid, but the presentation was
+misleading for an exact-SHA no-op.
+
+The backend now reuses `currentBuiltAt` for `targetCommitAt` whenever the
+resolved current and target SHAs are identical. A genuinely different target
+continues to show its canonical commit timestamp because that future release
+has not yet been built locally. The up-to-date service regression now requires
+the two timestamps to match.
+
+Validation for this final semantic correction:
+
+- focused updater/UI regressions: PASS — 7 passed, 0 failed;
+- full `npm test`: PASS — 598 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS.
+
+No UI structure or styling changed in this correction; the already validated
+Software Update row geometry remains unchanged.

@@ -75,6 +75,12 @@ actions below it. `Refresh branches` is likewise a separate page action below
 the branch list. Confirmation closes into an immediate visible busy state
 before privilege authorization begins.
 
+Current build uses the embedded release build timestamp. A different checked
+target uses its canonical GitHub commit timestamp because no target release has
+yet been built locally. When current and target resolve to the same exact
+commit, both rows use the embedded current build timestamp so identical Build
+IDs never present contradictory dates.
+
 The existing atomic `current`/`previous` switch, hard Build ID health gate, MPV
 soft warning, and automatic rollback remain owned by the Linux updater.
 Structured rollback events record whether the previous release was restored or

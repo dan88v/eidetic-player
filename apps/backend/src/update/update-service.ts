@@ -313,9 +313,12 @@ export class SoftwareUpdateService {
           409,
         );
       const checkedAt = new Date();
-      const targetCommitAt = this.fixtureMode
-        ? this.validTimestamp(this.fixtureTargetCommitAt(branch))
-        : await this.resolveTargetCommitAt(target);
+      const targetCommitAt =
+        current === target
+          ? this.currentBuiltAt
+          : this.fixtureMode
+            ? this.validTimestamp(this.fixtureTargetCommitAt(branch))
+            : await this.resolveTargetCommitAt(target);
       this.plan = {
         id: randomBytes(16).toString("hex"),
         branch,
