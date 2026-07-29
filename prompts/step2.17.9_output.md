@@ -505,6 +505,28 @@ Validation for these two corrections:
   retain valid Git modes;
 - Bash syntax checks for the affected protocol files: PASS.
 
+### Successful Raspberry deployment
+
+After the correction was published as `1e9318a`, the official remote updater
+completed the complete real Raspberry path. The previously failing inherited
+installer-contract gate passed, followed by the production Linux build,
+staging, atomic activation, service restart, hard readiness verification,
+read-only installation doctor, and same-commit no-op proof.
+
+Final Raspberry evidence:
+
+- checkout and installed Build ID: `1e9318a`;
+- backend readiness: `ready`;
+- player status: `paused`;
+- MPV: available;
+- user service: `active`;
+- build/API provenance: exact commit match;
+- installation doctor: PASS, including HDMI and GPIO/I2S DAC detection;
+- same-commit updater rerun: `Already up to date.`;
+- updater/build processes after completion: none;
+- rollback: not required;
+- reboot: not requested or performed.
+
 No UI structure or styling changed. The next published build must first be
 installed with the official remote updater because Build `8dd3ae3` still
 contains both defects; the following commit can then exercise the corrected
