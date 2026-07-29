@@ -116,8 +116,7 @@
   }
 
   .top-bar__update[data-visible="false"] {
-    visibility: hidden;
-    pointer-events: none;
+    display: none;
   }
 
   .app-root[data-animations="true"] .top-bar__update--active .icon {

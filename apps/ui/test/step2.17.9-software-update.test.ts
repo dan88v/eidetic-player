@@ -30,10 +30,11 @@ void test("Software Update follows the canonical System settings hierarchy", asy
 });
 
 void test("global update status survives navigation without exhausting REST connections", async () => {
-  const [shell, topBar, client] = await Promise.all([
+  const [shell, topBar, client, componentsCss] = await Promise.all([
     readFile("apps/ui/src/components/app-shell.ts", "utf8"),
     readFile("apps/ui/src/components/top-bar.ts", "utf8"),
     readFile("apps/ui/src/api/update-api-client.ts", "utf8"),
+    readFile("apps/ui/src/styles/components.css", "utf8"),
   ]);
   assert.match(shell, /topBar\.updateSoftwareUpdate/u);
   assert.match(shell, /Applying update…/u);
@@ -58,4 +59,12 @@ void test("global update status survives navigation without exhausting REST conn
   assert.match(topBar, /pointerenter/u);
   assert.match(topBar, /addEventListener\("focus"/u);
   assert.match(topBar, /prefers-reduced-motion|top-bar__update/u);
+  assert.match(
+    componentsCss,
+    /\.top-bar__update\[data-visible="false"\]\s*\{\s*display:\s*none;/u,
+  );
+  assert.doesNotMatch(
+    componentsCss,
+    /\.top-bar__update\[data-visible="false"\][^{]*\{[^}]*visibility:\s*hidden/u,
+  );
 });

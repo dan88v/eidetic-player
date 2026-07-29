@@ -229,3 +229,40 @@ and passed exact Build ID, readiness, doctor, and no-op verification. Final
 Raspberry acceptance additionally exercised populated Library loading, Sources
 and SMB folder browsing, and opening the Appliance power menu after the fresh
 service start.
+
+## Header updater alignment correction
+
+After Raspberry functional acceptance, the inactive updater indicator was
+found to leave a visible blank slot between the remaining system icons and the
+clock. The indicator used `visibility: hidden`: its contents disappeared, but
+its fixed 44-pixel touch box and the adjacent icon gap remained in the header
+layout.
+
+The inactive updater indicator now uses `display: none`. It contributes no
+layout width while idle. When an update becomes active, it returns as the final
+system icon immediately to the left of the clock; because the clock side of the
+header remains anchored, the system icon group grows toward the left.
+
+The focused Software Update regression test now requires the inactive updater
+rule to use `display: none` and rejects the former `visibility: hidden`
+behavior. No application logic, updater lifecycle, touch target, dependency, or
+runtime process was changed.
+
+The defect and correction were inspected in the real Neutralino/WebView2 app at
+1280 x 800 using the required `npm.cmd run dev` path. Before the correction,
+the invisible 44-pixel updater touch box plus its group gap separated SMB from
+the clock. After hot reload, the remaining Wi-Fi, audio, and SMB icons were
+contiguous with the clock-side group, with no reserved updater slot, no layout
+shift, and no change to the Now Playing, transport, or mini-player surfaces.
+
+Validation for this final correction:
+
+- full `npm test`: PASS — 598 passed, 11 platform skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS.
+
+The update installation action itself was not run for this layout correction;
+the user will exercise it on the Raspberry Pi after committing and pushing the
+reviewed changes.
