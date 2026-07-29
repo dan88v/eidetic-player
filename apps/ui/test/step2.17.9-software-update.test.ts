@@ -47,8 +47,9 @@ void test("Software Update follows the canonical System settings hierarchy", asy
 });
 
 void test("global update status survives navigation without exhausting REST connections", async () => {
-  const [shell, topBar, client, componentsCss] = await Promise.all([
+  const [shell, settings, topBar, client, componentsCss] = await Promise.all([
     readFile("apps/ui/src/components/app-shell.ts", "utf8"),
+    readFile("apps/ui/src/screens/settings.ts", "utf8"),
     readFile("apps/ui/src/components/top-bar.ts", "utf8"),
     readFile("apps/ui/src/api/update-api-client.ts", "utf8"),
     readFile("apps/ui/src/styles/components.css", "utf8"),
@@ -59,6 +60,10 @@ void test("global update status survives navigation without exhausting REST conn
   assert.doesNotMatch(
     shell,
     /snapshot\.revision < softwareUpdateState\.revision/u,
+  );
+  assert.doesNotMatch(
+    settings,
+    /updateSoftwareUpdateState\(snapshot\)\s*\{\s*if \(snapshot\.revision < updateState\.revision\)/u,
   );
   assert.equal((client.match(/new EventSource/gu) ?? []).length, 1);
   assert.match(client, /if \(this\.lastSnapshot && this\.isActive/u);

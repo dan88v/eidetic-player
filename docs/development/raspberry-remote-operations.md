@@ -1,8 +1,43 @@
 # Raspberry Pi remote reinstall
 
 These scripts reproduce the visible, interactive SSH workflow used on
-2026-07-27. They never store or pipe a password. SSH and `sudo` prompts remain
-attached to the terminal.
+2026-07-27. They never store or pipe a password. Privileged `sudo` prompts
+remain attached to the terminal.
+
+## SSH access from the Windows development machine
+
+Routine Raspberry operations use the dedicated Ed25519 key and SSH alias
+provisioned on the Windows development machine:
+
+```text
+Host eidetic-rpi 10.0.0.112
+  HostName 10.0.0.112
+  User daniele
+  IdentityFile C:/Users/dan88/.ssh/id_ed25519_eidetic_rpi
+  IdentitiesOnly yes
+  BatchMode yes
+  ConnectTimeout 10
+```
+
+Use `ssh eidetic-rpi` for direct diagnostics. The remote update, reinstall, and
+verification scripts may keep their default `10.0.0.112` address because the
+same SSH stanza matches both the alias and address. SSH authentication is
+non-interactive; `sudo` authorization remains a separate, visible privilege
+boundary when a workflow requires it.
+
+The private key stays exclusively under the Windows user profile and must
+never be copied into the repository, logs, prompts, or Raspberry checkout. The
+Raspberry stores only its public key in
+`/home/daniele/.ssh/authorized_keys`. Verify the configured path before remote
+work with:
+
+```powershell
+ssh.exe eidetic-rpi "hostname; id -un"
+```
+
+The expected output is hostname `eidetic` and user `daniele`. A password prompt
+or authentication failure is a blocking configuration error; do not silently
+fall back to scripts that capture or pipe credentials.
 
 ## Guided update
 

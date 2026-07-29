@@ -1652,7 +1652,6 @@ export function createSettingsScreen(
       if (page.startsWith("audio")) render();
     },
     updateSoftwareUpdateState(snapshot) {
-      if (snapshot.revision < updateState.revision) return;
       updateState = snapshot;
       if (
         page === "root" ||

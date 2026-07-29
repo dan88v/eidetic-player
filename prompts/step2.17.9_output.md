@@ -545,3 +545,62 @@ Validation for the dependency retry:
 - `npm run verify:linux:executables`: PASS — all 46 tracked deployment files
   retain valid Git modes;
 - Bash syntax check for the installer: PASS.
+
+## Nested updater progress and stale Settings state
+
+The in-app update from Build `3a2ef1d` to `c8bdc61` ran for 981 seconds and
+then failed before activation. The authoritative API snapshot and root journal
+both reported job `4bcd2e3d6af3979b1b9b8246a99ed75f` as `failed`, with
+`preparation-failed`, rollback `not-required`, and Build `3a2ef1d` still
+installed. Runtime state permissions were also verified directly: the runtime
+user can read the root-owned journal. The monitor's earlier `journal=missing`
+line was therefore an extraction error, not the cause of the update failure.
+
+The terminal failure occurred after installer contract verification:
+
+`ERROR: no dedicated runtime progress descriptor is available`
+
+This real path contains one more nested progress relay than the earlier remote
+update. Descriptor 7 belongs to the root runner, descriptor 8 belongs to the
+outer updater relay, and Bash commonly assigns descriptor 10 to the relay read
+side. The nested installer relay now reserves explicit descriptor 20 when 8 is
+occupied and duplicates it into the child process. The regression fixture
+occupies descriptors 6, 7, and 8, then verifies that both a shell function and
+an external Bash child receive structured events through descriptor 20.
+
+The visible Settings page remained at `Queued` even though the backend API and
+journal had advanced to `failed`. The application shell already accepts update
+snapshots across backend revision-generation resets, but Settings applied a
+second numeric revision check against its pre-restart state. That local filter
+is removed: Settings now renders every authoritative snapshot forwarded by the
+shell, preventing an earlier high revision from freezing all later job states
+after a backend restart.
+
+Validation for the nested relay and Settings-state correction:
+
+- focused console protocol fixtures: PASS;
+- focused Software Update UI regressions: PASS â€” 2 passed, 0 failed;
+- full `deploy/linux/test-staging.sh`: PASS in 209 seconds;
+- full `npm test`: PASS â€” 599 passed, 11 platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- `npm run verify:linux:executables`: PASS â€” all 46 tracked deployment files
+  retain valid Git modes;
+- Bash syntax checks for the affected protocol files: PASS.
+
+## Persistent Raspberry SSH authentication
+
+The Windows development machine now uses a dedicated Ed25519 key for Raspberry
+operations. Its user SSH configuration matches both alias `eidetic-rpi` and
+address `10.0.0.112`, selects only
+`C:/Users/dan88/.ssh/id_ed25519_eidetic_rpi`, and enables batch authentication.
+The private key remains outside the repository; only its public key was added
+to the `daniele` account on the Raspberry.
+
+Passwordless authentication was verified first with the explicit identity and
+then through the alias. Both returned hostname `eidetic` and user `daniele`;
+a final alias-only probe returned `final-auth-ok`. Future SSH diagnostics and
+remote scripts use this method. Interactive `sudo` authorization remains a
+separate privilege boundary.

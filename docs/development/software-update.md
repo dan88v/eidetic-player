@@ -84,9 +84,12 @@ terminal state without a matching terminal journal.
 The runner's job-progress descriptor can already occupy descriptor 7, while
 the updater and embedded installer also keep their protected log and relay
 descriptors open. Runtime progress therefore reserves descriptor 8 first, with
-explicit child redirection across the `runuser` boundary, and retains 7/6 only
-as guarded fallbacks. Dynamically allocated Bash descriptors are not used
-because their inherited environment number can outlive the actual descriptor
+explicit child redirection across the `runuser` boundary. A nested updater
+relay reserves descriptor 20 when 8 is already occupied; 7/6 remain guarded
+fallbacks for shallower invocation contexts. Descriptor 10 is deliberately not
+used because Bash commonly allocates it to the relay's dynamic read side.
+Dynamically allocated Bash descriptors are not exported as the progress
+channel because their environment number can outlive the actual descriptor
 across that privileged exec boundary. Human output remains separate from the
 closed structured progress stream.
 
@@ -95,6 +98,11 @@ Settings panel. `Check for updates` and `Start update` are equal-width sibling
 actions below it. `Refresh branches` is likewise a separate page action below
 the branch list. Confirmation closes into an immediate visible busy state
 before privilege authorization begins.
+
+The application shell owns update snapshot ordering across backend restarts.
+The Settings page accepts every snapshot forwarded by that shell instead of
+comparing revision numbers from different backend generations, so a restarted
+revision sequence cannot leave the visible job state stuck at `Queued`.
 
 Current build uses the embedded release build timestamp. A different checked
 target uses its canonical GitHub commit timestamp because no target release has
