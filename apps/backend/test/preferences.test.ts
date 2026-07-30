@@ -99,8 +99,13 @@ void test("display preferences migrate with safe defaults and reject inverted ti
     assert.equal(migrated.preferences.screenDimLevelPercent, 20);
     assert.equal(migrated.preferences.screenStandbyTimeoutSeconds, 0);
 
-    const dimmed = await store.patch({
+    const lowDim = await store.patch({
       expectedRevision: migrated.revision,
+      changes: { screenDimLevelPercent: 5 },
+    });
+    assert.equal(lowDim.preferences.screenDimLevelPercent, 5);
+    const dimmed = await store.patch({
+      expectedRevision: lowDim.revision,
       changes: { screenDimTimeoutSeconds: 300 },
     });
     await assert.rejects(

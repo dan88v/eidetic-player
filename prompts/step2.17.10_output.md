@@ -2,7 +2,7 @@
 
 Post-CI status:
 
-`RASPBERRY UPDATE TO 8aff5ea — PASS; TOUCH CLICK WAKE FIX READY FOR CI; PHYSICAL DISPLAY VALIDATION PENDING`
+`RASPBERRY UPDATE TO 8aff5ea — PASS; PLAYBACK/LOW-DIM FOLLOW-UP READY FOR CI; PHYSICAL DISPLAY VALIDATION PENDING`
 
 System policy:
 
@@ -119,15 +119,19 @@ Defaults are:
 - `screenDimLevelPercent: 20`;
 - `screenStandbyTimeoutSeconds: 0`.
 
-Allowed values exactly match the requested choices. If both timeouts are on,
-standby must be later than dim. Migration remains atomic, unknown fields are
-preserved, future schemas remain read-only, and local storage is not
-authoritative.
+Dim level values are 5%, 10%, 20%, 30%, 40%, and 50%; timeout choices remain
+unchanged. If both timeouts are on, standby must be later than dim. Migration
+remains atomic, unknown fields are preserved, future schemas remain read-only,
+and local storage is not authoritative.
 
 The normal runtime owns one `setTimeout`, never an interval. It schedules the
 next absolute transition from one `performance.now()` activity epoch. Dim does
 not start a new standby countdown. An inhibition release or HDMI-audio release
 creates a new epoch and full countdown.
+
+Loading or playing clears that timer and keeps the display Active. Pause or
+stop creates a new epoch and starts the complete configured countdown. This
+observes the existing player store without changing MPV or PlayerService.
 
 Updater queued/running/activating/restarting/verifying phases restore Active
 and suspend the timer using the updater snapshot already owned by AppShell.
@@ -141,9 +145,10 @@ restoration first. Reboot/shutdown behavior is unchanged.
 - No duplicate `touchstart`, global `touchmove`, polling, frame loop, or
   per-activity preference/log write was added.
 - During Dimmed, Standby, or a local transition, the viewport wake shield is
-  above the app and keyboard. The first pointer/key/wheel is prevented and
-  stopped before underlying controls. Mouse movement wakes without clicking,
-  and the related click is suppressed.
+  above the app and keyboard. The first pointer/key/wheel or click-only
+  WebKitGTK touch fallback is prevented and stopped before underlying controls.
+  Mouse movement wakes without clicking, and the related compatibility click
+  is suppressed without a duplicate wake.
 - The software overlay uses one opacity derived from the selected level, no
   filter and no animation loop. Its short opacity transition is enabled only
   with app animations.
@@ -397,6 +402,89 @@ local and intentionally was not hot-patched or deployed without a new manual
 commit, exact-head CI, and normal update. The service was not restarted because
 the paused live session still contained 175 Queue items.
 
+The user subsequently committed and pushed this correction as
+`f561f193bdde9611486995e93e19b085b71c8d44`. The checkout was clean and
+equal to `origin/main`; exact-head GitHub Actions run `30566783396` completed
+successfully. The Raspberry was intentionally not updated.
+
+### Playback inhibition and low-dim follow-up
+
+The user explicitly superseded the earlier requirement that automatic display
+idle continue during playback:
+
+- automatic Dim and Standby are now suspended while the player is loading or
+  playing;
+- starting playback clears the single display timer and restores Active if the
+  display was already Dimmed or in Standby;
+- pause or stop creates a new monotonic activity epoch and starts the full
+  configured countdown;
+- saved timeout preferences are not modified;
+- explicit display tests retain their bounded fail-safe behavior.
+
+The Dim level selection now exposes exactly 5%, 10%, 20%, 30%, 40%, and 50%.
+The default remains 20%; schema 3 remains current because the preference field
+and persisted representation did not change. The existing field validator now
+accepts 5%.
+
+The UI controller observes the existing player store and owns only this timer
+inhibition. No playback command, MPV behavior, backend PlayerService,
+Audio Output route, SSE, interval, or polling path was added or changed.
+Display copy explains that automatic inactivity applies outside playback.
+
+A second read-only Raspberry diagnosis after the reported restart confirmed
+that the whole System page had not developed a separate freeze:
+
+- the installed build was still `8aff5ea`, which predates the click-wake fix;
+- the service had restarted successfully and remained active;
+- after the persisted one-minute timeout, backend state was again `dimmed`
+  with `testActive=null`, no error, and no next transition;
+- the global wake shield therefore covered System again and touch-only click
+  fallback remained unavailable in the installed build.
+
+Focused regression coverage passes for:
+
+- the complete 5/10/20/30/40/50 level vector and persisted 5% selection;
+- no automatic timer while loading/playing;
+- wake to Active when playback starts from Dimmed;
+- a fresh full countdown after pause;
+- the existing click-only wake and no-duplicate compatibility click contract;
+- unchanged System hierarchy and no new display polling or EventSource.
+
+Final follow-up validation:
+
+- focused display, Preferences, and Settings tests: PASS, 26 passed / 1
+  platform skip / 0 failed;
+- `npm.cmd run format:check`: PASS after correcting the reported mechanical
+  wrapping in `app-shell.ts`;
+- `npm.cmd run typecheck`: PASS;
+- `npm.cmd run lint`: PASS;
+- `npm.cmd run build`: PASS;
+- `npm.cmd run build:linux`: PASS;
+- full `npm.cmd test`: PASS, 624 passed / 11 platform skips / 0 failed;
+- `npm.cmd run test:posix`: PASS, 3 passed / 2 platform skips / 0 failed;
+- `git diff --check`: PASS.
+
+Real Neutralino/WebView2 follow-up QA used the required
+`npm.cmd run dev` path:
+
+- 1280x800 Display page: PASS, with stable playback-policy copy, canonical
+  rows/actions, and no wrapping or overflow regression;
+- 1280x800 Dim level page: PASS, all six 5/10/20/30/40/50 rows visible with
+  the selected check and stable mini-player;
+- 1024x600 Dim level page: PASS, canonical row height preserved and native
+  vertical scrolling exposes the remaining choices without horizontal
+  overflow;
+- with Dim temporarily set to 1 minute, 70 seconds of real playback remained
+  Active and published no display deadline;
+- after Pause, display remained Active at 45 seconds and became Dimmed only
+  after the new full minute;
+- the first input over the Dim row woke and was consumed without navigating;
+- the development preference was restored to Dim Off, output was restored
+  Active, Neutralino closed normally, and ports 4310/5173 were clear.
+
+The follow-up remains local and uncommitted. It requires the user's next manual
+commit and exact-head CI but does not require an immediate Raspberry update.
+
 `SYSTEM BLANKING DISABLED BY APPLIANCE CONFIG — PRESERVED`
 
 Still requiring direct physical observation and therefore not claimed:
@@ -404,7 +492,8 @@ Still requiring direct physical observation and therefore not claimed:
 - physical Raspberry software-dim appearance and wake;
 - real display output-off and 15-second fail-safe;
 - touch, mouse, keyboard, and wheel first-input consumption over real controls;
-- timeout-driven Active -> Dimmed -> Standby while audio continues;
+- no automatic Dim/Standby while playing, followed by a full pause/stop
+  countdown to Active -> Dimmed -> Standby;
 - HDMI-audio physical inhibition/release;
 - service-restart display recovery;
 - final physical preference, output, and interaction restoration.

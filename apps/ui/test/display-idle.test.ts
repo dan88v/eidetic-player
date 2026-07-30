@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   defaultDisplaySnapshot,
   displayTimeoutsAreCompatible,
+  screenDimLevelChoices,
 } from "../../../packages/shared/src/display.js";
 import {
   DisplayIdleController,
@@ -73,6 +74,10 @@ void test("disabled policies schedule no work", () => {
   );
 });
 
+void test("dim levels include the low 5 percent option", () => {
+  assert.deepEqual(screenDimLevelChoices, [5, 10, 20, 30, 40, 50]);
+});
+
 class FakeClassList {
   private readonly values = new Set<string>();
   toggle(name: string, force?: boolean): boolean {
@@ -108,20 +113,26 @@ function controllerFixture(state: "active" | "dimmed" | "standby"): {
   readonly controller: DisplayIdleController;
   readonly document: FakeDocument;
   readonly wakeCalls: { value: number };
+  readonly timerCalls: { set: number; clear: number; lastDelay: number };
   readonly destroy: () => void;
 } {
   const fakeDocument = new FakeDocument();
   const children: FakeElement[] = [];
   const wakeCalls = { value: 0 };
+  const timerCalls = { set: 0, clear: 0, lastDelay: 0 };
   let now = 1_000;
   let nextTimer = 0;
   const fakeWindow = {
     performance: { now: () => now },
-    setTimeout: () => {
+    setTimeout: (_callback: () => void, delay: number) => {
       nextTimer += 1;
+      timerCalls.set += 1;
+      timerCalls.lastDelay = delay;
       return nextTimer;
     },
-    clearTimeout: () => undefined,
+    clearTimeout: () => {
+      timerCalls.clear += 1;
+    },
   };
   const activeSnapshot = {
     ...defaultDisplaySnapshot,
@@ -159,6 +170,7 @@ function controllerFixture(state: "active" | "dimmed" | "standby"): {
     controller,
     document: fakeDocument,
     wakeCalls,
+    timerCalls,
     destroy: () => {
       controller.destroy();
     },
@@ -221,6 +233,35 @@ void test("click-only touch fallback wakes without activating the control", asyn
   fixture.document.dispatchEvent(second);
   assert.equal(second.defaultPrevented, false);
   assert.equal(underlyingCalls, 1);
+  fixture.destroy();
+});
+
+void test("active playback suspends idle timers and pause restarts a full countdown", () => {
+  const fixture = controllerFixture("active");
+  fixture.controller.updatePreferences({
+    screenDimTimeoutSeconds: 60,
+    screenDimLevelPercent: 20,
+    screenStandbyTimeoutSeconds: 0,
+  });
+  assert.equal(fixture.timerCalls.set, 1);
+  assert.equal(fixture.timerCalls.lastDelay, 60_000);
+  fixture.controller.setPlaybackActive(true);
+  assert.equal(fixture.timerCalls.set, 1);
+  assert.equal(fixture.controller.getSnapshot().nextTransitionAt, null);
+  fixture.controller.setPlaybackActive(false);
+  assert.equal(fixture.timerCalls.set, 2);
+  assert.equal(fixture.timerCalls.lastDelay, 60_000);
+  fixture.destroy();
+});
+
+void test("playback becoming active wakes an already dimmed display", async () => {
+  const fixture = controllerFixture("dimmed");
+  fixture.controller.setPlaybackActive(true);
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.equal(fixture.wakeCalls.value, 1);
+  assert.equal(fixture.controller.getSnapshot().state, "active");
   fixture.destroy();
 });
 

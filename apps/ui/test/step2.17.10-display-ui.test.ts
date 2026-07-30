@@ -29,6 +29,9 @@ void test("Display reuses canonical selection rows, actions, and confirmation", 
   assert.match(settings, /Standby suspended by HDMI audio/u);
   assert.match(settings, /Dimming: Software fallback/u);
   assert.match(settings, /Standby: Unavailable/u);
+  assert.match(settings, /outside playback/u);
+  const shell = await read("apps/ui/src/components/app-shell.ts");
+  assert.match(shell, /setPlaybackActive\(playbackKeepsDisplayActive/u);
 });
 
 void test("wake shield is fixed, non-layout, and above the app keyboard", async () => {

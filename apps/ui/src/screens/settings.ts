@@ -656,11 +656,12 @@ export function createSettingsScreen(
       display: {
         title: "Display",
         description:
-          "Dim the screen after inactivity and use real display standby when supported.",
+          "Dim or enter real standby after inactivity while playback is paused or stopped.",
       },
       "display-dim-timeout": {
         title: "Dim after",
-        description: "Choose when the screen dims after local inactivity.",
+        description:
+          "Choose when the screen dims after local inactivity outside playback.",
       },
       "display-dim-level": {
         title: "Dim level",
@@ -668,7 +669,8 @@ export function createSettingsScreen(
       },
       "display-standby-timeout": {
         title: "Standby after",
-        description: "Choose when the physical display output enters standby.",
+        description:
+          "Choose when standby starts after local inactivity outside playback.",
       },
     };
     const audioCopy = audioPageCopy[page];

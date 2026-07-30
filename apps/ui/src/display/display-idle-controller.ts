@@ -72,6 +72,7 @@ export class DisplayIdleController {
   private timer: number | null = null;
   private testWakeAt: number | null = null;
   private inhibited = false;
+  private playbackActive = false;
   private hdmiAudioActive = false;
   private operation: Promise<void> = Promise.resolve();
   private destroyed = false;
@@ -113,6 +114,25 @@ export class DisplayIdleController {
 
   setAnimationsEnabled(enabled: boolean): void {
     this.overlay.dataset.motion = enabled ? "enabled" : "reduced";
+  }
+
+  setPlaybackActive(active: boolean): void {
+    if (active === this.playbackActive) return;
+    this.playbackActive = active;
+    this.lastActivityAt = this.now();
+    if (active) {
+      this.testWakeAt = null;
+      this.clearTimer();
+      if (this.snapshot.state !== "active" || this.wakeRecoveryRequired)
+        void this.wake();
+      else
+        this.applySnapshot({
+          ...this.snapshot,
+          nextTransitionAt: null,
+        });
+      return;
+    }
+    this.schedule();
   }
 
   setHdmiAudioActive(active: boolean): void {
@@ -331,6 +351,14 @@ export class DisplayIdleController {
         () => void this.wake(),
         Math.max(0, this.testWakeAt - now),
       );
+      return;
+    }
+    if (this.playbackActive) {
+      if (this.snapshot.nextTransitionAt !== null)
+        this.applySnapshot({
+          ...this.snapshot,
+          nextTransitionAt: null,
+        });
       return;
     }
     const deadline = nextDisplayIdleDeadline(

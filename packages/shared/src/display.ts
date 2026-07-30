@@ -3,7 +3,7 @@ export const screenDimTimeoutChoices = [
 ] as const;
 export type ScreenDimTimeoutSeconds = (typeof screenDimTimeoutChoices)[number];
 
-export const screenDimLevelChoices = [10, 20, 30, 40, 50] as const;
+export const screenDimLevelChoices = [5, 10, 20, 30, 40, 50] as const;
 export type ScreenDimLevelPercent = (typeof screenDimLevelChoices)[number];
 
 export const screenStandbyTimeoutChoices = [

@@ -95,6 +95,12 @@ export interface MountedApp {
   showSettingsWarning(message: string): void;
 }
 
+function playbackKeepsDisplayActive(state: PlayerState): boolean {
+  return (
+    !state.paused && (state.status === "loading" || state.status === "playing")
+  );
+}
+
 export function mountApp(
   root: HTMLElement,
   store: AppStore,
@@ -441,6 +447,9 @@ export function mountApp(
   });
   displayController.setHdmiAudioActive(
     audioOutputState.selectedPhysicalOutputId === "hdmi",
+  );
+  displayController.setPlaybackActive(
+    playbackKeepsDisplayActive(playerStore.getState()),
   );
   const actions = {
     openFiles,
@@ -1215,6 +1224,7 @@ export function mountApp(
     }
   });
   const unsubscribePlayer = playerStore.subscribe((state) => {
+    displayController.setPlaybackActive(playbackKeepsDisplayActive(state));
     currentScreen?.updatePlayerState?.(state);
     miniPlayer?.update(state);
     miniPlayer?.setSurfaceDisabled(

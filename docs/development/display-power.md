@@ -14,6 +14,9 @@ updater, or the platform shell.
 - The existing Preferences store owns the three display settings.
 - The existing Audio Output state is authoritative for HDMI standby
   inhibition.
+- The idle controller observes the existing player state only to suspend its
+  own automatic timer while playback is loading or playing. Playback remains
+  owned by MPV and PlayerService.
 
 Display state is returned by explicit REST operations and bootstrap. There is
 no display polling, permanent HTTP request, or display EventSource.
@@ -32,7 +35,15 @@ Touch-start and pointer events are not both registered.
 While dimmed or in standby, a viewport-sized wake shield consumes the first
 input before restoring the display. That input must never activate Play, Next,
 volume, navigation, or text input underneath it. Subsequent input behaves
-normally.
+normally. A capture-phase click fallback covers WebKitGTK touch taps that do
+not expose a usable Pointer Event; the compatibility click following a normal
+`pointerdown` remains consumed without issuing a duplicate wake.
+
+Automatic dim and standby are suspended while playback is loading or playing.
+Starting playback clears the idle timer and restores Active if necessary.
+Pause or stop establishes a new activity epoch, so the full configured
+countdown starts then rather than expiring immediately. This runtime policy
+does not change the saved timeout preferences or pause, stop, or reroute audio.
 
 ## Dimming and standby
 
@@ -72,6 +83,7 @@ deliberately disabled desktop policy and does not modify `install.conf`.
 
 `Settings → System → Display` reuses the canonical navigation rows, selection
 rows, status row, action buttons, and confirmation dialog. Defaults are Dim
-Off, 20% dim level, and Standby Off. If both timeouts are enabled, standby must
-be later than dim. Unsupported standby choices and tests stay disabled while
-software dim remains available.
+Off, 20% dim level, and Standby Off. Dim level choices are 5%, 10%, 20%, 30%,
+40%, and 50%. If both timeouts are enabled, standby must be later than dim.
+Unsupported standby choices and tests stay disabled while software dim remains
+available.

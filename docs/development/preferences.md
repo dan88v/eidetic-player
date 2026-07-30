@@ -22,11 +22,11 @@ paths, or player-session state. Those stores retain their existing owners.
 Schema version 3 contains a monotonic revision, the original UI
 preferences, the typed audio level/DSP preferences, and the legacy-import
 state. It adds the display Dim timeout, Dim level, and Standby timeout with
-Off/20%/Off defaults. Schemas 1 and 2 migrate in memory to schema 3 and are
-committed only on the next legitimate write. Each known field is validated
-independently. An invalid known value falls back only in memory; unknown
-top-level, migration, and preference fields are preserved on an unrelated
-patch.
+Off/20%/Off defaults. Dim level accepts 5%, 10%, 20%, 30%, 40%, and 50%.
+Schemas 1 and 2 migrate in memory to schema 3 and are committed only on the
+next legitimate write. Each known field is validated independently. An invalid
+known value falls back only in memory; unknown top-level, migration, and
+preference fields are preserved on an unrelated patch.
 
 For a new or reset profile, `audioProcessingEnabled` and `equalizerEnabled`
 default to `false` (the two Settings pills read `Bypass`). Persisted values are
