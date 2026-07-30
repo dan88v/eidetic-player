@@ -83,6 +83,12 @@ import { createRemovableDevicePicker } from "./removable-device-picker";
 import { createPowerMenu } from "./power-menu";
 import type { PreferencesController } from "../state/preferences-controller";
 import type { AudioProcessingState } from "../../../../packages/shared/src/audio-processing";
+import {
+  defaultDisplaySnapshot,
+  type DisplaySnapshot,
+} from "../../../../packages/shared/src/display";
+import { DisplayApiClient } from "../api/display-api-client";
+import { DisplayIdleController } from "../display/display-idle-controller";
 
 export interface MountedApp {
   destroy(): void;
@@ -98,6 +104,7 @@ export function mountApp(
   systemCapabilities: SystemCapabilities = defaultSystemCapabilities,
   buildInfo: BuildInfo = developmentBuildInfo,
   preferencesController?: PreferencesController,
+  initialDisplaySnapshot: DisplaySnapshot = defaultDisplaySnapshot,
 ): MountedApp {
   const api = new PlayerApiClient();
   const foldersApi = new FoldersApiClient();
@@ -108,6 +115,7 @@ export function mountApp(
   const systemApi = new SystemApiClient();
   const audioOutputApi = new AudioOutputApiClient();
   const updateApi = new UpdateApiClient();
+  const displayApi = new DisplayApiClient();
   if (systemCapabilities.hidePointerWhenInactive)
     root.dataset.pointerPolicy = "hide-when-inactive";
   const favorites = new FavoriteTrackStore(libraryApi);
@@ -347,6 +355,12 @@ export function mountApp(
         );
       }
       await preferencesController?.flush();
+      if (
+        action === "quit" ||
+        action === "restart-app" ||
+        action === "maintenance"
+      )
+        await displayController.prepareForTransition();
       await systemApi.requestPowerAction(action);
       if (action === "quit")
         await platform.quit().catch((error: unknown) => {
@@ -404,6 +418,30 @@ export function mountApp(
   let selectedSmbConnection: SmbConnection | null = null;
   let smbReturnScreen: ScreenId = "sources";
   let usbReturnScreen: ScreenId = "nowPlaying";
+  let displaySnapshot = initialDisplaySnapshot;
+  const displayPreferences = preferencesController?.getPreferences();
+  const displayController = new DisplayIdleController({
+    root,
+    api: displayApi,
+    initialSnapshot: displaySnapshot,
+    preferences: {
+      screenDimTimeoutSeconds: displayPreferences?.screenDimTimeoutSeconds ?? 0,
+      screenDimLevelPercent: displayPreferences?.screenDimLevelPercent ?? 20,
+      screenStandbyTimeoutSeconds:
+        displayPreferences?.screenStandbyTimeoutSeconds ?? 0,
+    },
+    animationsEnabled: store.getState().animationsEnabled,
+    onSnapshot: (snapshot) => {
+      displaySnapshot = snapshot;
+      currentScreen?.updateDisplayState?.(snapshot);
+    },
+    onError: (message) => {
+      showMessage(message, "error");
+    },
+  });
+  displayController.setHdmiAudioActive(
+    audioOutputState.selectedPhysicalOutputId === "hdmi",
+  );
   const actions = {
     openFiles,
     retryMpv: () => api.retryMpv(),
@@ -524,6 +562,14 @@ export function mountApp(
       audioOutputState,
       updateApi,
       softwareUpdateState,
+      displaySnapshot,
+      screenDimTimeoutSeconds:
+        preferencesController?.getPreferences().screenDimTimeoutSeconds ?? 0,
+      screenDimLevelPercent:
+        preferencesController?.getPreferences().screenDimLevelPercent ?? 20,
+      screenStandbyTimeoutSeconds:
+        preferencesController?.getPreferences().screenStandbyTimeoutSeconds ??
+        0,
       smbApi,
       smbSnapshot,
       selectedSmbConnection,
@@ -598,6 +644,7 @@ export function mountApp(
           showMessage(t("settings.saveError"));
           return false;
         }
+        displayController.setAnimationsEnabled(enabled);
         return true;
       },
       setVisualizerMode: (mode) => {
@@ -689,9 +736,27 @@ export function mountApp(
       systemCapabilities,
       enterMaintenanceMode: async () => {
         closeOverlays();
+        await displayController.prepareForTransition();
         await api.pause().catch(() => undefined);
         await systemApi.enterMaintenanceMode();
       },
+      setDisplayPreferences: (changes) => {
+        const current = preferencesController?.getPreferences();
+        if (!current) return false;
+        preferencesController?.update(changes);
+        displayController.updatePreferences({
+          screenDimTimeoutSeconds:
+            changes.screenDimTimeoutSeconds ?? current.screenDimTimeoutSeconds,
+          screenDimLevelPercent:
+            changes.screenDimLevelPercent ?? current.screenDimLevelPercent,
+          screenStandbyTimeoutSeconds:
+            changes.screenStandbyTimeoutSeconds ??
+            current.screenStandbyTimeoutSeconds,
+        });
+        return true;
+      },
+      testDisplayDim: () => displayController.testDim(),
+      testDisplayStandby: () => displayController.testStandby(),
       showToast: (message, tone = "neutral") => {
         showMessage(message, tone);
       },
@@ -923,6 +988,11 @@ export function mountApp(
       Date.now() - completedAt <= 5 * 60_000;
     softwareUpdateReceived = true;
     softwareUpdateState = snapshot;
+    displayController.setInhibited(
+      ["queued", "running", "activating", "restarting", "verifying"].includes(
+        snapshot.job.state,
+      ),
+    );
     topBar.updateSoftwareUpdate(snapshot);
     currentScreen?.updateSoftwareUpdateState?.(snapshot);
     const applying = ["activating", "restarting"].includes(snapshot.job.state);
@@ -985,6 +1055,9 @@ export function mountApp(
   const receiveAudioOutputState = (snapshot: AudioOutputState): void => {
     if (appDestroyed || snapshot.revision < audioOutputState.revision) return;
     audioOutputState = snapshot;
+    displayController.setHdmiAudioActive(
+      snapshot.selectedPhysicalOutputId === "hdmi",
+    );
     topBar.updateAudioOutput(snapshot);
     currentScreen?.updateAudioOutputState?.(snapshot);
     if (snapshot.noticeRevision > lastAudioOutputNoticeRevision) {
@@ -1252,6 +1325,7 @@ export function mountApp(
       keyboardAdapter.destroy();
       screenTouchScroller.destroy();
       preferencesController?.destroy();
+      displayController.destroy();
       window.removeEventListener("eidetic-audio-processing", onAudioProcessing);
       window.clearTimeout(inactivityTimer);
       window.clearTimeout(pointerTimer);

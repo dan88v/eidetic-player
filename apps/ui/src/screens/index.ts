@@ -18,6 +18,12 @@ import type { AudioOutputApiClient } from "../api/audio-output-api-client";
 import type { UpdateApiClient } from "../api/update-api-client";
 import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 import type {
+  DisplaySnapshot,
+  ScreenDimLevelPercent,
+  ScreenDimTimeoutSeconds,
+  ScreenStandbyTimeoutSeconds,
+} from "../../../../packages/shared/src/display";
+import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
   IndexedLibrarySnapshot,
@@ -130,6 +136,17 @@ export interface ScreenContext {
   readonly enterMaintenanceMode: () => Promise<void>;
   readonly updateApi: UpdateApiClient;
   readonly softwareUpdateState: SoftwareUpdateSnapshot;
+  readonly displaySnapshot: DisplaySnapshot;
+  readonly screenDimTimeoutSeconds: ScreenDimTimeoutSeconds;
+  readonly screenDimLevelPercent: ScreenDimLevelPercent;
+  readonly screenStandbyTimeoutSeconds: ScreenStandbyTimeoutSeconds;
+  readonly setDisplayPreferences: (changes: {
+    readonly screenDimTimeoutSeconds?: ScreenDimTimeoutSeconds;
+    readonly screenDimLevelPercent?: ScreenDimLevelPercent;
+    readonly screenStandbyTimeoutSeconds?: ScreenStandbyTimeoutSeconds;
+  }) => boolean;
+  readonly testDisplayDim: () => Promise<void>;
+  readonly testDisplayStandby: () => Promise<void>;
 }
 
 function staticView(element: HTMLElement): ComponentView {
@@ -280,6 +297,13 @@ export function createScreen(
         enterMaintenanceMode: context.enterMaintenanceMode,
         updateApi: context.updateApi,
         softwareUpdateState: context.softwareUpdateState,
+        displaySnapshot: context.displaySnapshot,
+        screenDimTimeoutSeconds: context.screenDimTimeoutSeconds,
+        screenDimLevelPercent: context.screenDimLevelPercent,
+        screenStandbyTimeoutSeconds: context.screenStandbyTimeoutSeconds,
+        setDisplayPreferences: context.setDisplayPreferences,
+        testDisplayDim: context.testDisplayDim,
+        testDisplayStandby: context.testDisplayStandby,
         networkApi: context.networkApi,
         networkSnapshot: context.networkSnapshot,
         audioOutputApi: context.audioOutputApi,

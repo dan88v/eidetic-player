@@ -24,16 +24,17 @@ import {
   type PreferencesSnapshot,
   type UiPreferences,
 } from "../../../../packages/shared/src/preferences.js";
+import { displayTimeoutsAreCompatible } from "../../../../packages/shared/src/display.js";
 import { resolveAppDirectories } from "../platform/app-directories.js";
 
-const schemaVersion = 2 as const;
+const schemaVersion = 3 as const;
 const preferencesFilename = "preferences.json";
 const backupFilename = "preferences.json.bak";
 
 type JsonObject = Record<string, unknown>;
 
 interface StoredPreferencesDocument extends JsonObject {
-  schemaVersion: 2;
+  schemaVersion: 3;
   revision: number;
   preferences: JsonObject;
   migration: JsonObject;
@@ -91,6 +92,16 @@ function runtimePreferences(value: JsonObject): {
       Object.assign(preferences, { [key]: candidate });
     else invalidFields.push(key);
   }
+  if (
+    !displayTimeoutsAreCompatible(
+      preferences.screenDimTimeoutSeconds,
+      preferences.screenStandbyTimeoutSeconds,
+    )
+  ) {
+    preferences.screenStandbyTimeoutSeconds =
+      defaultUiPreferences.screenStandbyTimeoutSeconds;
+    invalidFields.push("screenStandbyTimeoutSeconds");
+  }
   return { preferences, invalidFields };
 }
 
@@ -100,7 +111,11 @@ function parseDocument(value: unknown): LoadedDocument {
       "PREFERENCES_CORRUPT",
       "Settings storage is invalid.",
     );
-  if (value.schemaVersion === 0 || value.schemaVersion === 1) {
+  if (
+    value.schemaVersion === 0 ||
+    value.schemaVersion === 1 ||
+    value.schemaVersion === 2
+  ) {
     const sourceSchema = value.schemaVersion;
     const legacyPreferences = isObject(value.preferences)
       ? value.preferences
@@ -160,7 +175,7 @@ function defaultDocument(): StoredPreferencesDocument {
     preferences: { ...defaultUiPreferences },
     migration: {
       legacyLocalStorage: "pending",
-      sourceSchema: 2,
+      sourceSchema: 3,
     },
   };
 }
@@ -330,6 +345,18 @@ export class PreferencesStore {
         );
       Object.assign(changes, { [key]: candidate });
     }
+    const next = { ...this.current, ...changes };
+    if (
+      !displayTimeoutsAreCompatible(
+        next.screenDimTimeoutSeconds,
+        next.screenStandbyTimeoutSeconds,
+      )
+    )
+      throw new PreferencesError(
+        "INVALID_PREFERENCES_PATCH",
+        "Display standby must be later than the Dim timeout.",
+        400,
+      );
     return changes;
   }
 
@@ -345,7 +372,7 @@ export class PreferencesStore {
       migration: {
         ...this.raw.migration,
         legacyLocalStorage: storedMigrationState(legacyImport),
-        sourceSchema: 2,
+        sourceSchema: 3,
       },
     };
     if (this.persistence === "persisted" || this.persistence === "recovered")

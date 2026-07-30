@@ -13,6 +13,7 @@ import type {
 } from "../../../../packages/shared/src/system";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 import type { PreferencesSnapshot } from "../../../../packages/shared/src/preferences";
+import type { DisplaySnapshot } from "../../../../packages/shared/src/display";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
@@ -20,6 +21,7 @@ export interface AppBootstrap {
   readonly system: SystemCapabilities;
   readonly buildInfo: BuildInfo;
   readonly preferences: PreferencesSnapshot;
+  readonly display: DisplaySnapshot;
 }
 
 const apiBaseUrl = config.development

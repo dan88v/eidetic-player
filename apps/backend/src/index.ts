@@ -127,6 +127,13 @@ import {
   selectBranchBody,
   startUpdateBody,
 } from "./update/update-validation.js";
+import {
+  isScreenDimLevelPercent,
+  type ScreenDimLevelPercent,
+} from "../../../packages/shared/src/display.js";
+import { DisplayPowerService } from "./display/display-power-service.js";
+import { createPlatformDisplayAdapter } from "./display/display-platform-adapter.js";
+import { DisplayPowerError } from "./display/display-errors.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -159,10 +166,17 @@ const softwareUpdate = new SoftwareUpdateService(
 );
 const softwareUpdateInitialization = softwareUpdate.initialize();
 const preferences = new PreferencesStore();
+const display = new DisplayPowerService(
+  createPlatformDisplayAdapter(process.platform, installationMode),
+);
 
 const player = new PlayerService();
 const audioProcessing = new AudioProcessingService(player, preferences);
 const audioOutput = new AudioOutputService(player);
+display.setAudioOutputState(audioOutput.snapshot());
+const unsubscribeAudioDisplay = audioOutput.subscribe((state) => {
+  display.setAudioOutputState(state);
+});
 player.setBeforePlaybackHook(() => audioOutput.prepareForPlayback());
 const filesystemProvider = new LocalFilesystemProvider();
 const pathService = PathService.forCurrentPlatform(filesystemProvider);
@@ -526,6 +540,7 @@ const coreBootstrapPromise = Promise.all([
   removableStorage.start(),
   smb.initialize(),
   preferences.initialize(),
+  display.initialize(),
 ]).then(() => {
   coreBootstrapReady = true;
 });
@@ -797,6 +812,33 @@ function preferencesPatchBody(value: unknown): PreferencesPatch {
       : {}),
     changes: body.changes,
   };
+}
+
+function displayDimBody(value: unknown): {
+  readonly levelPercent: ScreenDimLevelPercent;
+} {
+  const body = objectBody(value);
+  if (
+    Object.keys(body).length !== 1 ||
+    !Object.hasOwn(body, "levelPercent") ||
+    !isScreenDimLevelPercent(body.levelPercent)
+  )
+    throw new DisplayPowerError(
+      "INVALID_DISPLAY_REQUEST",
+      "The display request is invalid.",
+      400,
+    );
+  return { levelPercent: body.levelPercent };
+}
+
+function emptyDisplayBody(value: unknown): void {
+  const body = objectBody(value);
+  if (Object.keys(body).length !== 0)
+    throw new DisplayPowerError(
+      "INVALID_DISPLAY_REQUEST",
+      "The display request is invalid.",
+      400,
+    );
 }
 
 const audioProcessingPreferenceNames = new Set([
@@ -1182,6 +1224,7 @@ async function handleRequest(
     }
     const origin = request.headers.origin;
     const updateRoute = url.pathname.startsWith("/api/system/update");
+    const displayRoute = url.pathname.startsWith("/api/display");
     let localOrigin = true;
     if (origin) {
       try {
@@ -1202,12 +1245,19 @@ async function handleRequest(
         );
       }
     }
-    if (updateRoute && !localOrigin)
+    if ((updateRoute || displayRoute) && !localOrigin) {
+      if (displayRoute)
+        throw new DisplayPowerError(
+          "INVALID_DISPLAY_REQUEST",
+          "Display control is available only in the local appliance interface.",
+          403,
+        );
       throw new UpdateError(
         "preparation-failed",
         "Software Update is available only in the local appliance interface.",
         403,
       );
+    }
     if (request.method === "OPTIONS") {
       response.writeHead(204);
       response.end();
@@ -1235,17 +1285,82 @@ async function handleRequest(
       return;
     }
     if (
-      updateRoute &&
+      (updateRoute || displayRoute) &&
       !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(
         request.socket.remoteAddress ?? "",
       )
-    )
+    ) {
+      if (displayRoute)
+        throw new DisplayPowerError(
+          "INVALID_DISPLAY_REQUEST",
+          "Display control is available only in the local appliance interface.",
+          403,
+        );
       throw new UpdateError(
         "preparation-failed",
         "Software Update is available only in the local appliance interface.",
         403,
       );
+    }
     if (updateRoute) await softwareUpdateInitialization;
+    if (request.method === "GET" && url.pathname === "/api/display/state") {
+      await coreBootstrapPromise;
+      sendJson(response, 200, { ok: true, data: display.snapshot() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/display/dim") {
+      requireJson(request);
+      await coreBootstrapPromise;
+      const body = displayDimBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await display.dim(body.levelPercent),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/display/standby") {
+      requireJson(request);
+      await coreBootstrapPromise;
+      emptyDisplayBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await display.standby(),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/display/wake") {
+      requireJson(request);
+      await coreBootstrapPromise;
+      emptyDisplayBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await display.wake(),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/display/test/dim") {
+      requireJson(request);
+      await coreBootstrapPromise;
+      const body = displayDimBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await display.dim(body.levelPercent, true),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/display/test/standby"
+    ) {
+      requireJson(request);
+      await coreBootstrapPromise;
+      emptyDisplayBody(await readBody(request, 1024));
+      sendJson(response, 200, {
+        ok: true,
+        data: await display.standby(true),
+      });
+      return;
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/system/update/state"
@@ -1885,6 +2000,7 @@ async function handleRequest(
           system: systemCapabilities,
           buildInfo,
           preferences: preferences.snapshot(),
+          display: display.snapshot(),
           restore: {
             status: restore.status,
             restoredCount: restore.restoredCount,
@@ -3250,6 +3366,13 @@ async function handleRequest(
       });
       return;
     }
+    if (error instanceof DisplayPowerError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof SmbError) {
       sendJson(response, error.statusCode, {
         ok: false,
@@ -3319,6 +3442,7 @@ function shutdown(signal: NodeJS.Signals): void {
   updateEvents.close();
   softwareUpdate.close();
   playerRecovery.close();
+  unsubscribeAudioDisplay();
   unsubscribePlayerRecovery();
   unsubscribeRemovablePlayer();
   unsubscribeSmbPlayer();
@@ -3351,6 +3475,7 @@ function shutdown(signal: NodeJS.Signals): void {
           .then((indexedLibrary) => indexedLibrary.close())
           .catch(() => undefined),
         player.shutdown(),
+        display.close(),
       ]),
     )
     .finally(() => {

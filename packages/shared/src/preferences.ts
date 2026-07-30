@@ -5,6 +5,14 @@ import {
   maximumSoftwareVolumeChoices,
   type AudioProcessingPreferences,
 } from "./audio-processing.js";
+import {
+  isScreenDimLevelPercent,
+  isScreenDimTimeoutSeconds,
+  isScreenStandbyTimeoutSeconds,
+  type ScreenDimLevelPercent,
+  type ScreenDimTimeoutSeconds,
+  type ScreenStandbyTimeoutSeconds,
+} from "./display.js";
 
 export const uiPreferenceKeys = [
   "animationsEnabled",
@@ -35,6 +43,9 @@ export const uiPreferenceKeys = [
   "equalizerBands",
   "headroomMode",
   "manualPreampDb",
+  "screenDimTimeoutSeconds",
+  "screenDimLevelPercent",
+  "screenStandbyTimeoutSeconds",
 ] as const;
 
 export type UiPreferenceKey = (typeof uiPreferenceKeys)[number];
@@ -60,6 +71,9 @@ export interface UiPreferences extends AudioProcessingPreferences {
   readonly favoriteSegment: "tracks" | "albums" | "artists";
   readonly favoriteAlbumViewMode: "list" | "grid";
   readonly onScreenKeyboardMode: "auto" | "always" | "off";
+  readonly screenDimTimeoutSeconds: ScreenDimTimeoutSeconds;
+  readonly screenDimLevelPercent: ScreenDimLevelPercent;
+  readonly screenStandbyTimeoutSeconds: ScreenStandbyTimeoutSeconds;
 }
 
 export const defaultUiPreferences: UiPreferences = Object.freeze({
@@ -91,6 +105,9 @@ export const defaultUiPreferences: UiPreferences = Object.freeze({
   equalizerBands: defaultEqualizerBands,
   headroomMode: "auto",
   manualPreampDb: 0,
+  screenDimTimeoutSeconds: 0,
+  screenDimLevelPercent: 20,
+  screenStandbyTimeoutSeconds: 0,
 });
 
 export type PreferencesPersistence =
@@ -100,7 +117,7 @@ export type LegacyPreferencesImport =
   "required" | "imported" | "not-found" | "manual-required" | "manual";
 
 export interface PreferencesSnapshot {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly revision: number;
   readonly preferences: UiPreferences;
   readonly persistence: PreferencesPersistence;
@@ -228,5 +245,11 @@ export function isValidUiPreferenceValue<K extends UiPreferenceKey>(
         value >= -12 &&
         value <= 0
       );
+    case "screenDimTimeoutSeconds":
+      return isScreenDimTimeoutSeconds(value);
+    case "screenDimLevelPercent":
+      return isScreenDimLevelPercent(value);
+    case "screenStandbyTimeoutSeconds":
+      return isScreenStandbyTimeoutSeconds(value);
   }
 }

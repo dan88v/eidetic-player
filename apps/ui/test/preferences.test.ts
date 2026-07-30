@@ -48,7 +48,7 @@ function snapshot(
   changes: Partial<typeof defaultUiPreferences> = {},
 ): PreferencesSnapshot {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     revision,
     preferences: { ...defaultUiPreferences, ...changes },
     persistence: "persisted",

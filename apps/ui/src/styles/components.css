@@ -1385,3 +1385,44 @@
     outline-offset: -3px;
   }
 }
+@layer components {
+  .display-dim-overlay,
+  .display-wake-shield {
+    position: fixed;
+    inset: 0;
+  }
+
+  .display-dim-overlay {
+    z-index: var(--z-keyboard);
+    pointer-events: none;
+    background: #000;
+    opacity: 0;
+  }
+
+  .display-dim-overlay[data-motion="enabled"] {
+    transition: opacity 140ms ease-out;
+  }
+
+  .display-dim-overlay--visible {
+    opacity: var(--display-dim-opacity, 0.8);
+  }
+
+  .display-dim-overlay--fixture-standby {
+    opacity: 1;
+  }
+
+  .display-wake-shield {
+    z-index: calc(var(--z-keyboard) + 1);
+    border: 0;
+    background: transparent;
+    cursor: none;
+    touch-action: none;
+  }
+
+  .settings-inline-note {
+    margin: 0;
+    padding: var(--space-3) var(--space-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+  }
+}

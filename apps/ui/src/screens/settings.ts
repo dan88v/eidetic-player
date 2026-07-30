@@ -39,6 +39,16 @@ import {
 } from "./network-settings-panel";
 import type { UpdateApiClient } from "../api/update-api-client";
 import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
+import {
+  displayTimeoutsAreCompatible,
+  screenDimLevelChoices,
+  screenDimTimeoutChoices,
+  screenStandbyTimeoutChoices,
+  type DisplaySnapshot,
+  type ScreenDimLevelPercent,
+  type ScreenDimTimeoutSeconds,
+  type ScreenStandbyTimeoutSeconds,
+} from "../../../../packages/shared/src/display";
 
 export interface SettingsScreenOptions {
   readonly animationsEnabled: boolean;
@@ -52,6 +62,17 @@ export interface SettingsScreenOptions {
   readonly enterMaintenanceMode: () => Promise<void>;
   readonly updateApi: UpdateApiClient;
   readonly softwareUpdateState: SoftwareUpdateSnapshot;
+  readonly displaySnapshot: DisplaySnapshot;
+  readonly screenDimTimeoutSeconds: ScreenDimTimeoutSeconds;
+  readonly screenDimLevelPercent: ScreenDimLevelPercent;
+  readonly screenStandbyTimeoutSeconds: ScreenStandbyTimeoutSeconds;
+  readonly setDisplayPreferences: (changes: {
+    readonly screenDimTimeoutSeconds?: ScreenDimTimeoutSeconds;
+    readonly screenDimLevelPercent?: ScreenDimLevelPercent;
+    readonly screenStandbyTimeoutSeconds?: ScreenStandbyTimeoutSeconds;
+  }) => boolean;
+  readonly testDisplayDim: () => Promise<void>;
+  readonly testDisplayStandby: () => Promise<void>;
   readonly networkApi: NetworkApiClient;
   readonly networkSnapshot: NetworkSnapshot;
   readonly audioOutputApi: AudioOutputApiClient;
@@ -95,9 +116,62 @@ type SettingsPage =
   | "inactivity"
   | "system"
   | "software-update"
-  | "update-branch";
+  | "update-branch"
+  | "display"
+  | "display-dim-timeout"
+  | "display-dim-level"
+  | "display-standby-timeout";
 
 type UpdateBusyAction = "branch" | "refresh" | "check" | "start";
+
+function formatDisplayTimeout(seconds: number): string {
+  if (seconds === 0) return "Off";
+  if (seconds < 60) return `${String(seconds)} seconds`;
+  const minutes = seconds / 60;
+  return `${String(minutes)} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+function formatCompactDisplayTimeout(seconds: number): string {
+  if (seconds === 0) return "Off";
+  if (seconds < 60) return `${String(seconds)} sec`;
+  return `${String(seconds / 60)} min`;
+}
+
+function displaySummary(
+  dimTimeout: ScreenDimTimeoutSeconds,
+  standbyTimeout: ScreenStandbyTimeoutSeconds,
+  snapshot: DisplaySnapshot,
+): string {
+  if (snapshot.standbyInhibitedReason === "hdmi-audio-active")
+    return "Standby suspended by HDMI audio";
+  if (dimTimeout === 0 && standbyTimeout === 0)
+    return snapshot.standbyAvailable
+      ? "Always on"
+      : "Always on · Standby unavailable";
+  if (!snapshot.standbyAvailable)
+    return dimTimeout === 0
+      ? "Standby unavailable"
+      : `Dim after ${formatCompactDisplayTimeout(dimTimeout)} · Standby unavailable`;
+  if (dimTimeout > 0 && standbyTimeout > 0)
+    return `Dim ${formatCompactDisplayTimeout(dimTimeout)} · Off ${formatCompactDisplayTimeout(standbyTimeout)}`;
+  if (dimTimeout > 0)
+    return `Dim after ${formatCompactDisplayTimeout(dimTimeout)}`;
+  return `Off after ${formatCompactDisplayTimeout(standbyTimeout)}`;
+}
+
+function displayCapabilitySummary(snapshot: DisplaySnapshot): string {
+  const dim =
+    snapshot.dimMethod === "hardware-backlight"
+      ? "Dimming: Hardware backlight"
+      : "Dimming: Software fallback";
+  const standby: Record<DisplaySnapshot["standbyMethod"], string> = {
+    "wayland-output": "Standby: Wayland output power",
+    "backlight-off": "Standby: Backlight off",
+    fixture: "Standby: Simulated fixture",
+    none: "Standby: Unavailable",
+  };
+  return `${dim} · ${standby[snapshot.standbyMethod]}`;
+}
 
 function formatUpdateBuildDate(
   value: string | null | undefined,
@@ -151,6 +225,11 @@ export function createSettingsScreen(
   let page: SettingsPage = "root";
   let animations = options.animationsEnabled;
   let updateState = options.softwareUpdateState;
+  let displayState = options.displaySnapshot;
+  let dimTimeout = options.screenDimTimeoutSeconds;
+  let dimLevel = options.screenDimLevelPercent;
+  let standbyTimeout = options.screenStandbyTimeoutSeconds;
+  let displayBusy = false;
   let updateBusy = false;
   let updateBusyAction: UpdateBusyAction | null = null;
   let updatePageRefresh: (() => void) | null = null;
@@ -180,7 +259,10 @@ export function createSettingsScreen(
   const resetSettingsScroll = (): void => {
     queueMicrotask(() => {
       const scrollRegion = section.closest<HTMLElement>(".screen-region");
-      if (scrollRegion) scrollRegion.scrollTop = 0;
+      if (scrollRegion) {
+        scrollRegion.scrollTop = 0;
+        scrollRegion.scrollLeft = 0;
+      }
     });
   };
 
@@ -207,6 +289,13 @@ export function createSettingsScreen(
       page = "audio-output";
     else if (page === "update-branch") page = "software-update";
     else if (page === "software-update") page = "system";
+    else if (
+      page === "display-dim-timeout" ||
+      page === "display-dim-level" ||
+      page === "display-standby-timeout"
+    )
+      page = "display";
+    else if (page === "display") page = "system";
     else
       page =
         page === "interface" ||
@@ -260,6 +349,7 @@ export function createSettingsScreen(
     label: string,
     selected: boolean,
     commit: () => boolean,
+    returnPage: SettingsPage = "interface",
   ): HTMLButtonElement => {
     const button = document.createElement("button");
     button.className = "settings-row-base setting-choice";
@@ -268,7 +358,7 @@ export function createSettingsScreen(
     button.addEventListener("click", () => {
       if (!commit()) return;
       render();
-      page = "interface";
+      page = returnPage;
       render();
       resetSettingsScroll();
     });
@@ -563,6 +653,23 @@ export function createSettingsScreen(
         title: "Update branch",
         description: "Choose from branches loaded from the installed source.",
       },
+      display: {
+        title: "Display",
+        description:
+          "Dim the screen after inactivity and use real display standby when supported.",
+      },
+      "display-dim-timeout": {
+        title: "Dim after",
+        description: "Choose when the screen dims after local inactivity.",
+      },
+      "display-dim-level": {
+        title: "Dim level",
+        description: "Choose the screen brightness retained while dimmed.",
+      },
+      "display-standby-timeout": {
+        title: "Standby after",
+        description: "Choose when the physical display output enters standby.",
+      },
     };
     const audioCopy = audioPageCopy[page];
     const title =
@@ -587,7 +694,7 @@ export function createSettingsScreen(
         : page === "interface"
           ? t("settings.interfaceDescription")
           : page === "system"
-            ? "Appliance maintenance and local recovery."
+            ? "Display, appliance maintenance, and local recovery."
             : page === "keyboard"
               ? t("settings.onScreenKeyboardDescription")
               : page === "browsing"
@@ -683,18 +790,16 @@ export function createSettingsScreen(
         resetSettingsScroll();
       });
       panel.append(interfaceButton, audioButton, networkButton);
-      if (options.systemCapabilities.maintenanceMode) {
-        const systemButton = document.createElement("button");
-        systemButton.className = "settings-row-base setting-navigation";
-        systemButton.type = "button";
-        systemButton.innerHTML = `<span><strong>System</strong><small>Appliance maintenance and recovery</small></span>${chevron()}`;
-        systemButton.addEventListener("click", () => {
-          page = "system";
-          render();
-          resetSettingsScroll();
-        });
-        panel.append(systemButton);
-      }
+      const systemButton = document.createElement("button");
+      systemButton.className = "settings-row-base setting-navigation";
+      systemButton.type = "button";
+      systemButton.innerHTML = `<span><strong>System</strong><small>Display, appliance maintenance, and recovery</small></span>${chevron()}`;
+      systemButton.addEventListener("click", () => {
+        page = "system";
+        render();
+        resetSettingsScroll();
+      });
+      panel.append(systemButton);
       return;
     }
 
@@ -1211,6 +1316,14 @@ export function createSettingsScreen(
         });
         panel.append(updateRow);
       }
+      panel.append(
+        navigationRow(
+          "Display",
+          displaySummary(dimTimeout, standbyTimeout, displayState),
+          "display",
+        ),
+      );
+      if (!options.systemCapabilities.maintenanceMode) return;
       const row = document.createElement("div");
       row.className = "settings-row-base setting-row";
       row.innerHTML =
@@ -1244,6 +1357,200 @@ export function createSettingsScreen(
       });
       row.append(action);
       panel.append(row);
+      return;
+    }
+
+    if (page === "display") {
+      panel.append(
+        navigationRow(
+          "Dim screen after",
+          formatDisplayTimeout(dimTimeout),
+          "display-dim-timeout",
+        ),
+        navigationRow(
+          "Dim level",
+          `${String(dimLevel)}% brightness`,
+          "display-dim-level",
+        ),
+        navigationRow(
+          "Turn display off after",
+          formatDisplayTimeout(standbyTimeout),
+          "display-standby-timeout",
+        ),
+      );
+      const capability = document.createElement("div");
+      capability.className = "settings-row-base setting-row";
+      const capabilityCopy = document.createElement("span");
+      capabilityCopy.className = "setting-row__copy";
+      const capabilityTitle = document.createElement("strong");
+      capabilityTitle.textContent = "Display capability";
+      const capabilityDetail = document.createElement("small");
+      capabilityDetail.textContent = displayCapabilitySummary(displayState);
+      capabilityCopy.append(capabilityTitle, capabilityDetail);
+      capability.append(
+        capabilityCopy,
+        statePill(
+          displayState.standbyAvailable ? "Standby ready" : "Dim only",
+          displayState.standbyAvailable ? "active" : "muted",
+        ),
+      );
+      panel.append(capability);
+      if (displayState.standbyInhibitedReason === "hdmi-audio-active") {
+        const inhibited = document.createElement("p");
+        inhibited.className = "settings-inline-note";
+        inhibited.textContent =
+          "Display standby suspended — HDMI is currently used for audio. A new full countdown starts when HDMI audio is released.";
+        panel.append(inhibited);
+      }
+      const actions = document.createElement("div");
+      actions.className = "settings-page-actions";
+      const testDim = document.createElement("button");
+      testDim.className = "settings-page-action";
+      testDim.type = "button";
+      testDim.disabled = displayBusy || displayState.state === "inhibited";
+      testDim.innerHTML =
+        "<span><strong>Test dim</strong><small>Restore automatically after 10 seconds or on input.</small></span>";
+      testDim.addEventListener("click", () => {
+        displayBusy = true;
+        render();
+        void options
+          .testDisplayDim()
+          .catch((error: unknown) => {
+            options.showToast(
+              error instanceof Error ? error.message : "Dim test failed.",
+              "error",
+            );
+          })
+          .finally(() => {
+            displayBusy = false;
+            render();
+          });
+      });
+      const testStandby = document.createElement("button");
+      testStandby.className =
+        "settings-page-action settings-page-action--primary";
+      testStandby.type = "button";
+      testStandby.disabled =
+        displayBusy ||
+        displayState.state === "inhibited" ||
+        !displayState.standbyAvailable ||
+        displayState.standbyInhibitedReason === "hdmi-audio-active";
+      testStandby.innerHTML =
+        "<span><strong>Test standby</strong><small>Restore automatically after 15 seconds or on input.</small></span>";
+      testStandby.addEventListener("click", () => {
+        section.append(confirmationDialog.backdrop, confirmationDialog.element);
+        confirmationDialog.open({
+          title: "Test display standby?",
+          description:
+            "The display will turn off temporarily. Touch the screen, move the mouse, or press a key to wake it.",
+          confirmLabel: "Start test",
+          returnFocus: testStandby,
+          onConfirm: () => {
+            displayBusy = true;
+            render();
+            void options
+              .testDisplayStandby()
+              .catch((error: unknown) => {
+                options.showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "Standby test failed.",
+                  "error",
+                );
+              })
+              .finally(() => {
+                displayBusy = false;
+                render();
+              });
+          },
+        });
+      });
+      actions.append(testDim, testStandby);
+      section.append(actions);
+      return;
+    }
+
+    if (page === "display-dim-timeout") {
+      for (const value of screenDimTimeoutChoices) {
+        const compatible = displayTimeoutsAreCompatible(value, standbyTimeout);
+        const row = selectionRow(
+          formatDisplayTimeout(value),
+          dimTimeout === value,
+          () => {
+            if (!compatible) return false;
+            if (
+              !options.setDisplayPreferences({ screenDimTimeoutSeconds: value })
+            )
+              return false;
+            dimTimeout = value;
+            return true;
+          },
+          "display",
+        );
+        row.disabled = !compatible;
+        if (!compatible) row.title = "Dim must occur before display standby.";
+        panel.append(row);
+      }
+      return;
+    }
+
+    if (page === "display-dim-level") {
+      for (const value of screenDimLevelChoices)
+        panel.append(
+          selectionRow(
+            `${String(value)}% brightness`,
+            dimLevel === value,
+            () => {
+              if (
+                !options.setDisplayPreferences({ screenDimLevelPercent: value })
+              )
+                return false;
+              dimLevel = value;
+              return true;
+            },
+            "display",
+          ),
+        );
+      return;
+    }
+
+    if (page === "display-standby-timeout") {
+      for (const value of screenStandbyTimeoutChoices) {
+        const compatible = displayTimeoutsAreCompatible(dimTimeout, value);
+        const available = value === 0 || displayState.standbyAvailable;
+        const row = selectionRow(
+          formatDisplayTimeout(value),
+          standbyTimeout === value,
+          () => {
+            if (!compatible || !available) return false;
+            if (
+              !options.setDisplayPreferences({
+                screenStandbyTimeoutSeconds: value,
+              })
+            )
+              return false;
+            standbyTimeout = value;
+            return true;
+          },
+          "display",
+        );
+        row.disabled = !compatible || !available;
+        if (!compatible) row.title = "Standby must be later than dim.";
+        else if (!available)
+          row.title = "Real display standby is unavailable on this system.";
+        panel.append(row);
+      }
+      if (
+        screenStandbyTimeoutChoices.some(
+          (value) =>
+            value !== 0 && !displayTimeoutsAreCompatible(dimTimeout, value),
+        )
+      ) {
+        const note = document.createElement("p");
+        note.className = "settings-inline-note";
+        note.textContent = "Standby must be later than dim.";
+        panel.append(note);
+      }
       return;
     }
 
@@ -1786,6 +2093,16 @@ export function createSettingsScreen(
       ) {
         render();
       }
+    },
+    updateDisplayState(snapshot) {
+      if (snapshot.revision < displayState.revision) return;
+      displayState = snapshot;
+      if (
+        page === "display" ||
+        page === "display-standby-timeout" ||
+        page === "system"
+      )
+        render();
     },
     requestLeave(leave) {
       return page === "network"

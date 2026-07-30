@@ -85,6 +85,41 @@ void test("a genuinely new profile records legacy not-found", async () => {
   }
 });
 
+void test("display preferences migrate with safe defaults and reject inverted timeouts", async () => {
+  const testFixture = await fixture();
+  try {
+    const store = new PreferencesStore(testFixture.root);
+    await store.initialize();
+    const migrated = await store.migrateLegacy({
+      sourceAvailable: true,
+      preferences: {},
+    });
+    assert.equal(migrated.schemaVersion, 3);
+    assert.equal(migrated.preferences.screenDimTimeoutSeconds, 0);
+    assert.equal(migrated.preferences.screenDimLevelPercent, 20);
+    assert.equal(migrated.preferences.screenStandbyTimeoutSeconds, 0);
+
+    const dimmed = await store.patch({
+      expectedRevision: migrated.revision,
+      changes: { screenDimTimeoutSeconds: 300 },
+    });
+    await assert.rejects(
+      store.patch({
+        expectedRevision: dimmed.revision,
+        changes: { screenStandbyTimeoutSeconds: 300 },
+      }),
+      { code: "INVALID_PREFERENCES_PATCH", statusCode: 400 },
+    );
+    const valid = await store.patch({
+      expectedRevision: dimmed.revision,
+      changes: { screenStandbyTimeoutSeconds: 600 },
+    });
+    assert.equal(valid.preferences.screenStandbyTimeoutSeconds, 600);
+  } finally {
+    await testFixture.cleanup();
+  }
+});
+
 void test("atomic patch preserves unknown and invalid raw fields", async () => {
   const testFixture = await fixture();
   try {
@@ -126,7 +161,7 @@ void test("atomic patch preserves unknown and invalid raw fields", async () => {
       migration: Record<string, unknown>;
       futureTopLevel: number;
     };
-    assert.equal(raw.schemaVersion, 2);
+    assert.equal(raw.schemaVersion, 3);
     assert.equal(saved.preferences.outputLevelMode, "variable");
     assert.equal(saved.preferences.equalizerBands.length, 6);
     assert.equal(raw.preferences.visualizerMode, "future-visualizer");
@@ -215,10 +250,10 @@ void test("future schema is preserved in degraded read-only mode", async () => {
   try {
     await mkdir(testFixture.root, { recursive: true });
     const future = JSON.stringify({
-      schemaVersion: 3,
+      schemaVersion: 4,
       revision: 9,
       preferences: { volume: 12, futureSetting: true },
-      migration: { legacyLocalStorage: "imported", sourceSchema: 3 },
+      migration: { legacyLocalStorage: "imported", sourceSchema: 4 },
     });
     await writeFile(join(testFixture.root, "preferences.json"), future, "utf8");
     const store = new PreferencesStore(testFixture.root);

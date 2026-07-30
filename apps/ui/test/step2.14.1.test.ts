@@ -98,8 +98,8 @@ void test("touch ownership stays local and global listeners remain passive", () 
   const combinedCss = [base, layout, components, screens].join("\n");
   assert.equal(
     (combinedCss.match(/touch-action:\s*none;/g) ?? []).length,
-    7,
-    "only the two timelines, volume, two reorder handles, EQ graph and Linux fallback own gestures",
+    8,
+    "only the two timelines, volume, two reorder handles, EQ graph, Linux fallback, and display wake shield own gestures",
   );
   for (const [source, selector] of [
     [components, ".mini-player__timeline"],

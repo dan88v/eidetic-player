@@ -23,6 +23,7 @@ import {
 import { PreferencesApiClient } from "./api/preferences-api-client";
 import { PreferencesController } from "./state/preferences-controller";
 import { loadAuthoritativeBootstrap } from "./bootstrap/backend-bootstrap";
+import { defaultDisplaySnapshot } from "../../../packages/shared/src/display";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -74,13 +75,14 @@ async function bootstrap(): Promise<void> {
   let systemCapabilities = defaultSystemCapabilities;
   let buildInfo = developmentBuildInfo;
   let preferencesSnapshot: PreferencesSnapshot = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     revision: 0,
     preferences: defaultUiPreferences,
     persistence: "degraded",
     legacyImport: "manual-required",
     warning: true,
   };
+  let displaySnapshot = defaultDisplaySnapshot;
   let migrationFailed = false;
   let bootstrapAvailable = false;
   const preferencesApi = new PreferencesApiClient();
@@ -109,6 +111,7 @@ async function bootstrap(): Promise<void> {
     systemCapabilities = initial.system;
     buildInfo = initial.buildInfo;
     preferencesSnapshot = initial.preferences;
+    displaySnapshot = initial.display;
     if (preferencesSnapshot.legacyImport === "required") {
       const legacy = readLegacyPreferences();
       try {
@@ -176,6 +179,7 @@ async function bootstrap(): Promise<void> {
     systemCapabilities,
     buildInfo,
     preferencesController,
+    displaySnapshot,
   );
   if (migrationFailed || preferencesSnapshot.legacyImport === "manual-required")
     mountedApp.showSettingsWarning(t("settings.migrationWarning"));

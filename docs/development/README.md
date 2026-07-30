@@ -17,6 +17,8 @@ These documents expand the mandatory rules in the repository
   reconnect, Sources status, and read-only Quick Browse.
 - [UI preferences](preferences.md) - backend-authoritative schema, atomic
   persistence, bootstrap, legacy migration, and update behavior.
+- [Display dim and standby](display-power.md) - monotonic idle timing, wake
+  input consumption, platform capability boundaries, and HDMI inhibition.
 - [Software Update](software-update.md) - exact-build planning, the external
   privileged runner, structured progress, restart recovery, and Settings UX.
 - [Playback command responsiveness](playback-command-responsiveness.md) -
