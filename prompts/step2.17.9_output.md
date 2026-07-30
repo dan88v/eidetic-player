@@ -747,3 +747,46 @@ Final validation:
   bounded log verified; fixture advanced from Preparing through Completed with
   four in-place log rows;
 - remote update, reinstall, and verification scripts: unchanged.
+
+## In-app update smoke-test commit
+
+On 2026-07-30, a new low-risk commit was prepared and published to `main` as
+the next target for the real in-app update test.
+
+`docs/development/software-update.md` now documents the complete release
+smoke-test procedure. A reviewed documentation-only change is sufficient
+because the updater pins the exact target SHA and the release embeds that SHA
+as its Build ID. No package-version bump, tag, runtime behavior change,
+dependency change, or UI change is required.
+
+The procedure requires:
+
+- green CI for the exact target commit;
+- recording the installed Build ID before starting;
+- distinct Current build and Target build values;
+- following the structured update progress and bounded log;
+- verifying the exact target Build ID after application reconnection;
+- checking Library, browsing, playback, audio output, and power controls;
+- confirming the same commit is subsequently reported as already installed;
+- confirming no rollback, reboot, residual build process, or updater process.
+
+Files for this smoke-test target:
+
+- modified `docs/development/software-update.md`;
+- updated this existing `prompts/step2.17.9_output.md` report.
+
+Final local validation:
+
+- `npm.cmd run format:check`: PASS;
+- `npm.cmd run typecheck`: PASS;
+- `npm.cmd run lint`: PASS;
+- `npm.cmd run build`: PASS;
+- `npm.cmd test`: PASS — 599 passed, 11 platform-specific skips, 0 failed;
+- `npm.cmd run verify:linux:executables`: PASS — all 46 tracked deployment
+  files retain valid Git modes.
+
+No MPV, FFmpeg, Neutralino, media, Raspberry, or 1280 × 800 visual test was
+required for the documentation-only change. The real in-app Raspberry update
+remains pending until GitHub Actions is green for the final published commit.
+No runtime process was started, and no generated artifact or unrelated user
+change remains in the working tree.
