@@ -56,6 +56,12 @@ export interface UpdatePhase {
   readonly substep: string | null;
 }
 
+export interface UpdateLogEntry {
+  readonly at: string;
+  readonly level: "info" | "warning" | "error";
+  readonly message: string;
+}
+
 export interface UpdateJob {
   readonly schemaVersion: 1;
   readonly revision: number;
@@ -73,6 +79,7 @@ export interface UpdateJob {
   readonly rollback: "not-required" | "completed" | "failed";
   readonly warningCount: number;
   readonly serviceActive: boolean | null;
+  readonly log: readonly UpdateLogEntry[];
 }
 
 export interface SoftwareUpdateSnapshot {
@@ -129,6 +136,7 @@ export const defaultSoftwareUpdateSnapshot: SoftwareUpdateSnapshot = {
     rollback: "not-required",
     warningCount: 0,
     serviceActive: null,
+    log: [],
   },
   lastError: null,
 };

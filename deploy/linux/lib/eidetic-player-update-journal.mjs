@@ -24,6 +24,14 @@ const clean = (value, maximum = 96) =>
     })
     .join("")
     .slice(0, maximum);
+const appendLog = (level, message) => {
+  const sanitized = clean(message, 160).trim();
+  if (!sanitized) return;
+  const existing = Array.isArray(journal?.log) ? journal.log : [];
+  journal.log = [...existing, { at: now(), level, message: sanitized }].slice(
+    -80,
+  );
+};
 const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 const request = read(requestPath);
 let journal;
@@ -63,7 +71,9 @@ if (command === "initialize") {
     rollback: "not-required",
     warningCount: 0,
     serviceActive: null,
+    log: [],
   };
+  appendLog("info", "Update queued.");
 } else if (command === "event") {
   if (!journal || journal.jobId !== request.planId) process.exit(65);
   const line = String(process.argv[3] ?? "");
@@ -92,9 +102,15 @@ if (command === "initialize") {
             ? "Failed"
             : null,
     };
+    const label = clean(fields[3].replaceAll("-", " "));
+    appendLog(
+      event === "failed" ? "error" : "info",
+      `Step ${index}/${total} ${event}: ${label}`,
+    );
   } else if (fields[1] === "update") {
     const event = fields[2];
-    if (event === "activation-imminent") journal.state = "activating";
+    if (event === "preparing") journal.state = "running";
+    else if (event === "activation-imminent") journal.state = "activating";
     else if (event === "restarting") journal.state = "restarting";
     else if (event === "verifying") journal.state = "verifying";
     else if (event === "warning") journal.warningCount += 1;
@@ -113,6 +129,14 @@ if (command === "initialize") {
       label: clean(fields[5] || event),
       substep: clean(fields[6] || "") || null,
     };
+    appendLog(
+      event === "warning" || event === "rollback-failed"
+        ? event === "warning"
+          ? "warning"
+          : "error"
+        : "info",
+      fields[6] ? `${fields[5]}: ${fields[6]}` : fields[5] || event,
+    );
   } else process.exit(0);
   journal.revision += 1;
   journal.updatedAt = now();
@@ -146,6 +170,10 @@ if (command === "initialize") {
   journal.elapsedMs = Math.max(0, Date.now() - Date.parse(journal.startedAt));
   journal.serviceActive =
     status === 0 || journal.rollback === "completed" ? true : null;
+  appendLog(
+    status === 0 ? "info" : "error",
+    status === 0 ? "Update completed." : "Update failed.",
+  );
 } else if (command === "interrupt") {
   if (!journal || journal.jobId !== request.planId) process.exit(0);
   if (["succeeded", "failed", "rolled-back"].includes(journal.state))
@@ -157,6 +185,7 @@ if (command === "initialize") {
   journal.updatedAt = now();
   journal.completedAt = journal.updatedAt;
   journal.elapsedMs = Math.max(0, Date.now() - Date.parse(journal.startedAt));
+  appendLog("error", "Update interrupted.");
 } else process.exit(64);
 
 atomicWrite(journal);

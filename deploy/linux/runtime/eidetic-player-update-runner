@@ -61,6 +61,8 @@ consumer=$!
 exec 7>"$fifo"
 rm -f -- "$fifo"
 rmdir -- "$fifo_dir"
+"$node" "$journal" event \
+  $'EIDETIC_PROGRESS_V1\tupdate\tpreparing\t1\t7\tPreparing update'
 
 status=0
 EIDETIC_PROGRESS_FD=7 EIDETIC_UPDATE_JOB_FD=7 \

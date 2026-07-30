@@ -709,8 +709,14 @@ eidetic_runtime_run_protocol_child() {
   fi
   EIDETIC_RUNTIME_WRITE_FD=
   while IFS= read -r line <&"$read_fd"; do
-    eidetic_runtime_accept_line "$line" "$full" ||
+    if eidetic_runtime_accept_line "$line" "$full"; then
+      if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[0-9]+$ ]] &&
+        { : >&"$EIDETIC_UPDATE_JOB_FD"; } 2>/dev/null; then
+        printf '%s\n' "$line" >&"$EIDETIC_UPDATE_JOB_FD"
+      fi
+    else
       eidetic_console_plain_log "WARNING: ignored malformed runtime progress record"
+    fi
   done
   exec {read_fd}<&-
   EIDETIC_RUNTIME_READ_FD=

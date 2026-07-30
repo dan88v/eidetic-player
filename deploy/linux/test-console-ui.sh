@@ -276,6 +276,7 @@ assert_no_ansi "$runtime_output"
 
 protocol_child_root="$work/protocol-child"
 protocol_child_output="$work/protocol-child.out"
+protocol_job_progress="$work/protocol-job.progress"
 install -d "$protocol_child_root"
 (
   # shellcheck source=lib/console-ui.sh
@@ -296,6 +297,8 @@ install -d "$protocol_child_root"
   exec 6>/dev/null
   exec 7>/dev/null
   exec 8>/dev/null
+  exec {protocol_job_fd}>"$protocol_job_progress"
+  export EIDETIC_UPDATE_JOB_FD="$protocol_job_fd"
   protocol_owned_fd20=0
   if [[ ! -e /proc/"$BASHPID"/fd/20 ]]; then
     exec 20>/dev/null
@@ -316,6 +319,8 @@ install -d "$protocol_child_root"
   if [[ "$protocol_owned_fd20" == 1 ]]; then
     exec 20>&-
   fi
+  exec {protocol_job_fd}>&-
+  unset EIDETIC_UPDATE_JOB_FD
   [[ -z "$EIDETIC_RUNTIME_CHILD_PID" &&
     -z "$EIDETIC_RUNTIME_RELAY_PID" &&
     -z "$EIDETIC_RUNTIME_READ_FD" &&
@@ -339,6 +344,12 @@ grep -q 'RUNTIME STEP 2/12 DONE Install production build dependencies' \
   }
 grep -q 'human stdout must not become progress' "$protocol_child_output" ||
   fail "protocol fixture stdout unexpectedly disappeared"
+grep -q $'^EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12$' \
+  "$protocol_job_progress" ||
+  fail "runtime progress was not forwarded to the update job"
+grep -q $'^EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5$' \
+  "$protocol_job_progress" ||
+  fail "external child progress was not forwarded to the update job"
 
 embedded_output="$work/embedded.out"
 embedded_log="$work/embedded.log"

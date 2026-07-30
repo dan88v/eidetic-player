@@ -363,8 +363,13 @@ eidetic_install_managed() {
   target="$(eidetic_target "$logical")"
   eidetic_manifest_init
   eidetic_record_original "$logical" "$target"
-  install -d -m 0755 "$(dirname "$target")"
-  install -m "$mode" "$source" "${target}.eidetic-new"
+  if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    install -d -m 0755 -o root -g root "$(dirname "$target")"
+    install -m "$mode" -o root -g root "$source" "${target}.eidetic-new"
+  else
+    install -d -m 0755 "$(dirname "$target")"
+    install -m "$mode" "$source" "${target}.eidetic-new"
+  fi
   mv -f -- "${target}.eidetic-new" "$target"
   eidetic_record_managed_hash "$logical" "$(eidetic_sha256 "$target")"
 }

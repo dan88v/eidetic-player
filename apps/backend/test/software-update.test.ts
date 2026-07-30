@@ -124,6 +124,15 @@ void test(
       await new Promise((resolve) => setTimeout(resolve, 250));
       assert.equal(service.snapshot().job.state, "succeeded");
       assert.deepEqual(
+        service.snapshot().job.log.map((entry) => entry.message),
+        [
+          "Preparing update.",
+          "Applying update",
+          "Restarting Eidetic Player",
+          "Update completed.",
+        ],
+      );
+      assert.deepEqual(
         states.filter((state, index) => state !== states[index - 1]),
         ["idle", "running", "activating", "restarting", "succeeded"],
       );
@@ -192,11 +201,16 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
   assert.doesNotMatch(unit, /NoNewPrivileges=yes/u);
   assert.match(runner, /flock -n/u);
   assert.match(runner, /--ref "\$target" --unattended/u);
+  assert.match(runner, /update\\tpreparing\\t1\\t7\\tPreparing update/u);
   assert.doesNotMatch(runner, /eval|sh -c|nohup|tmux|screen/u);
   assert.match(helper, /git check-ref-format --branch/u);
   assert.match(helper, /refs\/heads\/\$branch/u);
   assert.match(helper, /select-branch[\s\S]+ls-remote --exit-code --heads/u);
   assert.match(journal, /EIDETIC_PROGRESS_V1/u);
+  assert.match(journal, /Update queued\./u);
+  assert.match(journal, /\.slice\(\s*-80,\s*\)/u);
+  assert.match(service, /function sanitizedLog/u);
+  assert.match(service, /record\.message[\s\S]+\.slice\(0, 160\)/u);
   assert.match(journal, /mode: 0o640/u);
   assert.match(journal, /rollback-completed/u);
   assert.match(updater, /rollback-failed/u);
@@ -222,4 +236,12 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
   assert.doesNotMatch(start, /refreshJournal/u);
   assert.doesNotMatch(journal, /stdout|stderr/u);
   assert.match(updater, /EIDETIC_UPDATE_JOB_FD/u);
+  assert.match(
+    await readFile("deploy/linux/lib/console-ui.sh", "utf8"),
+    /printf '%s\\n' "\$line" >&"\$EIDETIC_UPDATE_JOB_FD"/u,
+  );
+  assert.match(
+    await readFile("deploy/linux/lib/common.sh", "utf8"),
+    /install -m "\$mode" -o root -g root "\$source" "\$\{target\}\.eidetic-new"/u,
+  );
 });

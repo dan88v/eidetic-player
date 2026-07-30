@@ -76,6 +76,28 @@ demand-driven updater stream immediately and prevents the short systemd/journal
 creation interval from appearing as an idle no-op. A stale journal belonging
 to an earlier job cannot replace that accepted queued state.
 
+The root runner records `running` as soon as it owns the request and forwards
+every validated nested runtime event to its dedicated job descriptor. The
+updater may use separate descriptors for its embedded installer, console relay,
+and root job journal; consuming a nested runtime event therefore also forwards
+the original bounded protocol record to the job descriptor. REST and the
+single update SSE stream consequently expose the real runtime phase instead of
+remaining at `queued` while systemd is active.
+
+Each job journal also retains at most 80 structured log entries. Entries contain
+only an ISO timestamp, a closed severity, and a sanitized 160-character
+message derived from validated phase/event fields; arbitrary updater
+stdout/stderr and local paths are never exposed. Software Update renders this
+bounded log below the canonical status rows. Live snapshots update the status
+and log nodes in place, preserve page and manual log scroll positions, and
+auto-follow only when the log was already at its end.
+
+The system update service deliberately runs with UID 0 and the runtime user's
+primary group so its journal remains readable by the application. Managed
+system files must therefore be installed with explicit `root:root` ownership;
+they must never inherit the service group. Files that belong to the runtime
+user are reassigned explicitly after their atomic managed installation.
+
 The update unit is `Type=oneshot`, so systemd reports its long-running
 preparation phase as `activating`, not `active`. Backend reconciliation treats
 both states as live and synthesizes `interrupted` only after the unit reaches a

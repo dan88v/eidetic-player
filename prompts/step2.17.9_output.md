@@ -527,6 +527,41 @@ Final Raspberry evidence:
 - rollback: not required;
 - reboot: not requested or performed.
 
+## In-app live state and bounded update log
+
+A subsequent in-app update from Build `1e9318a` to `8f37171` reproduced the
+remaining status defect. While Settings showed only `Queued`, read-only SSH
+evidence showed `eidetic-player-update.service` in `activating/start`, the real
+installer at runtime step 4/12, completed dependency installation and
+typecheck, and later the production Linux build. The player remained `ready`
+with MPV available. At the same time both
+`/var/lib/eidetic-player/update/current.json` and the REST update snapshot
+remained at revision 12, state `queued`, with no phase and zero elapsed time.
+
+The root runner correctly created `EIDETIC_UPDATE_JOB_FD=7`, but the console
+relay consumed nested installer runtime records without forwarding them to
+that job descriptor. Human progress therefore reached systemd output while
+the authoritative journal, backend polling, SSE, and UI received nothing.
+
+The relay now forwards only successfully validated, bounded runtime protocol
+records to the dedicated job descriptor. The root runner also records a
+`Preparing update` event immediately after it owns the FIFO, so a successfully
+started service cannot remain indefinitely queued even before the first nested
+runtime phase. The journal converts those records into authoritative running,
+activating, restarting, verifying, and terminal states.
+
+Each job now carries a maximum of 80 sanitized log entries containing only an
+ISO timestamp, closed severity, and 160-character message derived from
+structured event fields. Raw stdout/stderr and local paths remain excluded.
+Software Update adds a canonical `Update log` region below its build and status
+rows. Snapshot delivery updates the status and log in place rather than
+reconstructing Settings; manual log scroll is preserved, while a log already
+at its end follows new entries automatically.
+
+The repository-owned remote update, reinstall, and verification scripts were
+not modified. No passwordless sudo rule or broader privilege was added; SSH
+diagnostics continued to use the existing user key only.
+
 No UI structure or styling changed. The next published build must first be
 installed with the official remote updater because Build `8dd3ae3` still
 contains both defects; the following commit can then exercise the corrected
@@ -665,3 +700,50 @@ Validation for the real installer-contract nesting correction:
 - `npm run verify:linux:executables`: PASS â€” all 46 tracked deployment files
   retain valid Git modes;
 - Bash syntax checks for the affected protocol files: PASS.
+
+## In-app live progress, bounded log, and service-group ownership
+
+A real in-app update reproduced the misleading `Queued` state while the
+systemd oneshot was actively building. The root runner owned descriptor 7, but
+the nested runtime relay consumed validated structured events without
+forwarding them to that descriptor. The relay now forwards only accepted
+protocol lines to the root journal, and the runner records a `preparing` event
+before entering the nested updater. REST, SSE, and Settings can therefore show
+the actual phase from the beginning of the job.
+
+The shared job contract now carries at most 80 sanitized structured entries.
+Software Update renders the log below the stable status row and updates both
+areas in place, preserving page scroll and a user's manual log position.
+Arbitrary stdout, filesystem paths, and stack traces remain excluded.
+
+The reproduced job then exposed a separate preparation failure before release
+activation: the systemd service runs as UID 0 with group `daniele`, so managed
+helpers created without explicit ownership became `root:daniele`. The power
+integration correctly rejected the helper because it requires `root:root`.
+Real-system managed installation now specifies `root:root` atomically instead
+of inheriting the updater service group. Staging roots retain their existing
+unprivileged behavior, and runtime-user files are still reassigned explicitly.
+The failed target was never activated; build `1e9318a` remained current and no
+rollback was required.
+
+Final validation:
+
+- root Raspberry journal and terminal state: exact ownership failure captured;
+- focused backend Software Update tests: PASS — 6 passed, 0 failed;
+- focused Software Update UI tests: PASS — 2 passed, 0 failed;
+- console protocol fixture: PASS;
+- Linux shell syntax for the affected common, relay, and runner files: PASS;
+- full Linux staging fixture: PASS;
+- Linux installer verification: PASS — 72 contracts/tests, 11
+  platform-specific skips, 0 failed;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS;
+- full `npm test`: PASS — 599 passed, 11 platform-specific skips, 0 failed;
+- real `npm.cmd run dev` Neutralino/WebView2 launch at 1280 × 800: PASS;
+- appliance fixture visual inspection at 1280 × 800: PASS — canonical System
+  hierarchy, equal-width update actions, stable status pill, exact phase, and
+  bounded log verified; fixture advanced from Preparing through Completed with
+  four in-place log rows;
+- remote update, reinstall, and verification scripts: unchanged.

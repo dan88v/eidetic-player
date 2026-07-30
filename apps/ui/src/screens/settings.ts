@@ -115,6 +115,34 @@ function formatUpdateBuildDate(
   }).format(date);
 }
 
+function formatUpdateLogTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "--:--:--";
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function updateJobLabel(state: SoftwareUpdateSnapshot["job"]["state"]): string {
+  const labels: Record<SoftwareUpdateSnapshot["job"]["state"], string> = {
+    idle: "Idle",
+    queued: "Queued",
+    running: "Running",
+    activating: "Activating",
+    restarting: "Restarting",
+    verifying: "Verifying",
+    succeeded: "Completed",
+    failed: "Failed",
+    "rolled-back": "Rolled back",
+    interrupted: "Interrupted",
+    "recovery-required": "Recovery required",
+  };
+  return labels[state];
+}
+
 export function createSettingsScreen(
   options: SettingsScreenOptions,
 ): ComponentView {
@@ -125,6 +153,7 @@ export function createSettingsScreen(
   let updateState = options.softwareUpdateState;
   let updateBusy = false;
   let updateBusyAction: UpdateBusyAction | null = null;
+  let updatePageRefresh: (() => void) | null = null;
   let visualizer = options.visualizerMode;
   let mainPlayer = options.mainPlayerMode;
   let browsing = options.musicBrowsingVisibility;
@@ -449,6 +478,7 @@ export function createSettingsScreen(
   };
 
   function render(): void {
+    updatePageRefresh = null;
     networkPanel?.destroy();
     networkPanel = null;
     parametricEqEditor?.destroy();
@@ -1329,34 +1359,32 @@ export function createSettingsScreen(
     }
 
     if (page === "software-update") {
-      const active = [
-        "queued",
-        "running",
-        "activating",
-        "restarting",
-        "verifying",
-      ].includes(updateState.job.state);
       const branch = navigationRow(
         "Update branch",
         updateState.selectedBranch,
         "update-branch",
       );
-      branch.classList.toggle("setting-row--disabled", active);
-      branch.disabled = active;
       const current = document.createElement("div");
       current.className = "settings-row-base setting-row";
-      const currentDate = formatUpdateBuildDate(updateState.currentBuiltAt);
-      current.innerHTML = `<span class="setting-row__copy"><strong>Current build</strong><small>${updateState.currentShortCommitSha}${currentDate ? ` - ${currentDate}` : ""}</small></span>`;
+      const currentCopy = document.createElement("span");
+      currentCopy.className = "setting-row__copy";
+      const currentTitle = document.createElement("strong");
+      currentTitle.textContent = "Current build";
+      const currentDetail = document.createElement("small");
+      currentCopy.append(currentTitle, currentDetail);
+      current.append(currentCopy);
       const target = document.createElement("div");
       target.className = "settings-row-base setting-row";
-      const targetDate = formatUpdateBuildDate(
-        updateState.plan?.targetCommitAt,
-      );
-      target.innerHTML = `<span class="setting-row__copy"><strong>Target build</strong><small>${updateState.plan?.targetShortCommitSha ?? "Check required"}${targetDate ? ` - ${targetDate}` : ""}</small></span>`;
+      const targetCopy = document.createElement("span");
+      targetCopy.className = "setting-row__copy";
+      const targetTitle = document.createElement("strong");
+      targetTitle.textContent = "Target build";
+      const targetDetail = document.createElement("small");
+      targetCopy.append(targetTitle, targetDetail);
+      target.append(targetCopy);
       const check = document.createElement("button");
       check.className = "settings-page-action";
       check.type = "button";
-      check.disabled = updateBusy || active;
       check.setAttribute("aria-busy", String(updateBusyAction === "check"));
       check.innerHTML =
         updateBusyAction === "check"
@@ -1392,8 +1420,6 @@ export function createSettingsScreen(
       const start = document.createElement("button");
       start.className = "settings-page-action settings-page-action--primary";
       start.type = "button";
-      start.disabled =
-        updateBusy || active || updateState.plan?.updateAvailable !== true;
       start.setAttribute("aria-busy", String(updateBusyAction === "start"));
       start.innerHTML =
         updateBusyAction === "start"
@@ -1433,17 +1459,115 @@ export function createSettingsScreen(
           },
         });
       });
-      panel.append(branch, current, target);
-      if (active || updateState.job.completedAt) {
-        const status = document.createElement("div");
-        status.className = "settings-row-base setting-row";
-        status.innerHTML = `<span class="setting-row__copy"><strong>${active ? "Update in progress" : updateState.job.state === "succeeded" ? "Update completed" : "Last update failed"}</strong><small>${updateState.job.phase?.label ?? updateState.job.result ?? updateState.job.state}</small></span>`;
-        panel.append(status);
-      }
+      const status = document.createElement("div");
+      status.className = "settings-row-base setting-row update-status";
+      status.setAttribute("role", "status");
+      const statusCopy = document.createElement("span");
+      statusCopy.className = "setting-row__copy";
+      const statusTitle = document.createElement("strong");
+      const statusDetail = document.createElement("small");
+      statusCopy.append(statusTitle, statusDetail);
+      const logHeading = document.createElement("h2");
+      logHeading.textContent = "Update log";
+      const logRegion = document.createElement("div");
+      logRegion.className = "update-log";
+      logRegion.setAttribute("role", "log");
+      logRegion.setAttribute("aria-live", "polite");
+      logRegion.setAttribute("aria-label", "Software update log");
+      const logList = document.createElement("ol");
+      logList.className = "update-log__list";
+      logRegion.append(logList);
+      panel.append(branch, current, target, status, logHeading, logRegion);
       const updateActions = document.createElement("div");
       updateActions.className = "settings-page-actions";
       updateActions.append(check, start);
       section.append(updateActions);
+      let renderedLogKey = "";
+      updatePageRefresh = () => {
+        const active = [
+          "queued",
+          "running",
+          "activating",
+          "restarting",
+          "verifying",
+        ].includes(updateState.job.state);
+        branch.classList.toggle("setting-row--disabled", active);
+        branch.disabled = active;
+        currentDetail.textContent = [
+          updateState.currentShortCommitSha,
+          formatUpdateBuildDate(updateState.currentBuiltAt),
+        ]
+          .filter(Boolean)
+          .join(" - ");
+        targetDetail.textContent = [
+          updateState.plan?.targetShortCommitSha ?? "Check required",
+          formatUpdateBuildDate(updateState.plan?.targetCommitAt),
+        ]
+          .filter(Boolean)
+          .join(" - ");
+        check.disabled = updateBusy || active;
+        start.disabled =
+          updateBusy || active || updateState.plan?.updateAvailable !== true;
+        statusTitle.textContent =
+          updateState.job.state === "idle"
+            ? "Updater ready"
+            : active
+              ? "Update in progress"
+              : updateState.job.state === "succeeded"
+                ? "Update completed"
+                : "Last update did not complete";
+        const phase = updateState.job.phase;
+        statusDetail.textContent = phase
+          ? `${String(phase.index)}/${String(phase.total)} - ${phase.label}${phase.substep ? ` - ${phase.substep}` : ""}`
+          : (updateState.job.result ??
+            (updateState.job.state === "queued"
+              ? "Waiting for the updater service."
+              : updateState.job.state));
+        status.replaceChildren(
+          statusCopy,
+          statePill(
+            updateJobLabel(updateState.job.state),
+            active
+              ? "pending"
+              : updateState.job.state === "succeeded"
+                ? "active"
+                : "muted",
+          ),
+        );
+        const nextLogKey = `${updateState.job.jobId ?? "idle"}:${String(updateState.job.revision)}:${String(updateState.job.log.length)}`;
+        if (nextLogKey === renderedLogKey) return;
+        renderedLogKey = nextLogKey;
+        const previousScrollTop = logRegion.scrollTop;
+        const stickToEnd =
+          logRegion.scrollHeight -
+            logRegion.scrollTop -
+            logRegion.clientHeight <
+          24;
+        const rows = updateState.job.log.map((entry) => {
+          const row = document.createElement("li");
+          row.className = `update-log__entry update-log__entry--${entry.level}`;
+          const timestamp = document.createElement("time");
+          timestamp.dateTime = entry.at;
+          timestamp.textContent = formatUpdateLogTime(entry.at);
+          const message = document.createElement("span");
+          message.textContent = entry.message;
+          row.append(timestamp, message);
+          return row;
+        });
+        if (rows.length === 0) {
+          const empty = document.createElement("li");
+          empty.className = "update-log__empty";
+          empty.textContent = "No update activity recorded.";
+          rows.push(empty);
+        }
+        logList.replaceChildren(...rows);
+        queueMicrotask(() => {
+          logRegion.scrollTop = stickToEnd
+            ? logRegion.scrollHeight
+            : previousScrollTop;
+        });
+      };
+      updatePageRefresh();
       return;
     }
 
@@ -1653,13 +1777,15 @@ export function createSettingsScreen(
     },
     updateSoftwareUpdateState(snapshot) {
       updateState = snapshot;
-      if (
+      if (page === "software-update" && updatePageRefresh) {
+        updatePageRefresh();
+      } else if (
         page === "root" ||
         page === "system" ||
-        page === "software-update" ||
         page === "update-branch"
-      )
+      ) {
         render();
+      }
     },
     requestLeave(leave) {
       return page === "network"
@@ -1670,6 +1796,7 @@ export function createSettingsScreen(
       networkPanel?.destroy();
       parametricEqEditor?.destroy();
       confirmationDialog.destroy();
+      updatePageRefresh = null;
       options.setHeaderActions(null, null);
       section.replaceChildren();
     },

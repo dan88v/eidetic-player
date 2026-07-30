@@ -5,6 +5,7 @@ import type {
   SoftwareUpdateSnapshot,
   UpdateBranch,
   UpdateJob,
+  UpdateLogEntry,
   UpdatePlan,
   UpdateReasonCode,
 } from "../../../../packages/shared/src/update.js";
@@ -57,6 +58,7 @@ function idleJob(branch: string): UpdateJob {
     rollback: "not-required",
     warningCount: 0,
     serviceActive: null,
+    log: [],
   };
 }
 
@@ -78,6 +80,37 @@ function sanitizedReason(value: unknown): UpdateReasonCode | null {
     : null;
 }
 
+function sanitizedLog(value: unknown): readonly UpdateLogEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: UpdateLogEntry[] = [];
+  for (const candidate of value.slice(-80)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const record = candidate as Partial<UpdateLogEntry>;
+    if (
+      typeof record.at !== "string" ||
+      !Number.isFinite(Date.parse(record.at)) ||
+      (record.level !== "info" &&
+        record.level !== "warning" &&
+        record.level !== "error") ||
+      typeof record.message !== "string"
+    )
+      continue;
+    let sanitizedMessage = "";
+    for (const character of record.message) {
+      const code = character.codePointAt(0) ?? 0;
+      sanitizedMessage += code < 32 || code === 127 ? " " : character;
+    }
+    const message = sanitizedMessage.slice(0, 160).trim();
+    if (!message) continue;
+    entries.push({
+      at: new Date(record.at).toISOString(),
+      level: record.level,
+      message,
+    });
+  }
+  return entries;
+}
+
 function parseJournal(value: unknown, fallback: UpdateJob): UpdateJob {
   if (!value || typeof value !== "object") return fallback;
   const record = value as Partial<UpdateJob>;
@@ -93,6 +126,7 @@ function parseJournal(value: unknown, fallback: UpdateJob): UpdateJob {
     ...fallback,
     ...record,
     result: sanitizedReason(record.result),
+    log: sanitizedLog(record.log),
   };
 }
 
@@ -406,6 +440,13 @@ export class SoftwareUpdateService {
       targetCommitSha: plan.targetCommitSha,
       startedAt,
       updatedAt: startedAt,
+      log: [
+        {
+          at: startedAt,
+          level: "info",
+          message: "Update queued.",
+        },
+      ],
     };
     this.emit();
   }
@@ -598,6 +639,13 @@ export class SoftwareUpdateService {
       },
       startedAt,
       updatedAt: startedAt,
+      log: [
+        {
+          at: startedAt,
+          level: "info",
+          message: "Preparing update.",
+        },
+      ],
     };
     this.emit();
     const duration = this.fixtureDurationMs;
@@ -619,6 +667,14 @@ export class SoftwareUpdateService {
           },
           updatedAt: new Date().toISOString(),
           elapsedMs: Date.now() - Date.parse(startedAt),
+          log: [
+            ...this.job.log,
+            {
+              at: new Date().toISOString(),
+              level: "info",
+              message: label,
+            },
+          ],
         };
         this.emit();
       }, delay);
@@ -640,6 +696,14 @@ export class SoftwareUpdateService {
         completedAt: new Date().toISOString(),
         elapsedMs: Math.max(0, Date.now() - Date.parse(startedAt)),
         serviceActive: true,
+        log: [
+          ...this.job.log,
+          {
+            at: new Date().toISOString(),
+            level: "info",
+            message: "Update completed.",
+          },
+        ],
       };
       this.emit();
     }, duration);

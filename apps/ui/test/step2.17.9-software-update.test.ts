@@ -16,6 +16,8 @@ void test("Software Update follows the canonical System settings hierarchy", asy
     "Target build",
     "Start update",
     "Install update?",
+    "Update log",
+    "No update activity recorded.",
   ])
     assert.match(settings, new RegExp(copy, "u"));
   assert.match(
@@ -30,11 +32,25 @@ void test("Software Update follows the canonical System settings hierarchy", asy
   assert.match(settings, /branch\.disabled = active/u);
   assert.match(settings, /refresh\.disabled = updateBusy \|\| updateActive/u);
   assert.match(settings, /section\.append\(refreshActions\)/u);
-  assert.match(settings, /panel\.append\(branch, current, target\)/u);
+  assert.match(
+    settings,
+    /panel\.append\(branch, current, target, status, logHeading, logRegion\)/u,
+  );
   assert.match(settings, /updateActions\.append\(check, start\)/u);
   assert.match(settings, /currentBuiltAt/u);
   assert.match(settings, /targetCommitAt/u);
   assert.match(settings, /updateBusyAction = "start";\s*render\(\)/u);
+  assert.match(settings, /logRegion\.setAttribute\("role", "log"\)/u);
+  assert.match(settings, /updatePageRefresh = \(\) =>/u);
+  assert.match(settings, /updateState\.job\.log\.map/u);
+  assert.match(
+    settings,
+    /page === "software-update" && updatePageRefresh[\s\S]+updatePageRefresh\(\)/u,
+  );
+  assert.doesNotMatch(
+    settings,
+    /page === "software-update"\s*\|\|[\s\S]{0,120}render\(\)/u,
+  );
   assert.match(
     css,
     /\.settings-page-actions\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/u,
@@ -42,6 +58,10 @@ void test("Software Update follows the canonical System settings hierarchy", asy
   assert.match(
     css,
     /\.settings-page-actions--single\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/u,
+  );
+  assert.match(
+    css,
+    /\.update-log\s*\{[\s\S]*?overflow-y:\s*auto;[\s\S]*?scrollbar-gutter:\s*stable;/u,
   );
   assert.doesNotMatch(settings, /input[^>]+branch/iu);
 });
