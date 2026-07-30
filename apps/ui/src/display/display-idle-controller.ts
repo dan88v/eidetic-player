@@ -269,10 +269,16 @@ export class DisplayIdleController {
   };
 
   private readonly onClickCapture = (event: Event): void => {
-    if (this.now() > this.suppressClickUntil) return;
+    if (this.now() <= this.suppressClickUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.suppressClickUntil = 0;
+      return;
+    }
+    if (!this.isWakeState()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.suppressClickUntil = 0;
+    void this.wake();
   };
 
   private addListeners(): void {

@@ -1,8 +1,8 @@
 # Step 2.17.10 — Screen Dim and Display Standby
 
-Local status:
+Post-CI status:
 
-`READY FOR CI VALIDATION — RASPBERRY DISPLAY VALIDATION NOT STARTED`
+`RASPBERRY UPDATE TO 8aff5ea — PASS; TOUCH CLICK WAKE FIX READY FOR CI; PHYSICAL DISPLAY VALIDATION PENDING`
 
 System policy:
 
@@ -294,24 +294,123 @@ release behavior are preserved.
 - Docs: Preferences, development index, display-power contract, and this
   report.
 
-## Checkpoint and deferred physical validation
+## Post-CI Raspberry update and deferred physical validation
 
-Pre-CI checkpoint: implementation, automated checks, Windows native QA,
-restoration, cleanup, protected-diff review, and report are complete locally.
-The user will create the commit.
+The user committed and pushed the reviewed step as
+`8aff5ea9e13387b87666c6340c3bcdd1f92ff56d` on `main`. The local checkout was
+clean, `HEAD` equalled `origin/main`, and GitHub Actions exact-head run
+`30562305165` completed successfully before the Raspberry was changed.
 
-Not started and not claimed:
+The pre-update Raspberry audit found:
 
-- commit and exact-head CI for this change;
-- in-app Raspberry update;
-- physical Raspberry dim result;
-- physical Raspberry standby/wake result;
-- Raspberry touch/key/wheel consumption;
+- installed Build ID `158bd3d`;
+- backend readiness `ready`, MPV available and playing;
+- `eidetic-player.service` active and the system updater unit inactive;
+- selected physical output `gpio-i2s-dac`;
+- Library 1,224 tracks / 68 albums / 79 artists and the SMB source available;
+- Preferences schema 2, revision 31;
+- `EIDETIC_DISABLE_BLANKING=1`;
+- clean remote checkout and no active update process.
+
+Because the operation was performed remotely and physical touch access was not
+available, the user-authorized fallback controller called the application's
+loopback-only Software Update API. It followed the same immutable application
+flow as Settings: Refresh branches, Check for updates, and Start update. The
+CLI updater script was not used to start the installation.
+
+The checked plan paired current commit
+`158bd3d9ee5679e79f61394c93a6eed1d4b2154f` with exact target
+`8aff5ea9e13387b87666c6340c3bcdd1f92ff56d`. Job
+`df5529cd4002a8076f1cab53c2306db6` completed all 12 structured preparation
+steps, activation, restart, and health verification in 1,170,302 ms:
+
+- terminal state `succeeded`;
+- warning count 0;
+- rollback `not-required`;
+- no reboot;
+- installed Build ID `8aff5ea`;
+- backend readiness returned to `ready`;
+- MPV remained available.
+
+Post-update checks passed:
+
+- `eidetic-player.service` active and update system unit inactive;
+- Preferences migrated in place to schema 3 at the same revision 31, with all
+  previous values preserved and display defaults Off / 20% / Off;
+- display state Active, software dim capability, real Wayland-output standby
+  capability, no inhibition, test, or display error;
+- GPIO/I2S audio selection preserved;
+- Library counts and SMB availability unchanged;
+- `EIDETIC_DISABLE_BLANKING=1` preserved;
+- no residual npm, build, updater, installer, or FFmpeg process;
+- a second Refresh/Check resolved current and target to the same exact commit,
+  returned `updateAvailable=false` and `already-up-to-date`, with the completed
+  job still showing no rollback.
+
+### Raspberry touch wake follow-up
+
+Physical use after the update exposed a Raspberry-only wake defect after
+selecting Dim after 1 minute and running dim tests. The dim mechanism worked,
+but touch commands stopped reaching System/Display.
+
+Read-only remote diagnosis captured:
+
+- backend display state `dimmed`, revision 34, with `testActive=null`, no next
+  transition, no inhibition, and no display error;
+- persisted Dim 60 seconds / Level 20% / Standby Off at Preferences schema 3,
+  revision 32;
+- backend readiness `ready`, MPV available, and the user service active;
+- two real Wayland screenshots showing the software dim overlay and global wake
+  shield still covering System while the visible clock advanced from 19:24 to
+  19:26;
+- a live WebKit process, proving the UI event loop had not frozen;
+- no backend wake call or display failure in the service journal.
+
+The controller listened for `pointerdown`, key, wheel, and mouse movement, but
+its capture-phase `click` handler only suppressed the compatibility click that
+normally follows a Pointer Event. WebKitGTK/touch can supply the usable tap as
+a click without a matching wake Pointer Event, leaving that click targeted at
+the transparent shield and the display permanently Dimmed.
+
+The click capture path now:
+
+- first consumes a pending compatibility click without issuing a duplicate
+  wake;
+- otherwise treats a click received in Dimmed/Standby/transition state as the
+  required fallback wake input;
+- prevents and stops that first click so the underlying control is not
+  activated;
+- leaves clicks untouched while Active.
+
+Focused regression coverage proves both click-only wake and one wake for the
+`pointerdown + compatibility click` pair. Validation after the correction:
+
+- focused display-idle tests: PASS, 9/9;
+- `npm.cmd run format:check`: PASS;
+- `npm.cmd run typecheck`: PASS;
+- `npm.cmd run lint`: PASS;
+- full `npm.cmd test`: PASS, 621 passed / 11 platform skips / 0 failed;
+- `git diff --check`: PASS.
+
+The installed Raspberry remains on reviewed build `8aff5ea`; this follow-up is
+local and intentionally was not hot-patched or deployed without a new manual
+commit, exact-head CI, and normal update. The service was not restarted because
+the paused live session still contained 175 Queue items.
+
+`SYSTEM BLANKING DISABLED BY APPLIANCE CONFIG — PRESERVED`
+
+Still requiring direct physical observation and therefore not claimed:
+
+- physical Raspberry software-dim appearance and wake;
+- real display output-off and 15-second fail-safe;
+- touch, mouse, keyboard, and wheel first-input consumption over real controls;
+- timeout-driven Active -> Dimmed -> Standby while audio continues;
 - HDMI-audio physical inhibition/release;
-- Raspberry service-restart recovery;
-- final Raspberry restoration and cleanup.
+- service-restart display recovery;
+- final physical preference, output, and interaction restoration.
 
-The status must remain
-`READY FOR CI VALIDATION — RASPBERRY DISPLAY VALIDATION NOT STARTED` until
-those later checkpoints are executed. The final status
-`RASPBERRY SCREEN DIM AND DISPLAY STANDBY — PASS` is intentionally not claimed.
+The pre-CI status
+`READY FOR CI VALIDATION — RASPBERRY DISPLAY VALIDATION NOT STARTED` has been
+superseded by a successful exact-head CI and remote in-app update. The final
+status `RASPBERRY SCREEN DIM AND DISPLAY STANDBY — PASS` is intentionally not
+claimed until the remaining physical checks are observed.

@@ -189,11 +189,35 @@ void test("first dimmed input is consumed and the second is normal", async () =>
   fixture.document.dispatchEvent(first);
   assert.equal(first.defaultPrevented, true);
   assert.equal(underlyingCalls, 0);
+  const compatibilityClick = new Event("click", { cancelable: true });
+  fixture.document.dispatchEvent(compatibilityClick);
+  assert.equal(compatibilityClick.defaultPrevented, true);
   await new Promise<void>((resolve) => {
     setImmediate(resolve);
   });
   assert.equal(fixture.wakeCalls.value, 1);
   const second = new Event("pointerdown", { cancelable: true });
+  fixture.document.dispatchEvent(second);
+  assert.equal(second.defaultPrevented, false);
+  assert.equal(underlyingCalls, 1);
+  fixture.destroy();
+});
+
+void test("click-only touch fallback wakes without activating the control", async () => {
+  const fixture = controllerFixture("dimmed");
+  let underlyingCalls = 0;
+  fixture.document.addEventListener("click", () => {
+    underlyingCalls += 1;
+  });
+  const first = new Event("click", { cancelable: true });
+  fixture.document.dispatchEvent(first);
+  assert.equal(first.defaultPrevented, true);
+  assert.equal(underlyingCalls, 0);
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.equal(fixture.wakeCalls.value, 1);
+  const second = new Event("click", { cancelable: true });
   fixture.document.dispatchEvent(second);
   assert.equal(second.defaultPrevented, false);
   assert.equal(underlyingCalls, 1);
