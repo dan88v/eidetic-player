@@ -145,6 +145,28 @@ with bounded 5- and 10-second backoff. This allows transient registry
 disconnects to recover while keeping deterministic dependency failures finite
 and visible in the same runtime phase.
 
+## In-app release smoke test
+
+A reviewed documentation-only commit is sufficient to exercise the complete
+in-app update path without changing application behavior. The exact commit SHA
+becomes the new Build ID, so this test does not require a package-version bump
+or a release tag.
+
+Before starting the update, confirm that CI is green for the exact target
+commit and record the currently installed Build ID. In Settings > System >
+Software Update:
+
+1. refresh branches and select the intended branch;
+2. check for updates and verify that Current build and Target build differ;
+3. start the immutable checked plan and follow its structured progress log;
+4. after the application reconnects, verify that its Build ID matches the
+   target commit and that Library, browsing, playback, audio output, and power
+   controls remain available;
+5. check again and confirm the same commit is reported as already installed.
+
+The final check must also confirm a clean updater exit, no rollback, no reboot,
+and no residual build or update processes.
+
 ## Configuration and removal
 
 `/etc/eidetic-player/update.conf` stores its schema, the fixed canonical source,
