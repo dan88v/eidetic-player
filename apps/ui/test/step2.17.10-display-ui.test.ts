@@ -57,3 +57,14 @@ void test("display control adds neither polling nor a permanent event stream", a
   assert.doesNotMatch(api, /EventSource/u);
   assert.doesNotMatch(api, /subscribe/u);
 });
+
+void test("System navigation survives display deadline updates on pointerdown", async () => {
+  const settings = await read("apps/ui/src/screens/settings.ts");
+  const presentation = await read(
+    "apps/ui/src/display/display-settings-snapshot.ts",
+  );
+  assert.match(settings, /displaySettingsPresentationChanged/u);
+  assert.match(settings, /presentationChanged &&/u);
+  assert.doesNotMatch(presentation, /nextTransitionAt/u);
+  assert.doesNotMatch(presentation, /revision/u);
+});

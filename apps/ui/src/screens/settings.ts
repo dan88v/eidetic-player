@@ -1,5 +1,6 @@
 import { icon } from "../components/icons";
 import { createConfirmationDialog } from "../components/confirmation-dialog";
+import { displaySettingsPresentationChanged } from "../display/display-settings-snapshot";
 import {
   createParametricEqEditor,
   type ParametricEqEditor,
@@ -2205,11 +2206,16 @@ export function createSettingsScreen(
     },
     updateDisplayState(snapshot) {
       if (snapshot.revision < displayState.revision) return;
+      const presentationChanged = displaySettingsPresentationChanged(
+        displayState,
+        snapshot,
+      );
       displayState = snapshot;
       if (
-        page === "display" ||
-        page === "display-standby-timeout" ||
-        page === "system"
+        presentationChanged &&
+        (page === "display" ||
+          page === "display-standby-timeout" ||
+          page === "system")
       )
         render();
     },

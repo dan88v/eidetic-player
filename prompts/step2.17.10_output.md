@@ -503,3 +503,49 @@ The pre-CI status
 superseded by a successful exact-head CI and remote in-app update. The final
 status `RASPBERRY SCREEN DIM AND DISPLAY STANDBY — PASS` is intentionally not
 claimed until the remaining physical checks are observed.
+
+### System navigation freeze follow-up
+
+After installing build `bd9826c`, the Raspberry exposed a separate interaction
+defect: opening Settings > System made Display, Software update, Maintenance,
+Back, and subsequently the reopened Settings screen appear unresponsive. The
+failure also occurred while the display was Active, so it was not caused by the
+software dim overlay or by MPV startup.
+
+Read-only Raspberry checks confirmed that the backend, display endpoints,
+updater endpoints, user service, and MPV readiness were healthy. The freeze was
+in the UI render lifecycle. Every `pointerdown` was correctly treated as display
+activity, but rescheduling the idle deadline published a new Display snapshot.
+Settings rebuilt the complete System or Display page for that snapshot even
+when only `nextTransitionAt` and `revision` had changed. Because this happened
+during pointer capture, the touched button was removed before `pointerup` and
+`click`; navigation and actions therefore never received their click.
+
+Settings now always retains the latest Display snapshot but rebuilds an open
+System/Display surface only when a value visible on those pages changes: state,
+dimming/standby capability and method, inhibition reason, dim level, active
+test, or error. Deadline- and revision-only publications no longer replace the
+interactive DOM. No polling, timer, SSE connection, backend route, MPV path, or
+display behavior was added or changed.
+
+Focused regression coverage verifies that deadline rescheduling is not a
+presentation change while a real display-state transition still is. Real
+Neutralino/WebView2 QA at 1280x800 used `npm.cmd run dev` with Dim temporarily
+set to 1 minute and confirmed that Display, Back, Software update, and the
+Maintenance confirmation remain responsive. The local Dim preference was then
+restored to Off; Standby remained Off; output was Active; Neutralino and its
+development process tree were closed; ports 4310, 5173, and 8080 were clear.
+
+Final validation after implementation, regression tests, and this report:
+
+- focused Display idle and step 2.17.10 UI tests: PASS, 18/18;
+- `npm.cmd run format:check`: PASS;
+- `npm.cmd run typecheck`: PASS;
+- `npm.cmd run lint`: PASS;
+- `npm.cmd run build`: PASS;
+- full `npm.cmd test`: PASS, 645 passed / 12 platform skips / 0 failed;
+- `git diff --check`: PASS.
+
+This follow-up is local and uncommitted. It has not been installed on the
+Raspberry and still requires the user's manual commit, exact-head CI, and the
+normal updater path before physical validation can be claimed.

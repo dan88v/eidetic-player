@@ -10,6 +10,7 @@ import {
   nextDisplayIdleDeadline,
 } from "../src/display/display-idle-controller.js";
 import type { DisplayApiClient } from "../src/api/display-api-client.js";
+import { displaySettingsPresentationChanged } from "../src/display/display-settings-snapshot.js";
 
 const preferences = {
   screenDimTimeoutSeconds: 60 as const,
@@ -76,6 +77,29 @@ void test("disabled policies schedule no work", () => {
 
 void test("dim levels include the low 5 percent option", () => {
   assert.deepEqual(screenDimLevelChoices, [5, 10, 20, 30, 40, 50]);
+});
+
+void test("idle deadline publication does not rebuild an interactive Settings page", () => {
+  const scheduled = {
+    ...defaultDisplaySnapshot,
+    nextTransitionAt: "2026-07-31T22:30:00.000Z",
+  };
+  const rescheduled = {
+    ...scheduled,
+    nextTransitionAt: "2026-07-31T22:31:00.000Z",
+  };
+  assert.equal(
+    displaySettingsPresentationChanged(scheduled, rescheduled),
+    false,
+    "pointer activity must not replace the touched System/Display control",
+  );
+  assert.equal(
+    displaySettingsPresentationChanged(rescheduled, {
+      ...rescheduled,
+      state: "dimmed",
+    }),
+    true,
+  );
 });
 
 class FakeClassList {
