@@ -134,6 +134,14 @@ import {
 import { DisplayPowerService } from "./display/display-power-service.js";
 import { createPlatformDisplayAdapter } from "./display/display-platform-adapter.js";
 import { DisplayPowerError } from "./display/display-errors.js";
+import { RemoteAccessService } from "./remote-access/remote-access-service.js";
+import {
+  RemoteGateway,
+  resolveRemoteUiStaticRoot,
+  type RemoteLibraryAction,
+  type RemoteLibraryRead,
+} from "./remote-access/remote-gateway.js";
+import { RemoteAccessError } from "./remote-access/remote-access-error.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -761,6 +769,313 @@ async function execute(command: PlayerCommand): Promise<void> {
   }
 }
 
+const remoteAccessFixture =
+  process.env.NODE_ENV !== "production" &&
+  process.env.EIDETIC_REMOTE_ACCESS_FIXTURE === "1";
+const remoteAccess = new RemoteAccessService(
+  installationMode === "appliance" || remoteAccessFixture,
+  remoteAccessFixture,
+);
+events.attachRemoteAccess(remoteAccess);
+
+function boundedRemoteLimit(query: URLSearchParams): number {
+  const raw = query.get("limit");
+  if (raw === null) return 48;
+  const limit = Number(raw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    throw new LibraryError(
+      "INVALID_LIBRARY_PAGE",
+      "Library page size must be between 1 and 100.",
+    );
+  return limit;
+}
+
+function boundedRemoteCursor(query: URLSearchParams): string | null {
+  const cursor = query.get("cursor");
+  if (cursor !== null && (cursor.length < 1 || cursor.length > 1024))
+    throw new LibraryError(
+      "INVALID_LIBRARY_CURSOR",
+      "The Library page cursor is invalid.",
+    );
+  return cursor;
+}
+
+async function applyRemoteLibraryContext(
+  context: {
+    readonly paths: readonly string[];
+    readonly origins: Parameters<PlayerService["openResolvedQueue"]>[2];
+    readonly selectedIndex: number;
+  },
+  append: boolean,
+): Promise<unknown> {
+  if (append) {
+    const appendedCount = await player.append(context.paths, context.origins);
+    return {
+      queueLength: player.getState().queue.length,
+      selectedIndex: null,
+      appendedCount,
+    };
+  }
+  const generation = player.reserveOpenRequest();
+  await player.openResolvedQueue(
+    context.paths,
+    context.selectedIndex,
+    context.origins,
+    generation,
+  );
+  return {
+    queueLength: context.paths.length,
+    selectedIndex: context.selectedIndex,
+    appendedCount: 0,
+  };
+}
+
+const remoteGateway = new RemoteGateway(
+  remoteAccess,
+  {
+    buildId: buildInfo.shortCommitSha,
+    playerState: () => player.getPublicState(),
+    audioOutput: () => audioOutput.snapshot(),
+    outputLevel: () => {
+      const snapshot = preferences.snapshot().preferences;
+      return {
+        mode: snapshot.outputLevelMode,
+        maximumSoftwareVolume: snapshot.maximumSoftwareVolume,
+      };
+    },
+    sources: () => sources.list(),
+    librarySnapshot: async () => (await indexedLibraryPromise).snapshot(),
+    subscribePlayer: (listener) => player.subscribe(listener),
+    subscribeAudioOutput: (listener) => audioOutput.subscribe(listener),
+    subscribeLibrary: async (listener) =>
+      (await indexedLibraryPromise).subscribe(listener),
+    command: async (action, body) => {
+      const commandTypes: Record<string, PlayerCommand["type"]> = {
+        play: "play",
+        pause: "pause",
+        "play-pause": "play-pause",
+        next: "next",
+        previous: "previous",
+        seek: "seek",
+        volume: "volume",
+        mute: "mute",
+        shuffle: "shuffle",
+        repeat: "repeat",
+        "queue-play": "queue-play",
+        "queue-reorder": "queue-reorder",
+        "queue-remove": "queue-remove",
+      };
+      if (action === "queue-clear") {
+        await player.clearQueue();
+        return player.getPublicState();
+      }
+      const type = commandTypes[action];
+      if (!type)
+        throw new RemoteAccessError(
+          "REMOTE_COMMAND_NOT_ALLOWED",
+          "Remote command is not allowed.",
+          404,
+        );
+      await execute(
+        validateCommandBody(type, {
+          ...body,
+          requestedAtMilliseconds:
+            typeof body.requestedAtMilliseconds === "number"
+              ? body.requestedAtMilliseconds
+              : performance.now(),
+        }),
+      );
+      return player.getPublicState();
+    },
+    libraryRead: async (
+      operation: RemoteLibraryRead,
+      query: URLSearchParams,
+    ) => {
+      const library = await indexedLibraryPromise;
+      const cursor = boundedRemoteCursor(query);
+      const limit = boundedRemoteLimit(query);
+      if (operation === "albums") return library.albums(cursor, limit);
+      if (operation === "artists") return library.artists(cursor, limit);
+      if (operation === "tracks") return library.tracks(cursor, limit);
+      if (operation === "favorites-tracks")
+        return library.favoriteTracks(cursor, limit);
+      if (operation === "favorites-albums")
+        return library.favoriteAlbums(cursor, limit);
+      if (operation === "favorites-artists")
+        return library.favoriteArtists(cursor, limit);
+      if (operation === "recently-played")
+        return library.recentlyPlayed(cursor, limit);
+      if (operation === "most-played") return library.mostPlayed(cursor, limit);
+      if (operation === "playlists") return library.playlists(cursor, limit);
+      const queryValue = query.get("q") ?? "";
+      if (queryValue.length < 2 || queryValue.length > 256)
+        throw new LibraryError(
+          "INVALID_LIBRARY_SEARCH",
+          "Enter at least two search characters.",
+        );
+      return library.search(
+        queryValue,
+        Math.min(12, Math.max(1, Number(query.get("limitPerGroup")) || 8)),
+      );
+    },
+    libraryAction: async (
+      operation: RemoteLibraryAction,
+      body: Record<string, unknown>,
+    ) => {
+      const library = await indexedLibraryPromise;
+      if (operation === "play" || operation === "queue") {
+        const request = libraryContextBody(body);
+        const context = await library.resolveContext(
+          request.context,
+          request.id,
+          request.selectedTrackId,
+        );
+        return applyRemoteLibraryContext(context, operation === "queue");
+      }
+      if (operation === "play-favorites-tracks") {
+        const request = favoriteTracksPlayBody(body);
+        return applyRemoteLibraryContext(
+          await library.resolveFavorites(
+            request.selectedTrackId,
+            request.catalogFingerprint,
+          ),
+          false,
+        );
+      }
+      if (operation === "play-favorites-albums")
+        return applyRemoteLibraryContext(
+          await library.resolveFavoriteAlbums(),
+          false,
+        );
+      if (operation === "play-favorites-artists")
+        return applyRemoteLibraryContext(
+          await library.resolveFavoriteArtists(),
+          false,
+        );
+      if (operation === "play-recently-played") {
+        const request = recentlyPlayedPlayBody(body);
+        return applyRemoteLibraryContext(
+          await library.resolveRecentlyPlayed(request.selectedHistoryId),
+          false,
+        );
+      }
+      if (operation === "play-most-played") {
+        const request = mostPlayedPlayBody(body);
+        return applyRemoteLibraryContext(
+          await library.resolveMostPlayed(request.selectedTrackId),
+          false,
+        );
+      }
+      const playlistId =
+        typeof body.playlistId === "string" &&
+        /^playlist-[0-9a-f]{32}$/u.test(body.playlistId)
+          ? body.playlistId
+          : "";
+      if (!playlistId)
+        throw new LibraryError("INVALID_PLAYLIST", "Select a valid playlist.");
+      const request = playlistPlayBody(body);
+      return applyRemoteLibraryContext(
+        await library.resolvePlaylist(playlistId, request.selectedItemId),
+        false,
+      );
+    },
+    browseSources: () => sources.list(),
+    browse: (sourceId, relativePath) => folders.browse(sourceId, relativePath),
+    browseAction: async (sourceId, action, body) => {
+      if (
+        typeof body.entryId === "string" &&
+        /^entry-[0-9a-f]{32}$/u.test(body.entryId)
+      ) {
+        if (action === "play") {
+          const queue = await folders.queueForEntry(sourceId, body.entryId);
+          await player.openResolvedQueue(
+            queue.paths,
+            queue.selectedIndex,
+            await persistentFolderOrigins(sourceId, queue.relativePaths),
+            player.reserveOpenRequest(),
+          );
+          return {
+            queueLength: queue.paths.length,
+            selectedIndex: queue.selectedIndex,
+            appendedCount: 0,
+          };
+        }
+        const path = await folders.pathForEntry(sourceId, body.entryId);
+        const relativePath = folders.relativePathForEntry(
+          sourceId,
+          body.entryId,
+        );
+        const appendedCount = await player.append(
+          [path],
+          await persistentFolderOrigins(sourceId, [relativePath]),
+        );
+        return {
+          queueLength: player.getState().queue.length,
+          appendedCount,
+        };
+      }
+      const relativePath =
+        typeof body.relativePath === "string" ? body.relativePath : "";
+      const queue = await folders.queueForDirectoryWithOrigins(
+        sourceId,
+        relativePath,
+      );
+      const origins = await persistentFolderOrigins(
+        sourceId,
+        queue.relativePaths,
+      );
+      if (action === "play") {
+        if (queue.paths.length > 0)
+          await player.openResolvedQueue(
+            queue.paths,
+            0,
+            origins,
+            player.reserveOpenRequest(),
+          );
+        return {
+          queueLength: queue.paths.length,
+          appendedCount: queue.paths.length,
+        };
+      }
+      const appendedCount =
+        queue.paths.length > 0 ? await player.append(queue.paths, origins) : 0;
+      return {
+        queueLength: player.getState().queue.length,
+        appendedCount,
+      };
+    },
+    artwork: async (kind, id) => {
+      if (kind === "player") return player.getArtworkResource(id);
+      const artwork = await player.resolveQueueArtwork(id);
+      return artwork ? player.getArtworkResource(artwork.id) : null;
+    },
+    wakeDisplay: async () => {
+      await display.wake();
+    },
+    wakeAvailable: () =>
+      installationMode === "appliance" || remoteAccessFixture,
+  },
+  resolveRemoteUiStaticRoot(),
+);
+remoteAccess.attachLifecycle(remoteGateway);
+void remoteAccess.initialize();
+
+async function runRemoteAccessOperation<T>(
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof RemoteAccessError) throw error;
+    throw new RemoteAccessError(
+      "REMOTE_ACCESS_REQUEST_FAILED",
+      error instanceof Error
+        ? error.message
+        : "The Remote access request could not be completed.",
+    );
+  }
+}
+
 function objectBody(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new FilesystemError(
@@ -1225,6 +1540,7 @@ async function handleRequest(
     const origin = request.headers.origin;
     const updateRoute = url.pathname.startsWith("/api/system/update");
     const displayRoute = url.pathname.startsWith("/api/display");
+    const remoteManagementRoute = url.pathname.startsWith("/api/remote-access");
     let localOrigin = true;
     if (origin) {
       try {
@@ -1245,7 +1561,16 @@ async function handleRequest(
         );
       }
     }
-    if ((updateRoute || displayRoute) && !localOrigin) {
+    if (
+      (updateRoute || displayRoute || remoteManagementRoute) &&
+      !localOrigin
+    ) {
+      if (remoteManagementRoute)
+        throw new RemoteAccessError(
+          "REMOTE_ACCESS_LOCAL_ONLY",
+          "Remote access management is available only in the local appliance interface.",
+          403,
+        );
       if (displayRoute)
         throw new DisplayPowerError(
           "INVALID_DISPLAY_REQUEST",
@@ -1285,11 +1610,17 @@ async function handleRequest(
       return;
     }
     if (
-      (updateRoute || displayRoute) &&
+      (updateRoute || displayRoute || remoteManagementRoute) &&
       !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(
         request.socket.remoteAddress ?? "",
       )
     ) {
+      if (remoteManagementRoute)
+        throw new RemoteAccessError(
+          "REMOTE_ACCESS_LOCAL_ONLY",
+          "Remote access management is available only in the local appliance interface.",
+          403,
+        );
       if (displayRoute)
         throw new DisplayPowerError(
           "INVALID_DISPLAY_REQUEST",
@@ -1301,6 +1632,98 @@ async function handleRequest(
         "Software Update is available only in the local appliance interface.",
         403,
       );
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/remote-access/state"
+    ) {
+      await remoteAccess.initialize();
+      sendJson(response, 200, {
+        ok: true,
+        data: remoteAccess.snapshot(true),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      (url.pathname === "/api/remote-access/enable" ||
+        url.pathname === "/api/remote-access/disable" ||
+        url.pathname === "/api/remote-access/retry")
+    ) {
+      requireJson(request);
+      const body = objectBody(await readBody(request, 1024));
+      if (Object.keys(body).length !== 0)
+        throw new RemoteAccessError(
+          "INVALID_REMOTE_ACCESS_REQUEST",
+          "The Remote access request must be empty.",
+        );
+      const data = await runRemoteAccessOperation(() =>
+        url.pathname.endsWith("/enable")
+          ? remoteAccess.enable()
+          : url.pathname.endsWith("/disable")
+            ? remoteAccess.disable()
+            : remoteAccess.retry(),
+      );
+      sendJson(response, 200, { ok: true, data });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/remote-access/pairing-code"
+    ) {
+      requireJson(request);
+      const body = objectBody(await readBody(request, 1024));
+      if (Object.keys(body).length !== 0)
+        throw new RemoteAccessError(
+          "INVALID_REMOTE_ACCESS_REQUEST",
+          "The pairing request must be empty.",
+        );
+      await remoteAccess.initialize();
+      await runRemoteAccessOperation(() => remoteAccess.createPairingCode());
+      sendJson(response, 200, {
+        ok: true,
+        data: remoteAccess.snapshot(true),
+      });
+      return;
+    }
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/api/remote-access/pairing-code"
+    ) {
+      await readBody(request, 1024);
+      remoteAccess.cancelPairing();
+      sendJson(response, 200, {
+        ok: true,
+        data: remoteAccess.snapshot(true),
+      });
+      return;
+    }
+    const remoteDeviceMatch =
+      /^\/api\/remote-access\/devices\/(remote-device-[0-9a-f]{32})$/u.exec(
+        url.pathname,
+      );
+    if (request.method === "DELETE" && remoteDeviceMatch) {
+      await readBody(request, 1024);
+      await runRemoteAccessOperation(() =>
+        remoteAccess.revoke(remoteDeviceMatch[1] ?? ""),
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: remoteAccess.snapshot(true),
+      });
+      return;
+    }
+    if (
+      request.method === "DELETE" &&
+      url.pathname === "/api/remote-access/devices"
+    ) {
+      await readBody(request, 1024);
+      await runRemoteAccessOperation(() => remoteAccess.revokeAll());
+      sendJson(response, 200, {
+        ok: true,
+        data: remoteAccess.snapshot(true),
+      });
+      return;
     }
     if (updateRoute) await softwareUpdateInitialization;
     if (request.method === "GET" && url.pathname === "/api/display/state") {
@@ -3345,6 +3768,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof RemoteAccessError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof UpdateError) {
       sendJson(response, error.status, {
         ok: false,
@@ -3426,6 +3856,7 @@ server.listen(config.backendPort, config.backendHost, () => {
     `[backend] listening on http://${config.backendHost}:${String(config.backendPort)}`,
   );
   void bootstrapPromise.catch(() => undefined);
+  void remoteAccess.startStoredPreference();
 });
 
 let shuttingDown = false;
@@ -3463,6 +3894,7 @@ function shutdown(signal: NodeJS.Signals): void {
         waveform.close(),
         folders.close(),
         smbFolders.close(),
+        remoteAccess.close(),
         removableStorage.close(),
         network.close(),
         smb.close(),

@@ -3,6 +3,9 @@
 These documents expand the mandatory rules in the repository
 [`AGENTS.md`](../../AGENTS.md).
 
+- [LAN remote access](remote-access.md) — isolated listener, pairing, session
+  security, API allowlist, and release lifecycle.
+
 - [Architecture](architecture.md) — component boundaries and state ownership.
 - [Touch UI and UX](ui-ux.md) — physical touch, stable geometry, loading, and
   transitions.

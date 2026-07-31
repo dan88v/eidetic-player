@@ -505,6 +505,10 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
       EIDETIC_FAILURE_REASON="build phase failed: backend artifact was not produced"
       return 1
     }
+    [[ -f "$build_source/dist/remote-ui/index.html" ]] || {
+      EIDETIC_FAILURE_REASON="build phase failed: Remote UI artifact was not produced"
+      return 1
+    }
     case "$EIDETIC_ARCH" in
       amd64) neutralino_arch=x64 ;;
       arm64) neutralino_arch=arm64 ;;
@@ -618,6 +622,7 @@ install -d -m 0755 "$release_stage/bin"
 
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   cp -a "$build_source/dist/backend" "$release_stage/backend"
+  cp -a "$build_source/dist/remote-ui" "$release_stage/remote-ui"
   install -m 0644 "$build_source/dist/build-info.json" \
     "$release_stage/build-info.json"
   install -m 0755 "$shell_binary" "$release_stage/eidetic-player"

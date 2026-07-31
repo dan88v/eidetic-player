@@ -1,11 +1,19 @@
 import type { ServerResponse } from "node:http";
+import type { RemoteAccessState } from "../../../../packages/shared/src/remote-access.js";
 import type { PlayerService } from "../player/player-service.js";
 import type { AudioOutputService } from "../audio-output/audio-output-service.js";
+
+interface RemoteAccessStateSource {
+  subscribe(listener: (state: RemoteAccessState) => void): () => void;
+  snapshot(includePairingCode?: boolean): RemoteAccessState;
+}
 
 export class SseHub {
   private readonly clients = new Set<ServerResponse>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeAudioOutput: () => void;
+  private unsubscribeRemoteAccess = (): void => undefined;
+  private remoteAccess: RemoteAccessStateSource | null = null;
   private readonly keepalive: NodeJS.Timeout;
 
   constructor(
@@ -38,13 +46,28 @@ export class SseHub {
     this.send(response, this.player.getPublicState());
     if (this.audioOutput)
       this.sendNamed(response, "audio-output", this.audioOutput.snapshot());
+    if (this.remoteAccess)
+      this.sendNamed(
+        response,
+        "remote-access",
+        this.remoteAccess.snapshot(true),
+      );
     response.once("close", () => this.clients.delete(response));
+  }
+
+  attachRemoteAccess(source: RemoteAccessStateSource): void {
+    this.unsubscribeRemoteAccess();
+    this.remoteAccess = source;
+    this.unsubscribeRemoteAccess = source.subscribe((state) => {
+      this.broadcastNamed("remote-access", state);
+    });
   }
 
   close(): void {
     clearInterval(this.keepalive);
     this.unsubscribe();
     this.unsubscribeAudioOutput();
+    this.unsubscribeRemoteAccess();
     for (const client of this.clients) client.end();
     this.clients.clear();
   }

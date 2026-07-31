@@ -6,6 +6,7 @@ import type { FoldersApiClient } from "../api/folders-api-client";
 import type { LibraryApiClient } from "../api/library-api-client";
 import type { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import type { NetworkApiClient } from "../api/network-api-client";
+import type { RemoteAccessApiClient } from "../api/remote-access-api-client";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type {
   SmbConnection,
@@ -86,6 +87,7 @@ export interface ScreenContext {
   readonly foldersApi: FoldersApiClient;
   readonly removableApi: RemovableStorageApiClient;
   readonly networkApi: NetworkApiClient;
+  readonly remoteAccessApi: RemoteAccessApiClient;
   readonly networkSnapshot: NetworkSnapshot;
   readonly audioOutputApi: AudioOutputApiClient;
   readonly audioOutputState: AudioOutputState;
@@ -305,6 +307,7 @@ export function createScreen(
         testDisplayDim: context.testDisplayDim,
         testDisplayStandby: context.testDisplayStandby,
         networkApi: context.networkApi,
+        remoteAccessApi: context.remoteAccessApi,
         networkSnapshot: context.networkSnapshot,
         audioOutputApi: context.audioOutputApi,
         audioOutputState: context.audioOutputState,

@@ -16,6 +16,7 @@ import { FoldersApiClient } from "../api/folders-api-client";
 import { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
 import { NetworkApiClient } from "../api/network-api-client";
+import { RemoteAccessApiClient } from "../api/remote-access-api-client";
 import { SmbApiClient } from "../api/smb-api-client";
 import { SystemApiClient } from "../api/system-api-client";
 import { AudioOutputApiClient } from "../api/audio-output-api-client";
@@ -117,6 +118,7 @@ export function mountApp(
   const removableApi = new RemovableStorageApiClient();
   const libraryApi = new LibraryApiClient();
   const networkApi = new NetworkApiClient();
+  const remoteAccessApi = new RemoteAccessApiClient();
   const smbApi = new SmbApiClient();
   const systemApi = new SystemApiClient();
   const audioOutputApi = new AudioOutputApiClient();
@@ -566,6 +568,7 @@ export function mountApp(
       foldersApi,
       removableApi,
       networkApi,
+      remoteAccessApi,
       networkSnapshot,
       audioOutputApi,
       audioOutputState,
@@ -1251,6 +1254,9 @@ export function mountApp(
       // EventSource retries automatically; the last valid state remains visible.
     },
     receiveAudioOutputState,
+    (state) => {
+      remoteAccessApi.receiveState(state);
+    },
   );
   void Promise.resolve(initialPlayerState)
     .then(async (state) => {

@@ -1705,6 +1705,102 @@
     border-radius: var(--radius-lg);
     background: var(--color-surface);
   }
+
+  .remote-access-panel {
+    margin-top: 20px;
+  }
+
+  .remote-access-settings {
+    padding-bottom: 24px;
+  }
+
+  .remote-access-loading {
+    margin: 20px 0;
+    color: var(--color-text-secondary);
+  }
+
+  .remote-access-action {
+    min-width: 104px;
+  }
+
+  .remote-access-primary-action {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .remote-access-address small {
+    overflow-wrap: anywhere;
+  }
+
+  .remote-access-status {
+    white-space: nowrap;
+  }
+
+  .remote-access-navigation__indicators {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .remote-access-unavailable {
+    min-height: 88px;
+  }
+
+  .remote-access-unavailable-note {
+    margin: 18px 0 0;
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+
+  .remote-access-pairing {
+    display: grid;
+    min-height: 168px;
+    place-items: center;
+    gap: 8px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .remote-access-pairing > strong {
+    color: var(--color-text-primary);
+    font-size: clamp(40px, 5vw, 58px);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.16em;
+  }
+
+  .remote-access-pairing > small {
+    color: var(--color-text-secondary);
+  }
+
+  .remote-access-devices-heading {
+    min-height: 72px;
+  }
+
+  .settings-row-base.remote-access-devices-heading:hover,
+  .settings-row-base.remote-access-devices-heading:active {
+    background: transparent;
+  }
+
+  .button.remote-access-revoke {
+    min-height: 44px;
+    padding-inline: var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+  }
+
+  .settings-page-action.remote-access-revoke-all {
+    justify-content: center;
+    border-color: var(--color-danger, #c43d3d);
+    background: var(--color-danger, #c43d3d);
+    color: #fff;
+    font-weight: 650;
+    text-align: center;
+  }
+
+  .settings-page-action.remote-access-revoke-all:not(:disabled):hover {
+    background: color-mix(in srgb, var(--color-danger, #c43d3d) 88%, #fff);
+  }
   .settings-panel h2 {
     padding: var(--space-5) var(--space-6);
     border-bottom: 1px solid var(--color-border);

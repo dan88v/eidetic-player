@@ -17,6 +17,7 @@ import type {
 } from "../state/types";
 import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { NetworkApiClient } from "../api/network-api-client";
+import type { RemoteAccessApiClient } from "../api/remote-access-api-client";
 import type { SystemCapabilities } from "../../../../packages/shared/src/system";
 import type {
   AudioOutputDevice,
@@ -37,6 +38,10 @@ import {
   networkSummary,
   type NetworkSettingsPanel,
 } from "./network-settings-panel";
+import {
+  createRemoteAccessSettingsPanel,
+  type RemoteAccessSettingsPanel,
+} from "./remote-access-settings-panel";
 import type { UpdateApiClient } from "../api/update-api-client";
 import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 import {
@@ -74,6 +79,7 @@ export interface SettingsScreenOptions {
   readonly testDisplayDim: () => Promise<void>;
   readonly testDisplayStandby: () => Promise<void>;
   readonly networkApi: NetworkApiClient;
+  readonly remoteAccessApi: RemoteAccessApiClient;
   readonly networkSnapshot: NetworkSnapshot;
   readonly audioOutputApi: AudioOutputApiClient;
   readonly audioOutputState: AudioOutputState;
@@ -101,6 +107,7 @@ type SettingsPage =
   | "root"
   | "interface"
   | "network"
+  | "remote-access"
   | "audio"
   | "audio-output"
   | "audio-output-routes"
@@ -248,6 +255,7 @@ export function createSettingsScreen(
   let pendingAudioRouteId: string | null = null;
   let pendingPhysicalOutputId: string | null = null;
   let networkPanel: NetworkSettingsPanel | null = null;
+  let remoteAccessPanel: RemoteAccessSettingsPanel | null = null;
   let parametricEqEditor: ParametricEqEditor | null = null;
   let audioSelectionBusy = false;
   let audioRefreshBusy = false;
@@ -296,6 +304,7 @@ export function createSettingsScreen(
     )
       page = "display";
     else if (page === "display") page = "system";
+    else if (page === "remote-access") page = "root";
     else
       page =
         page === "interface" ||
@@ -373,6 +382,74 @@ export function createSettingsScreen(
     pill.className = `settings-state-pill settings-state-pill--${tone}`;
     pill.textContent = label;
     return pill;
+  };
+
+  const createRemoteAccessNavigation = (): HTMLButtonElement => {
+    const remoteRow = document.createElement("button");
+    remoteRow.className =
+      "settings-row-base setting-navigation remote-access-navigation";
+    remoteRow.type = "button";
+    const remoteCopy = document.createElement("span");
+    const remoteTitle = document.createElement("strong");
+    remoteTitle.textContent = "Remote access";
+    const remoteDetail = document.createElement("small");
+    remoteDetail.textContent = "Checking availability…";
+    remoteCopy.append(remoteTitle, remoteDetail);
+    const remoteIndicators = document.createElement("span");
+    remoteIndicators.className = "remote-access-navigation__indicators";
+    const remoteStatus = statePill("Checking", "pending");
+    remoteIndicators.append(remoteStatus);
+    remoteIndicators.insertAdjacentHTML("beforeend", chevron());
+    remoteRow.append(remoteCopy, remoteIndicators);
+    remoteRow.addEventListener("click", () => {
+      page = "remote-access";
+      render();
+      resetSettingsScroll();
+    });
+    void options.remoteAccessApi
+      .state()
+      .catch(() => options.remoteAccessApi.state())
+      .then((remoteState) => {
+        if (!remoteRow.isConnected) return;
+        if (!remoteState.available) {
+          remoteDetail.textContent = "Unavailable in this build.";
+          remoteStatus.textContent = "Unavailable";
+          remoteStatus.className =
+            "settings-state-pill settings-state-pill--muted";
+          return;
+        }
+        remoteDetail.textContent =
+          remoteState.status === "listening"
+            ? "Available to paired devices on this local network."
+            : remoteState.status === "starting"
+              ? "Starting the LAN listener…"
+              : remoteState.status === "error"
+                ? "The LAN listener could not start."
+                : "Available, currently Off.";
+        remoteStatus.textContent =
+          remoteState.status === "listening"
+            ? "On"
+            : remoteState.status === "starting"
+              ? "Starting"
+              : remoteState.status === "error"
+                ? "Error"
+                : "Off";
+        remoteStatus.className = `settings-state-pill settings-state-pill--${
+          remoteState.status === "listening"
+            ? "active"
+            : remoteState.status === "starting"
+              ? "pending"
+              : "muted"
+        }`;
+      })
+      .catch(() => {
+        if (!remoteRow.isConnected) return;
+        remoteDetail.textContent = "Status could not be loaded.";
+        remoteStatus.textContent = "Unknown";
+        remoteStatus.className =
+          "settings-state-pill settings-state-pill--muted";
+      });
+    return remoteRow;
   };
 
   const selectAudioRoute = (
@@ -571,6 +648,8 @@ export function createSettingsScreen(
     updatePageRefresh = null;
     networkPanel?.destroy();
     networkPanel = null;
+    remoteAccessPanel?.destroy();
+    remoteAccessPanel = null;
     parametricEqEditor?.destroy();
     parametricEqEditor = null;
     confirmationDialog.close();
@@ -600,6 +679,28 @@ export function createSettingsScreen(
       header.prepend(back);
       header.append(networkPanel.selectorElement);
       section.append(header, networkPanel.element);
+      return;
+    }
+    if (page === "remote-access") {
+      options.setScreenTitle(t("screen.settings.title"));
+      options.setHeaderActions(null, null);
+      const remoteHeader = document.createElement("header");
+      remoteHeader.className = "screen-header screen-header--compact";
+      remoteHeader.setAttribute("aria-label", "Remote access");
+      remoteHeader.innerHTML =
+        '<p class="screen-header__description">Pair trusted devices for player control on the local network.</p>';
+      const back = document.createElement("button");
+      back.className = "icon-button settings-back";
+      back.type = "button";
+      back.setAttribute("aria-label", t("common.back"));
+      back.innerHTML = icon("back");
+      back.addEventListener("click", navigateBack);
+      remoteHeader.prepend(back);
+      remoteAccessPanel = createRemoteAccessSettingsPanel({
+        api: options.remoteAccessApi,
+        showToast: options.showToast,
+      });
+      section.append(remoteHeader, remoteAccessPanel.element);
       return;
     }
     const header = document.createElement("header");
@@ -791,7 +892,13 @@ export function createSettingsScreen(
         render();
         resetSettingsScroll();
       });
-      panel.append(interfaceButton, audioButton, networkButton);
+      const remoteAccessButton = createRemoteAccessNavigation();
+      panel.append(
+        interfaceButton,
+        audioButton,
+        networkButton,
+        remoteAccessButton,
+      );
       const systemButton = document.createElement("button");
       systemButton.className = "settings-row-base setting-navigation";
       systemButton.type = "button";
@@ -2113,6 +2220,7 @@ export function createSettingsScreen(
     },
     destroy() {
       networkPanel?.destroy();
+      remoteAccessPanel?.destroy();
       parametricEqEditor?.destroy();
       confirmationDialog.destroy();
       updatePageRefresh = null;

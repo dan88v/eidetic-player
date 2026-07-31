@@ -14,6 +14,7 @@ export default tseslint.config(
       parserOptions: {
         project: [
           "./apps/ui/tsconfig.json",
+          "./apps/remote-ui/tsconfig.json",
           "./apps/backend/tsconfig.json",
           "./scripts/tsconfig.json",
           "./packages/on-screen-keyboard/tsconfig.json",

@@ -222,6 +222,10 @@ export async function verifyLinuxRelease(
       "built UI entrypoint",
       resolve(root, "dist/ui/index.html"),
     );
+    await requireFile(
+      "built Remote UI entrypoint",
+      resolve(root, "dist/remote-ui/index.html"),
+    );
     const resourceFiles = entries.filter(
       (entry) =>
         entry.relative.startsWith("dist/eidetic-player/") &&
@@ -247,6 +251,19 @@ export async function verifyLinuxRelease(
       uiAssets.some((entry) => entry.relative.endsWith(".css")) &&
         uiAssets.some((entry) => entry.relative.endsWith(".js")),
     );
+    const remoteAssets = entries.filter(
+      (entry) =>
+        entry.relative.startsWith("dist/remote-ui/assets/") &&
+        /\.(?:css|js)$/i.test(entry.relative) &&
+        entry.size > 0,
+    );
+    addCheck(
+      passed,
+      failed,
+      "non-empty built Remote UI CSS and JavaScript assets",
+      remoteAssets.some((entry) => entry.relative.endsWith(".css")) &&
+        remoteAssets.some((entry) => entry.relative.endsWith(".js")),
+    );
   } else {
     addCheck(
       passed,
@@ -261,8 +278,22 @@ export async function verifyLinuxRelease(
       ["Neutralino configuration", "neutralino.config.json"],
       ["production package manifest", "package.json"],
       ["production lockfile", "package-lock.json"],
+      ["Remote UI entrypoint", "remote-ui/index.html"],
     ] as const)
       await requireFile(label, resolve(root, path));
+    const remoteAssets = entries.filter(
+      (entry) =>
+        entry.relative.startsWith("remote-ui/assets/") &&
+        /\.(?:css|js)$/i.test(entry.relative) &&
+        entry.size > 0,
+    );
+    addCheck(
+      passed,
+      failed,
+      "non-empty staged Remote UI CSS and JavaScript assets",
+      remoteAssets.some((entry) => entry.relative.endsWith(".css")) &&
+        remoteAssets.some((entry) => entry.relative.endsWith(".js")),
+    );
     if (options.sourceRoot && (await exists(resolve(root, "eidetic-player"))))
       addCheck(
         passed,

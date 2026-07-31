@@ -14,6 +14,7 @@ import type {
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 import type { PreferencesSnapshot } from "../../../../packages/shared/src/preferences";
 import type { DisplaySnapshot } from "../../../../packages/shared/src/display";
+import type { RemoteAccessState } from "../../../../packages/shared/src/remote-access";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
@@ -70,6 +71,7 @@ export class PlayerApiClient {
     onState: (state: PlayerState) => void,
     onConnectionError: () => void,
     onAudioOutputState?: (state: AudioOutputState) => void,
+    onRemoteAccessState?: (state: RemoteAccessState) => void,
   ): () => void {
     const source = new EventSource(`${this.baseUrl}/api/player/events`);
     source.onmessage = (event) => {
@@ -86,6 +88,15 @@ export class PlayerApiClient {
         if (typeof event.data !== "string")
           throw new Error("Invalid SSE payload");
         onAudioOutputState?.(JSON.parse(event.data) as AudioOutputState);
+      } catch {
+        onConnectionError();
+      }
+    });
+    source.addEventListener("remote-access", (event) => {
+      try {
+        if (typeof event.data !== "string")
+          throw new Error("Invalid SSE payload");
+        onRemoteAccessState?.(JSON.parse(event.data) as RemoteAccessState);
       } catch {
         onConnectionError();
       }

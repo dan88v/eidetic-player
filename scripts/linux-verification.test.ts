@@ -303,6 +303,9 @@ async function makeBuildFixture(
     ["dist/ui/index.html", "<!doctype html>\n"],
     ["dist/ui/assets/app.css", "body{}\n"],
     ["dist/ui/assets/app.js", "export {};\n"],
+    ["dist/remote-ui/index.html", "<!doctype html>\n"],
+    ["dist/remote-ui/assets/remote.css", "body{}\n"],
+    ["dist/remote-ui/assets/remote.js", "export {};\n"],
     ["dist/eidetic-player/resources.neu", Buffer.from("NEU")],
     ["neutralino.config.json", "{}\n"],
     [
@@ -335,6 +338,9 @@ async function makeStagedFixture(): Promise<{
     ["neutralino.config.json", "{}\n"],
     ["package.json", '{"type":"module"}\n'],
     ["package-lock.json", '{"lockfileVersion":3}\n'],
+    ["remote-ui/index.html", "<!doctype html>\n"],
+    ["remote-ui/assets/remote.css", "body{}\n"],
+    ["remote-ui/assets/remote.js", "export {};\n"],
     ["node_modules/music-metadata/package.json", '{"name":"music-metadata"}\n'],
   ]);
   for (const [relativePath, content] of files) {
@@ -446,6 +452,8 @@ void test("staged verifier accepts a complete release and rejects deployment mut
     "neutralino.config.json",
     "package-lock.json",
     "build-info.json",
+    "remote-ui/index.html",
+    "remote-ui/assets/remote.css",
     "node_modules/music-metadata",
   ]) {
     const fixture = await makeStagedFixture();

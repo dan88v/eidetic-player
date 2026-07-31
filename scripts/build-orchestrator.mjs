@@ -25,6 +25,11 @@ export const applicationBuildSteps = Object.freeze([
     arguments: Object.freeze(["run", "build:ui"]),
   }),
   Object.freeze({
+    id: "build-remote",
+    command: "npm",
+    arguments: Object.freeze(["run", "build:remote"]),
+  }),
+  Object.freeze({
     id: "build-backend",
     command: "npm",
     arguments: Object.freeze(["run", "build:backend"]),
