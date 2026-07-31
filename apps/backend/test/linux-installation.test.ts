@@ -564,11 +564,15 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
   assert.match(remoteUpdate, /git merge --ff-only/);
   assert.match(
     remoteUpdate,
-    /sudo \.\/deploy\/linux\/update-eidetic-player\.sh\s*\n/,
+    /sudo \.\/deploy\/linux\/update-eidetic-player\.sh \\\s*\n\s*--ref "\$checkout_target" --unattended/,
   );
   assert.match(remoteUpdate, /doctor-installation\.sh/);
   assert.match(remoteUpdate, /installed Build ID does not match/);
-  assert.match(remoteUpdate, /--ref "\$branch" --unattended/);
+  assert.doesNotMatch(remoteUpdate, /--ref "\$branch" --unattended/);
+  assert.equal(
+    remoteUpdate.match(/--ref "\$checkout_target" --unattended/g)?.length,
+    2,
+  );
   assert.doesNotMatch(
     remoteUpdate,
     /^\s*(?:sudo\s+)?(?:reboot|shutdown|poweroff)\b/m,

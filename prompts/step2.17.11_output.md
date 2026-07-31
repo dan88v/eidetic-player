@@ -334,3 +334,25 @@ Correction validation:
 
 This correction changes no production copy path, runtime listener, updater,
 application UI, or dependency. It was not committed or pushed automatically.
+
+## Post-update correction — exact target propagation
+
+The first remote run fast-forwarded the Raspberry checkout from `653a428` to
+`3f91ece`, while the installed release remained `8aff5ea`. The wrapper then
+invoked the updater without `--ref`. Because `install.conf` intentionally pins
+`EIDETIC_GIT_REF` to the installed exact commit, target resolution selected
+`8aff5ea` and returned `Already up to date.`. The wrapper correctly rejected
+the resulting installed/checkout Build-ID mismatch with exit code 69.
+
+The remote wrapper now passes the full `checkout_target` SHA explicitly to the
+first update and to the final no-op proof. Both updater calls are unattended
+only after the visible SSH and `sudo` privilege boundary. This also prevents a
+moving `main` branch from changing the target between checkout validation,
+installation, and no-op verification. No Raspberry update was launched while
+making this correction, and no commit or push was performed automatically.
+
+Validation passed with PowerShell syntax parsing and the focused
+`linux-installation.test.ts` suite (16/16). A read-only Raspberry dry-run using
+the exact SHA reported installed `8aff5ea`, target `3f91ece`, preserved
+application data, configuration and GPIO/I²S state, required service restart,
+and no reboot; it made no release or service change.

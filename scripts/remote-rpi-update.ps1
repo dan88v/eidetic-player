@@ -93,9 +93,10 @@ checkout_target=$(git rev-parse HEAD)
 printf 'Checkout target:  %s\n' "$checkout_target"
 printf 'Target Build ID:  %.7s\n' "$checkout_target"
 
-printf '\n=== 3/6 Guided Eidetic Player update ===\n'
-printf 'All updater and sudo prompts remain attached to this terminal.\n'
-sudo ./deploy/linux/update-eidetic-player.sh
+printf '\n=== 3/6 Exact-target Eidetic Player update ===\n'
+printf 'The sudo prompt remains attached; the update is pinned to the checkout SHA.\n'
+sudo ./deploy/linux/update-eidetic-player.sh \
+  --ref "$checkout_target" --unattended
 
 printf '\n=== 4/6 Post-update state ===\n'
 installed_after=$(read_build_id)
@@ -118,7 +119,7 @@ sudo ./deploy/linux/doctor-installation.sh
 
 printf '\n=== 6/6 Same-commit no-op proof ===\n'
 sudo ./deploy/linux/update-eidetic-player.sh \
-  --ref "$branch" --unattended
+  --ref "$checkout_target" --unattended
 
 printf '\n=== Remote guided update completed successfully ===\n'
 printf 'Build ID: %s\n' "$installed_after"

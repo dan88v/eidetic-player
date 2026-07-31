@@ -43,7 +43,7 @@ All repository-owned `remote-rpi-*.ps1` workflows enforce public-key
 authentication with SSH batch mode. They fail immediately if this key setup is
 unavailable; they never fall back to an SSH account-password prompt.
 
-## Guided update
+## Exact-head remote update
 
 After the exact `main` CI run is green, run:
 
@@ -57,11 +57,11 @@ The updater:
    working tree;
 2. synchronizes the checkout to `origin/main` using fast-forward only;
 3. records the installed and target Build IDs;
-4. starts the guided production updater with visible SSH, `sudo` and updater
-   prompts;
+4. starts the production updater with visible SSH and `sudo`, explicitly pinned
+   to the exact checkout SHA and unattended after privilege authorization;
 5. verifies the installed Build ID, user service, readiness API and read-only
    installation doctor;
-6. reruns the updater unattended on the same ref to prove
+6. reruns the updater unattended on the same exact SHA to prove
    `Already up to date.`;
 7. performs no reboot.
 
