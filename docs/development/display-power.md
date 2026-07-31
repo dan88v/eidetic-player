@@ -18,8 +18,11 @@ updater, or the platform shell.
   own automatic timer while playback is loading or playing. Playback remains
   owned by MPV and PlayerService.
 
-Display state is returned by explicit REST operations and bootstrap. There is
-no display polling, permanent HTTP request, or display EventSource.
+Display state is returned by explicit REST operations and bootstrap. Changes
+are also published as a named event on the local UI's existing player SSE so a
+Remote wake and backend test fail-safe can reconcile the UI-owned software
+overlay. There is no display polling, permanent display request, or additional
+Display EventSource.
 
 ## Timer and activity contract
 
@@ -38,6 +41,12 @@ volume, navigation, or text input underneath it. Subsequent input behaves
 normally. A capture-phase click fallback covers WebKitGTK touch taps that do
 not expose a usable Pointer Event; the compatibility click following a normal
 `pointerdown` remains consumed without issuing a duplicate wake.
+
+An authenticated Remote wake is not a local input and therefore is not
+consumed by the shield. The backend publishes its newer Display revision; the
+idle controller accepts that snapshot, removes the software overlay and wake
+shield, establishes a fresh local activity epoch, and resumes the saved idle
+policy without issuing a second wake request.
 
 Automatic dim and standby are suspended while playback is loading or playing.
 Starting playback clears the idle timer and restores Active if necessary.

@@ -72,6 +72,7 @@ export class PlayerApiClient {
     onConnectionError: () => void,
     onAudioOutputState?: (state: AudioOutputState) => void,
     onRemoteAccessState?: (state: RemoteAccessState) => void,
+    onDisplayState?: (state: DisplaySnapshot) => void,
   ): () => void {
     const source = new EventSource(`${this.baseUrl}/api/player/events`);
     source.onmessage = (event) => {
@@ -97,6 +98,15 @@ export class PlayerApiClient {
         if (typeof event.data !== "string")
           throw new Error("Invalid SSE payload");
         onRemoteAccessState?.(JSON.parse(event.data) as RemoteAccessState);
+      } catch {
+        onConnectionError();
+      }
+    });
+    source.addEventListener("display", (event) => {
+      try {
+        if (typeof event.data !== "string")
+          throw new Error("Invalid SSE payload");
+        onDisplayState?.(JSON.parse(event.data) as DisplaySnapshot);
       } catch {
         onConnectionError();
       }

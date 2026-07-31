@@ -355,7 +355,7 @@ const powerActions = new PowerActionCoordinator(
     },
   }),
 );
-const events = new SseHub(player, audioOutput);
+const events = new SseHub(player, audioOutput, display);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
 const networkEvents = new NetworkSseHub(network);
 const smbEvents = new SmbSseHub(smb);

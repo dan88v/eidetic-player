@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import {
+  formatRemoteTrackCount,
+  remotePlayerPresentationChanged,
+} from "../src/player-presentation.js";
+import type { RemotePlayerState } from "../../../packages/shared/src/remote-access.js";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -43,6 +48,8 @@ void test("Remote UI exposes exactly four portrait destinations and safe-area la
   assert.match(styles, /overflow-x: hidden/u);
   assert.match(styles, /min-height: 44px/u);
   assert.match(styles, /width: min\(100%, 540px\)/u);
+  assert.match(styles, /remote-content--player/u);
+  assert.match(styles, /grid-template-rows: minmax\(0, 1fr\) auto auto/u);
 });
 
 void test("Remote UI keeps wake separate, confirms clear, and rolls back touch reorder", async () => {
@@ -76,6 +83,75 @@ void test("Remote Player mirrors the appliance transport and hides fixed volume"
   assert.doesNotMatch(source, /Fixed 100%/u);
   assert.match(styles, /\.remote-round-button--mode/u);
   assert.match(styles, /\.remote-header__action\s*\{[\s\S]*border:/u);
+  assert.match(source, /mini\.hidden = destination === "player"/u);
+  assert.match(source, /setPointerCapture/u);
+  assert.match(source, /if \(activeSeek\) return/u);
+  assert.match(source, /remote-player__controls/u);
+});
+
+void test("Remote Player keeps position ticks incremental during seek", () => {
+  const player = {
+    status: "playing",
+    mpvAvailable: true,
+    paused: false,
+    volume: 50,
+    muted: false,
+    shuffleEnabled: false,
+    repeatMode: "off",
+    currentQueueIndex: 0,
+    currentTrack: {
+      title: "Track",
+      filename: "track.flac",
+      artist: "Artist",
+      album: "Album",
+      artwork: null,
+    },
+    queue: [{ id: "queue-1" }],
+    positionSeconds: 10,
+    durationSeconds: 100,
+  } as unknown as RemotePlayerState;
+  assert.equal(
+    remotePlayerPresentationChanged(player, {
+      ...player,
+      positionSeconds: 11,
+    }),
+    false,
+  );
+  assert.equal(
+    remotePlayerPresentationChanged(player, { ...player, paused: true }),
+    true,
+  );
+});
+
+void test("Remote Library labels Album and Artist track counts", () => {
+  assert.equal(formatRemoteTrackCount(1), "1 track");
+  assert.equal(formatRemoteTrackCount(12), "12 tracks");
+  assert.equal(formatRemoteTrackCount("12"), null);
+});
+
+void test("Remote viewport disables device zoom explicitly", async () => {
+  const html = await readFile(resolve(root, "index.html"), "utf8");
+  assert.match(html, /maximum-scale=1\.0/u);
+  assert.match(html, /user-scalable=no/u);
+});
+
+void test("Remote wake reaches the local software-dim owner on the existing SSE", async () => {
+  const backendHub = await readFile(
+    resolve(root, "../backend/src/api/sse-hub.ts"),
+    "utf8",
+  );
+  const localClient = await readFile(
+    resolve(root, "../ui/src/api/player-api-client.ts"),
+    "utf8",
+  );
+  const idleController = await readFile(
+    resolve(root, "../ui/src/display/display-idle-controller.ts"),
+    "utf8",
+  );
+  assert.match(backendHub, /broadcastNamed\("display", state\)/u);
+  assert.match(localClient, /addEventListener\("display"/u);
+  assert.match(idleController, /receiveExternalSnapshot/u);
+  assert.doesNotMatch(localClient, /new EventSource[^\n]*display/iu);
 });
 
 void test("Remote UI starts visibly on plain HTTP LAN origins", async () => {

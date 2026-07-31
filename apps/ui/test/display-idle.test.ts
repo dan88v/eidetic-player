@@ -289,6 +289,18 @@ void test("playback becoming active wakes an already dimmed display", async () =
   fixture.destroy();
 });
 
+void test("remote wake snapshot removes local software dim without a second wake", () => {
+  const fixture = controllerFixture("dimmed");
+  fixture.controller.receiveExternalSnapshot({
+    ...fixture.controller.getSnapshot(),
+    state: "active",
+    revision: fixture.controller.getSnapshot().revision + 1,
+  });
+  assert.equal(fixture.controller.getSnapshot().state, "active");
+  assert.equal(fixture.wakeCalls.value, 0);
+  fixture.destroy();
+});
+
 void test("standby key and wheel wake events are consumed", async () => {
   for (const eventName of ["keydown", "wheel"]) {
     const fixture = controllerFixture("standby");

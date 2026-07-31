@@ -105,6 +105,18 @@ export class DisplayIdleController {
     return this.snapshot;
   }
 
+  receiveExternalSnapshot(snapshot: DisplaySnapshot): void {
+    if (snapshot.revision <= this.snapshot.revision) return;
+    const wasWaitingForWake = this.isWakeState() || this.wakeRecoveryRequired;
+    this.applySnapshot(snapshot);
+    if (snapshot.state === "active" && wasWaitingForWake) {
+      this.lastActivityAt = this.now();
+      this.testWakeAt = null;
+      this.wakeRecoveryRequired = false;
+    }
+    this.schedule();
+  }
+
   updatePreferences(preferences: DisplayIdlePreferences): void {
     this.preferences = preferences;
     this.lastActivityAt = this.now();

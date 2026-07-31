@@ -2,16 +2,23 @@ import type { ServerResponse } from "node:http";
 import type { RemoteAccessState } from "../../../../packages/shared/src/remote-access.js";
 import type { PlayerService } from "../player/player-service.js";
 import type { AudioOutputService } from "../audio-output/audio-output-service.js";
+import type { DisplaySnapshot } from "../../../../packages/shared/src/display.js";
 
 interface RemoteAccessStateSource {
   subscribe(listener: (state: RemoteAccessState) => void): () => void;
   snapshot(includePairingCode?: boolean): RemoteAccessState;
 }
 
+interface DisplayStateSource {
+  subscribe(listener: (state: DisplaySnapshot) => void): () => void;
+  snapshot(): DisplaySnapshot;
+}
+
 export class SseHub {
   private readonly clients = new Set<ServerResponse>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeAudioOutput: () => void;
+  private readonly unsubscribeDisplay: () => void;
   private unsubscribeRemoteAccess = (): void => undefined;
   private remoteAccess: RemoteAccessStateSource | null = null;
   private readonly keepalive: NodeJS.Timeout;
@@ -19,6 +26,7 @@ export class SseHub {
   constructor(
     private readonly player: PlayerService,
     private readonly audioOutput?: AudioOutputService,
+    private readonly display?: DisplayStateSource,
   ) {
     this.unsubscribe = player.subscribe((state) => {
       void state;
@@ -27,6 +35,10 @@ export class SseHub {
     this.unsubscribeAudioOutput =
       audioOutput?.subscribe((state) => {
         this.broadcastNamed("audio-output", state);
+      }) ?? (() => undefined);
+    this.unsubscribeDisplay =
+      display?.subscribe((state) => {
+        this.broadcastNamed("display", state);
       }) ?? (() => undefined);
     this.keepalive = setInterval(() => {
       for (const client of this.clients) client.write(": keepalive\n\n");
@@ -46,6 +58,8 @@ export class SseHub {
     this.send(response, this.player.getPublicState());
     if (this.audioOutput)
       this.sendNamed(response, "audio-output", this.audioOutput.snapshot());
+    if (this.display)
+      this.sendNamed(response, "display", this.display.snapshot());
     if (this.remoteAccess)
       this.sendNamed(
         response,
@@ -67,6 +81,7 @@ export class SseHub {
     clearInterval(this.keepalive);
     this.unsubscribe();
     this.unsubscribeAudioOutput();
+    this.unsubscribeDisplay();
     this.unsubscribeRemoteAccess();
     for (const client of this.clients) client.end();
     this.clients.clear();

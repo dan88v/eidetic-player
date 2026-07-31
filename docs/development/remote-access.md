@@ -76,10 +76,25 @@ stream. The stream closes while the page is hidden and bootstrap is refreshed
 before reconnecting. Remote access never starts an FFmpeg analyzer, adds a
 visualizer stream, or adds polling.
 
+The remote Player keeps its seek input mounted during position-only events.
+Pointer drag previews locally and commits one authoritative seek on release;
+normal player ticks update only the range and time labels. The Player surface
+omits the mini-player, fixes its timeline and transport above the bottom
+navigation, and scales the square artwork into the remaining height so target
+phone viewports do not require vertical scrolling. Other destinations retain
+the mini-player. Album and Artist rows label aggregate values as `track` or
+`tracks` rather than showing an unexplained number. The mobile viewport blocks
+device pinch/double-tap zoom by product request while semantic controls,
+accessible names, and minimum touch targets remain required.
+
 The local appliance UI receives Remote access management snapshots as a named
 event on its existing player SSE. This lets a completed pairing consume the
 code, update Paired devices, and show confirmation immediately without polling
 or opening another local connection.
+
+Display state changes also use a named event on that same local player SSE.
+This is required for a Remote `Wake display` command to remove the appliance
+UI's software-dim overlay; it does not create a display-specific connection.
 
 ## UI and packaging
 

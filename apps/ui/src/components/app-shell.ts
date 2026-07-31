@@ -1257,6 +1257,9 @@ export function mountApp(
     (state) => {
       remoteAccessApi.receiveState(state);
     },
+    (snapshot) => {
+      displayController.receiveExternalSnapshot(snapshot);
+    },
   );
   void Promise.resolve(initialPlayerState)
     .then(async (state) => {

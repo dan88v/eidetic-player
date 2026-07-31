@@ -5,6 +5,11 @@ import type {
   RemoteQueueItem,
 } from "../../../packages/shared/src/remote-access";
 import { createClientSessionId } from "./client-session-id";
+import {
+  formatRemoteTrackCount,
+  remotePlayerPresentationChanged,
+  remotePlayerTrackKey,
+} from "./player-presentation";
 import "./styles.css";
 
 type Destination = "player" | "library" | "browse" | "queue";
@@ -58,6 +63,10 @@ let browseSourceId = "";
 let browseRelativePath = "";
 let libraryAbort: AbortController | null = null;
 let libraryPageRecords: Record<string, unknown>[] = [];
+let activeSeek: {
+  readonly input: HTMLInputElement;
+  readonly trackKey: string | null;
+} | null = null;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -400,6 +409,7 @@ function updateMiniPlayer(target?: HTMLElement): void {
   const mini =
     target ?? document.querySelector<HTMLElement>("[data-mini-player]");
   if (!mini) return;
+  mini.hidden = destination === "player";
   const state = bootstrap.player;
   mini.replaceChildren();
   const open = button("", "remote-mini-player__open", () => {
@@ -435,6 +445,9 @@ function renderCurrentSurface(): void {
   if (!content || !bootstrap) return;
   libraryAbort?.abort();
   libraryAbort = null;
+  if (destination !== "player") activeSeek = null;
+  root.dataset.destination = destination;
+  content.classList.toggle("remote-content--player", destination === "player");
   if (destination === "player") renderPlayer(content);
   else if (destination === "queue") renderQueue(content);
   else if (destination === "browse") renderBrowse(content);
@@ -472,10 +485,11 @@ function renderPlayer(content: HTMLElement): void {
   );
   const timeline = element("div", "remote-timeline");
   const time = element("div", "remote-timeline__time");
-  time.append(
-    element("span", "", formatTime(state.positionSeconds)),
-    element("span", "", formatTime(state.durationSeconds)),
-  );
+  const elapsed = element("span", "", formatTime(state.positionSeconds));
+  elapsed.dataset.playerElapsed = "";
+  const duration = element("span", "", formatTime(state.durationSeconds));
+  duration.dataset.playerDuration = "";
+  time.append(elapsed, duration);
   const seek = element("input");
   seek.type = "range";
   seek.min = "0";
@@ -484,7 +498,36 @@ function renderPlayer(content: HTMLElement): void {
   seek.value = String(state.positionSeconds);
   seek.disabled = !state.currentTrack || connection !== "connected";
   seek.setAttribute("aria-label", "Playback position");
+  seek.dataset.playerSeek = "";
+  let ignoreNextChange: string | null = null;
+  const commitSeek = (): void => {
+    const value = seek.value;
+    activeSeek = null;
+    ignoreNextChange = value;
+    void runCommand("/api/player/seek", {
+      positionSeconds: Number(value),
+    });
+  };
+  seek.addEventListener("pointerdown", (event) => {
+    activeSeek = { input: seek, trackKey: remotePlayerTrackKey(state) };
+    seek.setPointerCapture(event.pointerId);
+  });
+  seek.addEventListener("input", () => {
+    elapsed.textContent = formatTime(Number(seek.value));
+  });
+  seek.addEventListener("pointerup", () => {
+    if (activeSeek?.input === seek) commitSeek();
+  });
+  seek.addEventListener("pointercancel", () => {
+    if (activeSeek?.input === seek) activeSeek = null;
+    updatePlayerProgress(bootstrap?.player ?? state);
+  });
   seek.addEventListener("change", () => {
+    if (ignoreNextChange === seek.value) {
+      ignoreNextChange = null;
+      return;
+    }
+    if (activeSeek?.input === seek) activeSeek = null;
     void runCommand("/api/player/seek", {
       positionSeconds: Number(seek.value),
     });
@@ -588,9 +631,26 @@ function renderPlayer(content: HTMLElement): void {
         "Player unavailable. Library and Browse remain available.",
       ),
     );
-  page.append(artwork, metadata, timeline, transport);
-  if (volumeSection) page.append(volumeSection);
+  const controls = element("div", "remote-player__controls");
+  controls.append(timeline, transport);
+  if (volumeSection) controls.append(volumeSection);
+  page.append(artwork, metadata, controls);
   content.replaceChildren(page);
+}
+
+function updatePlayerProgress(state: RemotePlayerState): void {
+  const seek = document.querySelector<HTMLInputElement>("[data-player-seek]");
+  if (!seek) return;
+  seek.max = String(Math.max(1, state.durationSeconds));
+  seek.disabled = !state.currentTrack || connection !== "connected";
+  if (activeSeek?.input !== seek) seek.value = String(state.positionSeconds);
+  const elapsed = document.querySelector<HTMLElement>("[data-player-elapsed]");
+  const duration = document.querySelector<HTMLElement>(
+    "[data-player-duration]",
+  );
+  if (elapsed && activeSeek?.input !== seek)
+    elapsed.textContent = formatTime(state.positionSeconds);
+  if (duration) duration.textContent = formatTime(state.durationSeconds);
 }
 
 function renderQueue(content: HTMLElement): void {
@@ -922,12 +982,14 @@ function recordLabel(record: Record<string, unknown>): string {
 }
 
 function recordDetail(record: Record<string, unknown>): string {
-  const values = ["artist", "album", "trackCount", "playCount"]
+  const trackCount = formatRemoteTrackCount(record.trackCount);
+  const values = ["artist", "album", "playCount"]
     .map((key) => record[key])
     .filter(
       (value): value is string | number =>
         typeof value === "string" || typeof value === "number",
     );
+  if (trackCount) values.push(trackCount);
   return values.join(" · ");
 }
 
@@ -1245,13 +1307,24 @@ function openStream(): void {
 function receiveEvent(envelope: RemoteEventEnvelope): void {
   if (!bootstrap) return;
   if (envelope.type === "player" && envelope.data) {
+    const previous = bootstrap.player;
+    const next = envelope.data as RemotePlayerState;
     bootstrap = {
       ...bootstrap,
-      player: envelope.data as RemotePlayerState,
+      player: next,
     };
-    if (destination === "player" || destination === "queue")
-      renderCurrentSurface();
-    else updateMiniPlayer();
+    if (destination === "player") {
+      const activeTrackChanged =
+        activeSeek !== null &&
+        activeSeek.trackKey !== remotePlayerTrackKey(next);
+      if (activeTrackChanged) activeSeek = null;
+      if (activeSeek) return;
+      if (remotePlayerPresentationChanged(previous, next))
+        renderCurrentSurface();
+      else updatePlayerProgress(next);
+    } else if (destination === "queue") renderCurrentSurface();
+    else if (remotePlayerPresentationChanged(previous, next))
+      updateMiniPlayer();
   } else if (envelope.type === "audio-output" && envelope.data) {
     bootstrap = {
       ...bootstrap,

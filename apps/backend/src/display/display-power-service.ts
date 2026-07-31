@@ -34,6 +34,7 @@ const defaultScheduler: DisplayScheduler = {
 
 export class DisplayPowerService {
   private state: DisplaySnapshot = defaultDisplaySnapshot;
+  private readonly listeners = new Set<(snapshot: DisplaySnapshot) => void>();
   private operation: Promise<void> = Promise.resolve();
   private testTimer: unknown = null;
   private hdmiAudioActive = false;
@@ -46,6 +47,11 @@ export class DisplayPowerService {
 
   snapshot(): DisplaySnapshot {
     return this.state;
+  }
+
+  subscribe(listener: (snapshot: DisplaySnapshot) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   async initialize(): Promise<DisplaySnapshot> {
@@ -247,6 +253,7 @@ export class DisplayPowerService {
       nextTransitionAt: null,
       revision: this.state.revision + 1,
     };
+    for (const listener of this.listeners) listener(this.state);
   }
 
   private assertReady(): void {

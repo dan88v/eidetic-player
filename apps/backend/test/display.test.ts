@@ -78,6 +78,28 @@ void test("display service probes, dims, enters standby, and wakes", async () =>
   ]);
 });
 
+void test("display service publishes state changes for the existing local SSE", async () => {
+  const adapter = new RecordingAdapter();
+  const service = new DisplayPowerService(adapter, scheduler());
+  const states: string[] = [];
+  const unsubscribe = service.subscribe((snapshot) => {
+    states.push(snapshot.state);
+  });
+  await service.initialize();
+  await service.dim(20);
+  await service.wake();
+  unsubscribe();
+  await service.dim(20);
+  assert.deepEqual(states, [
+    "transitioning",
+    "active",
+    "transitioning",
+    "dimmed",
+    "transitioning",
+    "active",
+  ]);
+});
+
 void test("HDMI audio inhibits standby without invoking the adapter", async () => {
   const adapter = new RecordingAdapter();
   const service = new DisplayPowerService(adapter, scheduler());

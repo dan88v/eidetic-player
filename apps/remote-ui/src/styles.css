@@ -17,6 +17,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   min-height: 100%;
@@ -66,6 +70,7 @@ img {
   margin: 0 auto;
   background: rgba(7, 10, 15, 0.96);
   border-inline: 1px solid rgba(255, 255, 255, 0.06);
+  touch-action: manipulation;
 }
 
 .remote-header {
@@ -138,6 +143,15 @@ img {
 .remote-content {
   min-height: calc(100dvh - 204px);
   padding: 18px 16px 30px;
+}
+
+.remote-content--player {
+  height: calc(
+    100dvh - 132px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+  );
+  min-height: 0;
+  overflow: hidden;
+  padding-block: clamp(10px, 2.2dvh, 18px);
 }
 
 .remote-mini-player {
@@ -358,12 +372,18 @@ img {
 
 .remote-player {
   display: grid;
-  gap: 20px;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: clamp(8px, 1.8dvh, 16px);
 }
 
 .remote-player__artwork {
   display: grid;
-  width: min(100%, 400px);
+  width: auto;
+  max-width: min(100%, 400px);
+  height: 100%;
+  max-height: min(100%, 400px);
   aspect-ratio: 1;
   place-self: center;
   place-items: center;
@@ -385,6 +405,12 @@ img {
   display: grid;
   gap: 5px;
   text-align: center;
+}
+
+.remote-player__controls {
+  display: grid;
+  gap: clamp(6px, 1.4dvh, 12px);
+  align-self: end;
 }
 
 .remote-player__metadata h1 {
@@ -413,6 +439,10 @@ img {
   width: 100%;
   min-height: 44px;
   accent-color: #3f89fa;
+}
+
+.remote-timeline input {
+  touch-action: none;
 }
 
 .remote-timeline__time {
@@ -714,6 +744,10 @@ img {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
 
+.remote-shell-root[data-destination="player"] .remote-toast {
+  bottom: calc(82px + env(safe-area-inset-bottom));
+}
+
 .remote-dialog-backdrop {
   position: fixed;
   z-index: 80;
@@ -758,6 +792,39 @@ img {
 
   .remote-connection__label {
     display: none;
+  }
+}
+
+@media (max-height: 640px) {
+  .remote-content--player {
+    padding-block: 8px;
+  }
+
+  .remote-player {
+    gap: 7px;
+  }
+
+  .remote-player__metadata {
+    gap: 2px;
+  }
+
+  .remote-player__metadata h1 {
+    font-size: 1.2rem;
+  }
+
+  .remote-round-button {
+    width: 46px;
+    height: 46px;
+  }
+
+  .remote-round-button--primary {
+    width: 58px;
+    height: 58px;
+  }
+
+  .remote-round-button--mode {
+    width: 44px;
+    height: 44px;
   }
 }
 
