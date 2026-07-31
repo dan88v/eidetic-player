@@ -676,6 +676,17 @@ else
   printf 'staging fixture\n' \
     >"$release_stage/resources.neu"
 
+  install -d -m 0755 "$release_stage/remote-ui/assets"
+
+  printf '<!doctype html><html><body>Remote UI staging fixture</body></html>\n' \
+    >"$release_stage/remote-ui/index.html"
+
+  printf 'body { color: white; }\n' \
+    >"$release_stage/remote-ui/assets/remote.css"
+
+  printf 'export {};\n' \
+    >"$release_stage/remote-ui/assets/remote.js"
+
   install -d -m 0755 \
     "$release_stage/node_modules/music-metadata"
   install -d -m 0755 "$release_stage/deploy/linux"

@@ -303,3 +303,34 @@ Changes are limited to:
 - this step output.
 
 No automatic commit or push was performed.
+
+## Post-push CI correction — guided staging fixture
+
+The first post-push Linux staging run failed before activation because the
+isolated-root installer fixture still created only the legacy local release
+artifacts. The production `EIDETIC_ROOT == "/"` path already copied the built
+`dist/remote-ui` directory correctly, but the simulated `EIDETIC_ROOT != "/"`
+path omitted `remote-ui/index.html` and its CSS/JavaScript assets. The stricter
+release verifier therefore rejected the fixture exactly as intended; no
+release was activated and no rollback was necessary.
+
+The simulated release now includes non-empty Remote UI HTML, CSS, and
+JavaScript artifacts. The guided Standard-install fixture additionally asserts
+that all three survive staging and are present through the `current` release
+link. The reported failure was reproduced locally with
+`bash deploy/linux/test-guided-installer-staging.sh`, then the same complete
+fixture passed after the correction.
+
+Correction validation:
+
+- `bash -n deploy/linux/install-eidetic-player.sh` — PASS.
+- `bash -n deploy/linux/test-guided-installer-staging.sh` — PASS.
+- `bash deploy/linux/test-guided-installer-staging.sh` — PASS.
+- `bash deploy/linux/test-staging.sh` — PASS, including Standard, Appliance,
+  update, rollback, guided installation, and uninstall fixtures.
+- `npm.cmd run verify:linux:installer` — PASS.
+- `npm.cmd run lint` — PASS.
+- `npm.cmd run format:check` and `git diff --check` — PASS.
+
+This correction changes no production copy path, runtime listener, updater,
+application UI, or dependency. It was not committed or pushed automatically.

@@ -121,6 +121,14 @@ grep -q 'Installation completed successfully' "$work/standard.out" ||
 grep -qx 'EIDETIC_INSTALLATION_MODE=standard' \
   "$standard_root/etc/eidetic-player/install.conf" ||
   fail "guided Standard mode was not installed"
+[[ -s "$standard_root/opt/eidetic-player/current/remote-ui/index.html" ]] ||
+  fail "guided Standard release omitted the Remote UI entrypoint"
+find "$standard_root/opt/eidetic-player/current/remote-ui/assets" \
+  -maxdepth 1 -type f -name '*.css' -size +0c -print -quit |
+  grep -q . || fail "guided Standard release omitted Remote UI CSS"
+find "$standard_root/opt/eidetic-player/current/remote-ui/assets" \
+  -maxdepth 1 -type f -name '*.js' -size +0c -print -quit |
+  grep -q . || fail "guided Standard release omitted Remote UI JavaScript"
 if LC_ALL=C grep -q $'\033\\[' "$work/standard.out"; then
   fail "--no-color emitted ANSI"
 fi
