@@ -44,6 +44,7 @@ declare -A EIDETIC_RUNTIME_LABELS=(
   [generate-build-info]="Generate build provenance"
   [generate-shell-config]="Generate production shell configuration"
   [build-ui]="Build user interface"
+  [build-remote]="Build Remote user interface"
   [build-backend]="Build backend"
   [sync-neutralino]="Synchronize Neutralino runtime"
   [package-neutralino]="Package Neutralino release"
@@ -63,6 +64,7 @@ declare -A EIDETIC_RUNTIME_COMMANDS=(
   [generate-build-info]="npm run build:info"
   [generate-shell-config]="npm run shell:config:prod"
   [build-ui]="npm run build:ui"
+  [build-remote]="npm run build:remote"
   [build-backend]="npm run build:backend"
   [sync-neutralino]="npm run neutralino:sync"
   [package-neutralino]="npm run neutralino:build"
@@ -451,8 +453,8 @@ eidetic_console_total_elapsed_ms() {
 
 eidetic_runtime_configure() {
   local full="${1:-0}"
-  EIDETIC_RUNTIME_TOTAL=12
-  [[ "$full" != 1 ]] || EIDETIC_RUNTIME_TOTAL=17
+  EIDETIC_RUNTIME_TOTAL=13
+  [[ "$full" != 1 ]] || EIDETIC_RUNTIME_TOTAL=18
   EIDETIC_RUNTIME_ACTIVE_ID=
   EIDETIC_RUNTIME_ACTIVE_INDEX=0
   EIDETIC_RUNTIME_COMPLETED=0
@@ -478,13 +480,13 @@ eidetic_runtime_expected_id() {
   local index="$1" full="${2:-0}"
   local -a default_ids=(
     prepare-source install-dependencies typecheck verify-installer clean-build
-    generate-build-info generate-shell-config build-ui build-backend
+    generate-build-info generate-shell-config build-ui build-remote build-backend
     sync-neutralino package-neutralino verify-runtime
   )
   local -a full_ids=(
     prepare-source install-dependencies typecheck verify-installer format-check
     lint test-suite test-posix test-case-sensitive clean-build
-    generate-build-info generate-shell-config build-ui build-backend
+    generate-build-info generate-shell-config build-ui build-remote build-backend
     sync-neutralino package-neutralino verify-runtime
   )
   if [[ "$full" == 1 ]]; then

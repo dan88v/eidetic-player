@@ -41,6 +41,8 @@ export const linuxPackagingSteps = Object.freeze([
     id: "sync-neutralino",
     command: "npm",
     arguments: Object.freeze(["run", "neutralino:sync"]),
+    attempts: 3,
+    retryDelaysMilliseconds: Object.freeze([5_000, 10_000]),
   }),
   Object.freeze({
     id: "package-neutralino",
@@ -167,14 +169,30 @@ async function spawnCommand(command, arguments_, platform = process.platform) {
   }
 }
 
-async function runOwnedSteps(steps, configuration, runner, nowNanoseconds) {
+async function runOwnedSteps(
+  steps,
+  configuration,
+  runner,
+  nowNanoseconds,
+  wait,
+) {
   for (let position = 0; position < steps.length; position += 1) {
     const step = steps[position];
     const index = (configuration?.offset ?? 0) + position + 1;
     const started = nowNanoseconds();
     emitProtocol(configuration, "start", step.id, index);
     console.log(`COMMAND: ${step.command} ${step.arguments.join(" ")}`);
-    const status = await runner(step.command, [...step.arguments]);
+    const attempts = step.attempts ?? 1;
+    let status = 1;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      status = await runner(step.command, [...step.arguments]);
+      if (status === 0 || attempt === attempts) break;
+      const delay = step.retryDelaysMilliseconds?.[attempt - 1] ?? 0;
+      console.warn(
+        `[build-orchestrator] ${step.id} attempt ${String(attempt)} failed; retrying in ${String(delay / 1_000)} seconds`,
+      );
+      await wait(delay);
+    }
     const elapsed = Number((nowNanoseconds() - started) / 1_000_000n);
     emitProtocol(
       configuration,
@@ -194,6 +212,8 @@ export async function runBuildOrchestrator(
     environment = process.env,
     runner = spawnCommand,
     nowNanoseconds = () => process.hrtime.bigint(),
+    wait = (milliseconds) =>
+      new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
     validateDescriptor,
   } = {},
 ) {
@@ -210,6 +230,7 @@ export async function runBuildOrchestrator(
       configuration,
       runner,
       nowNanoseconds,
+      wait,
     );
   }
 
@@ -232,6 +253,7 @@ export async function runBuildOrchestrator(
     packagingConfiguration,
     runner,
     nowNanoseconds,
+    wait,
   );
 }
 

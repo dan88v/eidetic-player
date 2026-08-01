@@ -6,6 +6,68 @@ Date: 2026-08-01
 
 `READY FOR CI VALIDATION — PLAYBACK CONTEXT NOT DEPLOYED`
 
+## Seventh post-handoff correction — resilient Raspberry update build
+
+The exact failed Raspberry update log confirmed that the installed `810f074`
+release remained active and no rollback was required. The isolated build
+successfully completed dependency installation, type-checking, the Linux
+installer contract, the local UI, the Remote UI, and the backend. The actual
+failure occurred during `neu update`: a transient DNS lookup returned
+`getaddrinfo EAI_AGAIN github.com` while downloading the pinned Neutralino
+runtime.
+
+The log also exposed an independent progress-protocol regression. The recent
+Remote UI build had been added to the canonical build orchestrator but not to
+the installer's closed runtime-step table. Its event and every following event
+were therefore rejected as malformed, leaving the updater unable to report the
+real failing substep.
+
+The default runtime sequence now has 13 steps and the full-verification sequence
+has 18. Both include the dedicated `Build Remote user interface` step between
+the local UI and backend builds, with final runtime verification at the unique
+last index. The labels, commands, expected IDs, installer final indices, child
+protocol totals, and console fixtures share that ordering.
+
+Neutralino synchronization now has three bounded attempts. A failed first or
+second download waits 5 and then 10 seconds before retrying only
+`neutralino:sync`; completed UI/backend work is not repeated. One progress
+START and one terminal DONE/FAILED event still cover the bounded operation. If
+all attempts fail, the updater now retains the precise
+`Synchronize Neutralino runtime` failure label instead of the generic
+application-runtime message.
+
+Focused tests exercise the exact 13-step and 18-step protocol sequences, render
+the Remote UI and final verification steps without malformed records, and
+prove two synchronization failures followed by a successful third attempt.
+The Raspberry was inspected read-only after reboot: build `810f074`, the user
+service, backend, MPV, and swap were active. No remote update was rerun because
+the correction must first be committed and pushed by the user.
+
+No commit, push, release activation, media mutation, or Raspberry configuration
+change was performed.
+
+Seventh post-handoff correction gates:
+
+- complete console UI fixtures: PASS, including default 13-step and full
+  18-step ordering with no malformed progress records;
+- runtime orchestrator tests: 6/6 PASS, including the bounded 5/10-second
+  Neutralino retry sequence;
+- `npm run verify:linux:installer`: PASS;
+- installer-safe profile: 73 tests, 62 passed, 11 expected platform skips,
+  0 failed;
+- `npm run verify:network:deployment`: PASS;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS, including local UI, Remote UI, and backend;
+- `npm test`: 766 tests, 754 passed, 12 expected platform/capability skips,
+  0 failed;
+- `git diff --check`: PASS.
+
+The real Linux staging shell remains a Linux CI/device check, as reported by
+the installer-safe runner on Windows. The already installed Raspberry release
+was not used as a staging target and remained unchanged.
+
 ## Sixth post-handoff correction — CI dependency audit
 
 CI reported the high-severity `brace-expansion` unbounded-expansion advisory

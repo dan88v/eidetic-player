@@ -565,7 +565,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
       runtime_status=$?
   fi
   runtime_build_offset=4
-  runtime_final_index=12
+    runtime_final_index=13
   if ((full_verify && runtime_status == 0)); then
     eidetic_runtime_run_step format-check 5 runtime_npm_run format:check ||
       runtime_status=$?
@@ -586,7 +586,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
         runtime_npm_run test:case-sensitive || runtime_status=$?
     fi
     runtime_build_offset=9
-    runtime_final_index=17
+      runtime_final_index=18
   fi
   if ((runtime_status == 0)); then
     eidetic_runtime_run_protocol_child "$full_verify" runtime_build_linux ||

@@ -237,16 +237,16 @@ install -d "$runtime_root"
     fail "failed runtime substep was not retained"
 
   for malformed in \
-    $'EIDETIC_PROGRESS_V2\truntime\tstart\tprepare-source\t1\t12' \
-    $'EIDETIC_PROGRESS_V1\tforeign\tstart\tprepare-source\t1\t12' \
-    $'EIDETIC_PROGRESS_V1\truntime\tstart\tunknown\t1\t12' \
-    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\tx\t12' \
-    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t0\t12' \
+    $'EIDETIC_PROGRESS_V2\truntime\tstart\tprepare-source\t1\t13' \
+    $'EIDETIC_PROGRESS_V1\tforeign\tstart\tprepare-source\t1\t13' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tunknown\t1\t13' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\tx\t13' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t0\t13' \
     $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t99' \
-    $'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t12\t-1' \
-    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\textra' \
-    $'EIDETIC_PROGRESS_V1\truntime\tstart\t$(touch '"$runtime_marker"$')\t1\t12' \
-    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\001'; do
+    $'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t13\t-1' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t13\textra' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\t$(touch '"$runtime_marker"$')\t1\t13' \
+    $'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t13\001'; do
     eidetic_runtime_accept_line "$malformed" 0 && fail "malformed record accepted"
   done
   oversized="EIDETIC_PROGRESS_V1"
@@ -260,19 +260,54 @@ install -d "$runtime_root"
   cat "$runtime_output" >&2
   fail "runtime protocol fixture exited unexpectedly"
 }
-grep -q 'RUNTIME STEP 1/12 START Prepare isolated source' "$runtime_output" ||
+grep -q 'RUNTIME STEP 1/13 START Prepare isolated source' "$runtime_output" ||
   fail "runtime START line missing"
-grep -q 'RUNTIME STEP 1/12 DONE Prepare isolated source 00:00' "$runtime_output" ||
+grep -q 'RUNTIME STEP 1/13 DONE Prepare isolated source 00:00' "$runtime_output" ||
   fail "runtime DONE duration missing"
-grep -q 'RUNTIME STEP 2/12 SKIPPED Install production build dependencies 00:00' \
+grep -q 'RUNTIME STEP 2/13 SKIPPED Install production build dependencies 00:00' \
   "$runtime_output" || fail "runtime SKIPPED line missing"
-grep -q 'RUNTIME STEP 3/12 FAILED Type-check application 01:01' "$runtime_output" ||
+grep -q 'RUNTIME STEP 3/13 FAILED Type-check application 01:01' "$runtime_output" ||
   fail "runtime FAILED duration missing"
 ! grep -q 'EIDETIC_PROGRESS_V1' "$runtime_output" ||
   fail "raw protocol was rendered"
 assert_no_ansi "$runtime_output"
 ! LC_ALL=C grep -q $'\r' "$runtime_output" ||
   fail "non-TTY runtime output contains a carriage return"
+
+runtime_sequence_output="$work/runtime-sequence.out"
+(
+  # shellcheck source=lib/console-ui.sh
+  . "$SCRIPT_DIR/lib/console-ui.sh"
+  export EIDETIC_CONSOLE_FORCE_NON_TTY=1
+  eidetic_console_init install "Linux Installer" "$runtime_root" 0.1.0
+  eidetic_runtime_configure 0
+  sequence_ids=(
+    prepare-source install-dependencies typecheck verify-installer clean-build
+    generate-build-info generate-shell-config build-ui build-remote build-backend
+    sync-neutralino package-neutralino verify-runtime
+  )
+  for index in "${!sequence_ids[@]}"; do
+    position=$((index + 1))
+    eidetic_runtime_local_event start "${sequence_ids[index]}" "$position"
+    eidetic_runtime_local_event "done" "${sequence_ids[index]}" "$position" 1
+  done
+  [[ "$EIDETIC_RUNTIME_TOTAL" == 13 &&
+    "$EIDETIC_RUNTIME_COMPLETED" == 13 ]] ||
+    fail "default runtime sequence did not complete all 13 steps"
+  eidetic_runtime_configure 1
+  [[ "$EIDETIC_RUNTIME_TOTAL" == 18 &&
+    "$(eidetic_runtime_expected_id 14 1)" == build-remote &&
+    "$(eidetic_runtime_expected_id 18 1)" == verify-runtime ]] ||
+    fail "full runtime sequence does not include Remote UI and final verification"
+  eidetic_console_finalize
+) >"$runtime_sequence_output" 2>&1 || {
+  cat "$runtime_sequence_output" >&2
+  fail "complete runtime sequence fixture exited unexpectedly"
+}
+grep -q 'RUNTIME STEP 9/13 DONE Build Remote user interface 00:00' \
+  "$runtime_sequence_output" || fail "Remote UI runtime step was not rendered"
+grep -q 'RUNTIME STEP 13/13 DONE Verify Linux runtime artifacts 00:00' \
+  "$runtime_sequence_output" || fail "final runtime verification was not rendered"
 
 protocol_child_root="$work/protocol-child"
 protocol_child_output="$work/protocol-child.out"
@@ -289,9 +324,9 @@ install -d "$protocol_child_root"
   protocol_fixture_child() {
     [[ "$EIDETIC_PROGRESS_FD" == 30 ]] || return 71
     printf 'human stdout must not become progress\n'
-    printf 'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12\n' \
+    printf 'EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t13\n' \
       >&"$EIDETIC_PROGRESS_FD"
-    printf 'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t12\t4\n' \
+    printf 'EIDETIC_PROGRESS_V1\truntime\tdone\tprepare-source\t1\t13\t4\n' \
       >&"$EIDETIC_PROGRESS_FD"
   }
   exec 6>/dev/null
@@ -310,7 +345,7 @@ install -d "$protocol_child_root"
   external_protocol_fixture() {
     export EIDETIC_PROGRESS_FD
     bash -c \
-      'test "$EIDETIC_PROGRESS_FD" = 30 || exit 71; printf "EIDETIC_PROGRESS_V1\truntime\tstart\tinstall-dependencies\t2\t12\n" >&"$EIDETIC_PROGRESS_FD"; printf "EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5\n" >&"$EIDETIC_PROGRESS_FD"'
+      'test "$EIDETIC_PROGRESS_FD" = 30 || exit 71; printf "EIDETIC_PROGRESS_V1\truntime\tstart\tinstall-dependencies\t2\t13\n" >&"$EIDETIC_PROGRESS_FD"; printf "EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t13\t5\n" >&"$EIDETIC_PROGRESS_FD"'
   }
   eidetic_runtime_run_protocol_child 0 external_protocol_fixture
   exec 6>&-
@@ -331,12 +366,12 @@ install -d "$protocol_child_root"
   cat "$protocol_child_output" >&2
   fail "dedicated protocol child fixture exited unexpectedly"
 }
-grep -q 'RUNTIME STEP 1/12 DONE Prepare isolated source' "$protocol_child_output" ||
+grep -q 'RUNTIME STEP 1/13 DONE Prepare isolated source' "$protocol_child_output" ||
   {
     cat "$protocol_child_output" >&2
     fail "dedicated protocol pipe was not consumed"
   }
-grep -q 'RUNTIME STEP 2/12 DONE Install production build dependencies' \
+grep -q 'RUNTIME STEP 2/13 DONE Install production build dependencies' \
   "$protocol_child_output" ||
   {
     cat "$protocol_child_output" >&2
@@ -344,10 +379,10 @@ grep -q 'RUNTIME STEP 2/12 DONE Install production build dependencies' \
   }
 grep -q 'human stdout must not become progress' "$protocol_child_output" ||
   fail "protocol fixture stdout unexpectedly disappeared"
-grep -q $'^EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12$' \
+grep -q $'^EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t13$' \
   "$protocol_job_progress" ||
   fail "runtime progress was not forwarded to the update job"
-grep -q $'^EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t12\t5$' \
+grep -q $'^EIDETIC_PROGRESS_V1\truntime\tdone\tinstall-dependencies\t2\t13\t5$' \
   "$protocol_job_progress" ||
   fail "external child progress was not forwarded to the update job"
 
@@ -381,7 +416,7 @@ grep -q 'embedded technical record' "$embedded_log" ||
   fail "embedded installer omitted parent technical log output"
 ! grep -q 'EIDETIC_PROGRESS_V1' "$embedded_log" ||
   fail "raw embedded protocol reached the parent log"
-grep -q $'^EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t12$' \
+grep -q $'^EIDETIC_PROGRESS_V1\truntime\tstart\tprepare-source\t1\t13$' \
   "$embedded_progress" || fail "embedded progress did not use its dedicated FD"
 (
   # shellcheck source=lib/console-ui.sh
