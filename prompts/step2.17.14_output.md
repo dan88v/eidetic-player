@@ -6,6 +6,35 @@ Date: 2026-08-01
 
 `READY FOR CI VALIDATION — PLAYBACK CONTEXT NOT DEPLOYED`
 
+## Sixth post-handoff correction — CI dependency audit
+
+CI reported the high-severity `brace-expansion` unbounded-expansion advisory
+through four development-only dependency paths: Neutralino's ASAR tooling,
+ESLint, `@eslint/config-array`, and TypeScript ESLint. The production dependency
+manifest and application runtime were not affected.
+
+The npm lockfile was refreshed with the minimal non-breaking audit fix. The
+legacy transitive copy moved from 1.1.16 to 1.1.18 and the three current copies
+moved from 5.0.7 to 5.0.9. No direct dependency, package range, runtime bundle,
+installer contract, application source, or user preference changed. The
+project already requires Node.js 24.15 or newer, so the repaired package's
+Node.js 20-or-newer engine remains inside the supported toolchain.
+
+`npm audit --audit-level=high` now reports zero vulnerabilities. No commit,
+push, release installation, or Raspberry update was performed.
+
+Sixth post-handoff correction gates:
+
+- `npm audit --audit-level=high`: PASS, 0 vulnerabilities;
+- `npm run format:check`: PASS;
+- `npm run typecheck`: PASS;
+- `npm run lint`: PASS;
+- `npm run build`: PASS, including local UI, Remote UI, backend, production
+  Neutralino configuration, and build provenance;
+- `npm test`: 766 tests, 754 passed, 12 expected platform/capability skips,
+  0 failed;
+- `git diff --check`: PASS.
+
 ## Fifth post-handoff correction — terminal Next guard
 
 The reported empty-track transition was reproduced at the playback-plan
