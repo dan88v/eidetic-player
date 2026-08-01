@@ -7,7 +7,10 @@ import type {
   OpenLibraryEntryResponse,
   SmbLibraryCoverage,
 } from "../../../../packages/shared/src/library";
-import type { ApiResponse } from "../../../../packages/shared/src/player";
+import type {
+  ApiResponse,
+  PlaybackContextQueueDecision,
+} from "../../../../packages/shared/src/player";
 import type {
   AddSmbConnectionRequest,
   EditSmbConnectionRequest,
@@ -16,12 +19,17 @@ import type {
 } from "../../../../packages/shared/src/smb";
 import { config } from "../config";
 import { PlayerApiError } from "./player-api-client";
+import type { ContextPlayDecisionProvider } from "./context-play-decision";
 
 const apiBaseUrl = config.development
   ? ""
   : `http://${config.backendHost}:${String(config.backendPort)}`;
 
 export class SmbApiClient {
+  constructor(
+    private readonly decideContextPlay?: ContextPlayDecisionProvider,
+  ) {}
+
   connections(): Promise<SmbSnapshot> {
     return this.request("/api/smb/connections");
   }
@@ -109,8 +117,14 @@ export class SmbApiClient {
     );
   }
 
-  openEntry(id: string, entryId: string): Promise<OpenLibraryEntryResponse> {
-    return this.entryAction(id, entryId, "open");
+  async openEntry(
+    id: string,
+    entryId: string,
+  ): Promise<OpenLibraryEntryResponse> {
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return { selectedIndex: 0, queueLength: 0, cancelled: true };
+    return this.entryAction(id, entryId, "open", queueDecision);
   }
 
   addEntryToQueue(
@@ -132,11 +146,14 @@ export class SmbApiClient {
     );
   }
 
-  playDirectory(
+  async playDirectory(
     id: string,
     relativePath: string,
   ): Promise<DirectoryQueueResponse> {
-    return this.directoryAction(id, relativePath, "play");
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return { queueLength: 0, appendedCount: 0, cancelled: true };
+    return this.directoryAction(id, relativePath, "play", queueDecision);
   }
 
   addDirectoryToQueue(
@@ -150,10 +167,11 @@ export class SmbApiClient {
     id: string,
     entryId: string,
     action: "open" | "queue",
+    queueDecision?: PlaybackContextQueueDecision,
   ): Promise<T> {
     return this.request(
       `/api/smb/connections/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}/${action}`,
-      { method: "POST", body: "{}" },
+      { method: "POST", body: JSON.stringify(queueDecision ?? {}) },
     );
   }
 
@@ -161,11 +179,21 @@ export class SmbApiClient {
     id: string,
     relativePath: string,
     action: "play" | "queue",
+    queueDecision?: PlaybackContextQueueDecision,
   ): Promise<DirectoryQueueResponse> {
     return this.request(
       `/api/smb/connections/${encodeURIComponent(id)}/directory/${action}`,
-      { method: "POST", body: JSON.stringify({ relativePath }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ relativePath, ...(queueDecision ?? {}) }),
+      },
     );
+  }
+
+  private contextPlayDecision(): Promise<
+    PlaybackContextQueueDecision | null | undefined
+  > {
+    return this.decideContextPlay?.() ?? Promise.resolve(undefined);
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {

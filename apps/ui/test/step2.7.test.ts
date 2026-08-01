@@ -36,7 +36,7 @@ void test("Library Search uses typed bounded endpoints and no catalog paths", ()
     /nativePath|relativePath|sourceId|codec|bitrate/,
   );
   assert.match(client, /searchCategory\(/);
-  assert.doesNotMatch(client, /playSearch\(/);
+  assert.match(client, /playSearch\(/);
 });
 
 void test("Search header is on demand, focused and keyboard accessible", () => {
@@ -120,12 +120,15 @@ void test("Search preserves grouped, category and detail scroll for the app sess
   assert.doesNotMatch(library, /save.*Search|localStorage|sessionStorage/i);
 });
 
-void test("Search Track play delegates to current-catalog Track context", () => {
-  assert.match(library, /api\.play\(\{ context: "track", id: trackId \}\)/);
-  assert.doesNotMatch(backend, /\/api\/library\/search\/play/);
-  assert.match(backend, /resolveContext\(body\.context, body\.id/);
+void test("Search Track play creates one resolved Search context", () => {
+  assert.match(
+    library,
+    /api\.playSearch\(\{[\s\S]*query: search\.query,[\s\S]*selectedTrackId: trackId/,
+  );
+  assert.match(backend, /\/api\/library\/search\/play/);
+  assert.match(backend, /resolveSearch\(body\.query, body\.selectedTrackId\)/);
   assert.match(backend, /context\.selectedIndex/);
-  assert.match(repository, /playbackContextForTrack/);
+  assert.match(repository, /searchContextTracks/);
   assert.match(repository, /s\.available = 1 AND s\.removed = 0/);
 });
 

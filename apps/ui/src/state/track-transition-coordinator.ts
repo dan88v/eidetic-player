@@ -27,21 +27,47 @@ export function createTrackPresentationSnapshot(
   state: PlayerState,
 ): TrackPresentationSnapshot {
   const queueItem = state.queue[state.currentQueueIndex] ?? null;
-  const track = state.currentTrack;
-  const durationSeconds = Math.max(0, state.durationSeconds);
+  const authoritativeItem = state.currentPlayback?.item ?? null;
+  const hasAuthoritativePlayback = state.currentPlayback !== undefined;
+  const playbackInstanceId =
+    state.currentPlayback?.playbackInstanceId ?? queueItem?.id ?? null;
+  const observedTrack = state.currentTrack;
+  const observedTrackMatchesPlayback =
+    !hasAuthoritativePlayback ||
+    (authoritativeItem !== null &&
+      observedTrack !== null &&
+      observedTrack.filename === authoritativeItem.filename &&
+      observedTrack.title === authoritativeItem.displayTitle &&
+      (authoritativeItem.artist === null ||
+        observedTrack.artist === authoritativeItem.artist) &&
+      (authoritativeItem.album === null ||
+        observedTrack.album === authoritativeItem.album));
+  const track = observedTrackMatchesPlayback ? observedTrack : null;
+  const durationSeconds = Math.max(
+    0,
+    track ? state.durationSeconds : (authoritativeItem?.durationSeconds ?? 0),
+  );
   const positionSeconds = Math.max(
     0,
-    Math.min(durationSeconds, state.positionSeconds),
+    Math.min(durationSeconds, track ? state.positionSeconds : 0),
   );
   return Object.freeze({
     generation: state.trackTransitionId,
-    trackId: queueItem?.id ?? null,
-    queueItemId: queueItem?.id ?? null,
-    title: track?.title ?? null,
-    artist: track?.artist ?? null,
-    album: track?.album ?? null,
+    trackId: playbackInstanceId,
+    queueItemId: playbackInstanceId,
+    title:
+      authoritativeItem?.displayTitle ??
+      (hasAuthoritativePlayback ? null : (track?.title ?? null)),
+    artist:
+      authoritativeItem?.artist ??
+      (hasAuthoritativePlayback ? null : (track?.artist ?? null)),
+    album:
+      authoritativeItem?.album ??
+      (hasAuthoritativePlayback ? null : (track?.album ?? null)),
     technical: track ? composeTechnicalDetails(track).join(" · ") : "",
-    artwork: track?.artwork ?? queueItem?.artwork ?? null,
+    artwork: hasAuthoritativePlayback
+      ? (authoritativeItem?.artwork ?? null)
+      : (track?.artwork ?? queueItem?.artwork ?? null),
     positionSeconds,
     durationSeconds,
   });
@@ -54,6 +80,7 @@ export class TrackTransitionCoordinator {
   private cancelledCommands = 0;
   private acceptedGenerations = 0;
   private staleStatesIgnored = 0;
+  private highestPlaybackPlanRevision = 0;
 
   noteTrackCommand(): number {
     this.commandId += 1;
@@ -65,11 +92,13 @@ export class TrackTransitionCoordinator {
     if (!previous) {
       this.accepted = state;
       this.acceptedGenerations = state.currentTrack ? 1 : 0;
+      this.highestPlaybackPlanRevision = state.playbackPlanRevision ?? 0;
       return state;
     }
     if (state.playerSessionId !== previous.playerSessionId) {
       this.accepted = state;
       this.acceptedGenerations = state.currentTrack ? 1 : 0;
+      this.highestPlaybackPlanRevision = state.playbackPlanRevision ?? 0;
       this.settledCommandId = this.commandId;
       return state;
     }
@@ -78,7 +107,14 @@ export class TrackTransitionCoordinator {
     const sameGenerationDifferentTrack =
       state.trackTransitionId === previous.trackTransitionId &&
       this.trackId(state) !== this.trackId(previous);
-    if (staleGeneration || sameGenerationDifferentTrack) {
+    const authoritativePlanAdvanced =
+      sameGenerationDifferentTrack &&
+      state.playbackPlanRevision !== undefined &&
+      state.playbackPlanRevision > this.highestPlaybackPlanRevision;
+    if (
+      staleGeneration ||
+      (sameGenerationDifferentTrack && !authoritativePlanAdvanced)
+    ) {
       this.staleStatesIgnored += 1;
       return previous;
     }
@@ -90,6 +126,11 @@ export class TrackTransitionCoordinator {
       );
       this.settledCommandId = this.commandId;
     }
+    if (state.playbackPlanRevision !== undefined)
+      this.highestPlaybackPlanRevision = Math.max(
+        this.highestPlaybackPlanRevision,
+        state.playbackPlanRevision,
+      );
     this.accepted = state;
     return state;
   }
@@ -103,6 +144,10 @@ export class TrackTransitionCoordinator {
   }
 
   private trackId(state: PlayerState): string | null {
-    return state.queue[state.currentQueueIndex]?.id ?? null;
+    return (
+      state.currentPlayback?.playbackInstanceId ??
+      state.queue[state.currentQueueIndex]?.id ??
+      null
+    );
   }
 }

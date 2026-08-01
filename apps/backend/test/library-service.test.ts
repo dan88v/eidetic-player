@@ -8,7 +8,15 @@ import { LocalFilesystemProvider } from "../src/filesystem/local-filesystem-prov
 import { PathService } from "../src/filesystem/path-service.js";
 import { SourceRepository } from "../src/filesystem/source-repository.js";
 import { SourceService } from "../src/filesystem/source-service.js";
+import { LibraryDatabase } from "../src/library/library-database.js";
+import {
+  artistIdentity,
+  trackIdentity,
+} from "../src/library/library-normalization.js";
+import { LibraryRepository } from "../src/library/library-repository.js";
 import { IndexedLibraryService } from "../src/library/library-service.js";
+import type { IndexedTrackInput } from "../src/library/library-types.js";
+import { emptyMetadata } from "../src/metadata/metadata-service.js";
 import type { PlayerService } from "../src/player/player-service.js";
 
 async function waitFor(
@@ -169,6 +177,197 @@ void test("Recently Played resolves the full deduplicated context at the selecte
     assert.equal(service.resetListeningStats().removedCount, 2);
     assert.equal(service.listeningStats().qualifiedPlays, 0);
     assert.equal(service.recentlyPlayed(null, 10).total, 2);
+  } finally {
+    await service.close();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("same-artist candidates resolve available indexed files without public path leakage", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-same-artist-"));
+  const root = join(temporary, "Same Artist Source");
+  await mkdir(root);
+  const relativePaths = {
+    both: "Both.flac",
+    albumOwned: "Album Owned.flac",
+    direct: "Direct.flac",
+    unavailable: "Unavailable.flac",
+    missing: "Missing.flac",
+  } as const;
+  await Promise.all(
+    [
+      relativePaths.both,
+      relativePaths.albumOwned,
+      relativePaths.direct,
+      relativePaths.unavailable,
+    ].map((relativePath) => writeFile(join(root, relativePath), "fixture")),
+  );
+
+  const provider = new LocalFilesystemProvider();
+  const paths = PathService.forCurrentPlatform(provider);
+  const sourceRepository = new SourceRepository(
+    join(temporary, "config", "sources.json"),
+  );
+  const sources = new SourceService(provider, paths, sourceRepository);
+  const added = await sources.addLocal(root);
+  const sourceId = added.source.id;
+  const databasePath = join(temporary, "data", "library.db");
+  const database = await LibraryDatabase.open(databasePath);
+  const repository = new LibraryRepository(database);
+  repository.syncConfiguredSources(await sourceRepository.list());
+  const indexedAt = "2026-08-01T08:00:00.000Z";
+  const run = repository.beginScan(
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    sourceId,
+    indexedAt,
+  );
+  const specs = [
+    {
+      relativePath: relativePaths.both,
+      artist: "Main Artist",
+      album: "Shared Album",
+      albumArtist: "Main Artist",
+    },
+    {
+      relativePath: relativePaths.albumOwned,
+      artist: "Guest Artist",
+      album: "Shared Album",
+      albumArtist: "Main Artist",
+    },
+    {
+      relativePath: relativePaths.direct,
+      artist: "Main Artist",
+      album: "Other Album",
+      albumArtist: "Other Artist",
+    },
+    {
+      relativePath: relativePaths.unavailable,
+      artist: "Main Artist",
+      album: null,
+      albumArtist: null,
+    },
+    {
+      relativePath: relativePaths.missing,
+      artist: "Main Artist",
+      album: null,
+      albumArtist: null,
+    },
+  ] as const;
+  const records: readonly IndexedTrackInput[] = specs.map((spec, index) => ({
+    id: trackIdentity(sourceId, spec.relativePath),
+    sourceId,
+    relativePath: spec.relativePath,
+    filename: spec.relativePath,
+    extension: "flac",
+    size: 1_000 + index,
+    mtimeMs: 2_000 + index,
+    generation: run.generation,
+    seenAt: indexedAt,
+    metadata: {
+      ...emptyMetadata,
+      title: spec.relativePath.replace(/\.flac$/u, ""),
+      artist: spec.artist,
+      artists: [spec.artist],
+      album: spec.album,
+      albumArtist: spec.albumArtist,
+      trackNumber: index + 1,
+      durationSeconds: 180,
+    },
+    metadataState: "parsed",
+    metadataErrorCode: null,
+    artworkAvailable: false,
+  }));
+  repository.applyScanBatch(records, []);
+  repository.completeScan(
+    run.scanId,
+    sourceId,
+    run.generation,
+    {
+      filesDiscovered: records.length,
+      filesProcessed: records.length,
+      filesUnchanged: 0,
+      filesNew: records.length,
+      filesModified: 0,
+      filesUnavailable: 0,
+      filesFailed: 0,
+      totalFiles: records.length,
+    },
+    indexedAt,
+  );
+  const both = records[0];
+  const albumOwned = records[1];
+  const direct = records[2];
+  const unavailable = records[3];
+  assert.ok(both && albumOwned && direct && unavailable);
+  const sharedAlbumId = repository.playbackContextForTrack(both.id)?.albumId;
+  assert.ok(sharedAlbumId);
+  database.connection
+    .prepare("UPDATE tracks SET available = 0 WHERE track_id = ?")
+    .run(unavailable.id);
+  database.close();
+
+  const player = {
+    waitForLibraryScanSlot: () => Promise.resolve(),
+  } as unknown as PlayerService;
+  const service = await IndexedLibraryService.create(
+    provider,
+    paths,
+    sourceRepository,
+    sources,
+    player,
+    databasePath,
+  );
+  try {
+    const mainArtistId = artistIdentity("Main Artist")?.id ?? "";
+    const guestArtistId = artistIdentity("Guest Artist")?.id ?? "";
+    assert.equal(service.albumArtistIdForAlbum(sharedAlbumId), mainArtistId);
+    assert.equal(service.primaryArtistIdForTrack(albumOwned.id), guestArtistId);
+    assert.equal(service.albumArtistIdForAlbum("invalid"), null);
+    assert.equal(service.primaryArtistIdForTrack("invalid"), null);
+    assert.deepEqual(await service.resolveSameArtistCandidates("invalid"), []);
+
+    const candidates = await service.resolveSameArtistCandidates(mainArtistId);
+    assert.deepEqual(
+      candidates.map((candidate) => candidate.trackId),
+      [both.id, albumOwned.id, direct.id].sort(),
+    );
+    assert.equal(
+      new Set(candidates.map((candidate) => candidate.trackId)).size,
+      candidates.length,
+    );
+    for (const candidate of candidates) {
+      assert.equal(candidate.artistName, "Main Artist");
+      assert.match(candidate.path, /\.flac$/u);
+      assert.equal(candidate.origin.kind, "folders");
+      assert.equal(candidate.origin.sourceId, sourceId);
+      assert.equal(candidate.origin.libraryTrackId, candidate.trackId);
+    }
+
+    const publicPayload = JSON.stringify({
+      snapshot: service.snapshot(),
+      tracks: service.tracks(null, 20),
+      album: service.album(sharedAlbumId),
+      artist: service.artist(mainArtistId, null, 20),
+    });
+    assert.equal(
+      publicPayload.includes(JSON.stringify(temporary).slice(1, -1)),
+      false,
+    );
+    assert.doesNotMatch(
+      publicPayload,
+      /(?:nativeRoot|canonicalRoot|relativePath)/u,
+    );
+
+    service.setSourceAvailability(sourceId, false);
+    assert.deepEqual(
+      await service.resolveSameArtistCandidates(mainArtistId),
+      [],
+    );
+    service.setSourceAvailability(sourceId, true);
+    assert.equal(
+      (await service.resolveSameArtistCandidates(mainArtistId)).length,
+      3,
+    );
   } finally {
     await service.close();
     await rm(temporary, { recursive: true, force: true });

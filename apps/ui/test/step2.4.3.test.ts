@@ -91,11 +91,11 @@ void test("queue selection always autoplays and preserves staged identities", as
   );
   assert.match(
     player,
-    /async playQueueIndex[\s\S]*loadResolvedQueue\(staged, index,[\s\S]*autoplay: true,[\s\S]*origins:[\s\S]*itemIds:/,
+    /async playQueueIndex[\s\S]*selectedId[\s\S]*explicitQueue\.findIndex[\s\S]*selectExplicit\([\s\S]*selectedId/,
   );
   assert.match(
     player,
-    /playQueueIndex[\s\S]*navigateToIndex\(index, metadata\)[\s\S]*setPausedIntent\(false, metadata\)/,
+    /playQueueIndex[\s\S]*applyPlannerDecision\(decision, \{[\s\S]*autoplay: true,[\s\S]*reloadCurrent: decision\.kind === "start"/,
   );
 });
 

@@ -596,7 +596,10 @@ export function createLibraryScreen(
   const playSearchTrack = async (trackId: string): Promise<void> => {
     options.noteTrackCommand();
     try {
-      await options.api.play({ context: "track", id: trackId });
+      await options.api.playSearch({
+        query: search.query,
+        selectedTrackId: trackId,
+      });
     } catch (error) {
       options.showToast(
         error instanceof Error ? error.message : t("library.actionFailed"),

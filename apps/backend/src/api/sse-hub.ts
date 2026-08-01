@@ -3,6 +3,10 @@ import type { RemoteAccessState } from "../../../../packages/shared/src/remote-a
 import type { PlayerService } from "../player/player-service.js";
 import type { AudioOutputService } from "../audio-output/audio-output-service.js";
 import type { DisplaySnapshot } from "../../../../packages/shared/src/display.js";
+import type {
+  PlayerProgressState,
+  PlayerState,
+} from "../../../../packages/shared/src/player.js";
 
 interface RemoteAccessStateSource {
   subscribe(listener: (state: RemoteAccessState) => void): () => void;
@@ -22,15 +26,33 @@ export class SseHub {
   private unsubscribeRemoteAccess = (): void => undefined;
   private remoteAccess: RemoteAccessStateSource | null = null;
   private readonly keepalive: NodeJS.Timeout;
+  private fullPlayerSignature = "";
+  private fullExplicitQueue: PlayerState["explicitQueue"];
 
   constructor(
     private readonly player: PlayerService,
     private readonly audioOutput?: AudioOutputService,
     private readonly display?: DisplayStateSource,
   ) {
+    const initialPublicState = player.getPublicState();
+    this.fullPlayerSignature = this.playerSnapshotSignature(initialPublicState);
+    this.fullExplicitQueue = initialPublicState.explicitQueue;
     this.unsubscribe = player.subscribe((state) => {
       void state;
-      this.broadcast(player.getPublicState());
+      const publicState = player.getPublicState();
+      const signature = this.playerSnapshotSignature(publicState);
+      const explicitQueueChanged =
+        publicState.explicitQueue !== this.fullExplicitQueue;
+      if (signature !== this.fullPlayerSignature || explicitQueueChanged) {
+        this.fullPlayerSignature = signature;
+        this.fullExplicitQueue = publicState.explicitQueue;
+        this.broadcast(publicState);
+      } else {
+        this.broadcastNamed(
+          "player-progress",
+          this.playerProgress(publicState),
+        );
+      }
     });
     this.unsubscribeAudioOutput =
       audioOutput?.subscribe((state) => {
@@ -105,5 +127,44 @@ export class SseHub {
     state: unknown,
   ): void {
     client.write(`event: ${event}\ndata: ${JSON.stringify(state)}\n\n`);
+  }
+
+  private playerSnapshotSignature(state: PlayerState): string {
+    return JSON.stringify([
+      state.playerSessionId,
+      state.trackTransitionId,
+      state.mpvAvailable,
+      state.queueRevision,
+      state.contextRevision ?? 0,
+      state.playbackPlanRevision ?? 0,
+      state.canGoNext ?? true,
+      state.currentPlayback ?? null,
+      state.currentTrack,
+      state.playbackContext ?? null,
+      state.playbackHistory ?? null,
+      state.playbackContinuation ?? null,
+      state.shuffleEnabled,
+      state.repeatMode,
+      state.audioDevice,
+      state.error?.code ?? null,
+      state.error?.message ?? null,
+      state.commands ?? null,
+    ]);
+  }
+
+  private playerProgress(state: PlayerState): PlayerProgressState {
+    return {
+      playerSessionId: state.playerSessionId,
+      trackTransitionId: state.trackTransitionId,
+      status: state.status,
+      positionSeconds: state.positionSeconds,
+      durationSeconds: state.durationSeconds,
+      paused: state.paused,
+      volume: state.volume,
+      muted: state.muted,
+      ...(state.audioBufferSeconds !== undefined
+        ? { audioBufferSeconds: state.audioBufferSeconds }
+        : {}),
+    };
   }
 }

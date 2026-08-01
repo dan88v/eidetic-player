@@ -57,7 +57,7 @@ void test("Library uses one app-lifetime EventSource and central API client", as
   assert.match(shell, /libraryApi\.subscribe\(receiveLibrarySnapshot/);
   assert.match(shell, /unsubscribeLibrary\(\)/);
   assert.doesNotMatch(library, /\bfetch\(/);
-  assert.match(shell, /new LibraryApiClient\(\)/);
+  assert.match(shell, /new LibraryApiClient\(decideContextPlay\)/);
   assert.match(shell, /libraryApi,/);
 });
 

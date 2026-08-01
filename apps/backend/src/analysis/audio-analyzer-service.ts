@@ -16,6 +16,13 @@ import { PcmStreamParser } from "./pcm-stream-parser.js";
 
 type FrameListener = (frame: VisualizerFrame) => void;
 
+export function playerAnalysisTrackId(
+  state: PlayerState | null,
+): string | null {
+  const current = state?.queue[state.currentQueueIndex];
+  return current?.playbackInstanceId ?? current?.id ?? null;
+}
+
 export class AudioAnalyzerService {
   private discovery: FfmpegDiscoveryResult | null = null;
   private child: ChildProcessByStdio<null, Readable, Readable> | null = null;
@@ -138,8 +145,7 @@ export class AudioAnalyzerService {
           if (this.child) await this.stop(true);
           return;
         }
-        const trackId =
-          this.state?.queue[this.state.currentQueueIndex]?.id ?? null;
+        const trackId = playerAnalysisTrackId(this.state);
         if (
           restart ||
           !this.child ||
@@ -154,7 +160,7 @@ export class AudioAnalyzerService {
     const discovery = this.discovery;
     const state = this.state;
     const path = state?.currentTrack?.path;
-    const trackId = state?.queue[state.currentQueueIndex]?.id;
+    const trackId = playerAnalysisTrackId(state);
     if (!discovery || !state || !path || !trackId || !this.shouldRun()) return;
     await this.stop(false);
     if (!this.shouldRun()) return;

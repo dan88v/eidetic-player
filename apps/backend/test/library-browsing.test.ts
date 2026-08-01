@@ -8,7 +8,10 @@ import {
   artistIdentity,
   trackIdentity,
 } from "../src/library/library-normalization.js";
-import { LibraryRepository } from "../src/library/library-repository.js";
+import {
+  LibraryRepository,
+  MAX_SAME_ARTIST_CANDIDATES,
+} from "../src/library/library-repository.js";
 import type { IndexedTrackInput } from "../src/library/library-types.js";
 import { emptyMetadata } from "../src/metadata/metadata-service.js";
 
@@ -217,6 +220,108 @@ void test("Album and Artist detail preserve disc order, deduplication and no-alb
     assert.deepEqual(repository.playbackContextForTrack(albumlessTrack.id), {
       albumId: null,
     });
+  } finally {
+    database.close();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("same-artist identity and candidates use indexed stable IDs", async () => {
+  const { temporary, database, repository, records } = await fixture();
+  try {
+    const mainArtistId = artistIdentity("Main Artist")?.id ?? "";
+    const featuredArtistId = artistIdentity("Featured Artist")?.id ?? "";
+    const variousArtistId = artistIdentity("Various Artists")?.id ?? "";
+    const first = records[0];
+    const compilationTrack = records[50];
+    assert.ok(first && compilationTrack);
+
+    const firstContext = repository.playbackContextForTrack(first.id);
+    assert.ok(firstContext?.albumId);
+    assert.equal(repository.albumArtistId(firstContext.albumId), mainArtistId);
+    assert.equal(repository.primaryTrackArtistId(first.id), mainArtistId);
+    assert.equal(
+      repository.primaryTrackArtistId(compilationTrack.id),
+      artistIdentity("Guest 2")?.id,
+    );
+    assert.equal(repository.albumArtistId("album-missing"), null);
+    assert.equal(repository.primaryTrackArtistId("track-missing"), null);
+
+    const mainCandidates = repository.sameArtistCandidateTracks(mainArtistId);
+    assert.equal(MAX_SAME_ARTIST_CANDIDATES, 2_000);
+    assert.equal(mainCandidates.length, 60);
+    assert.equal(
+      new Set(mainCandidates.map((candidate) => candidate.id)).size,
+      mainCandidates.length,
+    );
+    assert.deepEqual(
+      mainCandidates.map((candidate) => candidate.id),
+      mainCandidates.map((candidate) => candidate.id).sort(),
+    );
+    assert.equal(
+      mainCandidates.filter((candidate) => candidate.id === first.id).length,
+      1,
+    );
+
+    const featuredCandidates =
+      repository.sameArtistCandidateTracks(featuredArtistId);
+    assert.deepEqual(
+      featuredCandidates.map((candidate) => candidate.id),
+      [first.id],
+    );
+    const compilationCandidates =
+      repository.sameArtistCandidateTracks(variousArtistId);
+    assert.equal(compilationCandidates.length, 12);
+    assert.ok(
+      compilationCandidates.some(
+        (candidate) => candidate.id === compilationTrack.id,
+      ),
+    );
+
+    const plan = database.connection
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         WITH artist_track_ids(track_id) AS (
+           SELECT ta.track_id
+           FROM track_artists AS ta INDEXED BY track_artists_artist_idx
+           WHERE ta.artist_id = ?
+           UNION
+           SELECT t2.track_id
+           FROM albums AS a2 INDEXED BY albums_album_artist_idx
+           JOIN tracks AS t2 INDEXED BY tracks_album_idx
+             ON t2.album_id = a2.album_id
+           WHERE a2.album_artist_id = ?
+         )
+         SELECT t.track_id
+         FROM artist_track_ids AS candidates
+         JOIN tracks AS t ON t.track_id = candidates.track_id
+         JOIN library_sources AS s ON s.source_id = t.source_id
+         WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+         ORDER BY t.track_id
+         LIMIT ?`,
+      )
+      .all(mainArtistId, mainArtistId, MAX_SAME_ARTIST_CANDIDATES)
+      .map((row) => String((row as { detail: unknown }).detail))
+      .join("\n");
+    assert.match(plan, /track_artists_artist_idx/u);
+    assert.match(plan, /albums_album_artist_idx/u);
+    assert.match(plan, /tracks_album_idx/u);
+
+    const unavailable = mainCandidates[0];
+    assert.ok(unavailable);
+    database.connection
+      .prepare("UPDATE tracks SET available = 0 WHERE track_id = ?")
+      .run(unavailable.id);
+    assert.equal(
+      repository
+        .sameArtistCandidateTracks(mainArtistId)
+        .some((candidate) => candidate.id === unavailable.id),
+      false,
+    );
+    database.connection
+      .prepare("UPDATE library_sources SET available = 0 WHERE source_id = ?")
+      .run(sourceId);
+    assert.deepEqual(repository.sameArtistCandidateTracks(mainArtistId), []);
   } finally {
     database.close();
     await rm(temporary, { recursive: true, force: true });

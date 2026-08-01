@@ -5,6 +5,8 @@ import type {
   RepeatMode,
   ArtworkRef,
   PlayerCommandRequestMetadata,
+  PlayerProgressState,
+  PlaybackContextQueueDecision,
 } from "../../../../packages/shared/src/player";
 import { config } from "../config";
 import type {
@@ -15,6 +17,7 @@ import type { AudioOutputState } from "../../../../packages/shared/src/audio-out
 import type { PreferencesSnapshot } from "../../../../packages/shared/src/preferences";
 import type { DisplaySnapshot } from "../../../../packages/shared/src/display";
 import type { RemoteAccessState } from "../../../../packages/shared/src/remote-access";
+import type { ContextPlayDecisionProvider } from "./context-play-decision";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
@@ -41,6 +44,10 @@ export class PlayerApiError extends Error {
 
 export class PlayerApiClient {
   private readonly baseUrl = apiBaseUrl;
+
+  constructor(
+    private readonly decideContextPlay?: ContextPlayDecisionProvider,
+  ) {}
 
   async getState(): Promise<PlayerState> {
     const response = await fetch(`${this.baseUrl}/api/player/state`);
@@ -75,15 +82,33 @@ export class PlayerApiClient {
     onDisplayState?: (state: DisplaySnapshot) => void,
   ): () => void {
     const source = new EventSource(`${this.baseUrl}/api/player/events`);
+    let lastState: PlayerState | null = null;
     source.onmessage = (event) => {
       try {
         if (typeof event.data !== "string")
           throw new Error("Invalid SSE payload");
-        onState(JSON.parse(event.data) as PlayerState);
+        lastState = JSON.parse(event.data) as PlayerState;
+        onState(lastState);
       } catch {
         onConnectionError();
       }
     };
+    source.addEventListener("player-progress", (event) => {
+      try {
+        if (typeof event.data !== "string" || !lastState)
+          throw new Error("Invalid SSE progress payload");
+        const progress = JSON.parse(event.data) as PlayerProgressState;
+        if (
+          progress.playerSessionId !== lastState.playerSessionId ||
+          progress.trackTransitionId !== lastState.trackTransitionId
+        )
+          return;
+        lastState = { ...lastState, ...progress };
+        onState(lastState);
+      } catch {
+        onConnectionError();
+      }
+    });
     source.addEventListener("audio-output", (event) => {
       try {
         if (typeof event.data !== "string")
@@ -117,8 +142,10 @@ export class PlayerApiClient {
     };
   }
 
-  open(paths: readonly string[]): Promise<void> {
-    return this.post("open", { paths });
+  async open(paths: readonly string[]): Promise<void> {
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null) return;
+    return this.post("open", { paths, ...(queueDecision ?? {}) });
   }
   playPause(metadata?: PlayerCommandRequestMetadata): Promise<void> {
     return this.post("play-pause", metadata ?? {});
@@ -134,13 +161,13 @@ export class PlayerApiClient {
     return this.post("pause", metadata ?? {});
   }
   previous(
-    targetQueueItemId: string | null,
+    targetQueueItemId?: string | null,
     metadata?: PlayerCommandRequestMetadata,
   ): Promise<void> {
     return this.post("previous", { targetQueueItemId, ...metadata });
   }
   next(
-    targetQueueItemId: string | null,
+    targetQueueItemId?: string | null,
     metadata?: PlayerCommandRequestMetadata,
   ): Promise<void> {
     return this.post("next", { targetQueueItemId, ...metadata });
@@ -176,11 +203,22 @@ export class PlayerApiClient {
   removeQueueItem(queueItemId: string): Promise<void> {
     return this.post("queue/remove", { queueItemId });
   }
-  reorderQueueItem(queueItemId: string, toIndex: number): Promise<void> {
-    return this.post("queue/reorder", { queueItemId, toIndex });
+  reorderQueueItem(
+    queueItemId: string,
+    toIndex: number,
+    expectedQueueRevision?: number,
+  ): Promise<void> {
+    return this.post("queue/reorder", {
+      queueItemId,
+      toIndex,
+      expectedQueueRevision,
+    });
   }
   clearQueue(): Promise<void> {
     return this.post("queue/clear", {});
+  }
+  clearPlaybackContext(): Promise<void> {
+    return this.post("context/clear", {});
   }
 
   private async post(path: string, body: unknown): Promise<void> {
@@ -190,6 +228,12 @@ export class PlayerApiClient {
       body: JSON.stringify(body),
     });
     await this.parse(response);
+  }
+
+  private contextPlayDecision(): Promise<
+    PlaybackContextQueueDecision | null | undefined
+  > {
+    return this.decideContextPlay?.() ?? Promise.resolve(undefined);
   }
 
   private async parse<T>(response: Response): Promise<ApiSuccess<T>> {

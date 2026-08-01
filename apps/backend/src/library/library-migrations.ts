@@ -224,6 +224,14 @@ CREATE INDEX IF NOT EXISTS playlist_items_order_idx
 CREATE INDEX IF NOT EXISTS playlist_items_track_idx ON playlist_items(track_id);
 `;
 
+// Additive indexes that are safe for every supported schema version live
+// outside the numbered migrations. This lets an already-current database pick
+// them up without changing PRAGMA user_version.
+const compatibleIndexes = `
+CREATE INDEX IF NOT EXISTS albums_album_artist_idx
+  ON albums(album_artist_id);
+`;
+
 function userVersion(database: DatabaseSync): number {
   const row = database.prepare("PRAGMA user_version").get() as
     { user_version?: unknown } | undefined;
@@ -235,7 +243,10 @@ export function migrateLibraryDatabase(database: DatabaseSync): number {
   const current = userVersion(database);
   if (current > LIBRARY_SCHEMA_VERSION)
     throw new LibraryFutureVersionError(current, LIBRARY_SCHEMA_VERSION);
-  if (current === LIBRARY_SCHEMA_VERSION) return current;
+  if (current === LIBRARY_SCHEMA_VERSION) {
+    database.exec(compatibleIndexes);
+    return current;
+  }
 
   database.exec("BEGIN IMMEDIATE");
   try {
@@ -246,6 +257,7 @@ export function migrateLibraryDatabase(database: DatabaseSync): number {
     if (current < 5) database.exec(migrationV5);
     if (current < 6) database.exec(migrationV6);
     if (current < 7) database.exec(migrationV7);
+    database.exec(compatibleIndexes);
     database.exec(`PRAGMA user_version = ${String(LIBRARY_SCHEMA_VERSION)}`);
     database.exec("COMMIT");
   } catch (error) {

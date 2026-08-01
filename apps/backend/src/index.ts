@@ -5,13 +5,17 @@ import {
 } from "node:http";
 import { createReadStream } from "node:fs";
 import { performance } from "node:perf_hooks";
-import type { ApiResponse } from "../../../packages/shared/src/player.js";
+import type {
+  ApiResponse,
+  PlaybackContextQueueDecision,
+} from "../../../packages/shared/src/player.js";
 import type {
   HealthResponse,
   ReadinessResponse,
 } from "../../../packages/shared/src/health.js";
 import type { WaveformResponse } from "../../../packages/shared/src/visualizer.js";
 import {
+  playbackContextQueueDecision,
   validateCommandBody,
   type PlayerCommand,
 } from "./api/command-validation.js";
@@ -50,6 +54,7 @@ import type {
   LibraryContextRequest,
   LibraryScanRequest,
   LibrarySearchCategory,
+  LibrarySearchPlayRequest,
   LibraryTrackQueueRequest,
   FavoriteTrackStatusRequest,
   FavoriteTracksPlayRequest,
@@ -246,6 +251,14 @@ const indexedLibraryPromise = IndexedLibraryService.create(
   sources,
   player,
 );
+void indexedLibraryPromise.then((library) => {
+  player.setPrimaryArtistResolver((trackId) =>
+    library.primaryArtistIdForTrack(trackId),
+  );
+  player.setSameArtistResolver((artistId) =>
+    library.resolveSameArtistCandidates(artistId),
+  );
+});
 async function persistentFolderOrigins(
   sourceId: string,
   relativePaths: readonly string[],
@@ -526,7 +539,10 @@ const playerRecovery = new PlayerRecoveryService(async () => {
       process.platform === "linux" && installationMode === "appliance",
     );
     await audioOutput.applyInitialPreference();
-    await playerSession.restore();
+    lastRestoreResult = await playerSession.restore();
+    await player.setContinuePlaybackMode(
+      preferences.snapshot().preferences.continuePlaybackMode,
+    );
     await audioProcessing.recoverAfterMpvRestart();
     bootstrapReadiness = "ready";
     bootstrapFailureCode = null;
@@ -549,7 +565,10 @@ const coreBootstrapPromise = Promise.all([
   smb.initialize(),
   preferences.initialize(),
   display.initialize(),
-]).then(() => {
+]).then(async () => {
+  await player.setContinuePlaybackMode(
+    preferences.snapshot().preferences.continuePlaybackMode,
+  );
   coreBootstrapReady = true;
 });
 
@@ -565,6 +584,9 @@ const bootstrapPromise = Promise.all([
     );
     const restore = await playerSession.restore();
     lastRestoreResult = restore;
+    await player.setContinuePlaybackMode(
+      preferences.snapshot().preferences.continuePlaybackMode,
+    );
     await audioProcessing.initialize(preferences.snapshot());
     playerSession.start();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);
@@ -695,7 +717,7 @@ async function execute(command: PlayerCommand): Promise<void> {
     player.noteCommandApiReceived("navigation", command.metadata);
   switch (command.type) {
     case "open":
-      await player.open(command.paths);
+      await player.open(command.paths, command.queueDecision);
       break;
     case "seek":
       await player.seek(command.positionSeconds);
@@ -762,7 +784,11 @@ async function execute(command: PlayerCommand): Promise<void> {
       await player.removeQueueItem(command.queueItemId);
       break;
     case "queue-reorder":
-      await player.reorderQueueItem(command.queueItemId, command.toIndex);
+      await player.reorderQueueItem(
+        command.queueItemId,
+        command.toIndex,
+        command.expectedQueueRevision,
+      );
       break;
     case "empty":
       break;
@@ -805,13 +831,17 @@ async function applyRemoteLibraryContext(
     readonly paths: readonly string[];
     readonly origins: Parameters<PlayerService["openResolvedQueue"]>[2];
     readonly selectedIndex: number;
+    readonly playbackContext?: Parameters<
+      PlayerService["openResolvedQueue"]
+    >[4];
+    readonly queueDecision?: PlaybackContextQueueDecision | undefined;
   },
   append: boolean,
 ): Promise<unknown> {
   if (append) {
     const appendedCount = await player.append(context.paths, context.origins);
     return {
-      queueLength: player.getState().queue.length,
+      queueLength: player.getPublicState().explicitQueue?.length ?? 0,
       selectedIndex: null,
       appendedCount,
     };
@@ -822,6 +852,8 @@ async function applyRemoteLibraryContext(
     context.selectedIndex,
     context.origins,
     generation,
+    context.playbackContext,
+    context.queueDecision,
   );
   return {
     queueLength: context.paths.length,
@@ -845,7 +877,10 @@ const remoteGateway = new RemoteGateway(
     },
     sources: () => sources.list(),
     librarySnapshot: async () => (await indexedLibraryPromise).snapshot(),
-    subscribePlayer: (listener) => player.subscribe(listener),
+    subscribePlayer: (listener) =>
+      player.subscribe(() => {
+        listener(player.getPublicState());
+      }),
     subscribeAudioOutput: (listener) => audioOutput.subscribe(listener),
     subscribeLibrary: async (listener) =>
       (await indexedLibraryPromise).subscribe(listener),
@@ -867,6 +902,10 @@ const remoteGateway = new RemoteGateway(
       };
       if (action === "queue-clear") {
         await player.clearQueue();
+        return player.getPublicState();
+      }
+      if (action === "context-clear") {
+        await player.clearPlaybackContext();
         return player.getPublicState();
       }
       const type = commandTypes[action];
@@ -925,63 +964,117 @@ const remoteGateway = new RemoteGateway(
       const library = await indexedLibraryPromise;
       if (operation === "play" || operation === "queue") {
         const request = libraryContextBody(body);
+        if (operation === "queue" && request.context === "track")
+          throw new LibraryError(
+            "INVALID_LIBRARY_CONTEXT",
+            "Add a single Track through the Track Queue action.",
+          );
         const context = await library.resolveContext(
           request.context,
           request.id,
           request.selectedTrackId,
         );
-        return applyRemoteLibraryContext(context, operation === "queue");
+        return applyRemoteLibraryContext(
+          {
+            ...context,
+            queueDecision: playbackDecisionFromRequest(request),
+          },
+          operation === "queue",
+        );
+      }
+      if (operation === "queue-track") {
+        const request = libraryTrackQueueBody(body);
+        return applyRemoteLibraryContext(
+          await library.resolveTrack(request.trackId),
+          true,
+        );
+      }
+      if (operation === "play-search") {
+        const request = librarySearchPlayBody(body);
+        return applyRemoteLibraryContext(
+          {
+            ...(await library.resolveSearch(
+              request.query,
+              request.selectedTrackId,
+            )),
+            queueDecision: playbackDecisionFromRequest(request),
+          },
+          false,
+        );
       }
       if (operation === "play-favorites-tracks") {
         const request = favoriteTracksPlayBody(body);
         return applyRemoteLibraryContext(
-          await library.resolveFavorites(
-            request.selectedTrackId,
-            request.catalogFingerprint,
-          ),
+          {
+            ...(await library.resolveFavorites(
+              request.selectedTrackId,
+              request.catalogFingerprint,
+            )),
+            queueDecision: playbackDecisionFromRequest(request),
+          },
           false,
         );
       }
       if (operation === "play-favorites-albums")
         return applyRemoteLibraryContext(
-          await library.resolveFavoriteAlbums(),
+          {
+            ...(await library.resolveFavoriteAlbums()),
+            queueDecision: playbackContextQueueDecision(body),
+          },
           false,
         );
       if (operation === "play-favorites-artists")
         return applyRemoteLibraryContext(
-          await library.resolveFavoriteArtists(),
+          {
+            ...(await library.resolveFavoriteArtists()),
+            queueDecision: playbackContextQueueDecision(body),
+          },
           false,
         );
       if (operation === "play-recently-played") {
         const request = recentlyPlayedPlayBody(body);
         return applyRemoteLibraryContext(
-          await library.resolveRecentlyPlayed(request.selectedHistoryId),
+          {
+            ...(await library.resolveRecentlyPlayed(request.selectedHistoryId)),
+            queueDecision: playbackDecisionFromRequest(request),
+          },
           false,
         );
       }
       if (operation === "play-most-played") {
         const request = mostPlayedPlayBody(body);
         return applyRemoteLibraryContext(
-          await library.resolveMostPlayed(request.selectedTrackId),
+          {
+            ...(await library.resolveMostPlayed(request.selectedTrackId)),
+            queueDecision: playbackDecisionFromRequest(request),
+          },
           false,
         );
       }
       const playlistId =
         typeof body.playlistId === "string" &&
-        /^playlist-[0-9a-f]{32}$/u.test(body.playlistId)
+        /^playlist-[0-9a-f-]{36}$/iu.test(body.playlistId)
           ? body.playlistId
           : "";
       if (!playlistId)
         throw new LibraryError("INVALID_PLAYLIST", "Select a valid playlist.");
       const request = playlistPlayBody(body);
       return applyRemoteLibraryContext(
-        await library.resolvePlaylist(playlistId, request.selectedItemId),
-        false,
+        {
+          ...(await library.resolvePlaylist(
+            playlistId,
+            request.selectedItemId,
+          )),
+          queueDecision: playbackDecisionFromRequest(request),
+        },
+        operation === "queue-playlist",
       );
     },
     browseSources: () => sources.list(),
     browse: (sourceId, relativePath) => folders.browse(sourceId, relativePath),
     browseAction: async (sourceId, action, body) => {
+      const queueDecision =
+        action === "play" ? playbackContextQueueDecision(body) : undefined;
       if (
         typeof body.entryId === "string" &&
         /^entry-[0-9a-f]{32}$/u.test(body.entryId)
@@ -993,6 +1086,8 @@ const remoteGateway = new RemoteGateway(
             queue.selectedIndex,
             await persistentFolderOrigins(sourceId, queue.relativePaths),
             player.reserveOpenRequest(),
+            undefined,
+            queueDecision,
           );
           return {
             queueLength: queue.paths.length,
@@ -1010,7 +1105,7 @@ const remoteGateway = new RemoteGateway(
           await persistentFolderOrigins(sourceId, [relativePath]),
         );
         return {
-          queueLength: player.getState().queue.length,
+          queueLength: player.getPublicState().explicitQueue?.length ?? 0,
           appendedCount,
         };
       }
@@ -1031,6 +1126,8 @@ const remoteGateway = new RemoteGateway(
             0,
             origins,
             player.reserveOpenRequest(),
+            undefined,
+            queueDecision,
           );
         return {
           queueLength: queue.paths.length,
@@ -1040,7 +1137,7 @@ const remoteGateway = new RemoteGateway(
       const appendedCount =
         queue.paths.length > 0 ? await player.append(queue.paths, origins) : 0;
       return {
-        queueLength: player.getState().queue.length,
+        queueLength: player.getPublicState().explicitQueue?.length ?? 0,
         appendedCount,
       };
     },
@@ -1318,6 +1415,7 @@ function libraryEntityId(
 
 function libraryContextBody(value: unknown): LibraryContextRequest {
   const body = objectBody(value);
+  const queueDecision = playbackContextQueueDecision(body);
   if (
     body.context !== "album" &&
     body.context !== "artist" &&
@@ -1341,12 +1439,32 @@ function libraryContextBody(value: unknown): LibraryContextRequest {
     context,
     ...(id ? { id } : {}),
     ...(selectedTrackId ? { selectedTrackId } : {}),
+    ...(queueDecision ?? {}),
   };
 }
 
 function libraryTrackQueueBody(value: unknown): LibraryTrackQueueRequest {
   const body = objectBody(value);
   return { trackId: libraryEntityId(body.trackId, "track") };
+}
+
+function librarySearchPlayBody(value: unknown): LibrarySearchPlayRequest {
+  const body = objectBody(value);
+  const queueDecision = playbackContextQueueDecision(body);
+  if (typeof body.query !== "string" || body.query.length > 256)
+    throw new LibraryError(
+      "INVALID_LIBRARY_SEARCH",
+      "Enter a valid Library search.",
+    );
+  const selectedTrackId =
+    body.selectedTrackId === undefined
+      ? undefined
+      : libraryEntityId(body.selectedTrackId, "track");
+  return {
+    query: body.query,
+    ...(selectedTrackId ? { selectedTrackId } : {}),
+    ...(queueDecision ?? {}),
+  };
 }
 
 function favoriteTrackStatusBody(value: unknown): FavoriteTrackStatusRequest {
@@ -1363,6 +1481,7 @@ function favoriteTrackStatusBody(value: unknown): FavoriteTrackStatusRequest {
 
 function favoriteTracksPlayBody(value: unknown): FavoriteTracksPlayRequest {
   const body = objectBody(value);
+  const queueDecision = playbackContextQueueDecision(body);
   const selectedTrackId =
     body.selectedTrackId === undefined
       ? undefined
@@ -1381,6 +1500,7 @@ function favoriteTracksPlayBody(value: unknown): FavoriteTracksPlayRequest {
     ...(typeof body.catalogFingerprint === "string"
       ? { catalogFingerprint: body.catalogFingerprint }
       : {}),
+    ...(queueDecision ?? {}),
   };
 }
 
@@ -1410,6 +1530,7 @@ function favoriteArtistStatusBody(value: unknown): FavoriteArtistStatusRequest {
 
 function recentlyPlayedPlayBody(value: unknown): RecentlyPlayedPlayRequest {
   const body = objectBody(value);
+  const queueDecision = playbackContextQueueDecision(body);
   if (
     body.selectedHistoryId !== undefined &&
     (typeof body.selectedHistoryId !== "string" ||
@@ -1419,15 +1540,23 @@ function recentlyPlayedPlayBody(value: unknown): RecentlyPlayedPlayRequest {
       "INVALID_LIBRARY_HISTORY",
       "Select a valid listening-history event.",
     );
-  return typeof body.selectedHistoryId === "string"
-    ? { selectedHistoryId: body.selectedHistoryId }
-    : {};
+  return {
+    ...(typeof body.selectedHistoryId === "string"
+      ? { selectedHistoryId: body.selectedHistoryId }
+      : {}),
+    ...(queueDecision ?? {}),
+  };
 }
 
 function mostPlayedPlayBody(value: unknown): MostPlayedPlayRequest {
   const body = objectBody(value);
-  if (body.selectedTrackId === undefined) return {};
-  return { selectedTrackId: libraryEntityId(body.selectedTrackId, "track") };
+  const queueDecision = playbackContextQueueDecision(body);
+  return {
+    ...(body.selectedTrackId === undefined
+      ? {}
+      : { selectedTrackId: libraryEntityId(body.selectedTrackId, "track") }),
+    ...(queueDecision ?? {}),
+  };
 }
 
 function playlistNameBody(value: unknown): PlaylistNameRequest {
@@ -1470,9 +1599,25 @@ function playlistReorderBody(value: unknown): PlaylistReorderRequest {
 
 function playlistPlayBody(value: unknown): PlaylistPlayRequest {
   const body = objectBody(value);
-  return typeof body.selectedItemId === "string"
-    ? { selectedItemId: body.selectedItemId }
-    : {};
+  const queueDecision = playbackContextQueueDecision(body);
+  return {
+    ...(typeof body.selectedItemId === "string"
+      ? { selectedItemId: body.selectedItemId }
+      : {}),
+    ...(queueDecision ?? {}),
+  };
+}
+
+function playbackDecisionFromRequest(
+  request: Partial<PlaybackContextQueueDecision>,
+): PlaybackContextQueueDecision | undefined {
+  return request.explicitQueuePolicy !== undefined &&
+    request.expectedQueueRevision !== undefined
+    ? {
+        explicitQueuePolicy: request.explicitQueuePolicy,
+        expectedQueueRevision: request.expectedQueueRevision,
+      }
+    : undefined;
 }
 
 function libraryCancelBody(value: unknown): LibraryCancelScanRequest {
@@ -1512,6 +1657,7 @@ const commandRoutes = new Map<string, PlayerCommand["type"]>([
 
 const emptyCommands = new Map<string, () => Promise<void>>([
   ["/api/player/queue/clear", () => player.clearQueue()],
+  ["/api/player/context/clear", () => player.clearPlaybackContext()],
 ]);
 
 async function handleRequest(
@@ -1892,6 +2038,10 @@ async function handleRequest(
           409,
         );
       const snapshot = await preferences.patch(patch);
+      if (Object.hasOwn(patch.changes, "continuePlaybackMode"))
+        await player.setContinuePlaybackMode(
+          snapshot.preferences.continuePlaybackMode,
+        );
       sendJson(response, 200, { ok: true, data: snapshot });
       return;
     }
@@ -2107,6 +2257,8 @@ async function handleRequest(
       const connectionId = smbDirectoryActionMatch[1] ?? "";
       const action = smbDirectoryActionMatch[2] ?? "";
       const body = objectBody(await readBody(request));
+      const queueDecision =
+        action === "play" ? playbackContextQueueDecision(body) : undefined;
       const relativePath =
         typeof body.relativePath === "string" ? body.relativePath : "";
       const requestGeneration =
@@ -2131,6 +2283,8 @@ async function handleRequest(
             0,
             origins,
             requestGeneration,
+            undefined,
+            queueDecision,
           );
         sendJson(response, 200, {
           ok: true,
@@ -2147,7 +2301,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             appendedCount,
           },
         });
@@ -2188,7 +2342,8 @@ async function handleRequest(
         return;
       }
       if (request.method === "POST" && action === "open") {
-        await readBody(request);
+        const body = objectBody(await readBody(request));
+        const queueDecision = playbackContextQueueDecision(body);
         const requestGeneration = player.reserveOpenRequest();
         const queue = await smbFolders.queueForEntry(connectionId, entryId);
         await player.openResolvedQueue(
@@ -2204,6 +2359,8 @@ async function handleRequest(
             ),
           })),
           requestGeneration,
+          undefined,
+          queueDecision,
         );
         sendJson(response, 200, {
           ok: true,
@@ -2234,7 +2391,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             appendedCount,
           },
         });
@@ -2556,6 +2713,33 @@ async function handleRequest(
       });
       return;
     }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/library/search/play"
+    ) {
+      const body = librarySearchPlayBody(await readBody(request));
+      const generation = player.reserveOpenRequest();
+      const context = await (
+        await indexedLibraryPromise
+      ).resolveSearch(body.query, body.selectedTrackId);
+      await player.openResolvedQueue(
+        context.paths,
+        context.selectedIndex,
+        context.origins,
+        generation,
+        context.playbackContext,
+        playbackDecisionFromRequest(body),
+      );
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          queueLength: context.paths.length,
+          selectedIndex: context.selectedIndex,
+          appendedCount: 0,
+        },
+      });
+      return;
+    }
     const librarySearchCategoryMatch =
       /^\/api\/library\/search\/(artists|albums|tracks)$/.exec(url.pathname);
     if (librarySearchCategoryMatch && request.method === "GET") {
@@ -2684,6 +2868,8 @@ async function handleRequest(
         context.selectedIndex,
         context.origins,
         generation,
+        context.playbackContext,
+        playbackDecisionFromRequest(body),
       );
       sendJson(response, 200, {
         ok: true,
@@ -2719,6 +2905,8 @@ async function handleRequest(
         context.selectedIndex,
         context.origins,
         generation,
+        context.playbackContext,
+        playbackDecisionFromRequest(body),
       );
       sendJson(response, 200, {
         ok: true,
@@ -2807,6 +2995,8 @@ async function handleRequest(
         context.selectedIndex,
         context.origins,
         generation,
+        context.playbackContext,
+        playbackDecisionFromRequest(body),
       );
       sendJson(response, 200, {
         ok: true,
@@ -2872,6 +3062,8 @@ async function handleRequest(
       request.method === "POST" &&
       url.pathname === "/api/library/favorites/albums/play"
     ) {
+      const body = objectBody(await readBody(request));
+      const queueDecision = playbackContextQueueDecision(body);
       const generation = player.reserveOpenRequest();
       const context = await (
         await indexedLibraryPromise
@@ -2881,6 +3073,8 @@ async function handleRequest(
         context.selectedIndex,
         context.origins,
         generation,
+        context.playbackContext,
+        queueDecision,
       );
       sendJson(response, 200, {
         ok: true,
@@ -2946,6 +3140,8 @@ async function handleRequest(
       request.method === "POST" &&
       url.pathname === "/api/library/favorites/artists/play"
     ) {
+      const body = objectBody(await readBody(request));
+      const queueDecision = playbackContextQueueDecision(body);
       const generation = player.reserveOpenRequest();
       const context = await (
         await indexedLibraryPromise
@@ -2955,6 +3151,8 @@ async function handleRequest(
         context.selectedIndex,
         context.origins,
         generation,
+        context.playbackContext,
+        queueDecision,
       );
       sendJson(response, 200, {
         ok: true,
@@ -3075,6 +3273,8 @@ async function handleRequest(
           context.selectedIndex,
           context.origins,
           generation,
+          context.playbackContext,
+          playbackDecisionFromRequest(body),
         );
         sendJson(response, 200, {
           ok: true,
@@ -3092,7 +3292,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             selectedIndex: null,
             appendedCount,
           },
@@ -3142,6 +3342,8 @@ async function handleRequest(
         context.selectedIndex,
         context.origins,
         generation,
+        context.playbackContext,
+        playbackDecisionFromRequest(body),
       );
       sendJson(response, 200, {
         ok: true,
@@ -3167,7 +3369,7 @@ async function handleRequest(
       sendJson(response, 200, {
         ok: true,
         data: {
-          queueLength: player.getState().queue.length,
+          queueLength: player.getPublicState().explicitQueue?.length ?? 0,
           selectedIndex: null,
           appendedCount,
         },
@@ -3186,7 +3388,7 @@ async function handleRequest(
       sendJson(response, 200, {
         ok: true,
         data: {
-          queueLength: player.getState().queue.length,
+          queueLength: player.getPublicState().explicitQueue?.length ?? 0,
           selectedIndex: null,
           appendedCount,
         },
@@ -3352,7 +3554,9 @@ async function handleRequest(
     if (removableDirectoryActionMatch && request.method === "POST") {
       const deviceId = removableDirectoryActionMatch[1] ?? "";
       const action = removableDirectoryActionMatch[2] ?? "";
-      const body = (await readBody(request)) as { relativePath?: unknown };
+      const body = objectBody(await readBody(request));
+      const queueDecision =
+        action === "play" ? playbackContextQueueDecision(body) : undefined;
       const relativePath =
         typeof body.relativePath === "string" ? body.relativePath : "";
       const requestGeneration =
@@ -3374,6 +3578,8 @@ async function handleRequest(
             0,
             origins,
             requestGeneration,
+            undefined,
+            queueDecision,
           );
         sendJson(response, 200, {
           ok: true,
@@ -3389,7 +3595,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             appendedCount,
           },
         });
@@ -3430,7 +3636,8 @@ async function handleRequest(
         return;
       }
       if (request.method === "POST" && action === "open") {
-        await readBody(request);
+        const body = objectBody(await readBody(request));
+        const queueDecision = playbackContextQueueDecision(body);
         const requestGeneration = player.reserveOpenRequest();
         const queue = await folders.queueForEntry(deviceId, entryId);
         await player.openResolvedQueue(
@@ -3443,6 +3650,8 @@ async function handleRequest(
             entryId: folders.entryIdForRelativePath(deviceId, relativePath),
           })),
           requestGeneration,
+          undefined,
+          queueDecision,
         );
         sendJson(response, 200, {
           ok: true,
@@ -3470,7 +3679,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             appendedCount,
           },
         });
@@ -3546,7 +3755,9 @@ async function handleRequest(
     if (directoryActionMatch && request.method === "POST") {
       const sourceId = directoryActionMatch[1] ?? "";
       const action = directoryActionMatch[2] ?? "";
-      const body = (await readBody(request)) as { relativePath?: unknown };
+      const body = objectBody(await readBody(request));
+      const queueDecision =
+        action === "play" ? playbackContextQueueDecision(body) : undefined;
       const relativePath =
         typeof body.relativePath === "string" ? body.relativePath : "";
       const openRequestGeneration =
@@ -3566,6 +3777,8 @@ async function handleRequest(
             0,
             origins,
             openRequestGeneration ?? undefined,
+            undefined,
+            queueDecision,
           );
         sendJson(response, 200, {
           ok: true,
@@ -3582,7 +3795,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             appendedCount,
           },
         });
@@ -3623,7 +3836,8 @@ async function handleRequest(
         return;
       }
       if (request.method === "POST" && action === "open") {
-        await readBody(request);
+        const body = objectBody(await readBody(request));
+        const queueDecision = playbackContextQueueDecision(body);
         const openRequestGeneration = player.reserveOpenRequest();
         const queue = await folders.queueForEntry(sourceId, entryId);
         await player.openResolvedQueue(
@@ -3631,6 +3845,8 @@ async function handleRequest(
           queue.selectedIndex,
           await persistentFolderOrigins(sourceId, queue.relativePaths),
           openRequestGeneration,
+          undefined,
+          queueDecision,
         );
         sendJson(response, 200, {
           ok: true,
@@ -3653,7 +3869,7 @@ async function handleRequest(
         sendJson(response, 200, {
           ok: true,
           data: {
-            queueLength: player.getState().queue.length,
+            queueLength: player.getPublicState().explicitQueue?.length ?? 0,
             appendedCount,
           },
         });

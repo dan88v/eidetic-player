@@ -1,4 +1,4 @@
-import type { ArtworkRef } from "./player.js";
+import type { ArtworkRef, PlaybackContextQueueDecision } from "./player.js";
 
 export type SourceAvailability = "available" | "unavailable" | "checking";
 
@@ -197,11 +197,13 @@ export interface AddSmbLibrarySourceRequest {
 export interface OpenLibraryEntryResponse {
   readonly selectedIndex: number;
   readonly queueLength: number;
+  readonly cancelled?: true;
 }
 
 export interface DirectoryQueueResponse {
   readonly queueLength: number;
   readonly appendedCount: number;
+  readonly cancelled?: true;
 }
 
 export interface AddLocalSourceRequest {
@@ -337,7 +339,7 @@ export interface FavoriteTrackMutationResponse {
   readonly favoritedAt: number | null;
 }
 
-export interface FavoriteTracksPlayRequest {
+export interface FavoriteTracksPlayRequest extends Partial<PlaybackContextQueueDecision> {
   readonly selectedTrackId?: string;
   readonly catalogFingerprint?: string;
 }
@@ -354,7 +356,7 @@ export interface RecentlyPlayedPage extends LibraryPage<RecentlyPlayedItem> {
   readonly availableCount: number;
 }
 
-export interface RecentlyPlayedPlayRequest {
+export interface RecentlyPlayedPlayRequest extends Partial<PlaybackContextQueueDecision> {
   readonly selectedHistoryId?: string;
 }
 
@@ -375,7 +377,7 @@ export interface MostPlayedPage extends LibraryPage<MostPlayedItem> {
   readonly availableCount: number;
 }
 
-export interface MostPlayedPlayRequest {
+export interface MostPlayedPlayRequest extends Partial<PlaybackContextQueueDecision> {
   readonly selectedTrackId?: string;
 }
 
@@ -435,7 +437,7 @@ export interface PlaylistReorderRequest {
   readonly itemIds: readonly string[];
 }
 
-export interface PlaylistPlayRequest {
+export interface PlaylistPlayRequest extends Partial<PlaybackContextQueueDecision> {
   readonly selectedItemId?: string;
 }
 
@@ -517,7 +519,7 @@ export interface LibraryArtistDetail extends LibraryArtist {
 
 export type LibraryContextKind = "album" | "artist" | "track" | "tracks";
 
-export interface LibraryContextRequest {
+export interface LibraryContextRequest extends Partial<PlaybackContextQueueDecision> {
   readonly context: LibraryContextKind;
   readonly id?: string;
   readonly selectedTrackId?: string;
@@ -527,10 +529,16 @@ export interface LibraryTrackQueueRequest {
   readonly trackId: string;
 }
 
+export interface LibrarySearchPlayRequest extends Partial<PlaybackContextQueueDecision> {
+  readonly query: string;
+  readonly selectedTrackId?: string;
+}
+
 export interface LibraryQueueActionResponse {
   readonly queueLength: number;
   readonly selectedIndex: number | null;
   readonly appendedCount: number;
+  readonly cancelled?: true;
 }
 
 export type LibrarySearchCategory = "artists" | "albums" | "tracks";

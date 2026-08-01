@@ -84,6 +84,10 @@ void test("legacy migration reads only exact whitelist keys and maps spectrum", 
   storage.values.set(legacyPreferenceStorageKeys.visualizerMode, "spectrum");
   storage.values.set(legacyPreferenceStorageKeys.volume, "63");
   storage.values.set(legacyPreferenceStorageKeys.repeatMode, "all");
+  storage.values.set(
+    "eidetic-player.playback.continue-playback",
+    "same-artist",
+  );
   storage.values.set("third-party.secret", "must-not-be-read");
 
   const result = readLegacyPreferences(storage);
@@ -96,6 +100,11 @@ void test("legacy migration reads only exact whitelist keys and maps spectrum", 
   });
   assert.equal(storage.reads.includes("third-party.secret"), false);
   assert.equal(
+    storage.reads.includes("eidetic-player.playback.continue-playback"),
+    false,
+  );
+  assert.equal("continuePlaybackMode" in legacyPreferenceStorageKeys, false);
+  assert.equal(
     storage.reads.every((key) =>
       Object.values(legacyPreferenceStorageKeys).includes(
         key as (typeof legacyPreferenceStorageKeys)[keyof typeof legacyPreferenceStorageKeys],
@@ -103,6 +112,40 @@ void test("legacy migration reads only exact whitelist keys and maps spectrum", 
     ),
     true,
   );
+});
+
+void test("continue playback is controller-owned and never written to localStorage", async () => {
+  const storage = new RecordingStorage();
+  const restoreWindow = installWindow(storage);
+  try {
+    const patches: PreferencesPatch[] = [];
+    const api = {
+      patch(patch: PreferencesPatch) {
+        patches.push(patch);
+        return Promise.resolve(snapshot(nextRevision(patch), patch.changes));
+      },
+      get: () => Promise.resolve(snapshot()),
+    } satisfies PreferencesTransport;
+    const controller = new PreferencesController(snapshot(), api, {
+      debounceMs: 1_000,
+      retryDelaysMs: [],
+      onWarning: () => assert.fail("unexpected warning"),
+    });
+
+    controller.update({ continuePlaybackMode: "same-artist" });
+    assert.equal(
+      controller.getPreferences().continuePlaybackMode,
+      "same-artist",
+    );
+    assert.equal(await controller.flush(), true);
+    assert.deepEqual(patches[0]?.changes, {
+      continuePlaybackMode: "same-artist",
+    });
+    assert.deepEqual(storage.writes, []);
+    controller.destroy();
+  } finally {
+    restoreWindow();
+  }
 });
 
 void test("absent and invalid legacy values do not become defaults in payload", () => {

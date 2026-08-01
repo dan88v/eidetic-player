@@ -388,7 +388,7 @@ export function createFoldersScreen(
           target.sourceId,
           target.relativePath,
         );
-        if (result.queueLength === 0)
+        if (!result.cancelled && result.queueLength === 0)
           options.showToast(t("folders.noSupported"), "neutral");
       } else {
         const result = await options.api.addDirectoryToQueue(

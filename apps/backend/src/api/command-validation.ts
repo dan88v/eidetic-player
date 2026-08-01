@@ -1,4 +1,5 @@
 import type {
+  PlaybackContextQueueDecision,
   PlayerCommandRequestMetadata,
   RepeatMode,
 } from "../../../../packages/shared/src/player.js";
@@ -9,7 +10,11 @@ interface CommandMetadata {
 }
 
 export type PlayerCommand =
-  | { readonly type: "open"; readonly paths: readonly string[] }
+  | {
+      readonly type: "open";
+      readonly paths: readonly string[];
+      readonly queueDecision?: PlaybackContextQueueDecision;
+    }
   | { readonly type: "seek"; readonly positionSeconds: number }
   | ({ readonly type: "volume"; readonly volume: number } & CommandMetadata)
   | ({ readonly type: "mute"; readonly muted: boolean } & CommandMetadata)
@@ -26,6 +31,7 @@ export type PlayerCommand =
       readonly type: "queue-reorder";
       readonly queueItemId: string;
       readonly toIndex: number;
+      readonly expectedQueueRevision?: number;
     }
   | ({
       readonly type: "play-pause" | "play" | "pause";
@@ -41,6 +47,9 @@ function record(value: unknown): Record<string, unknown> {
     throw new PlayerError("INVALID_BODY", "A JSON object is required.");
   return value as Record<string, unknown>;
 }
+
+const queueEntryIdPattern =
+  /^(?:explicit|queue)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function metadata(
   value: Record<string, unknown>,
@@ -81,17 +90,34 @@ function optionalQueueItemId(
   field: string,
 ): string | null | undefined {
   if (value === undefined || value === null) return value;
-  if (
-    typeof value !== "string" ||
-    !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    )
-  )
+  if (typeof value !== "string" || !queueEntryIdPattern.test(value))
     throw new PlayerError(
       "INVALID_QUEUE_ITEM",
       `${field} must be an opaque Queue item ID or null.`,
     );
   return value;
+}
+
+export function playbackContextQueueDecision(
+  value: Record<string, unknown>,
+): PlaybackContextQueueDecision | undefined {
+  const policy = value.explicitQueuePolicy;
+  const revision = value.expectedQueueRevision;
+  if (policy === undefined && revision === undefined) return undefined;
+  if (
+    (policy !== "preserve" && policy !== "clear") ||
+    typeof revision !== "number" ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0
+  )
+    throw new PlayerError(
+      "INVALID_QUEUE_POLICY",
+      "A valid Explicit Queue policy and revision are required.",
+    );
+  return {
+    explicitQueuePolicy: policy,
+    expectedQueueRevision: revision,
+  };
 }
 
 export function validateCommandBody(
@@ -117,6 +143,14 @@ export function validateCommandBody(
           "INVALID_PATHS",
           "paths must be a non-empty array of local file paths.",
         );
+      if (type === "open") {
+        const queueDecision = playbackContextQueueDecision(value);
+        return {
+          type,
+          paths: value.paths,
+          ...(queueDecision ? { queueDecision } : {}),
+        };
+      }
       return { type, paths: value.paths };
     }
     case "seek":
@@ -184,9 +218,7 @@ export function validateCommandBody(
       if (
         value.queueItemId !== undefined &&
         (typeof value.queueItemId !== "string" ||
-          !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-            value.queueItemId,
-          ))
+          !queueEntryIdPattern.test(value.queueItemId))
       )
         throw new PlayerError(
           "INVALID_QUEUE_ITEM",
@@ -207,9 +239,7 @@ export function validateCommandBody(
     case "queue-reorder":
       if (
         typeof value.queueItemId !== "string" ||
-        !/^queue-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          value.queueItemId,
-        )
+        !queueEntryIdPattern.test(value.queueItemId)
       )
         throw new PlayerError(
           "INVALID_QUEUE_ITEM",
@@ -225,7 +255,24 @@ export function validateCommandBody(
             "INVALID_QUEUE_INDEX",
             "toIndex must be a non-negative integer.",
           );
-        return { type, queueItemId: value.queueItemId, toIndex: value.toIndex };
+        if (
+          value.expectedQueueRevision !== undefined &&
+          (typeof value.expectedQueueRevision !== "number" ||
+            !Number.isSafeInteger(value.expectedQueueRevision) ||
+            value.expectedQueueRevision < 0)
+        )
+          throw new PlayerError(
+            "INVALID_QUEUE_REVISION",
+            "expectedQueueRevision must be a non-negative integer.",
+          );
+        return {
+          type,
+          queueItemId: value.queueItemId,
+          toIndex: value.toIndex,
+          ...(typeof value.expectedQueueRevision === "number"
+            ? { expectedQueueRevision: value.expectedQueueRevision }
+            : {}),
+        };
       }
       return { type, queueItemId: value.queueItemId };
     case "empty":

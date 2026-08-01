@@ -902,6 +902,194 @@
     touch-action: pan-y;
   }
 
+  .queue-section {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-1);
+  }
+
+  .queue-section[hidden] {
+    display: none;
+  }
+
+  .queue-section h3,
+  .queue-section__heading h3 {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .queue-section__heading {
+    display: flex;
+    min-height: var(--touch-min);
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-1) var(--space-1);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .queue-section__badge {
+    display: inline-grid;
+    min-width: 1.75rem;
+    min-height: 1.75rem;
+    padding-inline: 0.45rem;
+    place-items: center;
+    border-radius: var(--radius-pill);
+    background: var(--color-accent-soft);
+    color: var(--color-accent-strong);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+  }
+
+  .queue-section__badge[hidden] {
+    display: none;
+  }
+
+  .queue-current {
+    display: grid;
+    min-height: 4.25rem;
+    grid-template-columns: var(--touch-small) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .queue-current[hidden] {
+    display: none;
+  }
+
+  .queue-current__artwork {
+    display: block;
+    width: var(--touch-small);
+    height: var(--touch-small);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-raised);
+  }
+
+  .queue-current__copy,
+  .queue-context__heading {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+
+  .queue-current__copy strong,
+  .queue-current__copy span,
+  .queue-current__copy small,
+  .queue-context__heading strong,
+  .queue-context__heading small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .queue-current__copy strong,
+  .queue-context__heading strong {
+    font-size: 0.875rem;
+  }
+
+  .queue-current__copy span,
+  .queue-current__copy small,
+  .queue-context__heading small,
+  .queue-context__next,
+  .queue-context__remaining {
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+  }
+
+  .queue-current__empty {
+    margin: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: 0.8125rem;
+  }
+
+  .queue-context {
+    margin-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .queue-context__card {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .queue-context__top {
+    display: block;
+    min-width: 0;
+  }
+
+  .queue-context__next,
+  .queue-context__remaining {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .queue-context__details {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .queue-context__summary {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+
+  .queue-context__remove {
+    min-width: 4.5rem;
+    min-height: var(--touch-small);
+    padding-inline: var(--space-3);
+    border: 1px solid rgb(226 87 87 / 35%);
+    border-radius: var(--radius-md);
+    background: rgb(226 87 87 / 10%);
+    color: #f08a8a;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .queue-context__heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+
+  .queue-context__remaining {
+    color: var(--color-text-muted);
+  }
+
+  .queue-continuation {
+    padding-top: 0;
+  }
+
+  .queue-continuation p {
+    margin: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--color-accent-soft);
+    color: var(--color-text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
   .queue-list__clear {
     display: flex;
     justify-content: center;

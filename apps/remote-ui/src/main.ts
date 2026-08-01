@@ -1,14 +1,24 @@
 import type {
   RemoteBootstrap,
   RemoteEventEnvelope,
+  RemotePlayerProgress,
   RemotePlayerState,
-  RemoteQueueItem,
 } from "../../../packages/shared/src/remote-access";
+import type {
+  CurrentPlaybackView,
+  ExplicitQueueItem,
+  PlaybackContextQueueDecision,
+} from "../../../packages/shared/src/player";
 import { createClientSessionId } from "./client-session-id";
 import {
   formatRemoteTrackCount,
+  mergeRemotePlayerProgress,
+  remotePlaybackContextKindLabel,
+  remotePlayerDisplay,
   remotePlayerPresentationChanged,
   remotePlayerTrackKey,
+  remoteQueuePresentationChanged,
+  remoteSameArtistSummary,
 } from "./player-presentation";
 import "./styles.css";
 
@@ -63,6 +73,7 @@ let browseSourceId = "";
 let browseRelativePath = "";
 let libraryAbort: AbortController | null = null;
 let libraryPageRecords: Record<string, unknown>[] = [];
+let librarySearchQuery = "";
 let activeSeek: {
   readonly input: HTMLInputElement;
   readonly trackKey: string | null;
@@ -153,7 +164,8 @@ function setConnection(next: typeof connection): void {
   document
     .querySelectorAll<HTMLButtonElement>("[data-requires-connection]")
     .forEach((control) => {
-      control.disabled = next !== "connected";
+      control.disabled =
+        next !== "connected" || control.dataset.commandAvailable === "false";
     });
 }
 
@@ -175,15 +187,11 @@ function formatTime(seconds: number): string {
 }
 
 function metadataTitle(state: RemotePlayerState): string {
-  return (
-    state.currentTrack?.title ??
-    state.currentTrack?.filename ??
-    "Nothing playing"
-  );
+  return remotePlayerDisplay(state).title;
 }
 
 function artworkFor(state: RemotePlayerState): string | null {
-  const id = state.currentTrack?.artwork?.id;
+  const id = remotePlayerDisplay(state).artwork?.id;
   return id ? `/api/artwork/player/${encodeURIComponent(id)}` : null;
 }
 
@@ -378,6 +386,12 @@ function renderShell(): void {
       element("span", "remote-nav-item__icon", icon),
       element("span", "", label),
     );
+    if (id === "queue") {
+      const badge = element("span", "remote-nav-item__badge");
+      badge.dataset.explicitQueueCount = "";
+      badge.hidden = true;
+      control.append(badge);
+    }
     nav.append(control);
   }
   shell.append(header, content, mini, nav);
@@ -387,6 +401,7 @@ function renderShell(): void {
 }
 
 function updateNavigation(): void {
+  const explicitCount = bootstrap?.player.explicitQueue.length ?? 0;
   document
     .querySelectorAll<HTMLButtonElement>("[data-destination]")
     .forEach((item) => {
@@ -394,7 +409,21 @@ function updateNavigation(): void {
       item.classList.toggle("remote-nav-item--active", active);
       if (active) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
+      if (item.dataset.destination === "queue")
+        item.setAttribute(
+          "aria-label",
+          explicitCount === 0
+            ? "Queue"
+            : `Queue, ${formatRemoteTrackCount(explicitCount) ?? ""}`,
+        );
     });
+  const badge = document.querySelector<HTMLElement>(
+    "[data-explicit-queue-count]",
+  );
+  if (badge) {
+    badge.hidden = explicitCount === 0;
+    badge.textContent = String(explicitCount);
+  }
 }
 
 function createMiniPlayer(): HTMLElement {
@@ -411,6 +440,7 @@ function updateMiniPlayer(target?: HTMLElement): void {
   if (!mini) return;
   mini.hidden = destination === "player";
   const state = bootstrap.player;
+  const display = remotePlayerDisplay(state);
   mini.replaceChildren();
   const open = button("", "remote-mini-player__open", () => {
     destination = "player";
@@ -429,7 +459,7 @@ function updateMiniPlayer(target?: HTMLElement): void {
   const copy = element("span", "remote-mini-player__copy");
   copy.append(
     element("strong", "", metadataTitle(state)),
-    element("small", "", state.currentTrack?.artist ?? "Eidetic Player"),
+    element("small", "", display.artist ?? "Eidetic Player"),
   );
   open.append(art, copy);
   const toggle = button(state.paused ? "▶" : "Ⅱ", "remote-icon-button", () => {
@@ -453,6 +483,7 @@ function renderCurrentSurface(): void {
   else if (destination === "browse") renderBrowse(content);
   else renderLibrary(content);
   updateMiniPlayer();
+  updateNavigation();
   setConnection(connection);
 }
 
@@ -466,6 +497,7 @@ function pageHeading(title: string, description?: string): HTMLElement {
 function renderPlayer(content: HTMLElement): void {
   if (!bootstrap) return;
   const state = bootstrap.player;
+  const display = remotePlayerDisplay(state);
   const page = element("section", "remote-player");
   const artwork = element("div", "remote-player__artwork");
   const artUrl = artworkFor(state);
@@ -480,8 +512,8 @@ function renderPlayer(content: HTMLElement): void {
   const metadata = element("div", "remote-player__metadata");
   metadata.append(
     element("h1", "", metadataTitle(state)),
-    element("p", "", state.currentTrack?.artist ?? "No artist"),
-    element("small", "", state.currentTrack?.album ?? "No album"),
+    element("p", "", display.artist ?? "No artist"),
+    element("small", "", display.album ?? "No album"),
   );
   const timeline = element("div", "remote-timeline");
   const time = element("div", "remote-timeline__time");
@@ -496,7 +528,7 @@ function renderPlayer(content: HTMLElement): void {
   seek.max = String(Math.max(1, state.durationSeconds));
   seek.step = "1";
   seek.value = String(state.positionSeconds);
-  seek.disabled = !state.currentTrack || connection !== "connected";
+  seek.disabled = !display.hasCurrent || connection !== "connected";
   seek.setAttribute("aria-label", "Playback position");
   seek.dataset.playerSeek = "";
   let ignoreNextChange: string | null = null;
@@ -555,6 +587,8 @@ function renderPlayer(content: HTMLElement): void {
   });
   setRemoteIcon(next, "next");
   next.setAttribute("aria-label", "Next");
+  next.dataset.commandAvailable = String(state.canGoNext);
+  next.disabled = !state.canGoNext || connection !== "connected";
   next.dataset.requiresConnection = "";
   const shuffle = button(
     "",
@@ -642,7 +676,8 @@ function updatePlayerProgress(state: RemotePlayerState): void {
   const seek = document.querySelector<HTMLInputElement>("[data-player-seek]");
   if (!seek) return;
   seek.max = String(Math.max(1, state.durationSeconds));
-  seek.disabled = !state.currentTrack || connection !== "connected";
+  seek.disabled =
+    !remotePlayerDisplay(state).hasCurrent || connection !== "connected";
   if (activeSeek?.input !== seek) seek.value = String(state.positionSeconds);
   const elapsed = document.querySelector<HTMLElement>("[data-player-elapsed]");
   const duration = document.querySelector<HTMLElement>(
@@ -657,44 +692,160 @@ function renderQueue(content: HTMLElement): void {
   if (!bootstrap) return;
   const state = bootstrap.player;
   const page = element("section", "remote-list-page");
-  const heading = pageHeading("Queue", `${String(state.queue.length)} tracks`);
-  if (state.queue.length > 0) {
+  const explicitCount = state.explicitQueue.length;
+  const heading = pageHeading(
+    "Queue",
+    formatRemoteTrackCount(explicitCount) ?? undefined,
+  );
+  if (explicitCount > 0) {
     heading.append(
       button("Clear", "remote-text-button", () => {
         openConfirmation(
           "Clear Queue?",
-          "This removes every track from the current Queue.",
+          "This removes only songs added to Up Next. Now Playing and the playback context continue.",
           () => runCommand("/api/queue/clear", { confirm: true }),
         );
       }),
     );
   }
-  const list = element("ol", "remote-queue");
-  for (const item of state.queue) list.append(queueRow(item));
-  if (state.queue.length === 0)
-    list.append(element("li", "remote-empty", "Queue is empty."));
-  page.append(heading, list);
+  const sections = element("div", "remote-queue-sections");
+
+  const nowPlaying = queueSection("Now Playing");
+  const nowPlayingList = element("ul", "remote-queue");
+  if (state.currentPlayback)
+    nowPlayingList.append(currentPlaybackRow(state.currentPlayback));
+  else
+    nowPlayingList.append(
+      element(
+        "li",
+        "remote-empty remote-empty--compact",
+        "Nothing is playing.",
+      ),
+    );
+  nowPlaying.append(nowPlayingList);
+  sections.append(nowPlaying);
+
+  const upNext = queueSection("Up Next");
+  const explicitList = element("ol", "remote-queue");
+  for (const item of state.explicitQueue)
+    explicitList.append(explicitQueueRow(item));
+  if (explicitCount === 0)
+    explicitList.append(
+      element(
+        "li",
+        "remote-empty remote-empty--compact",
+        "No songs added to the queue.",
+      ),
+    );
+  upNext.append(explicitList);
+  sections.append(upNext);
+
+  if (state.playbackContext) {
+    const contextSection = queueSection("Then continues from");
+    const context = state.playbackContext;
+    const summary = element("article", "remote-queue-summary");
+    summary.append(
+      element(
+        "small",
+        "remote-queue-summary__kind",
+        remotePlaybackContextKindLabel(context.kind),
+      ),
+      element("strong", "", context.title),
+    );
+    if (context.nextItem)
+      summary.append(
+        element(
+          "span",
+          "",
+          `Next: ${context.nextItem.displayTitle || context.nextItem.filename}`,
+        ),
+      );
+    summary.append(
+      element(
+        "small",
+        "",
+        `${formatRemoteTrackCount(context.remainingCount) ?? "0 tracks"} remaining`,
+      ),
+      button("Remove", "remote-queue-summary__remove", () => {
+        void runCommand("/api/context/clear");
+      }),
+    );
+    contextSection.append(summary);
+    sections.append(contextSection);
+  }
+
+  const continuationSummary = remoteSameArtistSummary(state);
+  if (continuationSummary) {
+    const continuationSection = queueSection("Same artist");
+    continuationSection.append(
+      element(
+        "p",
+        "remote-queue-summary remote-queue-summary--continuation",
+        continuationSummary,
+      ),
+    );
+    sections.append(continuationSection);
+  }
+
+  page.append(heading, sections);
   content.replaceChildren(page);
 }
 
-function queueRow(item: RemoteQueueItem): HTMLElement {
-  const row = element(
-    "li",
-    item.isCurrent
-      ? "remote-queue-row remote-queue-row--current"
-      : "remote-queue-row",
+function queueSection(title: string): HTMLElement {
+  const section = element("section", "remote-queue-section");
+  section.append(element("h2", "remote-queue-section__heading", title));
+  return section;
+}
+
+function currentPlaybackRow(current: CurrentPlaybackView): HTMLElement {
+  const row = element("li", "remote-queue-row remote-queue-row--current");
+  row.dataset.playbackInstanceId = current.playbackInstanceId;
+  const artworkId = current.item.artwork?.id;
+  const artwork = queueArtwork(
+    artworkId
+      ? `/api/artwork/player/${encodeURIComponent(artworkId)}`
+      : `/api/artwork/queue/${encodeURIComponent(current.playbackInstanceId)}`,
   );
-  row.dataset.queueId = item.id;
+  const copy = element("div", "remote-queue-row__copy");
+  copy.append(
+    element("strong", "", current.item.displayTitle || current.item.filename),
+    element(
+      "small",
+      "",
+      [
+        current.item.artist ?? "Unknown artist",
+        formatTime(current.item.durationSeconds ?? 0),
+      ].join(" · "),
+    ),
+  );
+  row.append(artwork, copy);
+  return row;
+}
+
+function queueArtwork(url: string): HTMLElement {
+  const artwork = element("div", "remote-queue-row__artwork");
+  const image = element("img");
+  image.src = url;
+  image.alt = "";
+  image.loading = "lazy";
+  artwork.append(image);
+  return artwork;
+}
+
+function explicitQueueRow(entry: ExplicitQueueItem): HTMLElement {
+  const item = entry.item;
+  const row = element("li", "remote-queue-row");
+  row.dataset.queueId = entry.explicitQueueEntryId;
   const handle = button("↕", "remote-reorder-handle", () => undefined);
   handle.setAttribute("aria-label", `Reorder ${item.displayTitle}`);
   handle.addEventListener("keydown", (event) => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
     const delta = event.key === "ArrowUp" ? -1 : 1;
-    void reorderQueue(item, item.index + delta);
+    void reorderQueue(entry, entry.index + delta);
   });
   let pointerStart: number | null = null;
-  let dragTarget = item.index;
+  let dragTarget = entry.index;
   const clearDragFeedback = (): void => {
     row.classList.remove("remote-queue-row--dragging");
     row.style.removeProperty("transform");
@@ -709,7 +860,7 @@ function queueRow(item: RemoteQueueItem): HTMLElement {
   handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     pointerStart = event.clientY;
-    dragTarget = item.index;
+    dragTarget = entry.index;
     handle.setPointerCapture(event.pointerId);
     handle.setAttribute("aria-grabbed", "true");
     row.classList.add("remote-queue-row--dragging");
@@ -728,8 +879,8 @@ function queueRow(item: RemoteQueueItem): HTMLElement {
     dragTarget = Math.max(
       0,
       Math.min(
-        bootstrap.player.queue.length - 1,
-        item.index + Math.round(delta / rowStep),
+        bootstrap.player.explicitQueue.length - 1,
+        entry.index + Math.round(delta / rowStep),
       ),
     );
     row
@@ -738,8 +889,9 @@ function queueRow(item: RemoteQueueItem): HTMLElement {
       .forEach((candidate) => {
         candidate.classList.remove("remote-queue-row--drop-target");
       });
-    const targetId = bootstrap.player.queue[dragTarget]?.id;
-    if (targetId && targetId !== item.id)
+    const targetId =
+      bootstrap.player.explicitQueue[dragTarget]?.explicitQueueEntryId;
+    if (targetId && targetId !== entry.explicitQueueEntryId)
       Array.from(
         row
           .closest(".remote-queue")
@@ -755,7 +907,7 @@ function queueRow(item: RemoteQueueItem): HTMLElement {
     const target = dragTarget;
     pointerStart = null;
     clearDragFeedback();
-    if (target !== item.index) void reorderQueue(item, target);
+    if (target !== entry.index) void reorderQueue(entry, target);
   });
   handle.addEventListener("pointercancel", (event) => {
     if (handle.hasPointerCapture(event.pointerId))
@@ -763,10 +915,13 @@ function queueRow(item: RemoteQueueItem): HTMLElement {
     pointerStart = null;
     clearDragFeedback();
   });
+  const artwork = queueArtwork(
+    `/api/artwork/queue/${encodeURIComponent(entry.explicitQueueEntryId)}`,
+  );
   const play = button("", "remote-queue-row__play", () => {
     void runCommand("/api/queue/play", {
-      index: item.index,
-      queueItemId: item.id,
+      index: entry.index,
+      queueItemId: entry.explicitQueueEntryId,
     });
   });
   play.append(
@@ -774,48 +929,73 @@ function queueRow(item: RemoteQueueItem): HTMLElement {
     element(
       "small",
       "",
-      `${item.isCurrent ? "Now playing · " : ""}${formatTime(item.durationSeconds ?? 0)}`,
+      [
+        item.artist ?? "Unknown artist",
+        formatTime(item.durationSeconds ?? 0),
+      ].join(" · "),
     ),
   );
   const remove = button("×", "remote-icon-button", () => {
-    void runCommand("/api/queue/remove", { queueItemId: item.id });
+    void runCommand("/api/queue/remove", {
+      queueItemId: entry.explicitQueueEntryId,
+    });
   });
   remove.setAttribute("aria-label", `Remove ${item.displayTitle}`);
   handle.dataset.requiresConnection = "";
   play.dataset.requiresConnection = "";
   remove.dataset.requiresConnection = "";
-  row.append(handle, play, remove);
+  row.append(handle, artwork, play, remove);
   return row;
 }
 
+function compatibilityQueue(
+  queue: readonly ExplicitQueueItem[],
+): RemotePlayerState["queue"] {
+  return queue.map((entry) => ({
+    id: entry.explicitQueueEntryId,
+    index: entry.index,
+    filename: entry.item.filename,
+    displayTitle: entry.item.displayTitle,
+    durationSeconds: entry.item.durationSeconds,
+    artwork: entry.item.artwork,
+    isCurrent: false,
+    available: entry.item.available,
+    ...(entry.item.libraryTrackId
+      ? { libraryTrackId: entry.item.libraryTrackId }
+      : {}),
+  }));
+}
+
 async function reorderQueue(
-  item: RemoteQueueItem,
+  item: ExplicitQueueItem,
   target: number,
 ): Promise<void> {
   if (!bootstrap) return;
   const bounded = Math.max(
     0,
-    Math.min(bootstrap.player.queue.length - 1, target),
+    Math.min(bootstrap.player.explicitQueue.length - 1, target),
   );
   if (bounded === item.index) return;
   const requestDeviceId = bootstrap.device.id;
   const previousPlayer = bootstrap.player;
-  const optimisticQueue = [...previousPlayer.queue];
+  const optimisticQueue = [...previousPlayer.explicitQueue];
   const currentIndex = optimisticQueue.findIndex(
-    (candidate) => candidate.id === item.id,
+    (candidate) => candidate.explicitQueueEntryId === item.explicitQueueEntryId,
   );
   if (currentIndex < 0) return;
   const [moved] = optimisticQueue.splice(currentIndex, 1);
   if (!moved) return;
   optimisticQueue.splice(bounded, 0, moved);
+  const reindexedQueue = optimisticQueue.map((candidate, index) => ({
+    ...candidate,
+    index,
+  }));
   bootstrap = {
     ...bootstrap,
     player: {
       ...previousPlayer,
-      queue: optimisticQueue.map((candidate, index) => ({
-        ...candidate,
-        index,
-      })),
+      explicitQueue: reindexedQueue,
+      queue: compatibilityQueue(reindexedQueue),
     },
   };
   renderCurrentSurface();
@@ -823,8 +1003,9 @@ async function reorderQueue(
     const player = await api<RemotePlayerState>("/api/queue/reorder", {
       method: "POST",
       body: commandBody({
-        queueItemId: item.id,
+        queueItemId: item.explicitQueueEntryId,
         toIndex: bounded,
+        expectedQueueRevision: previousPlayer.queueRevision,
       }),
     });
     if (currentDeviceId() !== requestDeviceId) return;
@@ -889,11 +1070,12 @@ function renderSearch(body: HTMLElement): void {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (!form.checkValidity()) return;
+    librarySearchQuery = input.value.trim().replace(/\s+/gu, " ");
     results.replaceChildren(element("p", "remote-loading", "Searching…"));
     libraryAbort?.abort();
     libraryAbort = new AbortController();
     void api<Record<string, unknown>>(
-      `/api/library/search?q=${encodeURIComponent(input.value)}&limitPerGroup=8`,
+      `/api/library/search?q=${encodeURIComponent(librarySearchQuery)}&limitPerGroup=8`,
       { signal: libraryAbort.signal },
     )
       .then((data) => {
@@ -1014,8 +1196,6 @@ function renderCollection(
       void playLibraryRecord(record, true);
     });
     add.dataset.requiresConnection = "";
-    if (typeof record.id === "string" && record.id.startsWith("playlist-"))
-      add.hidden = true;
     const actions = element("div", "remote-row-actions");
     actions.append(play, add);
     row.append(copy, actions);
@@ -1052,12 +1232,16 @@ function renderGroupedResults(
     const list = element("div", "remote-library-list");
     for (const record of recordsFrom(group as Record<string, unknown>)) {
       const row = element("article", "remote-library-row");
-      row.append(
-        element("strong", "", recordLabel(record)),
+      const actions = element("div", "remote-row-actions");
+      actions.append(
         button("Play", "remote-secondary", () => {
           void playLibraryRecord(record, false);
         }),
+        button("Add", "remote-secondary", () => {
+          void playLibraryRecord(record, true);
+        }),
       );
+      row.append(element("strong", "", recordLabel(record)), actions);
       list.append(row);
     }
     section.append(list);
@@ -1079,19 +1263,46 @@ async function playLibraryRecord(
         : "";
   let path = append ? "/api/library/queue" : "/api/library/play";
   let body: Record<string, unknown>;
-  if (id.startsWith("track-")) body = { context: "track", id };
-  else if (id.startsWith("album-")) body = { context: "album", id };
+  if (id.startsWith("track-")) {
+    if (append) {
+      path = "/api/library/tracks/queue";
+      body = { trackId: id };
+    } else if (libraryView === "favorites") {
+      path = "/api/library/favorites/tracks/play";
+      body = { selectedTrackId: id };
+    } else if (libraryView === "recently") {
+      const selectedHistoryId =
+        typeof record.historyId === "string" ? record.historyId : "";
+      if (!selectedHistoryId) {
+        showMessage("This history item cannot be played.");
+        return;
+      }
+      path = "/api/library/recently-played/play";
+      body = { selectedHistoryId };
+    } else if (libraryView === "most-played") {
+      path = "/api/library/most-played/play";
+      body = { selectedTrackId: id };
+    } else if (libraryView === "search") {
+      path = "/api/library/search/play";
+      body = { query: librarySearchQuery, selectedTrackId: id };
+    } else if (libraryView === "tracks") {
+      body = { context: "tracks", selectedTrackId: id };
+    } else body = { context: "track", id };
+  } else if (id.startsWith("album-")) body = { context: "album", id };
   else if (id.startsWith("artist-")) body = { context: "artist", id };
   else if (id.startsWith("playlist-")) {
-    if (append) {
-      showMessage("Playlists can be played from this view.");
-      return;
-    }
-    path = "/api/library/playlists/play";
+    path = append
+      ? "/api/library/playlists/queue"
+      : "/api/library/playlists/play";
     body = { playlistId: id };
   } else {
     showMessage("This item cannot be played.");
     return;
+  }
+  if (!append) {
+    const queueDecision = await decideRemoteContextQueue();
+    if (!queueDecision) return;
+    body = { ...body, ...queueDecision };
   }
   try {
     await api(path, { method: "POST", body: JSON.stringify(body) });
@@ -1196,10 +1407,15 @@ async function browseEntryAction(
   entry: BrowseEntry,
   action: "play" | "queue",
 ): Promise<void> {
-  const body =
+  let body: Record<string, unknown> =
     entry.type === "directory"
       ? { relativePath: entry.relativePath }
       : { entryId: entry.id };
+  if (action === "play") {
+    const queueDecision = await decideRemoteContextQueue();
+    if (!queueDecision) return;
+    body = { ...body, ...queueDecision };
+  }
   try {
     await api(`/api/browse/${encodeURIComponent(browseSourceId)}/${action}`, {
       method: "POST",
@@ -1210,6 +1426,94 @@ async function browseEntryAction(
   } catch (error) {
     showMessage(error instanceof Error ? error.message : "Action failed.");
   }
+}
+
+function decideRemoteContextQueue(): Promise<PlaybackContextQueueDecision | null> {
+  if (!bootstrap) return Promise.resolve(null);
+  const revision = bootstrap.player.queueRevision;
+  if (bootstrap.player.explicitQueue.length === 0)
+    return Promise.resolve({
+      explicitQueuePolicy: "preserve",
+      expectedQueueRevision: revision,
+    });
+
+  return new Promise((resolve) => {
+    const returnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const backdrop = element(
+      "div",
+      "remote-dialog-backdrop remote-queue-decision-backdrop",
+    );
+    const dialog = element("section", "remote-dialog remote-queue-decision");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const heading = element("h2", "", "Up Next isn't empty");
+    const copy = element(
+      "p",
+      "remote-muted",
+      "Clear it before playing this selection?",
+    );
+    let settled = false;
+    const finish = (decision: PlaybackContextQueueDecision | null): void => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKeyDown);
+      backdrop.remove();
+      resolve(decision);
+      returnFocus?.focus();
+    };
+    const close = button("×", "remote-queue-decision__close", () => {
+      finish(null);
+    });
+    close.setAttribute("aria-label", "Close");
+    const keep = button("Keep Up Next", "remote-secondary", () => {
+      finish({
+        explicitQueuePolicy: "preserve",
+        expectedQueueRevision: revision,
+      });
+    });
+    const clear = button("Clear & Play", "remote-primary", () => {
+      finish({
+        explicitQueuePolicy: "clear",
+        expectedQueueRevision: revision,
+      });
+    });
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finish(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      event.stopImmediatePropagation();
+      const controls = [close, keep, clear];
+      const current = controls.indexOf(
+        document.activeElement as HTMLButtonElement,
+      );
+      if (event.shiftKey && current <= 0) {
+        event.preventDefault();
+        clear.focus();
+      } else if (!event.shiftKey && current === controls.length - 1) {
+        event.preventDefault();
+        close.focus();
+      }
+    };
+    const actions = element("div", "remote-dialog__actions");
+    actions.append(keep, clear);
+    dialog.append(close, heading, copy, actions);
+    backdrop.append(dialog);
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) finish(null);
+    });
+    document.addEventListener("keydown", onKeyDown);
+    root.append(backdrop);
+    queueMicrotask(() => {
+      keep.focus();
+    });
+  });
 }
 
 function openConfirmation(
@@ -1288,6 +1592,7 @@ function openStream(): void {
   for (const type of [
     "snapshot",
     "player",
+    "player-progress",
     "queue",
     "audio-output",
     "source-availability",
@@ -1304,27 +1609,50 @@ function openStream(): void {
   }
 }
 
-function receiveEvent(envelope: RemoteEventEnvelope): void {
+function receivePlayerState(next: RemotePlayerState): void {
   if (!bootstrap) return;
-  if (envelope.type === "player" && envelope.data) {
-    const previous = bootstrap.player;
-    const next = envelope.data as RemotePlayerState;
-    bootstrap = {
-      ...bootstrap,
-      player: next,
-    };
-    if (destination === "player") {
-      const activeTrackChanged =
-        activeSeek !== null &&
-        activeSeek.trackKey !== remotePlayerTrackKey(next);
-      if (activeTrackChanged) activeSeek = null;
-      if (activeSeek) return;
-      if (remotePlayerPresentationChanged(previous, next))
-        renderCurrentSurface();
-      else updatePlayerProgress(next);
-    } else if (destination === "queue") renderCurrentSurface();
+  const previous = bootstrap.player;
+  bootstrap = {
+    ...bootstrap,
+    player: next,
+  };
+  if (previous.queueRevision !== next.queueRevision) updateNavigation();
+  if (destination === "player") {
+    const activeTrackChanged =
+      activeSeek !== null && activeSeek.trackKey !== remotePlayerTrackKey(next);
+    if (activeTrackChanged) activeSeek = null;
+    if (activeSeek) return;
+    if (remotePlayerPresentationChanged(previous, next)) renderCurrentSurface();
+    else updatePlayerProgress(next);
+  } else if (destination === "queue") {
+    if (remoteQueuePresentationChanged(previous, next)) renderCurrentSurface();
     else if (remotePlayerPresentationChanged(previous, next))
       updateMiniPlayer();
+  } else if (remotePlayerPresentationChanged(previous, next))
+    updateMiniPlayer();
+}
+
+function receiveEvent(envelope: RemoteEventEnvelope): void {
+  if (!bootstrap) return;
+  if (
+    (envelope.type === "player" || envelope.type === "queue") &&
+    envelope.data
+  ) {
+    receivePlayerState(envelope.data as RemotePlayerState);
+  } else if (envelope.type === "player-progress" && envelope.data) {
+    receivePlayerState(
+      mergeRemotePlayerProgress(
+        bootstrap.player,
+        envelope.data as RemotePlayerProgress,
+      ),
+    );
+  } else if (envelope.type === "snapshot" && envelope.data) {
+    const snapshot = envelope.data as {
+      readonly player: RemotePlayerState;
+      readonly audioOutput: RemoteBootstrap["audioOutput"];
+    };
+    bootstrap = { ...bootstrap, audioOutput: snapshot.audioOutput };
+    receivePlayerState(snapshot.player);
   } else if (envelope.type === "audio-output" && envelope.data) {
     bootstrap = {
       ...bootstrap,

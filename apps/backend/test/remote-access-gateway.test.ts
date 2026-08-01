@@ -16,10 +16,12 @@ import { RemoteAccessStore } from "../src/remote-access/remote-access-store.js";
 import { RemoteAccessService } from "../src/remote-access/remote-access-service.js";
 import {
   RemoteGateway,
+  RemotePlayerStreamProjector,
   remoteAudioOutput,
   remotePlayerState,
   resolveRemoteUiStaticRoot,
   type RemoteGatewayAdapters,
+  type RemoteLibraryAction,
 } from "../src/remote-access/remote-gateway.js";
 
 const origin = "http://127.0.0.1:8080";
@@ -162,7 +164,20 @@ const librarySnapshot = {
   playlistRevision: 0,
 } as IndexedLibrarySnapshot;
 
-function adapters(): RemoteGatewayAdapters {
+function adapters(
+  observers: {
+    readonly commandAction?: (action: string) => void;
+    readonly libraryAction?: (
+      operation: RemoteLibraryAction,
+      body: Record<string, unknown>,
+    ) => void;
+    readonly browseAction?: (
+      sourceId: string,
+      action: "play" | "queue",
+      body: Record<string, unknown>,
+    ) => void;
+  } = {},
+): RemoteGatewayAdapters {
   let player = playerState();
   const playerListeners = new Set<(state: PlayerState) => void>();
   return {
@@ -184,6 +199,7 @@ function adapters(): RemoteGatewayAdapters {
     subscribeAudioOutput: () => () => undefined,
     subscribeLibrary: () => Promise.resolve(() => undefined),
     command(action) {
+      observers.commandAction?.(action);
       if (action === "play") {
         player = { ...player, paused: false, status: "playing" };
         playerListeners.forEach((listener) => {
@@ -193,7 +209,10 @@ function adapters(): RemoteGatewayAdapters {
       return Promise.resolve(player);
     },
     libraryRead: () => Promise.resolve({ items: [] }),
-    libraryAction: () => Promise.resolve({ queueLength: 0 }),
+    libraryAction: (operation, body) => {
+      observers.libraryAction?.(operation, body);
+      return Promise.resolve({ queueLength: 0 });
+    },
     browseSources: () => Promise.resolve([source]),
     browse: () =>
       Promise.resolve({
@@ -202,7 +221,10 @@ function adapters(): RemoteGatewayAdapters {
         parent: null,
         entries: [],
       }),
-    browseAction: () => Promise.resolve({ queueLength: 0 }),
+    browseAction: (sourceId, action, body) => {
+      observers.browseAction?.(sourceId, action, body);
+      return Promise.resolve({ queueLength: 0 });
+    },
     artwork: () => Promise.resolve(null),
     wakeDisplay: () => Promise.resolve(),
     wakeAvailable: () => true,
@@ -248,7 +270,18 @@ void test("Remote Gateway enforces pairing, security headers, route allowlist an
     true,
     new RemoteAccessStore(join(root, "remote-access.json")),
   );
-  const gateway = new RemoteGateway(service, adapters(), assets);
+  const libraryActions: RemoteLibraryAction[] = [];
+  const browseActions: ("play" | "queue")[] = [];
+  const commandActions: string[] = [];
+  const gateway = new RemoteGateway(
+    service,
+    adapters({
+      commandAction: (action) => commandActions.push(action),
+      libraryAction: (operation) => libraryActions.push(operation),
+      browseAction: (_sourceId, action) => browseActions.push(action),
+    }),
+    assets,
+  );
   service.attachLifecycle(gateway);
   try {
     await service.initialize();
@@ -298,6 +331,105 @@ void test("Remote Gateway enforces pairing, security headers, route allowlist an
     const bootstrapText = await bootstrap.text();
     assert.doesNotMatch(bootstrapText, /tokenHash|preferences|password/iu);
     assert.match(bootstrapText, /csrfToken/u);
+    const bootstrapPayload = JSON.parse(bootstrapText) as {
+      readonly data: { readonly player: Record<string, unknown> };
+    };
+    assert.equal(bootstrapPayload.data.player.currentPlayback, null);
+    assert.deepEqual(bootstrapPayload.data.player.explicitQueue, []);
+    assert.deepEqual(bootstrapPayload.data.player.queue, []);
+    assert.equal(
+      Object.hasOwn(bootstrapPayload.data.player, "currentQueueIndex"),
+      false,
+    );
+
+    const libraryRouteCases: readonly [
+      path: string,
+      operation: RemoteLibraryAction,
+      body: Record<string, unknown>,
+    ][] = [
+      [
+        "/api/library/play",
+        "play",
+        { context: "album", id: "album-00000000000000000000000000000001" },
+      ],
+      [
+        "/api/library/queue",
+        "queue",
+        { context: "artist", id: "artist-00000000000000000000000000000001" },
+      ],
+      [
+        "/api/library/tracks/queue",
+        "queue-track",
+        { trackId: "track-00000000000000000000000000000001" },
+      ],
+      [
+        "/api/library/search/play",
+        "play-search",
+        {
+          query: "fixture",
+          selectedTrackId: "track-00000000000000000000000000000001",
+        },
+      ],
+      [
+        "/api/library/favorites/tracks/play",
+        "play-favorites-tracks",
+        { selectedTrackId: "track-00000000000000000000000000000001" },
+      ],
+      [
+        "/api/library/recently-played/play",
+        "play-recently-played",
+        { selectedHistoryId: "history-1" },
+      ],
+      [
+        "/api/library/most-played/play",
+        "play-most-played",
+        { selectedTrackId: "track-00000000000000000000000000000001" },
+      ],
+      [
+        "/api/library/playlists/play",
+        "play-playlist",
+        { playlistId: "playlist-00000000-0000-4000-8000-000000000001" },
+      ],
+      [
+        "/api/library/playlists/queue",
+        "queue-playlist",
+        { playlistId: "playlist-00000000-0000-4000-8000-000000000001" },
+      ],
+    ];
+    for (const [path, operation, body] of libraryRouteCases) {
+      const routeResponse = await fetch(`${origin}${path}`, {
+        method: "POST",
+        headers: {
+          cookie: session.cookie,
+          "content-type": "application/json",
+          origin,
+          "x-eidetic-csrf": session.csrf,
+        },
+        body: JSON.stringify(body),
+      });
+      assert.equal(routeResponse.status, 200, `${path} -> ${operation}`);
+    }
+    assert.deepEqual(
+      libraryActions,
+      libraryRouteCases.map(([, operation]) => operation),
+    );
+    for (const action of ["play", "queue"] as const) {
+      const routeResponse = await fetch(
+        `${origin}/api/browse/${source.id}/${action}`,
+        {
+          method: "POST",
+          headers: {
+            cookie: session.cookie,
+            "content-type": "application/json",
+            origin,
+            "x-eidetic-csrf": session.csrf,
+          },
+          body: JSON.stringify({ entryId: "entry-fixture" }),
+        },
+      );
+      assert.equal(routeResponse.status, 200);
+    }
+    assert.deepEqual(browseActions, ["play", "queue"]);
 
     const missingCsrf = await fetch(`${origin}/api/player/play`, {
       method: "POST",
@@ -326,6 +458,22 @@ void test("Remote Gateway enforces pairing, security headers, route allowlist an
       }),
     });
     assert.equal(unconfirmedClear.status, 400);
+
+    const clearContext = await fetch(`${origin}/api/context/clear`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        "content-type": "application/json",
+        origin,
+        "x-eidetic-csrf": session.csrf,
+      },
+      body: JSON.stringify({
+        clientSessionId: "00000000-0000-4000-8000-000000000003",
+        intentId: 3,
+      }),
+    });
+    assert.equal(clearContext.status, 200);
+    assert.deepEqual(commandActions, ["context-clear"]);
 
     const forbidden = await fetch(`${origin}/api/system/update/state`, {
       headers: { cookie: session.cookie },
@@ -375,37 +523,131 @@ void test("Remote read models omit native paths, command sessions, and raw outpu
   const state = playerState();
   const commands = state.commands;
   assert.ok(commands);
+  assert.deepEqual(remotePlayerState(state), {
+    trackTransitionId: 0,
+    status: "idle",
+    mpvAvailable: true,
+    canGoNext: true,
+    currentTrack: null,
+    currentPlayback: null,
+    explicitQueue: [],
+    playbackContext: null,
+    playbackHistory: {
+      entryCount: 0,
+      cursor: -1,
+      canGoBack: false,
+      canGoForward: false,
+    },
+    playbackContinuation: {
+      mode: "off",
+      artistId: null,
+      artistName: null,
+      active: false,
+    },
+    positionSeconds: 0,
+    durationSeconds: 0,
+    paused: true,
+    volume: 50,
+    muted: false,
+    shuffleEnabled: false,
+    repeatMode: "off",
+    queue: [],
+    queueRevision: 0,
+    contextRevision: 0,
+    error: null,
+  });
+  const unsafePlaybackItem = {
+    filename: "secret.flac",
+    displayTitle: "Secret",
+    artist: "Artist",
+    album: "Album",
+    durationSeconds: 60,
+    artwork: null,
+    available: true,
+    libraryTrackId: "track-11111111111111111111111111111111",
+    path: "/home/person/Music/secret.flac",
+    nativePath: "C:\\Users\\person\\Music\\secret.flac",
+  };
+  const unsafeTrack = {
+    path: "C:\\Users\\person\\Music\\secret.flac",
+    nativePath: "C:\\Users\\person\\Music\\secret.flac",
+    filename: "secret.flac",
+    title: "Secret",
+    artist: "Artist",
+    album: "Album",
+    artists: ["Artist"],
+    albumArtist: null,
+    trackNumber: 1,
+    trackTotal: 1,
+    discNumber: 1,
+    discTotal: 1,
+    year: 2026,
+    genre: [],
+    durationSeconds: 60,
+    format: "FLAC",
+    codec: "flac",
+    sampleRate: 44_100,
+    bitDepth: 16,
+    bitrate: 900_000,
+    lossless: true,
+    container: "FLAC",
+    artwork: null,
+    source: "Local File" as const,
+  };
   const unsafe = {
     ...state,
     playerSessionId: "private-player-session",
-    currentTrack: {
-      path: "C:\\Users\\person\\Music\\secret.flac",
-      filename: "secret.flac",
-      title: "Secret",
-      artist: "Artist",
-      album: "Album",
-      artists: ["Artist"],
-      albumArtist: null,
-      trackNumber: 1,
-      trackTotal: 1,
-      discNumber: 1,
-      discTotal: 1,
-      year: 2026,
-      genre: [],
-      durationSeconds: 60,
-      format: "FLAC",
-      codec: "flac",
-      sampleRate: 44_100,
-      bitDepth: 16,
-      bitrate: 900_000,
-      lossless: true,
-      container: "FLAC",
-      artwork: null,
-      source: "Local File" as const,
+    currentTrack: unsafeTrack,
+    currentPlayback: {
+      playbackInstanceId: "playback-current",
+      source: "context" as const,
+      relationId: "context-item-1",
+      contextId: "context-1",
+      historyEntryId: "history-1",
+      startedSequence: 8,
+      item: unsafePlaybackItem,
     },
+    explicitQueue: [
+      {
+        explicitQueueEntryId: "explicit-1",
+        playbackInstanceId: "playback-explicit-1",
+        index: 0,
+        item: unsafePlaybackItem,
+      },
+      {
+        explicitQueueEntryId: "explicit-2",
+        playbackInstanceId: "playback-explicit-2",
+        index: 1,
+        item: unsafePlaybackItem,
+      },
+    ],
+    playbackContext: {
+      contextId: "context-1",
+      kind: "album" as const,
+      entityId: "album-11111111111111111111111111111111",
+      title: "Album",
+      sourceLabel: "Library",
+      nextItem: unsafePlaybackItem,
+      remainingCount: 4,
+      totalCount: 8,
+      cycle: 0,
+    },
+    playbackHistory: {
+      entryCount: 3,
+      cursor: 2,
+      canGoBack: true,
+      canGoForward: false,
+    },
+    playbackContinuation: {
+      mode: "same-artist" as const,
+      artistId: "artist-11111111111111111111111111111111",
+      artistName: "Artist",
+      active: false,
+    },
+    contextRevision: 4,
     queue: [
       {
-        id: "queue-00000000-0000-4000-8000-000000000004",
+        id: "technical-context-item",
         index: 0,
         path: "/home/person/Music/secret.flac",
         filename: "secret.flac",
@@ -422,9 +664,29 @@ void test("Remote read models omit native paths, command sessions, and raw outpu
       },
     },
   } satisfies PlayerState;
-  const player = JSON.stringify(remotePlayerState(unsafe));
+  const remote = remotePlayerState(unsafe);
+  assert.deepEqual(
+    remote.explicitQueue.map((entry) => entry.explicitQueueEntryId),
+    ["explicit-1", "explicit-2"],
+  );
+  assert.deepEqual(
+    remote.queue.map((entry) => ({ id: entry.id, current: entry.isCurrent })),
+    [
+      { id: "explicit-1", current: false },
+      { id: "explicit-2", current: false },
+    ],
+  );
+  assert.equal(Object.hasOwn(remote, "currentQueueIndex"), false);
+  assert.equal(remote.currentPlayback?.playbackInstanceId, "playback-current");
+  assert.equal(remote.playbackContext?.remainingCount, 4);
+  assert.equal(remote.playbackHistory.canGoBack, true);
+  assert.equal(remote.playbackContinuation.mode, "same-artist");
+  const player = JSON.stringify(remote);
   assert.doesNotMatch(player, /C:\\|\/home\/|private-player-session/u);
-  assert.doesNotMatch(player, /clientSessionId|commands/u);
+  assert.doesNotMatch(
+    player,
+    /clientSessionId|commands|nativePath|technical-context-item/u,
+  );
 
   const output = JSON.stringify(
     remoteAudioOutput({
@@ -462,6 +724,130 @@ void test("Remote read models omit native paths, command sessions, and raw outpu
   assert.doesNotMatch(
     output,
     /private-hardware-id|devices|diagnostics|routes/u,
+  );
+});
+
+void test("Remote player position ticks stay bounded with a 2000-entry explicit Queue", () => {
+  const item = {
+    filename: "fixture.flac",
+    displayTitle: "Fixture",
+    artist: "Artist",
+    album: "Album",
+    durationSeconds: 180,
+    artwork: null,
+    available: true,
+    libraryTrackId: "track-11111111111111111111111111111111",
+  } as const;
+  const explicitQueue = Array.from({ length: 2_000 }, (_, index) => ({
+    explicitQueueEntryId: `explicit-${String(index).padStart(4, "0")}`,
+    playbackInstanceId: `playback-${String(index).padStart(4, "0")}`,
+    index,
+    item,
+  }));
+  const state: PlayerState = {
+    ...playerState(),
+    explicitQueue,
+    queueRevision: 7,
+    contextRevision: 3,
+  };
+  const projector = new RemotePlayerStreamProjector();
+  projector.seed(state);
+
+  const progress = projector.project({ ...state, positionSeconds: 1 });
+  if (progress.type !== "player-progress")
+    assert.fail("A position-only update must be a progress event.");
+  const progressJson = JSON.stringify(progress);
+  assert.ok(progressJson.length < 1_000);
+  assert.doesNotMatch(
+    progressJson,
+    /explicitQueue|explicit-1999|playbackContext|currentPlayback/u,
+  );
+
+  const queueChanged = projector.project({
+    ...state,
+    positionSeconds: 2,
+    queueRevision: 8,
+  });
+  if (queueChanged.type !== "player")
+    assert.fail("A Queue revision must publish the full player state.");
+  assert.equal(queueChanged.data.explicitQueue.length, 2_000);
+  assert.equal(queueChanged.data.queue.length, 2_000);
+
+  const contextChanged = projector.project({
+    ...state,
+    positionSeconds: 3,
+    queueRevision: 8,
+    contextRevision: 4,
+  });
+  assert.equal(contextChanged.type, "player");
+
+  const nextProgress = projector.project({
+    ...state,
+    positionSeconds: 4,
+    queueRevision: 8,
+    contextRevision: 4,
+  });
+  assert.equal(nextProgress.type, "player-progress");
+
+  const updatedExplicitQueue = explicitQueue.map((entry, index) =>
+    index === 1_000
+      ? {
+          ...entry,
+          item: { ...entry.item, displayTitle: "Updated middle metadata" },
+        }
+      : entry,
+  );
+  const middlePresentationChanged = projector.project({
+    ...state,
+    positionSeconds: 5,
+    queueRevision: 8,
+    contextRevision: 4,
+    explicitQueue: updatedExplicitQueue,
+  });
+  if (middlePresentationChanged.type !== "player")
+    assert.fail("A cached Explicit Queue replacement must publish full state.");
+  assert.equal(
+    middlePresentationChanged.data.explicitQueue[1_000]?.item.displayTitle,
+    "Updated middle metadata",
+  );
+  assert.equal(
+    projector.project({
+      ...state,
+      positionSeconds: 6,
+      queueRevision: 8,
+      contextRevision: 4,
+      explicitQueue: updatedExplicitQueue,
+    }).type,
+    "player-progress",
+  );
+
+  const currentPresentationChanged = projector.project({
+    ...state,
+    positionSeconds: 7,
+    queueRevision: 8,
+    contextRevision: 4,
+    explicitQueue: updatedExplicitQueue,
+    currentPlayback: {
+      playbackInstanceId: "playback-current",
+      source: "explicit-queue",
+      relationId: "explicit-current",
+      contextId: null,
+      historyEntryId: "history-current",
+      startedSequence: 1,
+      item,
+    },
+  });
+  assert.equal(currentPresentationChanged.type, "player");
+
+  projector.reset();
+  assert.equal(
+    projector.project({
+      ...state,
+      queueRevision: 8,
+      contextRevision: 4,
+      explicitQueue: updatedExplicitQueue,
+    }).type,
+    "player",
   );
 });
 

@@ -46,9 +46,12 @@ export const uiPreferenceKeys = [
   "screenDimTimeoutSeconds",
   "screenDimLevelPercent",
   "screenStandbyTimeoutSeconds",
+  "continuePlaybackMode",
 ] as const;
 
 export type UiPreferenceKey = (typeof uiPreferenceKeys)[number];
+
+export type ContinuePlaybackMode = "off" | "same-artist";
 
 export interface UiPreferences extends AudioProcessingPreferences {
   readonly animationsEnabled: boolean;
@@ -74,6 +77,7 @@ export interface UiPreferences extends AudioProcessingPreferences {
   readonly screenDimTimeoutSeconds: ScreenDimTimeoutSeconds;
   readonly screenDimLevelPercent: ScreenDimLevelPercent;
   readonly screenStandbyTimeoutSeconds: ScreenStandbyTimeoutSeconds;
+  readonly continuePlaybackMode: ContinuePlaybackMode;
 }
 
 export const defaultUiPreferences: UiPreferences = Object.freeze({
@@ -108,6 +112,7 @@ export const defaultUiPreferences: UiPreferences = Object.freeze({
   screenDimTimeoutSeconds: 0,
   screenDimLevelPercent: 20,
   screenStandbyTimeoutSeconds: 0,
+  continuePlaybackMode: "off",
 });
 
 export type PreferencesPersistence =
@@ -174,6 +179,8 @@ export function isValidUiPreferenceValue<K extends UiPreferenceKey>(
       return isOneOf(value, ["total", "remaining"]);
     case "repeatMode":
       return isOneOf(value, ["off", "all", "one"]);
+    case "continuePlaybackMode":
+      return isOneOf(value, ["off", "same-artist"]);
     case "folderViewMode":
     case "libraryAlbumViewMode":
     case "favoriteAlbumViewMode":

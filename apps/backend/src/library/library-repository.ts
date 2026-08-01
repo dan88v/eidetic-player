@@ -164,6 +164,7 @@ function historyId(id: number): string {
 const HISTORY_RETENTION_MILLISECONDS = 90 * 24 * 60 * 60 * 1_000;
 const MAX_HISTORY_EVENTS = 500;
 const MAX_PLAYLIST_ITEMS = 2_000;
+export const MAX_SAME_ARTIST_CANDIDATES = 2_000;
 
 export function normalizePlaylistName(value: string): {
   readonly name: string;
@@ -2251,6 +2252,16 @@ export class LibraryRepository {
     };
   }
 
+  searchContextTracks(normalizedQuery: string): readonly LibraryContextTrack[] {
+    return this.searchTrackRows(normalizedQuery, null, null, true).map(
+      (row) => ({
+        id: String(row.track_id),
+        sourceId: String(row.source_id),
+        relativePath: String(row.relative_path),
+      }),
+    );
+  }
+
   contextTracks(
     context: "album" | "artist" | "tracks",
     id?: string,
@@ -2333,6 +2344,60 @@ export class LibraryRepository {
           relativePath: String(row.relative_path),
         }
       : null;
+  }
+
+  albumArtistId(albumId: string): string | null {
+    const row = this.connection
+      .prepare(
+        `SELECT album_artist_id
+         FROM albums
+         WHERE album_id = ?`,
+      )
+      .get(albumId) as SqlRow | undefined;
+    return row ? nullableString(row.album_artist_id) : null;
+  }
+
+  primaryTrackArtistId(trackId: string): string | null {
+    const row = this.connection
+      .prepare(
+        `SELECT artist_id
+         FROM track_artists
+         WHERE track_id = ?
+         ORDER BY artist_order, artist_id
+         LIMIT 1`,
+      )
+      .get(trackId) as SqlRow | undefined;
+    return row ? nullableString(row.artist_id) : null;
+  }
+
+  sameArtistCandidateTracks(artistId: string): readonly LibraryContextTrack[] {
+    const rows = this.connection
+      .prepare(
+        `WITH artist_track_ids(track_id) AS (
+           SELECT ta.track_id
+           FROM track_artists AS ta INDEXED BY track_artists_artist_idx
+           WHERE ta.artist_id = ?
+           UNION
+           SELECT t2.track_id
+           FROM albums AS a2 INDEXED BY albums_album_artist_idx
+           JOIN tracks AS t2 INDEXED BY tracks_album_idx
+             ON t2.album_id = a2.album_id
+           WHERE a2.album_artist_id = ?
+         )
+         SELECT t.track_id, t.source_id, t.relative_path
+         FROM artist_track_ids AS candidates
+         JOIN tracks AS t ON t.track_id = candidates.track_id
+         JOIN library_sources AS s ON s.source_id = t.source_id
+         WHERE t.available = 1 AND s.available = 1 AND s.removed = 0
+         ORDER BY t.track_id
+         LIMIT ?`,
+      )
+      .all(artistId, artistId, MAX_SAME_ARTIST_CANDIDATES) as SqlRow[];
+    return rows.map((row) => ({
+      id: String(row.track_id),
+      sourceId: String(row.source_id),
+      relativePath: String(row.relative_path),
+    }));
   }
 
   playbackContextForTrack(

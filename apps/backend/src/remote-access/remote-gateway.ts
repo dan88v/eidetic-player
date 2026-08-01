@@ -14,7 +14,10 @@ import type {
   RemoteCommandMetadata,
   RemoteEventEnvelope,
   RemoteEventName,
+  RemotePlayerProgress,
   RemotePlayerState,
+  RemotePlayerTrack,
+  RemoteQueueItem,
 } from "../../../../packages/shared/src/remote-access.js";
 import {
   REMOTE_ACCESS_DEVICE_INACTIVITY_DAYS,
@@ -25,7 +28,16 @@ import type {
   IndexedLibrarySnapshot,
   LibrarySource,
 } from "../../../../packages/shared/src/library.js";
-import type { PlayerState } from "../../../../packages/shared/src/player.js";
+import type {
+  ArtworkRef,
+  CurrentPlaybackView,
+  ExplicitQueueItem,
+  PlaybackContextSummary,
+  PlaybackContinuationSummary,
+  PlaybackHistoryCapabilities,
+  PlayerState,
+  PublicPlaybackItem,
+} from "../../../../packages/shared/src/player.js";
 import { remoteIpv4, RemoteAccessService } from "./remote-access-service.js";
 
 const SESSION_COOKIE = "eidetic_remote_session";
@@ -60,12 +72,15 @@ export type RemoteLibraryRead =
 export type RemoteLibraryAction =
   | "play"
   | "queue"
+  | "queue-track"
+  | "play-search"
   | "play-favorites-tracks"
   | "play-favorites-albums"
   | "play-favorites-artists"
   | "play-recently-played"
   | "play-most-played"
-  | "play-playlist";
+  | "play-playlist"
+  | "queue-playlist";
 
 export interface RemoteGatewayAdapters {
   readonly buildId: string;
@@ -132,16 +147,172 @@ export function resolveRemoteUiStaticRoot(
     : resolve(process.cwd(), "dist", "remote-ui");
 }
 
-export function remotePlayerState(state: PlayerState): RemotePlayerState {
-  const withoutTrackPath = state.currentTrack
-    ? { ...state.currentTrack }
+function remoteArtwork(artwork: ArtworkRef | null): ArtworkRef | null {
+  return artwork
+    ? {
+        id: artwork.id,
+        mimeType: artwork.mimeType,
+        sourceType: artwork.sourceType,
+        revision: artwork.revision,
+      }
     : null;
-  if (withoutTrackPath) Reflect.deleteProperty(withoutTrackPath, "path");
+}
+
+function remoteCurrentTrack(
+  track: PlayerState["currentTrack"],
+): RemotePlayerTrack | null {
+  if (!track) return null;
+  return {
+    filename: track.filename,
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    artists: [...track.artists],
+    albumArtist: track.albumArtist,
+    trackNumber: track.trackNumber,
+    trackTotal: track.trackTotal,
+    discNumber: track.discNumber,
+    discTotal: track.discTotal,
+    year: track.year,
+    genre: [...track.genre],
+    durationSeconds: track.durationSeconds,
+    format: track.format,
+    codec: track.codec,
+    sampleRate: track.sampleRate,
+    bitDepth: track.bitDepth,
+    bitrate: track.bitrate,
+    lossless: track.lossless,
+    container: track.container,
+    artwork: remoteArtwork(track.artwork),
+    source: track.source,
+  };
+}
+
+function remotePlaybackItem(item: PublicPlaybackItem): PublicPlaybackItem {
+  return {
+    filename: item.filename,
+    displayTitle: item.displayTitle,
+    artist: item.artist,
+    album: item.album,
+    durationSeconds: item.durationSeconds,
+    artwork: remoteArtwork(item.artwork),
+    available: item.available,
+    libraryTrackId: item.libraryTrackId,
+  };
+}
+
+function remoteCurrentPlayback(
+  current: CurrentPlaybackView | null | undefined,
+): CurrentPlaybackView | null {
+  if (!current) return null;
+  return {
+    playbackInstanceId: current.playbackInstanceId,
+    source: current.source,
+    relationId: current.relationId,
+    contextId: current.contextId,
+    historyEntryId: current.historyEntryId,
+    startedSequence: current.startedSequence,
+    item: remotePlaybackItem(current.item),
+  };
+}
+
+function remoteExplicitQueue(
+  queue: readonly ExplicitQueueItem[] | undefined,
+): readonly ExplicitQueueItem[] {
+  return (queue ?? []).map((entry) => ({
+    explicitQueueEntryId: entry.explicitQueueEntryId,
+    playbackInstanceId: entry.playbackInstanceId,
+    index: entry.index,
+    item: remotePlaybackItem(entry.item),
+  }));
+}
+
+function remotePlaybackContext(
+  context: PlaybackContextSummary | null | undefined,
+): PlaybackContextSummary | null {
+  if (!context) return null;
+  return {
+    contextId: context.contextId,
+    kind: context.kind,
+    entityId: context.entityId,
+    title: context.title,
+    sourceLabel: context.sourceLabel,
+    nextItem: context.nextItem ? remotePlaybackItem(context.nextItem) : null,
+    remainingCount: context.remainingCount,
+    totalCount: context.totalCount,
+    cycle: context.cycle,
+  };
+}
+
+function remotePlaybackHistory(
+  history: PlaybackHistoryCapabilities | undefined,
+): PlaybackHistoryCapabilities {
+  return history
+    ? {
+        entryCount: history.entryCount,
+        cursor: history.cursor,
+        canGoBack: history.canGoBack,
+        canGoForward: history.canGoForward,
+      }
+    : {
+        entryCount: 0,
+        cursor: -1,
+        canGoBack: false,
+        canGoForward: false,
+      };
+}
+
+function remotePlaybackContinuation(
+  continuation: PlaybackContinuationSummary | undefined,
+): PlaybackContinuationSummary {
+  return continuation
+    ? {
+        mode: continuation.mode,
+        artistId: continuation.artistId,
+        artistName: continuation.artistName,
+        active: continuation.active,
+      }
+    : {
+        mode: "off",
+        artistId: null,
+        artistName: null,
+        active: false,
+      };
+}
+
+function remoteCompatibilityQueueItem(
+  entry: ExplicitQueueItem,
+): RemoteQueueItem {
+  return {
+    id: entry.explicitQueueEntryId,
+    index: entry.index,
+    filename: entry.item.filename,
+    displayTitle: entry.item.displayTitle,
+    durationSeconds: entry.item.durationSeconds,
+    artwork: remoteArtwork(entry.item.artwork),
+    isCurrent: false,
+    available: entry.item.available,
+    ...(entry.item.libraryTrackId
+      ? { libraryTrackId: entry.item.libraryTrackId }
+      : {}),
+  };
+}
+
+export function remotePlayerState(state: PlayerState): RemotePlayerState {
+  const explicitQueue = remoteExplicitQueue(state.explicitQueue);
   return {
     trackTransitionId: state.trackTransitionId,
     status: state.status,
     mpvAvailable: state.mpvAvailable,
-    currentTrack: withoutTrackPath,
+    canGoNext: state.canGoNext !== false,
+    currentTrack: remoteCurrentTrack(state.currentTrack),
+    currentPlayback: remoteCurrentPlayback(state.currentPlayback),
+    explicitQueue,
+    playbackContext: remotePlaybackContext(state.playbackContext),
+    playbackHistory: remotePlaybackHistory(state.playbackHistory),
+    playbackContinuation: remotePlaybackContinuation(
+      state.playbackContinuation,
+    ),
     positionSeconds: state.positionSeconds,
     durationSeconds: state.durationSeconds,
     paused: state.paused,
@@ -149,15 +320,87 @@ export function remotePlayerState(state: PlayerState): RemotePlayerState {
     muted: state.muted,
     shuffleEnabled: state.shuffleEnabled,
     repeatMode: state.repeatMode,
-    currentQueueIndex: state.currentQueueIndex,
-    queue: state.queue.map((item) => {
-      const withoutPath = { ...item };
-      Reflect.deleteProperty(withoutPath, "path");
-      return withoutPath;
-    }),
+    queue: explicitQueue.map(remoteCompatibilityQueueItem),
     queueRevision: state.queueRevision,
-    error: state.error,
+    contextRevision: state.contextRevision ?? 0,
+    error: state.error
+      ? { code: state.error.code, message: state.error.message }
+      : null,
   };
+}
+
+export function remotePlayerProgress(state: PlayerState): RemotePlayerProgress {
+  return {
+    trackTransitionId: state.trackTransitionId,
+    status: state.status,
+    mpvAvailable: state.mpvAvailable,
+    positionSeconds: state.positionSeconds,
+    durationSeconds: state.durationSeconds,
+    paused: state.paused,
+    volume: state.volume,
+    muted: state.muted,
+    shuffleEnabled: state.shuffleEnabled,
+    repeatMode: state.repeatMode,
+    error: state.error
+      ? { code: state.error.code, message: state.error.message }
+      : null,
+  };
+}
+
+function remotePlayerPresentationSignature(state: PlayerState): string {
+  const explicitQueue = state.explicitQueue ?? [];
+  return JSON.stringify({
+    trackTransitionId: state.trackTransitionId,
+    canGoNext: state.canGoNext !== false,
+    currentTrack: remoteCurrentTrack(state.currentTrack),
+    currentPlayback: remoteCurrentPlayback(state.currentPlayback),
+    queueRevision: state.queueRevision,
+    explicitQueueLength: explicitQueue.length,
+    firstExplicitQueueEntryId: explicitQueue[0]?.explicitQueueEntryId ?? null,
+    lastExplicitQueueEntryId:
+      explicitQueue.at(-1)?.explicitQueueEntryId ?? null,
+    contextRevision: state.contextRevision ?? 0,
+    playbackContext: remotePlaybackContext(state.playbackContext),
+    playbackHistory: remotePlaybackHistory(state.playbackHistory),
+    playbackContinuation: remotePlaybackContinuation(
+      state.playbackContinuation,
+    ),
+  });
+}
+
+export type RemotePlayerStreamEvent =
+  | { readonly type: "player"; readonly data: RemotePlayerState }
+  | {
+      readonly type: "player-progress";
+      readonly data: RemotePlayerProgress;
+    };
+
+export class RemotePlayerStreamProjector {
+  private presentationSignature: string | null = null;
+  private explicitQueueReference: PlayerState["explicitQueue"] = undefined;
+
+  seed(state: PlayerState): void {
+    this.presentationSignature = remotePlayerPresentationSignature(state);
+    this.explicitQueueReference = state.explicitQueue;
+  }
+
+  project(state: PlayerState): RemotePlayerStreamEvent {
+    const signature = remotePlayerPresentationSignature(state);
+    if (
+      signature !== this.presentationSignature ||
+      state.explicitQueue !== this.explicitQueueReference
+    ) {
+      this.presentationSignature = signature;
+      this.explicitQueueReference = state.explicitQueue;
+      return { type: "player", data: remotePlayerState(state) };
+    }
+    return { type: "player-progress", data: remotePlayerProgress(state) };
+  }
+
+  reset(): void {
+    this.presentationSignature = null;
+    this.explicitQueueReference = undefined;
+  }
 }
 
 export function remoteAudioOutput(
@@ -303,6 +546,7 @@ export class RemoteGateway {
   private readonly streams = new Map<string, StreamEntry>();
   private readonly rateEntries = new Map<string, RateEntry>();
   private readonly subscriptions: (() => void)[] = [];
+  private readonly playerStreamProjector = new RemotePlayerStreamProjector();
   private eventRevision = 0;
   private readonly unsubscribeRevoke: () => void;
 
@@ -343,9 +587,11 @@ export class RemoteGateway {
     });
     this.server = server;
     try {
+      this.playerStreamProjector.seed(this.adapters.playerState());
       this.subscriptions.push(
         this.adapters.subscribePlayer((state) => {
-          this.broadcast("player", remotePlayerState(state));
+          const event = this.playerStreamProjector.project(state);
+          this.broadcast(event.type, event.data);
         }),
         this.adapters.subscribeAudioOutput((state) => {
           this.broadcast("audio-output", remoteAudioOutput(state));
@@ -370,6 +616,7 @@ export class RemoteGateway {
 
   async stop(): Promise<void> {
     this.closeStreams();
+    this.playerStreamProjector.reset();
     this.rateEntries.clear();
     while (this.subscriptions.length > 0) this.subscriptions.pop()?.();
     const server = this.server;
@@ -617,6 +864,19 @@ export class RemoteGateway {
         });
         return;
       }
+      if (url.pathname === "/api/context/clear" && request.method === "POST") {
+        const body = await readJson(request, 512);
+        const data = await this.adapters.command(
+          "context-clear",
+          body,
+          commandMetadata(body),
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: remotePlayerState(data as PlayerState),
+        });
+        return;
+      }
       if (url.pathname === "/api/library/sources" && request.method === "GET") {
         sendJson(response, 200, {
           ok: true,
@@ -654,12 +914,15 @@ export class RemoteGateway {
       const libraryActions = new Map<string, RemoteLibraryAction>([
         ["/api/library/play", "play"],
         ["/api/library/queue", "queue"],
+        ["/api/library/tracks/queue", "queue-track"],
+        ["/api/library/search/play", "play-search"],
         ["/api/library/favorites/tracks/play", "play-favorites-tracks"],
         ["/api/library/favorites/albums/play", "play-favorites-albums"],
         ["/api/library/favorites/artists/play", "play-favorites-artists"],
         ["/api/library/recently-played/play", "play-recently-played"],
         ["/api/library/most-played/play", "play-most-played"],
         ["/api/library/playlists/play", "play-playlist"],
+        ["/api/library/playlists/queue", "queue-playlist"],
       ]);
       const libraryAction = libraryActions.get(url.pathname);
       if (libraryAction && request.method === "POST") {

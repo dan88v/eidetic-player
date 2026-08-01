@@ -8,15 +8,23 @@ import type {
   FolderArtworkPreview,
   DirectoryQueueResponse,
 } from "../../../../packages/shared/src/library";
-import type { ApiResponse } from "../../../../packages/shared/src/player";
+import type {
+  ApiResponse,
+  PlaybackContextQueueDecision,
+} from "../../../../packages/shared/src/player";
 import { config } from "../config";
 import { PlayerApiError } from "./player-api-client";
+import type { ContextPlayDecisionProvider } from "./context-play-decision";
 
 const apiBaseUrl = config.development
   ? ""
   : `http://${config.backendHost}:${String(config.backendPort)}`;
 
 export class FoldersApiClient {
+  constructor(
+    private readonly decideContextPlay?: ContextPlayDecisionProvider,
+  ) {}
+
   listSources(): Promise<SourceListResponse> {
     return this.request("/api/sources");
   }
@@ -71,13 +79,16 @@ export class FoldersApiClient {
     );
   }
 
-  openEntry(
+  async openEntry(
     sourceId: string,
     entryId: string,
   ): Promise<OpenLibraryEntryResponse> {
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return { selectedIndex: 0, queueLength: 0, cancelled: true };
     return this.request(
       `/api/sources/${encodeURIComponent(sourceId)}/entries/${encodeURIComponent(entryId)}/open`,
-      { method: "POST", body: "{}" },
+      { method: "POST", body: JSON.stringify(queueDecision ?? {}) },
     );
   }
 
@@ -103,11 +114,14 @@ export class FoldersApiClient {
     );
   }
 
-  playDirectory(
+  async playDirectory(
     sourceId: string,
     relativePath: string,
   ): Promise<DirectoryQueueResponse> {
-    return this.directoryAction(sourceId, relativePath, "play");
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return { queueLength: 0, appendedCount: 0, cancelled: true };
+    return this.directoryAction(sourceId, relativePath, "play", queueDecision);
   }
 
   addDirectoryToQueue(
@@ -121,11 +135,21 @@ export class FoldersApiClient {
     sourceId: string,
     relativePath: string,
     action: "play" | "queue",
+    queueDecision?: PlaybackContextQueueDecision,
   ): Promise<DirectoryQueueResponse> {
     return this.request(
       `/api/sources/${encodeURIComponent(sourceId)}/directory/${action}`,
-      { method: "POST", body: JSON.stringify({ relativePath }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ relativePath, ...(queueDecision ?? {}) }),
+      },
     );
+  }
+
+  private contextPlayDecision(): Promise<
+    PlaybackContextQueueDecision | null | undefined
+  > {
+    return this.decideContextPlay?.() ?? Promise.resolve(undefined);
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {

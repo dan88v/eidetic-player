@@ -31,11 +31,17 @@ import type { FilesystemProvider } from "../filesystem/filesystem-provider.js";
 import { PathService } from "../filesystem/path-service.js";
 import { SourceRepository } from "../filesystem/source-repository.js";
 import { SourceService } from "../filesystem/source-service.js";
-import type { PlayerService } from "../player/player-service.js";
+import type {
+  PlaybackContextDescriptor,
+  PlayerService,
+} from "../player/player-service.js";
 import type { PersistedQueueOrigin } from "../player-session/player-session-types.js";
 import { LibraryDatabase, libraryDatabasePath } from "./library-database.js";
 import { LibraryError } from "./library-errors.js";
-import { LibraryRepository } from "./library-repository.js";
+import {
+  LibraryRepository,
+  MAX_SAME_ARTIST_CANDIDATES,
+} from "./library-repository.js";
 import { LibraryScanner } from "./library-scanner.js";
 import { LibraryScheduler } from "./library-scheduler.js";
 import { normalizeLibrarySearchKey } from "./library-normalization.js";
@@ -62,6 +68,14 @@ export interface ResolvedLibraryContext {
   readonly origins: readonly PersistedQueueOrigin[];
   readonly selectedIndex: number;
   readonly trackIds: readonly string[];
+  readonly playbackContext?: PlaybackContextDescriptor;
+}
+
+export interface ResolvedSameArtistCandidate {
+  readonly trackId: string;
+  readonly path: string;
+  readonly origin: PersistedQueueOrigin;
+  readonly artistName: string;
 }
 
 const MIN_PAGE_LIMIT = 1;
@@ -445,7 +459,14 @@ export class IndexedLibraryService {
           : "No available most-played tracks were found.",
         409,
       );
-    return this.resolvedContext(resolved, selectedIndex);
+    return this.resolvedContext(resolved, selectedIndex, {
+      kind: "most-played",
+      title: "Most Played",
+      continuationArtistId: this.repository.primaryTrackArtistId(
+        resolved.at(-1)?.id ?? "",
+      ),
+      source: { label: "Library" },
+    });
   }
 
   playlists(
@@ -557,7 +578,8 @@ export class IndexedLibraryService {
     this.ensureOpen();
     this.requirePlaylistId(playlistId);
     if (selectedItemId) this.requirePlaylistItemId(selectedItemId);
-    if (!this.repository.playlist(playlistId))
+    const playlist = this.repository.playlist(playlistId);
+    if (!playlist)
       throw new LibraryError(
         "PLAYLIST_NOT_FOUND",
         "This playlist no longer exists.",
@@ -583,7 +605,15 @@ export class IndexedLibraryService {
           : "No available playlist tracks were found.",
         409,
       );
-    return this.resolvedContext(resolved, selectedIndex);
+    return this.resolvedContext(resolved, selectedIndex, {
+      kind: "playlist",
+      title: playlist.name,
+      entityId: playlistId,
+      continuationArtistId: this.repository.primaryTrackArtistId(
+        resolved.at(-1)?.id ?? "",
+      ),
+      source: { label: "Playlist", sourceId: playlistId },
+    });
   }
 
   removePlayHistory(historyId: string): RecentlyPlayedMutationResponse {
@@ -650,7 +680,14 @@ export class IndexedLibraryService {
           : "No available listening-history tracks were found.",
         409,
       );
-    return this.resolvedContext(resolved, selectedIndex);
+    return this.resolvedContext(resolved, selectedIndex, {
+      kind: "recently-played",
+      title: "Recently Played",
+      continuationArtistId: this.repository.primaryTrackArtistId(
+        resolved.at(-1)?.id ?? "",
+      ),
+      source: { label: "Library history" },
+    });
   }
 
   favoriteTracks(
@@ -731,7 +768,14 @@ export class IndexedLibraryService {
           : "No available favorite tracks were found.",
         409,
       );
-    return this.resolvedContext(resolved, selectedIndex);
+    return this.resolvedContext(resolved, selectedIndex, {
+      kind: "favorites",
+      title: "Favorites",
+      continuationArtistId: this.repository.primaryTrackArtistId(
+        resolved.at(-1)?.id ?? "",
+      ),
+      source: { label: "Library favorites" },
+    });
   }
 
   favoriteAlbums(
@@ -881,9 +925,105 @@ export class IndexedLibraryService {
     };
   }
 
+  async resolveSearch(
+    query: string,
+    selectedTrackId?: string,
+  ): Promise<ResolvedLibraryContext> {
+    this.ensureOpen();
+    if (selectedTrackId && !/^track-[0-9a-f]{32}$/u.test(selectedTrackId))
+      throw new LibraryError(
+        "INVALID_LIBRARY_TRACK",
+        "Select a valid Library track.",
+      );
+    const normalizedQuery = this.searchQuery(query);
+    const before = this.repository.catalogFingerprint();
+    const records = this.repository.searchContextTracks(normalizedQuery);
+    if (
+      selectedTrackId &&
+      !records.some((record) => record.id === selectedTrackId)
+    )
+      throw new LibraryError(
+        "LIBRARY_TRACK_UNAVAILABLE",
+        "This search result is no longer available.",
+        409,
+      );
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    const selectedIndex = selectedTrackId
+      ? resolved.findIndex((record) => record.id === selectedTrackId)
+      : 0;
+    if (resolved.length === 0 || selectedIndex < 0)
+      throw new LibraryError(
+        selectedTrackId ? "LIBRARY_TRACK_UNAVAILABLE" : "LIBRARY_CONTEXT_EMPTY",
+        selectedTrackId
+          ? "This search result is no longer available."
+          : "No available search results were found.",
+        409,
+      );
+    return this.resolvedContext(resolved, selectedIndex, {
+      kind: "search",
+      title: `Search: ${query.trim().replace(/\s+/gu, " ")}`,
+      continuationArtistId: this.repository.primaryTrackArtistId(
+        resolved.at(-1)?.id ?? "",
+      ),
+      source: { label: "Library search" },
+    });
+  }
+
   trackLocation(trackId: string) {
     this.ensureOpen();
     return this.repository.trackLocation(trackId);
+  }
+
+  albumArtistIdForAlbum(albumId: string): string | null {
+    this.ensureOpen();
+    if (!/^album-[0-9a-f]{32}$/u.test(albumId)) return null;
+    return this.repository.albumArtistId(albumId);
+  }
+
+  primaryArtistIdForTrack(trackId: string): string | null {
+    this.ensureOpen();
+    if (!/^track-[0-9a-f]{32}$/u.test(trackId)) return null;
+    return this.repository.primaryTrackArtistId(trackId);
+  }
+
+  async resolveSameArtistCandidates(
+    artistId: string,
+  ): Promise<readonly ResolvedSameArtistCandidate[]> {
+    this.ensureOpen();
+    if (!/^artist-[0-9a-f]{32}$/u.test(artistId)) return [];
+    const artistName = this.repository.artist(artistId, null, 1)?.name;
+    if (!artistName) return [];
+    const before = this.repository.catalogFingerprint();
+    const records = this.repository.sameArtistCandidateTracks(artistId);
+    const resolved = await this.resolveRecords(records);
+    if (before !== this.repository.catalogFingerprint())
+      throw new LibraryError(
+        "LIBRARY_CONTEXT_CHANGED",
+        "The Library changed while preparing playback. Try again.",
+        409,
+      );
+    return resolved.slice(0, MAX_SAME_ARTIST_CANDIDATES).map((record) => ({
+      trackId: record.id,
+      path: record.path,
+      artistName,
+      origin: {
+        kind: "folders" as const,
+        sourceId: record.sourceId,
+        relativePath: record.relativePath,
+        libraryTrackId: record.id,
+        ...(record.sourceType === "removable"
+          ? { removable: true as const }
+          : record.sourceType === "smb"
+            ? { smb: true as const }
+            : {}),
+      },
+    }));
   }
 
   async resolveContext(
@@ -939,7 +1079,39 @@ export class IndexedLibraryService {
           : "No available tracks were found.",
         409,
       );
-    return this.resolvedContext(resolved, selectedIndex);
+    const entityId = id ?? null;
+    const playbackContext: PlaybackContextDescriptor =
+      context === "album" && entityId
+        ? {
+            kind: "album",
+            title: this.repository.album(entityId)?.title ?? "Library album",
+            entityId,
+            continuationArtistId:
+              this.repository.albumArtistId(entityId) ??
+              this.repository.primaryTrackArtistId(
+                resolved.at(-1)?.id ?? resolved[selectedIndex]?.id ?? "",
+              ),
+            source: { label: "Library album", sourceId: entityId },
+          }
+        : context === "artist" && entityId
+          ? {
+              kind: "artist",
+              title:
+                this.repository.artist(entityId, null, 1)?.name ??
+                "Library artist",
+              entityId,
+              continuationArtistId: entityId,
+              source: { label: "Library artist", sourceId: entityId },
+            }
+          : {
+              kind: "tracks",
+              title: "Library Tracks",
+              continuationArtistId: this.repository.primaryTrackArtistId(
+                resolved.at(-1)?.id ?? resolved[selectedIndex]?.id ?? "",
+              ),
+              source: { label: "Library" },
+            };
+    return this.resolvedContext(resolved, selectedIndex, playbackContext);
   }
 
   async resolveTrack(trackId: string): Promise<ResolvedLibraryContext> {
@@ -959,7 +1131,12 @@ export class IndexedLibraryService {
         "This track is no longer available.",
         409,
       );
-    return this.resolvedContext([item], 0);
+    return this.resolvedContext([item], 0, {
+      kind: "tracks",
+      title: "Selected track",
+      continuationArtistId: this.repository.primaryTrackArtistId(item.id),
+      source: { label: "Library track" },
+    });
   }
 
   subscribe(listener: LibrarySnapshotListener): () => void {
@@ -1124,7 +1301,14 @@ export class IndexedLibraryService {
       );
     if (resolved.length === 0)
       throw new LibraryError("LIBRARY_CONTEXT_EMPTY", emptyMessage, 409);
-    return this.resolvedContext(resolved, 0);
+    return this.resolvedContext(resolved, 0, {
+      kind: "favorites",
+      title: "Favorites",
+      continuationArtistId: this.repository.primaryTrackArtistId(
+        resolved.at(-1)?.id ?? "",
+      ),
+      source: { label: "Library favorites" },
+    });
   }
 
   private async resolveRecords(
@@ -1208,6 +1392,7 @@ export class IndexedLibraryService {
       readonly sourceType: "local" | "removable" | "smb";
     }[],
     selectedIndex: number,
+    playbackContext?: PlaybackContextDescriptor,
   ): ResolvedLibraryContext {
     return {
       paths: records.map((record) => record.path),
@@ -1224,6 +1409,7 @@ export class IndexedLibraryService {
       })),
       selectedIndex,
       trackIds: records.map((record) => record.id),
+      ...(playbackContext ? { playbackContext } : {}),
     };
   }
 }

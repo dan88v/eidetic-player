@@ -69,6 +69,7 @@ import {
   saveMusicBrowsingVisibility,
   saveReturnToNowPlayingSeconds,
   saveOnScreenKeyboardMode,
+  saveContinuePlaybackMode,
 } from "../utils/storage";
 import { createEideticKeyboardAdapter } from "./eidetic-keyboard-adapter";
 import { createMiniPlayer, type MiniPlayer } from "./mini-player";
@@ -82,6 +83,7 @@ import { createVolumePopover } from "./volume-popover";
 import { createPlaylistPicker } from "./playlist-picker";
 import { createRemovableDevicePicker } from "./removable-device-picker";
 import { createPowerMenu } from "./power-menu";
+import { createPlaybackQueueDialog } from "./playback-queue-dialog";
 import type { PreferencesController } from "../state/preferences-controller";
 import type { AudioProcessingState } from "../../../../packages/shared/src/audio-processing";
 import {
@@ -113,13 +115,27 @@ export function mountApp(
   preferencesController?: PreferencesController,
   initialDisplaySnapshot: DisplaySnapshot = defaultDisplaySnapshot,
 ): MountedApp {
-  const api = new PlayerApiClient();
-  const foldersApi = new FoldersApiClient();
-  const removableApi = new RemovableStorageApiClient();
-  const libraryApi = new LibraryApiClient();
+  const playbackQueueDialog = createPlaybackQueueDialog();
+  const decideContextPlay = async () => {
+    const state = playerStore.getState();
+    if ((state.explicitQueue?.length ?? 0) === 0)
+      return {
+        explicitQueuePolicy: "preserve" as const,
+        expectedQueueRevision: state.queueRevision,
+      };
+    const activeElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    return playbackQueueDialog.decide(state.queueRevision, activeElement);
+  };
+  const api = new PlayerApiClient(decideContextPlay);
+  const foldersApi = new FoldersApiClient(decideContextPlay);
+  const removableApi = new RemovableStorageApiClient(decideContextPlay);
+  const libraryApi = new LibraryApiClient(decideContextPlay);
   const networkApi = new NetworkApiClient();
   const remoteAccessApi = new RemoteAccessApiClient();
-  const smbApi = new SmbApiClient();
+  const smbApi = new SmbApiClient(decideContextPlay);
   const systemApi = new SystemApiClient();
   const audioOutputApi = new AudioOutputApiClient();
   const updateApi = new UpdateApiClient();
@@ -272,12 +288,19 @@ export function mountApp(
     onClear: () => {
       run(api.clearQueue());
     },
+    onClearContext: () => {
+      run(api.clearPlaybackContext());
+    },
     onRemove: (queueItemId) => {
       run(api.removeQueueItem(queueItemId));
     },
     onReorder: (queueItemId, toIndex) => {
       return api
-        .reorderQueueItem(queueItemId, toIndex)
+        .reorderQueueItem(
+          queueItemId,
+          toIndex,
+          playerStore.getState().queueRevision,
+        )
         .catch((error: unknown) => {
           showMessage(
             error instanceof Error ? error.message : t("error.generic"),
@@ -399,6 +422,8 @@ export function mountApp(
     volumePopover.element,
     powerMenu.backdrop,
     powerMenu.element,
+    playbackQueueDialog.backdrop,
+    playbackQueueDialog.element,
     applyingUpdate,
     dropOverlay,
     toastHost.element,
@@ -464,35 +489,19 @@ export function mountApp(
     previous: () => {
       trackTransitions.noteTrackCommand();
       const state = playerStore.getState();
-      const pendingTarget = playerStore.pendingNavigationTarget();
-      const pendingIndex =
-        pendingTarget === undefined
-          ? -1
-          : state.queue.findIndex((item) => item.id === pendingTarget);
-      const baseIndex =
-        pendingIndex >= 0 ? pendingIndex : state.currentQueueIndex;
       const targetId =
-        pendingTarget === undefined && state.positionSeconds > 3
-          ? (state.queue[state.currentQueueIndex]?.id ?? null)
-          : (state.queue[baseIndex - 1]?.id ?? null);
+        state.positionSeconds > 3
+          ? (state.currentPlayback?.playbackInstanceId ?? null)
+          : null;
       const metadata = playerStore.beginNavigationIntent(targetId);
-      runIntent("navigation", metadata, api.previous(targetId, metadata));
+      runIntent("navigation", metadata, api.previous(undefined, metadata));
     },
     next: () => {
       trackTransitions.noteTrackCommand();
       const state = playerStore.getState();
-      const pendingTarget = playerStore.pendingNavigationTarget();
-      const pendingIndex =
-        pendingTarget === undefined
-          ? -1
-          : state.queue.findIndex((item) => item.id === pendingTarget);
-      const baseIndex =
-        pendingIndex >= 0 ? pendingIndex : state.currentQueueIndex;
-      const targetId =
-        state.queue[baseIndex + 1]?.id ??
-        (state.repeatMode === "all" ? (state.queue[0]?.id ?? null) : null);
+      const targetId = state.explicitQueue?.[0]?.playbackInstanceId ?? null;
       const metadata = playerStore.beginNavigationIntent(targetId);
-      runIntent("navigation", metadata, api.next(targetId, metadata));
+      runIntent("navigation", metadata, api.next(undefined, metadata));
     },
     seek: (positionSeconds: number) => {
       run(api.seek(positionSeconds));
@@ -582,6 +591,8 @@ export function mountApp(
       screenStandbyTimeoutSeconds:
         preferencesController?.getPreferences().screenStandbyTimeoutSeconds ??
         0,
+      continuePlaybackMode:
+        preferencesController?.getPreferences().continuePlaybackMode ?? "off",
       smbApi,
       smbSnapshot,
       selectedSmbConnection,
@@ -745,6 +756,13 @@ export function mountApp(
         }
         return true;
       },
+      setContinuePlaybackMode: (value) => {
+        if (!saveContinuePlaybackMode(value)) {
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        return true;
+      },
       systemCapabilities,
       enterMaintenanceMode: async () => {
         closeOverlays();
@@ -831,7 +849,10 @@ export function mountApp(
       miniPlayer.update(playerStore.getState());
       miniPlayer.setSurfaceDisabled(
         state.mainPlayerMode === "cassette" &&
-          playerStore.getState().queue.length === 0,
+          (playerStore.getState().currentPlayback !== undefined
+            ? playerStore.getState().currentPlayback === null &&
+              (playerStore.getState().explicitQueue?.length ?? 0) === 0
+            : playerStore.getState().queue.length === 0),
       );
       contentShell.append(miniPlayer.element);
     } else if (!showMiniPlayer && miniPlayer) {
@@ -910,17 +931,16 @@ export function mountApp(
     const previousIds = new Set(
       removableDevices.devices.map((device) => device.id),
     );
-    const currentQueueItem =
-      playerStore.getState().queue[playerStore.getState().currentQueueIndex];
+    const currentPath = playerStore.getState().currentTrack?.path ?? "";
     const disconnectedDeviceIds = [...previousIds].filter(
       (deviceId) => !snapshot.devices.some((device) => device.id === deviceId),
     );
     const disconnectedCurrent =
       disconnectedDeviceIds.some((deviceId) =>
-        currentQueueItem?.path.startsWith(`removable://${deviceId}/`),
+        currentPath.startsWith(`removable://${deviceId}/`),
       ) ||
       (disconnectedDeviceIds.length > 0 &&
-        currentQueueItem?.path.startsWith("library-source://"));
+        currentPath.startsWith("library-source://"));
     removableDevices = snapshot;
     if (selectedRemovableDevice) {
       selectedRemovableDevice =
@@ -1093,8 +1113,7 @@ export function mountApp(
       (connection) =>
         previouslyReadable.has(connection.id) && !connection.readable,
     );
-    const current =
-      playerStore.getState().queue[playerStore.getState().currentQueueIndex];
+    const currentPath = playerStore.getState().currentTrack?.path ?? "";
     smbSnapshot = snapshot;
     if (selectedSmbConnection) {
       selectedSmbConnection =
@@ -1106,7 +1125,7 @@ export function mountApp(
     currentScreen?.updateSmbSnapshot?.(snapshot);
     if (
       disconnected.some((connection) =>
-        current?.path.startsWith(`smb://${connection.id}/`),
+        currentPath.startsWith(`smb://${connection.id}/`),
       )
     )
       showMessage("Network share disconnected.", "neutral");
@@ -1233,13 +1252,19 @@ export function mountApp(
     miniPlayer?.setSurfaceDisabled(
       store.getState().activeScreen === "nowPlaying" &&
         store.getState().mainPlayerMode === "cassette" &&
-        state.queue.length === 0,
+        (state.currentPlayback !== undefined
+          ? state.currentPlayback === null &&
+            (state.explicitQueue?.length ?? 0) === 0
+          : state.queue.length === 0),
     );
     queueDrawer.update(state);
     artworkPreloader.preload([
-      state.currentTrack?.artwork ?? null,
-      state.queue[state.currentQueueIndex + 1]?.artwork ?? null,
-      state.queue[state.currentQueueIndex - 1]?.artwork ?? null,
+      state.currentPlayback !== undefined
+        ? (state.currentPlayback?.item.artwork ?? null)
+        : (state.currentTrack?.artwork ?? null),
+      state.explicitQueue?.[0]?.item.artwork ??
+        state.playbackContext?.nextItem?.artwork ??
+        null,
     ]);
     volumePopover.setState(state.volume, state.muted);
     if (state.error && state.status === "error")
@@ -1336,6 +1361,7 @@ export function mountApp(
       queueDrawer.destroy();
       sideMenu.destroy();
       powerMenu.destroy();
+      playbackQueueDialog.destroy();
       playlistPicker.destroy();
       removablePicker.destroy();
       artworkPreloader.destroy();

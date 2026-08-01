@@ -10,6 +10,8 @@ import { MetadataService } from "../src/metadata/metadata-service.js";
 import { ArtworkService } from "../src/artwork/artwork-service.js";
 import { runSingleAudioFileSelection } from "../../ui/src/platform/audio-file-selection.js";
 import type { PlatformBridge } from "../../ui/src/platform/platform-bridge.js";
+import type { PlayerState } from "../../../packages/shared/src/player.js";
+import type { MpvResponse } from "../src/player/mpv-transport.js";
 
 function silentWav(seconds = 2): Buffer {
   const sampleRate = 8_000;
@@ -280,6 +282,185 @@ void test("PlayerService disables Shuffle without losing current identity or pos
   }
 });
 
+void test("one persistent MPV reconciles Context and duplicate Explicit Queue without reloading Current", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-mpv-plan-"));
+  const player = new PlayerService();
+  const controller = new MpvController();
+  const harness = player as unknown as {
+    state: PlayerState;
+    controller: MpvController | null;
+    unsubscribeMpv: (() => void) | null;
+    handleMpvMessage(message: MpvResponse): void;
+  };
+  try {
+    const contextPaths = await Promise.all(
+      ["A1.wav", "A2.wav", "A3.wav", "A4.wav"].map(async (filename) => {
+        const path = join(folder, filename);
+        await writeFile(path, silentWav(20));
+        return path;
+      }),
+    );
+    const explicitX = join(folder, "X.wav");
+    const explicitY = join(folder, "Y.wav");
+    await Promise.all([
+      writeFile(explicitX, silentWav(20)),
+      writeFile(explicitY, silentWav(20)),
+    ]);
+    await controller.start({
+      executable: discovery.executable,
+      extraArguments: ["--ao=null"],
+    });
+    harness.state = {
+      ...player.getState(),
+      status: "idle",
+      mpvAvailable: true,
+      mpvVersion: discovery.version,
+    };
+    harness.controller = controller;
+    harness.unsubscribeMpv = controller.subscribe((message) => {
+      harness.handleMpvMessage(message);
+    });
+
+    await player.openResolvedQueue(contextPaths, 1, undefined, undefined, {
+      kind: "album",
+      title: "MPV fixture album",
+      source: { label: "Integration fixture" },
+    });
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) =>
+        state.currentTrack?.path === contextPaths[1] &&
+        state.durationSeconds > 3,
+      5_000,
+    );
+    await player.pause();
+    await waitFor(
+      () => Promise.resolve(player.getState().paused),
+      (paused) => paused,
+    );
+    await player.seek(3);
+    const beforeMutation = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.positionSeconds > 2.5 && state.paused,
+      5_000,
+    );
+    const currentBefore = player.getPlaybackPlanSnapshot().current;
+    assert.ok(currentBefore);
+    const controllerIdentity = harness.controller;
+
+    assert.equal(await player.append([explicitX, explicitY, explicitX]), 3);
+    let plan = player.getPlaybackPlanSnapshot();
+    assert.deepEqual(
+      plan.explicitQueue.map((entry) => entry.item.nativePath),
+      [explicitX, explicitY, explicitX],
+    );
+    assert.equal(
+      new Set(plan.explicitQueue.map((entry) => entry.explicitQueueEntryId))
+        .size,
+      3,
+    );
+    assert.deepEqual(
+      player.getPublicState().queue.map((entry) => entry.id),
+      plan.explicitQueue.map((entry) => entry.explicitQueueEntryId),
+    );
+    const reconciled = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.queue.length === 6,
+      5_000,
+    );
+    assert.deepEqual(
+      reconciled.queue.map((entry) => entry.path),
+      [
+        contextPaths[1],
+        explicitX,
+        explicitY,
+        explicitX,
+        contextPaths[2],
+        contextPaths[3],
+      ],
+    );
+    assert.equal(
+      plan.current?.executionEntryId,
+      currentBefore.executionEntryId,
+    );
+    assert.equal(reconciled.currentTrack?.path, contextPaths[1]);
+    assert.equal(
+      reconciled.queue[reconciled.currentQueueIndex]?.playbackInstanceId,
+      player.getPublicState().currentPlayback?.playbackInstanceId,
+    );
+    assert.ok(
+      Math.abs(reconciled.positionSeconds - beforeMutation.positionSeconds) <
+        0.5,
+    );
+    assert.equal(harness.controller, controllerIdentity);
+
+    const third = plan.explicitQueue[2];
+    assert.ok(third);
+    await player.reorderQueueItem(third.explicitQueueEntryId, 0);
+    plan = player.getPlaybackPlanSnapshot();
+    assert.deepEqual(
+      plan.explicitQueue.map((entry) => entry.item.nativePath),
+      [explicitX, explicitX, explicitY],
+    );
+    assert.equal(
+      plan.current?.executionEntryId,
+      currentBefore.executionEntryId,
+    );
+    assert.ok(player.getState().positionSeconds > 2.5);
+
+    await player.clearQueue();
+    plan = player.getPlaybackPlanSnapshot();
+    assert.equal(plan.explicitQueue.length, 0);
+    assert.equal(
+      plan.current?.executionEntryId,
+      currentBefore.executionEntryId,
+    );
+    assert.equal(player.getState().currentTrack?.path, contextPaths[1]);
+    assert.ok(player.getState().positionSeconds > 2.5);
+    assert.equal(harness.controller, controllerIdentity);
+
+    await player.append([explicitX, explicitY, explicitX]);
+    plan = player.getPlaybackPlanSnapshot();
+    const selected = plan.explicitQueue[2];
+    assert.ok(selected);
+    await player.playQueueIndex(2, undefined, selected.explicitQueueEntryId);
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentTrack?.path === explicitX,
+      5_000,
+    );
+    plan = player.getPlaybackPlanSnapshot();
+    assert.equal(plan.current?.item.nativePath, explicitX);
+    assert.equal(plan.explicitQueue.length, 0);
+    assert.deepEqual(
+      plan.history.entries.map((entry) => entry.item.nativePath),
+      [contextPaths[1], explicitX],
+    );
+
+    await player.next();
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentTrack?.path === contextPaths[2],
+      5_000,
+    );
+    plan = player.getPlaybackPlanSnapshot();
+    assert.equal(plan.current?.item.nativePath, contextPaths[2]);
+    assert.deepEqual(
+      plan.history.entries.map((entry) => entry.item.nativePath),
+      [contextPaths[1], explicitX, contextPaths[2]],
+    );
+    assert.equal(harness.controller, controllerIdentity);
+  } finally {
+    await player.shutdown();
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 void test("MPV replaces every item from an existing Queue", async (context) => {
   const discovery = await discoverMpv();
   if (!discovery) {
@@ -378,14 +559,21 @@ void test("PlayerService replaces the Queue and opens the selected ninth item", 
     await runSingleAudioFileSelection(platform, (paths) => player.open(paths));
     const firstState = await waitFor(
       () => Promise.resolve(player.getState()),
-      (state) => state.currentQueueIndex === 8,
+      (state) =>
+        state.currentQueueIndex === 0 && state.currentTrack?.path === first[8],
       5_000,
     );
     assert.equal(firstState.currentTrack?.path, first[8]);
-    assert.equal(firstState.queue.length, 10);
+    assert.deepEqual(
+      firstState.queue.map((item) => item.path),
+      first.slice(8),
+    );
+    assert.equal(player.getPublicState().playbackContext?.totalCount, 10);
+    assert.equal(player.getPublicState().playbackContext?.remainingCount, 1);
+    assert.equal(player.getPublicState().queue.length, 0);
     assert.equal(transitions.includes(first[0] ?? ""), false);
     const oldIds = new Set(firstState.queue.map((item) => item.id));
-    const oldNinth = firstState.queue[8];
+    const oldNinth = firstState.queue[0];
     assert.ok(oldNinth);
     assert.equal(
       (await player.resolveQueueArtwork(oldNinth.id))?.sourceType,
@@ -397,18 +585,33 @@ void test("PlayerService replaces the Queue and opens the selected ninth item", 
     const secondState = await waitFor(
       () => Promise.resolve(player.getState()),
       (state) =>
-        state.currentQueueIndex === 8 && state.currentTrack?.path === second[8],
+        state.currentQueueIndex === 0 && state.currentTrack?.path === second[8],
       5_000,
     );
-    assert.equal(secondState.queue.length, 10);
+    assert.deepEqual(
+      secondState.queue.map((item) => item.path),
+      second.slice(8),
+    );
+    assert.equal(player.getPublicState().playbackContext?.totalCount, 10);
+    assert.equal(player.getPublicState().playbackContext?.remainingCount, 1);
     assert.equal(transitions.includes(second[0] ?? ""), false);
     assert.equal(
       secondState.queue.some((item) => oldIds.has(item.id)),
       false,
     );
-    assert.equal(player.getQueueItemPath(oldNinth.id), null);
-    assert.equal(await player.resolveQueueArtwork(oldNinth.id), null);
-    const newNinth = secondState.queue[8];
+    assert.equal(player.getQueueItemPath(oldNinth.id), first[8]);
+    assert.equal(
+      (await player.resolveQueueArtwork(oldNinth.id))?.sourceType,
+      "folder",
+    );
+    assert.ok(
+      player
+        .getPlaybackPlanSnapshot()
+        .history.entries.some(
+          (entry) => entry.executionEntryId === oldNinth.id,
+        ),
+    );
+    const newNinth = secondState.queue[0];
     assert.ok(newNinth);
     assert.equal(
       (await player.resolveQueueArtwork(newNinth.id))?.sourceType,
@@ -451,8 +654,10 @@ void test("PlayerService enriches a silent real file and cleans artwork", async 
     assert.ok(track);
     assert.equal(track.title, "02 Second");
     assert.equal(track.bitDepth, 16);
-    assert.equal(enriched.queue.length, 2);
-    assert.equal(enriched.currentQueueIndex, 1);
+    assert.equal(enriched.queue.length, 1);
+    assert.equal(enriched.currentQueueIndex, 0);
+    assert.equal(player.getPublicState().playbackContext?.totalCount, 2);
+    assert.equal(player.getPublicState().queue.length, 0);
     const ref = track.artwork;
     assert.ok(ref);
     assert.equal(
@@ -460,36 +665,44 @@ void test("PlayerService enriches a silent real file and cleans artwork", async 
       "image/png",
     );
     await player.previous();
-    await waitFor(
-      () => Promise.resolve(player.getState().currentQueueIndex),
-      (index) => index === 0,
-    );
+    assert.equal(player.getState().currentTrack?.path, second);
     await player.append([first, second]);
-    assert.equal(player.getState().queue.length, 2);
-    const firstItem = player.getState().queue[0];
+    assert.equal(player.getPublicState().queue.length, 2);
+    assert.equal(player.getState().queue.length, 3);
+    const firstItem = player.getPublicState().queue[0];
     assert.ok(firstItem);
     await player.removeQueueItem(firstItem.id);
     await waitFor(
-      () => Promise.resolve(player.getState().queue.length),
+      () => Promise.resolve(player.getPublicState().queue.length),
       (length) => length === 1,
     );
-    const secondItem = player.getState().queue[0];
+    const secondItem = player.getPublicState().queue[0];
     assert.ok(secondItem);
     assert.equal(
       (await player.resolveQueueArtwork(secondItem.id))?.sourceType,
       "folder",
     );
     await player.clearQueue();
-    assert.equal(player.getState().queue.length, 0);
-    assert.equal(player.getState().currentTrack, null);
+    assert.equal(player.getPublicState().queue.length, 0);
+    assert.equal(player.getState().queue.length, 1);
+    assert.equal(player.getState().currentTrack?.path, second);
+    await player.next();
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentTrack === null && state.queue.length === 0,
+    );
     const transitionBeforeAppend = player.getState().trackTransitionId;
-    const revisionBeforeAppend = player.getState().queueRevision;
+    const revisionBeforeAppend = player.getPublicState().queueRevision;
     const appended = await player.append([first, second]);
     assert.equal(appended, 2);
-    assert.equal(player.getState().queue.length, 2);
+    assert.equal(player.getState().queue.length, 0);
+    assert.equal(player.getPublicState().queue.length, 2);
     assert.equal(player.getState().currentTrack, null);
     assert.equal(player.getState().trackTransitionId, transitionBeforeAppend);
-    assert.equal(player.getState().queueRevision, revisionBeforeAppend + 1);
+    assert.equal(
+      player.getPublicState().queueRevision,
+      revisionBeforeAppend + 1,
+    );
     await player.clearQueue();
   } finally {
     await player.shutdown();
@@ -525,11 +738,16 @@ void test("USB disconnect stops without clearing or advancing and reconnect neve
     await player.openResolvedQueue(paths, 1, origins);
     const playing = await waitFor(
       () => Promise.resolve(player.getState()),
-      (state) => state.currentQueueIndex === 1 && !state.paused,
+      (state) =>
+        state.currentQueueIndex === 0 &&
+        state.currentTrack?.path === paths[1] &&
+        !state.paused,
       5_000,
     );
     const ids = playing.queue.map((item) => item.id);
-    const revision = playing.queueRevision;
+    const currentPlaybackId =
+      player.getPlaybackPlanSnapshot().current?.playbackInstanceId;
+    const revision = player.getPublicState().queueRevision;
     const transition = playing.trackTransitionId;
 
     assert.equal(
@@ -540,12 +758,9 @@ void test("USB disconnect stops without clearing or advancing and reconnect neve
       () => Promise.resolve(player.getState()),
       (state) => state.status === "stopped",
     );
-    assert.deepEqual(
-      disconnected.queue.map((item) => item.id),
-      ids,
-    );
-    assert.equal(disconnected.currentQueueIndex, 1);
-    assert.equal(disconnected.queueRevision, revision);
+    assert.equal(disconnected.queue[0]?.id, ids[0]);
+    assert.equal(disconnected.currentQueueIndex, 0);
+    assert.equal(player.getPublicState().queueRevision, revision);
     assert.equal(disconnected.trackTransitionId, transition);
     assert.equal(
       disconnected.queue.every((item) => item.available === false),
@@ -553,7 +768,9 @@ void test("USB disconnect stops without clearing or advancing and reconnect neve
     );
     const publicState = player.getPublicState();
     assert.equal(JSON.stringify(publicState).includes(root), false);
-    assert.match(publicState.queue[1]?.path ?? "", /^removable:\/\/usb-/);
+    assert.match(publicState.currentTrack?.path ?? "", /^removable:\/\/usb-/);
+    assert.equal(publicState.currentPlayback?.item.available, false);
+    assert.equal(publicState.queue.length, 0);
 
     assert.equal(
       await player.setRemovableDeviceAvailable(deviceId, true),
@@ -561,23 +778,24 @@ void test("USB disconnect stops without clearing or advancing and reconnect neve
     );
     assert.equal(player.getState().status, "stopped");
     assert.equal(player.getState().paused, true);
-    assert.equal(player.getState().queueRevision, revision);
+    assert.equal(player.getPublicState().queueRevision, revision);
 
-    await player.playQueueIndex(1, (origin) =>
-      Promise.resolve(
-        origin.kind === "removable"
-          ? join(root, ...origin.relativePath.split("/"))
-          : "",
-      ),
-    );
+    await player.play();
     const replayed = await waitFor(
       () => Promise.resolve(player.getState()),
-      (state) => state.currentQueueIndex === 1 && !state.paused,
+      (state) =>
+        state.currentQueueIndex === 0 &&
+        state.currentTrack?.path === paths[1] &&
+        !state.paused,
       5_000,
     );
     assert.deepEqual(
       replayed.queue.map((item) => item.id),
       ids,
+    );
+    assert.equal(
+      player.getPlaybackPlanSnapshot().current?.playbackInstanceId,
+      currentPlaybackId,
     );
   } finally {
     await player.shutdown();
@@ -624,44 +842,54 @@ void test("removable Library disconnect preserves a mixed Queue and stops only i
       5_000,
     );
     const ids = playingLocal.queue.map((item) => item.id);
-    const revision = playingLocal.queueRevision;
+    const usbExecutionId = ids[1];
+    assert.ok(usbExecutionId);
+    const revision = player.getPublicState().queueRevision;
     assert.equal(await player.setFolderSourceAvailable(sourceId, false), false);
     assert.equal(player.getState().status, "playing");
     assert.equal(player.getState().queue[0]?.available, true);
-    assert.equal(player.getState().queue[1]?.available, false);
-    assert.deepEqual(
-      player.getState().queue.map((item) => item.id),
-      ids,
-    );
-    assert.equal(player.getState().queueRevision, revision);
-    assert.equal(player.getPublicState().currentTrack?.path, localPath);
+    assert.equal(player.getState().queue.length, 1);
+    const unavailableUsb = player
+      .getPlaybackPlanSnapshot()
+      .context?.originalItems.find(
+        (item) => item.item.origin.sourceId === sourceId,
+      );
+    assert.equal(unavailableUsb?.item.availability, "unavailable");
+    assert.equal(player.getPublicState().queueRevision, revision);
     assert.match(
-      player.getPublicState().queue[1]?.path ?? "",
-      /^library-source:\/\//,
+      player.getPublicState().currentTrack?.path ?? "",
+      /^library-source:\/\/22222222-2222-4222-8222-222222222222\/Local\.wav$/u,
+    );
+    assert.equal(player.getPublicState().queue.length, 0);
+    assert.equal(
+      player.getPublicState().playbackContext?.nextItem?.available,
+      false,
     );
 
     await player.setFolderSourceAvailable(sourceId, true);
-    await player.playQueueIndex(1, (origin) =>
-      Promise.resolve(
-        origin.kind === "folders" && origin.sourceId === sourceId
-          ? usbPath
-          : localPath,
-      ),
+    await waitFor(
+      () => Promise.resolve(player.getState().queue.map((item) => item.id)),
+      (queueIds) => queueIds.length === 2 && queueIds[1] === usbExecutionId,
     );
+    await player.next();
     await waitFor(
       () => Promise.resolve(player.getState()),
-      (state) => state.currentQueueIndex === 1 && !state.paused,
+      (state) =>
+        state.currentQueueIndex === 0 &&
+        state.currentTrack?.path === usbPath &&
+        !state.paused,
       5_000,
     );
     assert.equal(player.getState().currentTrack?.source, "USB Storage");
     assert.equal(await player.setFolderSourceAvailable(sourceId, false), true);
     assert.equal(player.getState().status, "stopped");
-    assert.equal(player.getState().currentQueueIndex, 1);
-    assert.deepEqual(
-      player.getState().queue.map((item) => item.id),
-      ids,
+    assert.equal(player.getState().currentQueueIndex, 0);
+    assert.equal(player.getState().queue[0]?.id, usbExecutionId);
+    assert.equal(
+      player.getPlaybackPlanSnapshot().current?.item.availability,
+      "unavailable",
     );
-    assert.equal(player.getState().queueRevision, revision);
+    assert.equal(player.getPublicState().queueRevision, revision);
   } finally {
     await player.shutdown();
     await rm(root, { recursive: true, force: true });
@@ -694,12 +922,14 @@ void test("persistent MPV accepts rapid transport and level commands through one
   try {
     await player.initialize();
     await player.openResolvedQueue(paths, 0);
-    const initial = await waitFor(
+    await waitFor(
       () => Promise.resolve(player.getState()),
       (state) => state.currentQueueIndex === 0 && !state.paused,
       5_000,
     );
-    const queueIds = initial.queue.map((item) => item.id);
+    const contextId = player.getPlaybackPlanSnapshot().context?.contextId;
+    assert.ok(contextId);
+    const explicitRevision = player.getPublicState().queueRevision;
 
     await Promise.all([
       player.next(metadata(1)),
@@ -717,7 +947,8 @@ void test("persistent MPV accepts rapid transport and level commands through one
     const settled = await waitFor(
       () => Promise.resolve(player.getState()),
       (state) =>
-        state.currentQueueIndex === 1 &&
+        state.currentQueueIndex === 0 &&
+        state.currentTrack?.path === paths[1] &&
         Math.abs(state.volume - 63) < 0.55 &&
         !state.muted &&
         !state.paused &&
@@ -727,10 +958,19 @@ void test("persistent MPV accepts rapid transport and level commands through one
       5_000,
     );
     assert.deepEqual(
-      settled.queue.map((item) => item.id),
-      queueIds,
+      settled.queue.map((item) => item.path),
+      paths.slice(1),
     );
-    assert.equal(settled.queueRevision, initial.queueRevision);
+    assert.equal(
+      player.getPlaybackPlanSnapshot().context?.contextId,
+      contextId,
+    );
+    assert.equal(
+      player.getPlaybackPlanSnapshot().current?.item.nativePath,
+      paths[1],
+    );
+    assert.equal(player.getPublicState().queue.length, 0);
+    assert.equal(player.getPublicState().queueRevision, explicitRevision);
     const diagnostics = player.getCommandDiagnostics();
     for (const stage of [
       "service-accepted",

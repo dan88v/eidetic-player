@@ -24,6 +24,7 @@ import type {
   ScreenDimTimeoutSeconds,
   ScreenStandbyTimeoutSeconds,
 } from "../../../../packages/shared/src/display";
+import type { ContinuePlaybackMode } from "../../../../packages/shared/src/preferences";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -74,6 +75,8 @@ export interface ScreenContext {
     value: Parameters<AppStore["setReturnToNowPlayingSeconds"]>[0],
   ) => boolean;
   readonly setOnScreenKeyboardMode: (value: OnScreenKeyboardMode) => boolean;
+  readonly continuePlaybackMode: ContinuePlaybackMode;
+  readonly setContinuePlaybackMode: (value: ContinuePlaybackMode) => boolean;
   readonly showToast: (
     message: string,
     tone?: "error" | "success" | "neutral",
@@ -295,6 +298,7 @@ export function createScreen(
         musicBrowsingVisibility: context.state.musicBrowsingVisibility,
         returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
         onScreenKeyboardMode: context.state.onScreenKeyboardMode,
+        continuePlaybackMode: context.continuePlaybackMode,
         systemCapabilities: context.systemCapabilities,
         enterMaintenanceMode: context.enterMaintenanceMode,
         updateApi: context.updateApi,
@@ -322,6 +326,7 @@ export function createScreen(
         onMusicBrowsingVisibilityChange: context.setMusicBrowsingVisibility,
         onReturnToNowPlayingSecondsChange: context.setReturnToNowPlayingSeconds,
         onScreenKeyboardModeChange: context.setOnScreenKeyboardMode,
+        onContinuePlaybackModeChange: context.setContinuePlaybackMode,
       });
   }
 }

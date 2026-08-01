@@ -305,7 +305,7 @@ void test("36. seamless transition machinery remains wired", async () => {
   ]);
   assert.match(shell, /TrackTransitionCoordinator/);
   assert.match(nowPlaying, /presentation\.generation/);
-  assert.match(nowPlaying, /trackTransitionId\s*===\s*generation/);
+  assert.match(nowPlaying, /isSameWaveformRequest\(waveformRequest/);
   assert.match(artwork, /decodeCache\.prepare/);
   assert.match(artwork, /currentGeneration/);
 });

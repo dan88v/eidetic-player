@@ -14,6 +14,7 @@ import type {
   LibraryCategorySearchResults,
   LibraryGroupedSearchResults,
   LibrarySearchCategory,
+  LibrarySearchPlayRequest,
   FavoriteTrackPage,
   FavoriteTrackMutationResponse,
   FavoriteTrackStatusResponse,
@@ -36,15 +37,23 @@ import type {
   PlaylistPage,
   PlaylistSummary,
 } from "../../../../packages/shared/src/library";
-import type { ApiResponse } from "../../../../packages/shared/src/player";
+import type {
+  ApiResponse,
+  PlaybackContextQueueDecision,
+} from "../../../../packages/shared/src/player";
 import { config } from "../config";
 import { PlayerApiError } from "./player-api-client";
+import type { ContextPlayDecisionProvider } from "./context-play-decision";
 
 const apiBaseUrl = config.development
   ? ""
   : `http://${config.backendHost}:${String(config.backendPort)}`;
 
 export class LibraryApiClient {
+  constructor(
+    private readonly decideContextPlay?: ContextPlayDecisionProvider,
+  ) {}
+
   snapshot(): Promise<IndexedLibrarySnapshot> {
     return this.request("/api/library/snapshot");
   }
@@ -104,10 +113,7 @@ export class LibraryApiClient {
   playRecentlyPlayed(
     request: RecentlyPlayedPlayRequest = {},
   ): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/recently-played/play", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    return this.playRequest("/api/library/recently-played/play", request);
   }
 
   removeRecentlyPlayed(
@@ -135,10 +141,7 @@ export class LibraryApiClient {
   playMostPlayed(
     request: MostPlayedPlayRequest = {},
   ): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/history/most-played/play", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    return this.playRequest("/api/library/history/most-played/play", request);
   }
 
   listeningStats(): Promise<ListeningStats> {
@@ -184,10 +187,7 @@ export class LibraryApiClient {
   playFavorites(
     request: FavoriteTracksPlayRequest = {},
   ): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/favorites/tracks/play", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    return this.playRequest("/api/library/favorites/tracks/play", request);
   }
 
   favoriteAlbums(
@@ -223,9 +223,7 @@ export class LibraryApiClient {
   }
 
   playFavoriteAlbums(): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/favorites/albums/play", {
-      method: "POST",
-    });
+    return this.playRequest("/api/library/favorites/albums/play", {});
   }
 
   favoriteArtists(
@@ -263,9 +261,7 @@ export class LibraryApiClient {
   }
 
   playFavoriteArtists(): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/favorites/artists/play", {
-      method: "POST",
-    });
+    return this.playRequest("/api/library/favorites/artists/play", {});
   }
 
   search(
@@ -294,10 +290,13 @@ export class LibraryApiClient {
   }
 
   play(request: LibraryContextRequest): Promise<LibraryQueueActionResponse> {
-    return this.request("/api/library/play", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
+    return this.playRequest("/api/library/play", request);
+  }
+
+  playSearch(
+    request: LibrarySearchPlayRequest,
+  ): Promise<LibraryQueueActionResponse> {
+    return this.playRequest("/api/library/search/play", request);
   }
 
   queue(request: LibraryContextRequest): Promise<LibraryQueueActionResponse> {
@@ -391,13 +390,34 @@ export class LibraryApiClient {
     playlistId: string,
     selectedItemId?: string,
   ): Promise<LibraryQueueActionResponse> {
-    return this.request(
+    return this.playRequest(
       `/api/library/playlists/${encodeURIComponent(playlistId)}/play`,
-      {
-        method: "POST",
-        body: JSON.stringify(selectedItemId ? { selectedItemId } : {}),
-      },
+      selectedItemId ? { selectedItemId } : {},
     );
+  }
+
+  private async playRequest(
+    path: string,
+    body: object,
+  ): Promise<LibraryQueueActionResponse> {
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return {
+        queueLength: 0,
+        selectedIndex: null,
+        appendedCount: 0,
+        cancelled: true,
+      };
+    return this.request(path, {
+      method: "POST",
+      body: JSON.stringify({ ...body, ...(queueDecision ?? {}) }),
+    });
+  }
+
+  private contextPlayDecision(): Promise<
+    PlaybackContextQueueDecision | null | undefined
+  > {
+    return this.decideContextPlay?.() ?? Promise.resolve(undefined);
   }
 
   queuePlaylist(playlistId: string): Promise<LibraryQueueActionResponse> {

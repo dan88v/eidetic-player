@@ -1,4 +1,8 @@
-import type { PlayerState } from "../../../../packages/shared/src/player";
+import type {
+  CurrentPlaybackSource,
+  PlaybackContextKind,
+  PlayerState,
+} from "../../../../packages/shared/src/player";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import { queueArtworkUrl } from "../api/player-api-client";
@@ -10,6 +14,10 @@ import {
 } from "../utils/queue-reorder";
 import { createArtwork, type ArtworkView } from "./artwork";
 import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
+import {
+  queueDrawerPresentation,
+  type QueueDrawerTrack,
+} from "./queue-drawer-model";
 
 const focusableSelector =
   'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
@@ -34,13 +42,41 @@ interface QueueRowView {
   readonly artwork: ArtworkView;
   readonly handle: HTMLButtonElement;
   artworkRevision: string | null;
-  isCurrent: boolean;
+}
+
+const contextKindKeys: Readonly<Record<PlaybackContextKind, string>> = {
+  album: "queueDrawer.contextKind.album",
+  artist: "queueDrawer.contextKind.artist",
+  playlist: "queueDrawer.contextKind.playlist",
+  folder: "queueDrawer.contextKind.folder",
+  "direct-folder": "queueDrawer.contextKind.directFolder",
+  favorites: "queueDrawer.contextKind.favorites",
+  "recently-played": "queueDrawer.contextKind.recentlyPlayed",
+  "most-played": "queueDrawer.contextKind.mostPlayed",
+  search: "queueDrawer.contextKind.search",
+  tracks: "queueDrawer.contextKind.tracks",
+  "legacy-session": "queueDrawer.contextKind.legacySession",
+  "artist-radio": "queueDrawer.contextKind.artistRadio",
+};
+
+const currentSourceKeys: Readonly<Record<CurrentPlaybackSource, string>> = {
+  context: "queueDrawer.source.context",
+  "explicit-queue": "queueDrawer.source.explicit",
+  history: "queueDrawer.source.history",
+  continuation: "queueDrawer.source.continuation",
+};
+
+function setText(element: HTMLElement, value: string): void {
+  if (element.textContent === value) return;
+  if (element.firstChild instanceof Text) element.firstChild.data = value;
+  else element.textContent = value;
 }
 
 export function createQueueDrawer(options: {
   readonly onClose: () => void;
   readonly onPlay: (index: number, queueItemId: string) => void;
   readonly onClear: () => void;
+  readonly onClearContext: () => void;
   readonly onRemove: (queueItemId: string) => void;
   readonly onReorder: (queueItemId: string, toIndex: number) => Promise<void>;
   readonly onAddToPlaylist: (
@@ -51,8 +87,18 @@ export function createQueueDrawer(options: {
   let returnFocus: HTMLElement | null = null;
   let isOpen = false;
   let queueRevision = -1;
-  let queueSnapshot: PlayerState["queue"] | null = null;
+  let contextRevision = -1;
+  let queueSnapshot:
+    PlayerState["explicitQueue"] | PlayerState["queue"] | null = null;
+  let currentSnapshot:
+    PlayerState["currentPlayback"] | PlayerState["queue"][number] | null = null;
+  let contextSnapshot: PlayerState["playbackContext"] = null;
+  let continuationSnapshot: PlayerState["playbackContinuation"] = undefined;
+  let explicitQueue: readonly QueueDrawerTrack[] = [];
   let queueIds: readonly string[] = [];
+  let currentItemId: string | null = null;
+  let currentArtworkId: string | null = null;
+  let currentArtworkRevision: string | null = null;
   let loadGeneration = 0;
   let activeLoads = 0;
   let confirmationOpen = false;
@@ -86,9 +132,40 @@ export function createQueueDrawer(options: {
       </div>
     </div>
     <ol class="queue-list">
+      <li class="queue-section queue-section--current">
+        <h3>${t("queueDrawer.nowPlaying")}</h3>
+        <div class="queue-current queue-item--current" aria-current="true" hidden>
+          <span class="queue-current__artwork-slot"></span>
+          <span class="queue-current__copy"><strong></strong><span class="queue-current__detail"></span><small></small></span>
+        </div>
+        <p class="queue-current__empty">${t("queueDrawer.nothingPlaying")}</p>
+      </li>
+      <li class="queue-section__heading">
+        <h3>${t("queueDrawer.upNext")}</h3>
+        <span class="queue-section__badge" aria-label="${t("queueDrawer.explicitCount").replace("{count}", "0")}" hidden>0</span>
+      </li>
       <li class="queue-list__clear" hidden>
         <button class="queue-list__playlist-button" type="button">${t("common.addToPlaylist")}</button>
         <button class="queue-list__clear-button" type="button">${t("queueDrawer.clear")}</button>
+      </li>
+      <li class="queue-list__empty">${t("queueDrawer.empty")}</li>
+      <li class="queue-section queue-context" hidden>
+        <h3>${t("queueDrawer.thenContinuesFrom")}</h3>
+        <div class="queue-context__card">
+          <span class="queue-context__top">
+            <span class="queue-context__heading"><strong></strong><small></small></span>
+          </span>
+          <span class="queue-context__details">
+            <span class="queue-context__summary">
+              <span class="queue-context__next"></span>
+              <span class="queue-context__remaining"></span>
+            </span>
+            <button class="queue-context__remove" type="button" aria-label="${t("queueDrawer.removeContext")}">${t("queueDrawer.removeContextAction")}</button>
+          </span>
+        </div>
+      </li>
+      <li class="queue-section queue-continuation" hidden>
+        <p></p>
       </li>
     </ol>`;
   const closeButton = element.querySelector<HTMLButtonElement>(
@@ -99,6 +176,48 @@ export function createQueueDrawer(options: {
     ".queue-list__clear-button",
   );
   const clearRow = element.querySelector<HTMLLIElement>(".queue-list__clear");
+  const emptyRow = element.querySelector<HTMLLIElement>(".queue-list__empty");
+  const countBadge = element.querySelector<HTMLElement>(
+    ".queue-section__badge",
+  );
+  const currentRow = element.querySelector<HTMLElement>(".queue-current");
+  const currentEmpty = element.querySelector<HTMLElement>(
+    ".queue-current__empty",
+  );
+  const currentArtworkSlot = element.querySelector<HTMLElement>(
+    ".queue-current__artwork-slot",
+  );
+  const currentTitle = element.querySelector<HTMLElement>(
+    ".queue-current__copy strong",
+  );
+  const currentDetail = element.querySelector<HTMLElement>(
+    ".queue-current__detail",
+  );
+  const currentSource = element.querySelector<HTMLElement>(
+    ".queue-current__copy small",
+  );
+  const contextSection = element.querySelector<HTMLElement>(".queue-context");
+  const contextTitle = element.querySelector<HTMLElement>(
+    ".queue-context__heading strong",
+  );
+  const contextKind = element.querySelector<HTMLElement>(
+    ".queue-context__heading small",
+  );
+  const contextNext = element.querySelector<HTMLElement>(
+    ".queue-context__next",
+  );
+  const contextRemaining = element.querySelector<HTMLElement>(
+    ".queue-context__remaining",
+  );
+  const contextRemove = element.querySelector<HTMLButtonElement>(
+    ".queue-context__remove",
+  );
+  const continuationSection = element.querySelector<HTMLElement>(
+    ".queue-continuation",
+  );
+  const continuationText = element.querySelector<HTMLElement>(
+    ".queue-continuation p",
+  );
   const playlistButton = element.querySelector<HTMLButtonElement>(
     ".queue-list__playlist-button",
   );
@@ -116,12 +235,33 @@ export function createQueueDrawer(options: {
     !list ||
     !clearButton ||
     !clearRow ||
+    !emptyRow ||
+    !countBadge ||
+    !currentRow ||
+    !currentEmpty ||
+    !currentArtworkSlot ||
+    !currentTitle ||
+    !currentDetail ||
+    !currentSource ||
+    !contextSection ||
+    !contextTitle ||
+    !contextKind ||
+    !contextNext ||
+    !contextRemaining ||
+    !contextRemove ||
+    !continuationSection ||
+    !continuationText ||
     !confirmation ||
     !playlistButton ||
     !cancelClear ||
     !confirmClear
   )
     throw new Error("Queue drawer is incomplete");
+  const currentArtwork = createArtwork({
+    className: "queue-current__artwork",
+    decorative: true,
+  });
+  currentArtworkSlot.replaceWith(currentArtwork.element);
   const touchScroller = createReliableTouchScroller(list);
   const setConfirmationOpen = (open: boolean): void => {
     confirmationOpen = open;
@@ -155,7 +295,11 @@ export function createQueueDrawer(options: {
           if (!entry.isIntersecting) continue;
           const row = entry.target as HTMLElement;
           const id = row.dataset.queueArtworkId;
-          const view = id ? rowViews.get(id)?.artwork : null;
+          const view = id
+            ? id === currentArtworkId
+              ? currentArtwork
+              : rowViews.get(id)?.artwork
+            : null;
           if (!id || !view || queuedIds.has(id)) continue;
           observer.unobserve(row);
           queuedIds.add(id);
@@ -177,8 +321,9 @@ export function createQueueDrawer(options: {
   clearButton.addEventListener("click", () => {
     setConfirmationOpen(true);
   });
+  contextRemove.addEventListener("click", options.onClearContext);
   playlistButton.addEventListener("click", () => {
-    const trackIds = (queueSnapshot ?? []).flatMap((item) =>
+    const trackIds = explicitQueue.flatMap((item) =>
       item.libraryTrackId ? [item.libraryTrackId] : [],
     );
     options.onAddToPlaylist(trackIds, playlistButton);
@@ -243,24 +388,60 @@ export function createQueueDrawer(options: {
       return true;
     },
     update(state) {
-      clearButton.disabled = state.queue.length === 0;
-      playlistButton.disabled =
-        state.queue.length === 0 ||
-        state.queue.some((item) => !item.libraryTrackId);
-      playlistButton.title =
-        playlistButton.disabled && state.queue.length > 0
-          ? "Every Queue track must be indexed in Library."
-          : "Add the entire Queue to a playlist";
-      clearRow.hidden = state.queue.length === 0;
+      const nextQueueSnapshot = state.explicitQueue ?? state.queue;
+      const nextCurrentSnapshot =
+        state.currentPlayback !== undefined
+          ? state.currentPlayback
+          : (state.queue.find((item) => item.isCurrent) ??
+            state.queue[state.currentQueueIndex] ??
+            null);
+      const nextContextSnapshot = state.playbackContext ?? null;
+      const nextContinuationSnapshot = state.playbackContinuation;
+      const nextContextRevision = state.contextRevision ?? -1;
       if (
         state.queueRevision === queueRevision &&
-        state.queue === queueSnapshot
+        nextContextRevision === contextRevision &&
+        nextQueueSnapshot === queueSnapshot &&
+        nextCurrentSnapshot === currentSnapshot &&
+        nextContextSnapshot === contextSnapshot &&
+        nextContinuationSnapshot === continuationSnapshot
       )
         return;
+
       queueRevision = state.queueRevision;
-      queueSnapshot = state.queue;
-      const nextIds = state.queue.map((item) => item.id);
+      contextRevision = nextContextRevision;
+      queueSnapshot = nextQueueSnapshot;
+      currentSnapshot = nextCurrentSnapshot;
+      contextSnapshot = nextContextSnapshot;
+      continuationSnapshot = nextContinuationSnapshot;
+      const presentation = queueDrawerPresentation(state);
+      explicitQueue = presentation.explicitQueue;
+      const explicitCount = explicitQueue.length;
+
+      clearButton.disabled = explicitCount === 0;
+      playlistButton.disabled =
+        explicitCount === 0 ||
+        explicitQueue.some((item) => !item.libraryTrackId);
+      playlistButton.title =
+        playlistButton.disabled && explicitCount > 0
+          ? t("queueDrawer.playlistRequiresLibrary")
+          : t("queueDrawer.addExplicitToPlaylist");
+      clearRow.hidden = explicitCount === 0;
+      emptyRow.hidden = explicitCount > 0;
+      countBadge.hidden = explicitCount === 0;
+      setText(countBadge, String(explicitCount));
+      countBadge.setAttribute(
+        "aria-label",
+        t("queueDrawer.explicitCount").replace(
+          "{count}",
+          String(explicitCount),
+        ),
+      );
+
+      const nextIds = explicitQueue.map((item) => item.id);
       const structureChanged = queueStructureChanged(queueIds, nextIds);
+      const nextCurrentItemId = presentation.current?.id ?? null;
+      const currentStructureChanged = nextCurrentItemId !== currentItemId;
       if (import.meta.env.DEV) {
         list.dataset.reconciliations = String(
           Number(list.dataset.reconciliations ?? "0") + 1,
@@ -270,34 +451,112 @@ export function createQueueDrawer(options: {
             Number(list.dataset.structuralUpdates ?? "0") + 1,
           );
       }
-      if (structureChanged) {
-        cancelActiveReorder?.();
+      if (structureChanged || currentStructureChanged) {
+        if (structureChanged) cancelActiveReorder?.();
         loadGeneration += 1;
         observer.disconnect();
         observer = createObserver();
         pendingLoads.length = 0;
         queuedIds.clear();
-        const retained = new Set(nextIds);
-        for (const [id, view] of rowViews) {
-          if (retained.has(id)) continue;
-          view.artwork.destroy();
-          view.row.remove();
-          rowViews.delete(id);
+        if (structureChanged) {
+          const retained = new Set(nextIds);
+          for (const [id, view] of rowViews) {
+            if (retained.has(id)) continue;
+            view.artwork.destroy();
+            view.row.remove();
+            rowViews.delete(id);
+          }
+          queueIds = nextIds;
         }
-        queueIds = nextIds;
       }
-      if (state.queue.length === 0) {
-        let empty = list.querySelector<HTMLLIElement>(".queue-list__empty");
-        if (!empty) {
-          empty = document.createElement("li");
-          empty.className = "queue-list__empty";
-          empty.textContent = t("queueDrawer.empty");
-          list.append(empty);
+
+      currentItemId = nextCurrentItemId;
+      const current = presentation.current;
+      currentRow.hidden = current === null;
+      currentEmpty.hidden = current !== null;
+      currentRow.classList.toggle("queue-item--current", current !== null);
+      if (current) {
+        currentRow.setAttribute("aria-current", "true");
+        setText(currentTitle, current.displayTitle);
+        const detail = current.artist
+          ? current.album
+            ? `${current.artist} · ${current.album}`
+            : current.artist
+          : current.filename;
+        setText(currentDetail, detail);
+        const sourceLabel = current.source
+          ? t(currentSourceKeys[current.source])
+          : "";
+        setText(currentSource, sourceLabel);
+        currentSource.hidden = sourceLabel.length === 0;
+        currentRow.classList.toggle(
+          "queue-item--unavailable",
+          !current.available,
+        );
+        const revision = current.artwork?.revision ?? null;
+        if (currentStructureChanged || revision !== currentArtworkRevision) {
+          currentArtworkRevision = revision;
+          currentArtwork.update(current.artwork, "");
         }
-        return;
+        currentArtworkId = current.id;
+        if (current.artwork) delete currentRow.dataset.queueArtworkId;
+        else currentRow.dataset.queueArtworkId = current.id;
+      } else {
+        currentRow.removeAttribute("aria-current");
+        currentRow.classList.remove("queue-item--unavailable");
+        currentArtworkId = null;
+        delete currentRow.dataset.queueArtworkId;
+        if (currentArtworkRevision !== null || currentStructureChanged) {
+          currentArtworkRevision = null;
+          currentArtwork.update(null, "");
+        }
       }
-      list.querySelector(".queue-list__empty")?.remove();
-      for (const item of state.queue) {
+
+      const context = presentation.context;
+      contextSection.hidden = context === null;
+      if (context) {
+        setText(contextTitle, context.title);
+        setText(contextKind, t(contextKindKeys[context.kind]));
+        setText(
+          contextNext,
+          context.nextItem
+            ? t("queueDrawer.nextItem").replace(
+                "{title}",
+                context.nextItem.displayTitle,
+              )
+            : t("queueDrawer.contextEnd"),
+        );
+        const rawRemaining = Number.isFinite(context.remainingCount)
+          ? Math.max(0, Math.trunc(context.remainingCount))
+          : 0;
+        const boundedRemaining = Math.min(rawRemaining, 9_999);
+        const count =
+          rawRemaining > boundedRemaining
+            ? `${String(boundedRemaining)}+`
+            : String(boundedRemaining);
+        setText(
+          contextRemaining,
+          t(
+            boundedRemaining === 1
+              ? "queueDrawer.oneRemaining"
+              : "queueDrawer.manyRemaining",
+          ).replace("{count}", count),
+        );
+      }
+
+      const continuation = presentation.continuation;
+      const continuationArtist =
+        continuation?.mode === "same-artist"
+          ? continuation.artistName?.trim()
+          : null;
+      continuationSection.hidden = !continuationArtist;
+      if (continuationArtist)
+        setText(
+          continuationText,
+          t("queueDrawer.sameArtist").replace("{artist}", continuationArtist),
+        );
+
+      for (const item of explicitQueue) {
         let view = rowViews.get(item.id);
         if (!view) {
           const row = document.createElement("li");
@@ -308,7 +567,7 @@ export function createQueueDrawer(options: {
           const handle = document.createElement("button");
           handle.type = "button";
           handle.className = "queue-item__handle";
-          handle.setAttribute("aria-label", "Reorder track");
+          handle.setAttribute("aria-label", t("queueDrawer.reorder"));
           handle.textContent = "::";
           const number = document.createElement("span");
           number.className = "queue-item__index";
@@ -515,50 +774,24 @@ export function createQueueDrawer(options: {
             artwork,
             handle,
             artworkRevision: null,
-            isCurrent: false,
           };
           rowViews.set(item.id, view);
         }
         view.row.dataset.queueIndex = String(item.index);
         view.row.dataset.queueItemId = item.id;
-        if (view.isCurrent !== item.isCurrent) {
-          view.isCurrent = item.isCurrent;
-          view.row.classList.toggle("queue-item--current", item.isCurrent);
-          if (item.isCurrent) view.button.setAttribute("aria-current", "true");
-          else view.button.removeAttribute("aria-current");
-          const numberText = item.isCurrent ? "●" : String(item.index + 1);
-          if (view.number.textContent !== numberText)
-            if (view.number.firstChild instanceof Text)
-              view.number.firstChild.data = numberText;
-            else view.number.textContent = numberText;
-        } else if (!item.isCurrent) {
-          const numberText = String(item.index + 1);
-          if (view.number.textContent !== numberText)
-            if (view.number.firstChild instanceof Text)
-              view.number.firstChild.data = numberText;
-            else view.number.textContent = numberText;
-        }
+        setText(view.number, String(item.index + 1));
         view.button.setAttribute(
           "aria-label",
           `${t("queueDrawer.play")} ${item.displayTitle}`,
         );
-        view.button.disabled = item.available === false;
-        view.row.classList.toggle(
-          "queue-item--unavailable",
-          item.available === false,
-        );
+        view.button.disabled = !item.available;
+        view.row.classList.toggle("queue-item--unavailable", !item.available);
         view.remove.setAttribute(
           "aria-label",
           `${t("queueDrawer.remove")} ${item.displayTitle}`,
         );
-        if (view.title.textContent !== item.displayTitle)
-          if (view.title.firstChild instanceof Text)
-            view.title.firstChild.data = item.displayTitle;
-          else view.title.textContent = item.displayTitle;
-        if (view.filename.textContent !== item.filename)
-          if (view.filename.firstChild instanceof Text)
-            view.filename.firstChild.data = item.filename;
-          else view.filename.textContent = item.filename;
+        setText(view.title, item.displayTitle);
+        setText(view.filename, item.artist ?? item.filename);
         const revision = item.artwork?.revision ?? null;
         if (revision !== view.artworkRevision) {
           view.artworkRevision = revision;
@@ -580,6 +813,7 @@ export function createQueueDrawer(options: {
       for (const view of rowViews.values()) {
         view.artwork.destroy();
       }
+      currentArtwork.destroy();
       rowViews.clear();
       touchScroller.destroy();
     },

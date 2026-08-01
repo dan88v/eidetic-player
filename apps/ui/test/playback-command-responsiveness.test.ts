@@ -182,13 +182,10 @@ void test("popover, persistence, Queue identity, and loading controls enforce th
   );
   assert.match(shell, /api\.repeat\(mode\)\.then[\s\S]*saveRepeatPreference/);
   assert.match(queueDrawer, /options\.onPlay\(index, queueItemId\)/);
-  assert.match(shell, /pendingNavigationTarget/);
-  assert.match(shell, /api\.next\(targetId, metadata\)/);
-  assert.match(shell, /api\.previous\(targetId, metadata\)/);
-  assert.match(nowPlaying, /state\.mpvAvailable && state\.queue\.length > 0/);
-  assert.match(
-    miniPlayer,
-    /!state\.mpvAvailable \|\| state\.queue\.length === 0/,
-  );
+  assert.doesNotMatch(shell, /pendingNavigationTarget/);
+  assert.match(shell, /api\.next\(undefined, metadata\)/);
+  assert.match(shell, /api\.previous\(undefined, metadata\)/);
+  assert.match(nowPlaying, /state\.currentPlayback[\s\S]*state\.explicitQueue/);
+  assert.match(miniPlayer, /state\.currentPlayback[\s\S]*state\.explicitQueue/);
   assert.doesNotMatch(miniPlayer, /status === "loading"/);
 });

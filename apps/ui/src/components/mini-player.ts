@@ -81,6 +81,7 @@ export function createMiniPlayer(
   let dragging = false;
   let surfaceDisabled = false;
   let playbackDisabled = true;
+  let nextUnavailable = true;
   const setProgress = (value: number): void => {
     progress = Math.max(0, Math.min(1, value));
     const percentage = progress * 100;
@@ -189,13 +190,21 @@ export function createMiniPlayer(
       setText(artist, presentation.artist ?? "");
       artwork.update(presentation.artwork, "", presentation.generation);
       favoriteIndicator?.setTrack(
-        state.queue[state.currentQueueIndex]?.libraryTrackId ?? null,
+        state.currentPlayback?.item.libraryTrackId ??
+          state.queue[state.currentQueueIndex]?.libraryTrackId ??
+          null,
       );
-      playbackDisabled = !state.mpvAvailable || state.queue.length === 0;
+      playbackDisabled =
+        !state.mpvAvailable ||
+        (state.currentPlayback !== undefined
+          ? state.currentPlayback === null &&
+            (state.explicitQueue?.length ?? 0) === 0
+          : state.queue.length === 0);
       const disabled = playbackDisabled || surfaceDisabled;
+      nextUnavailable = state.canGoNext === false;
       previousButton.disabled = disabled;
       playButton.disabled = disabled;
-      nextButton.disabled = disabled;
+      nextButton.disabled = disabled || nextUnavailable;
       const nextPlayIcon = state.paused ? "play" : "pause";
       if (nextPlayIcon !== playIconName) {
         playIconName = nextPlayIcon;
@@ -212,7 +221,7 @@ export function createMiniPlayer(
       openButton.disabled = disabled;
       previousButton.disabled = disabled || playbackDisabled;
       playButton.disabled = disabled || playbackDisabled;
-      nextButton.disabled = disabled || playbackDisabled;
+      nextButton.disabled = disabled || playbackDisabled || nextUnavailable;
       timeline.tabIndex = duration > 0 && !disabled ? 0 : -1;
       timeline.setAttribute("aria-disabled", String(duration <= 0 || disabled));
     },

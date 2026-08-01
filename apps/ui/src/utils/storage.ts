@@ -1,6 +1,7 @@
 import type { RepeatMode } from "../../../../packages/shared/src/player";
 import {
   defaultUiPreferences,
+  type ContinuePlaybackMode,
   type UiPreferences,
 } from "../../../../packages/shared/src/preferences";
 import type {
@@ -324,6 +325,14 @@ export function loadOnScreenKeyboardMode(): OnScreenKeyboardMode {
 }
 export function saveOnScreenKeyboardMode(value: OnScreenKeyboardMode): boolean {
   return save({ onScreenKeyboardMode: value });
+}
+
+export function loadContinuePlaybackMode(): ContinuePlaybackMode {
+  return current().continuePlaybackMode;
+}
+
+export function saveContinuePlaybackMode(value: ContinuePlaybackMode): boolean {
+  return save({ continuePlaybackMode: value });
 }
 
 export interface PlaybackPreferences {

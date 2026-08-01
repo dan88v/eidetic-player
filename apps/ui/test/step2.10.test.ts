@@ -115,8 +115,11 @@ void test("Queue footer adds the whole indexed Queue to a playlist and retains c
   assert.match(drawer, /onReorder/);
   assert.match(drawer, /setPointerCapture/);
   const player = read("apps/backend/src/player/player-service.ts");
-  assert.match(player, /fromIndex < toIndex \? toIndex \+ 1 : toIndex/);
-  assert.match(player, /queueRevision: this\.state\.queueRevision \+ 1/);
+  assert.match(
+    player,
+    /playbackPlanSnapshot\.explicitQueue\.some[\s\S]*playbackPlanner\.reorderExplicit\([\s\S]*toIndex/,
+  );
+  assert.match(player, /revisions\.explicitQueue/);
 });
 
 void test("Step 2.10 follow-up headers and Album grid keep compact geometry", () => {

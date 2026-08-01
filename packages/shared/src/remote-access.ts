@@ -1,6 +1,15 @@
 import type { AudioOutputStatus } from "./audio-output.js";
 import type { IndexedLibrarySummary, LibrarySource } from "./library.js";
-import type { PlayerState, PlayerTrack, QueueItem } from "./player.js";
+import type {
+  CurrentPlaybackView,
+  ExplicitQueueItem,
+  PlaybackContextSummary,
+  PlaybackContinuationSummary,
+  PlaybackHistoryCapabilities,
+  PlayerState,
+  PlayerTrack,
+  QueueItem,
+} from "./player.js";
 
 export const REMOTE_ACCESS_PORT = 8080;
 export const REMOTE_ACCESS_MAX_DEVICES = 8;
@@ -62,13 +71,35 @@ export type RemotePlayerState = Pick<
   | "muted"
   | "shuffleEnabled"
   | "repeatMode"
-  | "currentQueueIndex"
   | "queueRevision"
   | "error"
 > & {
+  readonly canGoNext: boolean;
   readonly currentTrack: RemotePlayerTrack | null;
+  readonly currentPlayback: CurrentPlaybackView | null;
+  readonly explicitQueue: readonly ExplicitQueueItem[];
+  readonly playbackContext: PlaybackContextSummary | null;
+  readonly playbackHistory: PlaybackHistoryCapabilities;
+  readonly playbackContinuation: PlaybackContinuationSummary;
+  readonly contextRevision: number;
+  /** Compatibility alias; contains future explicit entries only. */
   readonly queue: readonly RemoteQueueItem[];
 };
+
+export type RemotePlayerProgress = Pick<
+  RemotePlayerState,
+  | "trackTransitionId"
+  | "status"
+  | "mpvAvailable"
+  | "positionSeconds"
+  | "durationSeconds"
+  | "paused"
+  | "volume"
+  | "muted"
+  | "shuffleEnabled"
+  | "repeatMode"
+  | "error"
+>;
 
 export interface RemoteAudioOutputState {
   readonly mpvAvailable: boolean;
@@ -100,6 +131,7 @@ export interface RemoteBootstrap {
 export type RemoteEventName =
   | "snapshot"
   | "player"
+  | "player-progress"
   | "queue"
   | "audio-output"
   | "source-availability"

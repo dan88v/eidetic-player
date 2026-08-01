@@ -51,6 +51,11 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
         "track_play_stats",
         "tracks",
       ]);
+      const albumIndexes = database.connection
+        .prepare("PRAGMA index_list(albums)")
+        .all()
+        .map((row) => String((row as { name: unknown }).name));
+      assert.ok(albumIndexes.includes("albums_album_artist_idx"));
       assert.throws(() => {
         database.connection
           .prepare(
@@ -92,6 +97,41 @@ void test("new Library database uses the current schema, WAL and safe pragmas", 
     const reopened = await LibraryDatabase.open(path);
     assert.equal(reopened.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
     reopened.close();
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+void test("current Library schema restores compatible indexes without a version bump", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "eidetic-library-index-"));
+  const path = join(temporary, "library.db");
+  try {
+    const current = await LibraryDatabase.open(path);
+    current.close();
+
+    const withoutIndex = new DatabaseSync(path);
+    withoutIndex.exec("DROP INDEX albums_album_artist_idx");
+    assert.equal(
+      (
+        withoutIndex.prepare("PRAGMA user_version").get() as {
+          user_version: number;
+        }
+      ).user_version,
+      LIBRARY_SCHEMA_VERSION,
+    );
+    withoutIndex.close();
+
+    const restored = await LibraryDatabase.open(path);
+    try {
+      assert.equal(restored.diagnostics.schemaVersion, LIBRARY_SCHEMA_VERSION);
+      const indexes = restored.connection
+        .prepare("PRAGMA index_list(albums)")
+        .all()
+        .map((row) => String((row as { name: unknown }).name));
+      assert.ok(indexes.includes("albums_album_artist_idx"));
+    } finally {
+      restored.close();
+    }
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

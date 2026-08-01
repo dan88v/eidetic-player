@@ -44,6 +44,8 @@ export interface PlayerTrack {
 
 export interface QueueItem {
   readonly id: string;
+  /** Public occurrence identity; `id` may remain the technical MPV entry ID. */
+  readonly playbackInstanceId?: string;
   readonly index: number;
   readonly path: string;
   readonly filename: string;
@@ -53,6 +55,97 @@ export interface QueueItem {
   readonly isCurrent: boolean;
   readonly available?: boolean;
   readonly libraryTrackId?: string;
+}
+
+export type PlaybackContextKind =
+  | "album"
+  | "artist"
+  | "playlist"
+  | "folder"
+  | "direct-folder"
+  | "favorites"
+  | "recently-played"
+  | "most-played"
+  | "search"
+  | "tracks"
+  | "legacy-session"
+  | "artist-radio";
+
+export type CurrentPlaybackSource =
+  "context" | "explicit-queue" | "history" | "continuation";
+
+/** Atomic policy applied when a new playback Context replaces the current one. */
+export interface PlaybackContextQueueDecision {
+  readonly explicitQueuePolicy: "preserve" | "clear";
+  readonly expectedQueueRevision: number;
+}
+
+/** Path-free playback occurrence exposed to local and Remote clients. */
+export interface PublicPlaybackItem {
+  readonly filename: string;
+  readonly displayTitle: string;
+  readonly artist: string | null;
+  readonly album: string | null;
+  readonly durationSeconds?: number | undefined;
+  readonly artwork: ArtworkRef | null;
+  readonly available: boolean;
+  readonly libraryTrackId: string | null;
+}
+
+export interface CurrentPlaybackView {
+  readonly playbackInstanceId: string;
+  readonly source: CurrentPlaybackSource;
+  readonly relationId: string;
+  readonly contextId: string | null;
+  readonly historyEntryId: string | null;
+  readonly startedSequence: number;
+  readonly item: PublicPlaybackItem;
+}
+
+export interface ExplicitQueueItem {
+  readonly explicitQueueEntryId: string;
+  readonly playbackInstanceId: string;
+  readonly index: number;
+  readonly item: PublicPlaybackItem;
+}
+
+export interface PlaybackContextSummary {
+  readonly contextId: string;
+  readonly kind: PlaybackContextKind;
+  readonly entityId: string | null;
+  readonly title: string;
+  readonly sourceLabel: string;
+  readonly nextItem: PublicPlaybackItem | null;
+  readonly remainingCount: number;
+  readonly totalCount: number;
+  readonly cycle: number;
+}
+
+export interface PlaybackHistoryCapabilities {
+  readonly entryCount: number;
+  readonly cursor: number;
+  readonly canGoBack: boolean;
+  readonly canGoForward: boolean;
+}
+
+export interface PlaybackContinuationSummary {
+  readonly mode: "off" | "same-artist";
+  readonly artistId: string | null;
+  readonly artistName: string | null;
+  readonly active: boolean;
+}
+
+/** Scalar delta used on the existing player SSE between structural snapshots. */
+export interface PlayerProgressState {
+  readonly playerSessionId: string;
+  readonly trackTransitionId: number;
+  readonly status: PlayerStatus;
+  readonly positionSeconds: number;
+  readonly durationSeconds: number;
+  readonly paused: boolean;
+  readonly volume: number;
+  readonly muted: boolean;
+  readonly audioBufferSeconds?: number;
 }
 
 export interface PlayerErrorState {
@@ -118,6 +211,17 @@ export interface PlayerState {
   readonly currentQueueIndex: number;
   readonly queue: readonly QueueItem[];
   readonly queueRevision: number;
+  /** Authoritative path-free playback model. */
+  readonly currentPlayback?: CurrentPlaybackView | null;
+  readonly explicitQueue?: readonly ExplicitQueueItem[];
+  readonly playbackContext?: PlaybackContextSummary | null;
+  readonly playbackHistory?: PlaybackHistoryCapabilities;
+  readonly playbackContinuation?: PlaybackContinuationSummary;
+  readonly contextRevision?: number;
+  /** Monotonic public Current emission revision; independent from MPV. */
+  readonly playbackPlanRevision?: number;
+  /** Authoritative capability for a manual Next command. */
+  readonly canGoNext?: boolean;
   readonly audioDevice: string;
   readonly audioBufferSeconds?: number;
   readonly commands?: PlayerCommandState;

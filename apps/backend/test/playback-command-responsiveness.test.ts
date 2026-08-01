@@ -8,6 +8,7 @@ import type {
 } from "../../../packages/shared/src/player.js";
 import { CommandIntentCoordinator } from "../src/player/command-intent-coordinator.js";
 import { PlayerService } from "../src/player/player-service.js";
+import { PlaybackPlanner } from "../src/playback-plan/index.js";
 import { createMpvEndpoint } from "../src/player/mpv-endpoint.js";
 import { MpvTransport } from "../src/player/mpv-transport.js";
 import type { MpvResponse } from "../src/player/mpv-transport.js";
@@ -38,6 +39,7 @@ interface PlayerHarness {
   transitionPending: boolean;
   handleMpvMessage(message: MpvResponse): void;
   refreshProperties(): Promise<void>;
+  playbackPlanSnapshot: ReturnType<PlaybackPlanner["snapshot"]>;
 }
 
 function createHarness(
@@ -72,6 +74,30 @@ function createHarness(
     commandDiagnostics: true,
   });
   const harness = player as unknown as PlayerHarness;
+  const planner = (
+    player as unknown as { readonly playbackPlanner: PlaybackPlanner }
+  ).playbackPlanner;
+  planner.startContext({
+    kind: "tracks",
+    title: "Responsiveness fixture",
+    source: { label: "Test" },
+    items: queue.map((item) => ({
+      nativePath: item.path,
+      filename: item.filename,
+      title: item.displayTitle,
+      origin: { kind: "direct" },
+    })),
+    selectedIndex: 0,
+  });
+  harness.playbackPlanSnapshot = planner.snapshot();
+  const execution = planner.projectExecutionPlan();
+  const executionEntries = execution.current
+    ? [execution.current, ...execution.future]
+    : [];
+  const technicalQueue = queue.map((item, index) => ({
+    ...item,
+    id: executionEntries[index]?.executionEntryId ?? item.id,
+  }));
   harness.state = {
     ...player.getState(),
     status: "loading",
@@ -107,11 +133,11 @@ function createHarness(
     volume: 80,
     muted: false,
     currentQueueIndex: 0,
-    queue,
+    queue: technicalQueue,
   };
   harness.controller = controller;
   harness.originalQueue = queue.map((item) => item.path);
-  harness.playlistItemIds = queue.map((item) => item.id);
+  harness.playlistItemIds = technicalQueue.map((item) => item.id);
   return { player, harness, controller };
 }
 
@@ -378,19 +404,19 @@ void test("Next commands remain immediate during loading and accumulate targets"
   );
 });
 
-void test("stable navigation targets make reordered HTTP arrival latest-wins", async () => {
+void test("planner navigation keeps reordered HTTP arrival latest-wins", async () => {
   const { player, controller } = createHarness();
   const latest = {
     clientSessionId: "123e4567-e89b-42d3-a456-426614174000",
     intentId: 3,
     requestedAtMilliseconds: 3,
   };
-  await player.previous(latest, queue[1]?.id);
-  await player.next({ ...latest, intentId: 1 }, queue[1]?.id);
-  await player.next({ ...latest, intentId: 2 }, queue[2]?.id);
+  await player.previous(latest);
+  await player.next({ ...latest, intentId: 1 });
+  await player.next({ ...latest, intentId: 2 });
   assert.deepEqual(
     controller.sets.filter((entry) => entry.name === "playlist-pos"),
-    [{ name: "playlist-pos", value: 1 }],
+    [],
   );
   assert.equal(
     commandState(player.getState()).navigation.clientIntentId,
@@ -398,7 +424,7 @@ void test("stable navigation targets make reordered HTTP arrival latest-wins", a
   );
 });
 
-void test("Previous preserves restart rule and Queue selection resolves stable ID", async () => {
+void test("Previous preserves the three-second restart rule", async () => {
   const { player, harness, controller } = createHarness();
   harness.state = {
     ...harness.state,
@@ -411,27 +437,6 @@ void test("Previous preserves restart rule and Queue selection resolves stable I
   };
   await player.previous();
   assert.deepEqual(controller.commands.at(-1), ["seek", 0, "absolute+exact"]);
-  const first = queue[0];
-  const second = queue[1];
-  const third = queue[2];
-  const fourth = queue[3];
-  assert.ok(first && second && third && fourth);
-  harness.state = {
-    ...harness.state,
-    positionSeconds: 0,
-    queue: [third, first, second, fourth].map((item, index) => ({
-      ...item,
-      index,
-    })),
-  };
-  await player.playQueueIndex(2, undefined, queue[2]?.id, {
-    intentId: 9,
-    requestedAtMilliseconds: 9,
-  });
-  assert.deepEqual(
-    controller.sets.filter((entry) => entry.name === "playlist-pos").at(-1),
-    { name: "playlist-pos", value: 0 },
-  );
 });
 
 void test("interactive IPC overtakes queued background refresh reads", async () => {

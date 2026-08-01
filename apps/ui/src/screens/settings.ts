@@ -55,6 +55,7 @@ import {
   type ScreenDimTimeoutSeconds,
   type ScreenStandbyTimeoutSeconds,
 } from "../../../../packages/shared/src/display";
+import type { ContinuePlaybackMode } from "../../../../packages/shared/src/preferences";
 
 export interface SettingsScreenOptions {
   readonly animationsEnabled: boolean;
@@ -64,6 +65,7 @@ export interface SettingsScreenOptions {
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
   readonly onScreenKeyboardMode: OnScreenKeyboardMode;
+  readonly continuePlaybackMode: ContinuePlaybackMode;
   readonly systemCapabilities: SystemCapabilities;
   readonly enterMaintenanceMode: () => Promise<void>;
   readonly updateApi: UpdateApiClient;
@@ -102,6 +104,9 @@ export interface SettingsScreenOptions {
     value: ReturnToNowPlayingSeconds,
   ) => boolean;
   readonly onScreenKeyboardModeChange: (value: OnScreenKeyboardMode) => boolean;
+  readonly onContinuePlaybackModeChange: (
+    value: ContinuePlaybackMode,
+  ) => boolean;
 }
 
 type SettingsPage =
@@ -118,6 +123,8 @@ type SettingsPage =
   | "audio-equalizer"
   | "audio-headroom"
   | "audio-advanced"
+  | "playback"
+  | "playback-continue"
   | "keyboard"
   | "browsing"
   | "visualizer"
@@ -246,6 +253,7 @@ export function createSettingsScreen(
   let browsing = options.musicBrowsingVisibility;
   let inactivity = options.returnToNowPlayingSeconds;
   let onScreenKeyboard = options.onScreenKeyboardMode;
+  let continuePlayback = options.continuePlaybackMode;
   let networkSnapshot = options.networkSnapshot;
   let audioOutputState = options.audioOutputState;
   let audioProcessingState: AudioProcessingState =
@@ -305,12 +313,14 @@ export function createSettingsScreen(
     )
       page = "display";
     else if (page === "display") page = "system";
+    else if (page === "playback-continue") page = "playback";
     else if (page === "remote-access") page = "root";
     else
       page =
         page === "interface" ||
         page === "network" ||
         page === "audio" ||
+        page === "playback" ||
         page === "system"
           ? "root"
           : "interface";
@@ -360,11 +370,30 @@ export function createSettingsScreen(
     selected: boolean,
     commit: () => boolean,
     returnPage: SettingsPage = "interface",
+    description?: string,
   ): HTMLButtonElement => {
     const button = document.createElement("button");
     button.className = "settings-row-base setting-choice";
     button.type = "button";
-    button.innerHTML = `<span>${label}</span><span class="setting-choice__check" aria-hidden="true">${selected ? "✓" : ""}</span>`;
+    button.setAttribute("aria-pressed", String(selected));
+    if (description) {
+      const copy = document.createElement("span");
+      copy.className = "setting-row__copy";
+      const title = document.createElement("span");
+      title.className = "setting-row__label";
+      title.textContent = label;
+      const detail = document.createElement("span");
+      detail.className = "setting-row__description";
+      detail.textContent = description;
+      copy.append(title, detail);
+      const check = document.createElement("span");
+      check.className = "setting-choice__check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = selected ? "✓" : "";
+      button.append(copy, check);
+    } else {
+      button.innerHTML = `<span>${label}</span><span class="setting-choice__check" aria-hidden="true">${selected ? "✓" : ""}</span>`;
+    }
     button.addEventListener("click", () => {
       if (!commit()) return;
       render();
@@ -713,6 +742,15 @@ export function createSettingsScreen(
         title: "Audio",
         description: "Manage audio playback, output, and sound processing.",
       },
+      playback: {
+        title: "Playback",
+        description: "Queue and playback continuation.",
+      },
+      "playback-continue": {
+        title: "Continue playback",
+        description:
+          "Choose what plays after the current context and queue end.",
+      },
       "audio-output": {
         title: "Output Device",
         description: "Choose the physical audio output.",
@@ -882,6 +920,15 @@ export function createSettingsScreen(
         render();
         resetSettingsScroll();
       });
+      const playbackButton = document.createElement("button");
+      playbackButton.className = "settings-row-base setting-navigation";
+      playbackButton.type = "button";
+      playbackButton.innerHTML = `<span><strong>Playback</strong><small>Queue and playback continuation.</small></span>${chevron()}`;
+      playbackButton.addEventListener("click", () => {
+        page = "playback";
+        render();
+        resetSettingsScroll();
+      });
       const networkButton = document.createElement("button");
       networkButton.className = "settings-row-base setting-navigation";
       networkButton.type = "button";
@@ -897,6 +944,7 @@ export function createSettingsScreen(
       panel.append(
         interfaceButton,
         audioButton,
+        playbackButton,
         networkButton,
         remoteAccessButton,
       );
@@ -910,6 +958,46 @@ export function createSettingsScreen(
         resetSettingsScroll();
       });
       panel.append(systemButton);
+      return;
+    }
+
+    if (page === "playback") {
+      const continuePlaybackButton = document.createElement("button");
+      continuePlaybackButton.className = "settings-row-base setting-navigation";
+      continuePlaybackButton.type = "button";
+      continuePlaybackButton.innerHTML = `<span><strong>Continue playback</strong><small>${continuePlayback === "off" ? "Off" : "Same artist"}</small></span>${chevron()}`;
+      continuePlaybackButton.addEventListener("click", () => {
+        page = "playback-continue";
+        render();
+        resetSettingsScroll();
+      });
+      panel.append(continuePlaybackButton);
+      return;
+    }
+
+    if (page === "playback-continue") {
+      const choices: readonly [ContinuePlaybackMode, string, string][] = [
+        ["off", "Off", "Stop when the current context and queue end."],
+        [
+          "same-artist",
+          "Same artist",
+          "Continue with random tracks by the same artist after the current context and queue end.",
+        ],
+      ];
+      for (const [value, label, description] of choices)
+        panel.append(
+          selectionRow(
+            label,
+            continuePlayback === value,
+            () => {
+              if (!options.onContinuePlaybackModeChange(value)) return false;
+              continuePlayback = value;
+              return true;
+            },
+            "playback",
+            description,
+          ),
+        );
       return;
     }
 

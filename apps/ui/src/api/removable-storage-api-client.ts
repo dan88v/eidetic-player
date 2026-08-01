@@ -10,15 +10,23 @@ import type {
   RemovableLibraryCoverage,
   RemovableOperationResponse,
 } from "../../../../packages/shared/src/library";
-import type { ApiResponse } from "../../../../packages/shared/src/player";
+import type {
+  ApiResponse,
+  PlaybackContextQueueDecision,
+} from "../../../../packages/shared/src/player";
 import { config } from "../config";
 import { PlayerApiError } from "./player-api-client";
+import type { ContextPlayDecisionProvider } from "./context-play-decision";
 
 const apiBaseUrl = config.development
   ? ""
   : `http://${config.backendHost}:${String(config.backendPort)}`;
 
 export class RemovableStorageApiClient {
+  constructor(
+    private readonly decideContextPlay?: ContextPlayDecisionProvider,
+  ) {}
+
   devices(): Promise<RemovableDeviceListResponse> {
     return this.request("/api/removable-storage/devices");
   }
@@ -60,11 +68,14 @@ export class RemovableStorageApiClient {
     );
   }
 
-  openEntry(
+  async openEntry(
     deviceId: string,
     entryId: string,
   ): Promise<OpenLibraryEntryResponse> {
-    return this.entryAction(deviceId, entryId, "open");
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return { selectedIndex: 0, queueLength: 0, cancelled: true };
+    return this.entryAction(deviceId, entryId, "open", queueDecision);
   }
 
   addEntryToQueue(
@@ -86,11 +97,14 @@ export class RemovableStorageApiClient {
     );
   }
 
-  playDirectory(
+  async playDirectory(
     deviceId: string,
     relativePath: string,
   ): Promise<DirectoryQueueResponse> {
-    return this.directoryAction(deviceId, relativePath, "play");
+    const queueDecision = await this.contextPlayDecision();
+    if (queueDecision === null)
+      return { queueLength: 0, appendedCount: 0, cancelled: true };
+    return this.directoryAction(deviceId, relativePath, "play", queueDecision);
   }
 
   addDirectoryToQueue(
@@ -153,10 +167,11 @@ export class RemovableStorageApiClient {
     deviceId: string,
     entryId: string,
     action: "open" | "queue",
+    queueDecision?: PlaybackContextQueueDecision,
   ): Promise<T> {
     return this.request(
       `/api/removable-storage/${encodeURIComponent(deviceId)}/entries/${encodeURIComponent(entryId)}/${action}`,
-      { method: "POST", body: "{}" },
+      { method: "POST", body: JSON.stringify(queueDecision ?? {}) },
     );
   }
 
@@ -164,11 +179,21 @@ export class RemovableStorageApiClient {
     deviceId: string,
     relativePath: string,
     action: "play" | "queue",
+    queueDecision?: PlaybackContextQueueDecision,
   ): Promise<DirectoryQueueResponse> {
     return this.request(
       `/api/removable-storage/${encodeURIComponent(deviceId)}/directory/${action}`,
-      { method: "POST", body: JSON.stringify({ relativePath }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ relativePath, ...(queueDecision ?? {}) }),
+      },
     );
+  }
+
+  private contextPlayDecision(): Promise<
+    PlaybackContextQueueDecision | null | undefined
+  > {
+    return this.decideContextPlay?.() ?? Promise.resolve(undefined);
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {

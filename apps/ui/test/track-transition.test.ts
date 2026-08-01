@@ -10,6 +10,7 @@ import {
   createTrackPresentationSnapshot,
   TrackTransitionCoordinator,
 } from "../src/state/track-transition-coordinator";
+import { isSameWaveformRequest } from "../src/timeline/waveform-request-identity";
 
 const track = (name: string, artwork = true): PlayerTrack => ({
   path: `C:\\Music\\${name}.flac`,
@@ -91,6 +92,38 @@ function state(
   };
 }
 
+function authoritativeState(
+  generation: number,
+  name: string,
+  startedSequence: number,
+): PlayerState {
+  const base = state(generation, name);
+  const current = base.currentTrack;
+  assert.ok(current);
+  return {
+    ...base,
+    playbackPlanRevision: startedSequence,
+    currentPlayback: {
+      playbackInstanceId: `playback-${name}`,
+      source: "context",
+      relationId: `context-${name}`,
+      contextId: `context-${name}`,
+      historyEntryId: null,
+      startedSequence,
+      item: {
+        filename: current.filename,
+        displayTitle: current.title,
+        artist: current.artist,
+        album: current.album,
+        durationSeconds: current.durationSeconds,
+        artwork: current.artwork,
+        available: true,
+        libraryTrackId: null,
+      },
+    },
+  };
+}
+
 void test("metadata snapshot commits title, artist, album and technical data together", () => {
   const snapshot = createTrackPresentationSnapshot(state(1, "one"));
   assert.deepEqual(
@@ -143,12 +176,125 @@ void test("obsolete generations are ignored", () => {
   assert.equal(coordinator.getDiagnostics().staleStatesIgnored, 1);
 });
 
+void test("same-generation planner Current advances by monotonic public revision", () => {
+  const coordinator = new TrackTransitionCoordinator();
+  const first = authoritativeState(4, "one", 1);
+  const second = authoritativeState(4, "two", 2);
+  coordinator.accept(first);
+  assert.equal(
+    coordinator.accept(second).currentPlayback?.playbackInstanceId,
+    "playback-two",
+  );
+  assert.equal(
+    coordinator.accept(first).currentPlayback?.playbackInstanceId,
+    "playback-two",
+  );
+  assert.equal(coordinator.getDiagnostics().staleStatesIgnored, 1);
+});
+
+void test("same-generation planner rollback advances its public revision", () => {
+  const coordinator = new TrackTransitionCoordinator();
+  const first = authoritativeState(4, "one", 1);
+  const attempted = authoritativeState(4, "two", 2);
+  const rolledBack = { ...first, playbackPlanRevision: 3 };
+  coordinator.accept(first);
+  coordinator.accept(attempted);
+  assert.equal(
+    coordinator.accept(rolledBack).currentPlayback?.playbackInstanceId,
+    "playback-one",
+  );
+  assert.equal(
+    coordinator.accept(attempted).currentPlayback?.playbackInstanceId,
+    "playback-one",
+  );
+});
+
+void test("same-generation authoritative stop cannot be undone by a late Current", () => {
+  const coordinator = new TrackTransitionCoordinator();
+  const current = authoritativeState(7, "one", 3);
+  coordinator.accept(current);
+  const stopped = coordinator.accept({
+    ...current,
+    playbackPlanRevision: 4,
+    currentPlayback: null,
+    currentTrack: null,
+    status: "stopped",
+    paused: true,
+    positionSeconds: 0,
+    durationSeconds: 0,
+  });
+  assert.equal(stopped.currentPlayback, null);
+  assert.equal(coordinator.accept(current).currentPlayback, null);
+});
+
 void test("new metadata cannot retain the previous artwork", () => {
   const next = createTrackPresentationSnapshot(
     state(2, "two", { artwork: false }),
   );
   assert.equal(next.title, "two title");
   assert.equal(next.artwork, null);
+});
+
+void test("authoritative Current replaces stale observed metadata as one placeholder snapshot", () => {
+  const stale = state(2, "old", { position: 91, duration: 200 });
+  const nextArtwork = track("next").artwork;
+  const snapshot = createTrackPresentationSnapshot({
+    ...stale,
+    currentPlayback: {
+      playbackInstanceId: "playback-next",
+      source: "context",
+      relationId: "context-next-item",
+      contextId: "context-next",
+      historyEntryId: null,
+      startedSequence: 2,
+      item: {
+        filename: "next.flac",
+        displayTitle: "next title",
+        artist: "next artist",
+        album: "next album",
+        durationSeconds: 180,
+        artwork: nextArtwork,
+        available: true,
+        libraryTrackId: "track-next",
+      },
+    },
+  });
+
+  assert.deepEqual(
+    [snapshot.title, snapshot.artist, snapshot.album],
+    ["next title", "next artist", "next album"],
+  );
+  assert.equal(snapshot.artwork?.revision, "revision-next");
+  assert.equal(snapshot.technical, "");
+  assert.equal(snapshot.positionSeconds, 0);
+  assert.equal(snapshot.durationSeconds, 180);
+});
+
+void test("authoritative Current never falls back to stale artwork on a cache miss", () => {
+  const stale = state(2, "old");
+  const snapshot = createTrackPresentationSnapshot({
+    ...stale,
+    currentPlayback: {
+      playbackInstanceId: "playback-next",
+      source: "explicit-queue",
+      relationId: "explicit-next",
+      contextId: null,
+      historyEntryId: null,
+      startedSequence: 2,
+      item: {
+        filename: "next.flac",
+        displayTitle: "next title",
+        artist: null,
+        album: null,
+        artwork: null,
+        available: true,
+        libraryTrackId: null,
+      },
+    },
+  });
+
+  assert.equal(snapshot.title, "next title");
+  assert.equal(snapshot.artwork, null);
 });
 
 void test("artwork cache miss resolves to the immediate placeholder state", () => {
@@ -205,7 +351,21 @@ void test("empty waveform rail is deterministic and remains available", async ()
 
 void test("waveform results carry and verify the current generation", async () => {
   const source = await readFile("apps/ui/src/screens/now-playing.ts", "utf8");
-  assert.match(source, /playerState\.trackTransitionId === generation/);
+  assert.match(source, /isSameWaveformRequest\(waveformRequest/);
+});
+
+void test("restored playback reloads waveform when bootstrap generation advances", () => {
+  const bootstrapRequest = {
+    queueItemId: "playback-restored",
+    trackGeneration: 0,
+  };
+  const restoredRequest = {
+    queueItemId: "playback-restored",
+    trackGeneration: 1,
+  };
+
+  assert.equal(isSameWaveformRequest(bootstrapRequest, restoredRequest), false);
+  assert.equal(isSameWaveformRequest(restoredRequest, restoredRequest), true);
 });
 
 void test("visualizer rejects obsolete track frames", async () => {
@@ -239,6 +399,19 @@ void test("mini-player consumes the shared atomic presentation snapshot", async 
     "utf8",
   );
   assert.match(source, /createTrackPresentationSnapshot\(state\)/);
+});
+
+void test("local transports disable Next at the authoritative playback boundary", async () => {
+  const nowPlaying = await readFile(
+    "apps/ui/src/screens/now-playing.ts",
+    "utf8",
+  );
+  const miniPlayer = await readFile(
+    "apps/ui/src/components/mini-player.ts",
+    "utf8",
+  );
+  assert.match(nowPlaying, /state\.canGoNext === false/);
+  assert.match(miniPlayer, /nextUnavailable = state\.canGoNext === false/);
 });
 
 void test("Queue update path never replaces the complete list", async () => {

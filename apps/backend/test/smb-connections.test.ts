@@ -443,6 +443,6 @@ void test("SMB public and Queue contracts never contain a native root", async ()
   assert.doesNotMatch(smbOrigin, /nativePath|root|password/u);
   assert.match(
     player,
-    /`smb:\/\/\$\{origin\.connectionId\}\/\$\{logicalPath\}`/u,
+    /if \(origin\.kind === "smb"\) return `smb:\/\/\$\{sourceId\}\/\$\{logicalPath\}`/u,
   );
 });

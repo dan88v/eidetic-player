@@ -16,6 +16,10 @@ import type {
 } from "../state/types";
 import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
 import { WaveformLoader } from "../timeline/waveform-loader";
+import {
+  isSameWaveformRequest,
+  type WaveformRequestIdentity,
+} from "../timeline/waveform-request-identity";
 import type { FavoriteTrackStore } from "../state/favorite-track-store";
 import { createFavoriteTrackIndicator } from "../components/favorite-track-indicator";
 import type { RemovableDeviceListResponse } from "../../../../packages/shared/src/library";
@@ -57,7 +61,10 @@ export function createNowPlayingScreen(
   options: NowPlayingOptions,
 ): ComponentView {
   let playerState = options.initialPlayerState;
-  let waveformQueueItemId: string | null = null;
+  let waveformRequest: WaveformRequestIdentity = {
+    queueItemId: null,
+    trackGeneration: -1,
+  };
   const waveformLoader = new WaveformLoader();
   const section = document.createElement("section");
   section.className = "screen now-playing";
@@ -263,7 +270,6 @@ export function createNowPlayingScreen(
 
   const update = (state: PlayerState): void => {
     playerState = state;
-    const track = state.currentTrack;
     const presentation = createTrackPresentationSnapshot(state);
     const unavailable =
       state.status === "unavailable" ||
@@ -304,14 +310,16 @@ export function createNowPlayingScreen(
           : t("nowPlaying.recoveryDescription");
     }
     const artworkAlt =
-      track?.album && track.artist
+      presentation.album && presentation.artist
         ? t("artwork.albumBy")
-            .replace("{album}", track.album)
-            .replace("{artist}", track.artist)
+            .replace("{album}", presentation.album)
+            .replace("{artist}", presentation.artist)
         : t("artwork.album");
     artwork.update(presentation.artwork, artworkAlt, presentation.generation);
     favoriteIndicator.setTrack(
-      state.queue[state.currentQueueIndex]?.libraryTrackId ?? null,
+      state.currentPlayback?.item.libraryTrackId ??
+        state.queue[state.currentQueueIndex]?.libraryTrackId ??
+        null,
     );
     visualizer.setTrack(
       state.playerSessionId,
@@ -323,10 +331,15 @@ export function createNowPlayingScreen(
       state.paused || state.status !== "playing",
       state.audioBufferSeconds,
     );
-    const usable = state.mpvAvailable && state.queue.length > 0;
+    const usable =
+      state.mpvAvailable &&
+      (state.currentPlayback !== undefined
+        ? state.currentPlayback !== null ||
+          (state.explicitQueue?.length ?? 0) > 0
+        : state.queue.length > 0);
     playButton.disabled = !usable;
     previousButton.disabled = !usable;
-    nextButton.disabled = !usable;
+    nextButton.disabled = !usable || state.canGoNext === false;
     shuffleButton.disabled = !state.mpvAvailable;
     playButton.setAttribute("aria-pressed", String(usable && !state.paused));
     const nextPlayIcon = usable && !state.paused ? "pause" : "play";
@@ -367,9 +380,16 @@ export function createNowPlayingScreen(
       presentation.durationSeconds,
     );
     timeline.setEnabled(usable);
-    const queueItemId = state.queue[state.currentQueueIndex]?.id ?? null;
-    if (queueItemId !== waveformQueueItemId) {
-      waveformQueueItemId = queueItemId;
+    const queueItemId =
+      state.currentPlayback?.playbackInstanceId ??
+      state.queue[state.currentQueueIndex]?.id ??
+      null;
+    const nextWaveformRequest = {
+      queueItemId,
+      trackGeneration: presentation.generation,
+    };
+    if (!isSameWaveformRequest(waveformRequest, nextWaveformRequest)) {
+      waveformRequest = nextWaveformRequest;
       timeline.setWaveform(null, presentation.generation);
       if (queueItemId && options.timelineStyle === "waveform")
         waveformLoader.load(
@@ -377,8 +397,10 @@ export function createNowPlayingScreen(
           presentation.generation,
           (points, generation) => {
             if (
-              waveformQueueItemId === queueItemId &&
-              playerState.trackTransitionId === generation
+              isSameWaveformRequest(waveformRequest, {
+                queueItemId,
+                trackGeneration: generation,
+              })
             )
               timeline.setWaveform(points, generation);
           },
@@ -386,7 +408,9 @@ export function createNowPlayingScreen(
       else waveformLoader.cancel();
     }
     waveformLoader.preload(
-      state.queue[state.currentQueueIndex + 1]?.id ?? null,
+      state.explicitQueue?.[0]?.playbackInstanceId ??
+        state.queue[state.currentQueueIndex + 1]?.id ??
+        null,
     );
   };
   update(playerState);

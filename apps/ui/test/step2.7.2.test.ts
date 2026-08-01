@@ -206,7 +206,11 @@ void test("Queue Clear is the centered destructive footer after all rows", async
   );
   assert.doesNotMatch(queue, /class="queue-actions"/);
   assert.match(queue, /list\.insertBefore\(view\.row, clearRow\)/);
-  assert.match(queue, /clearRow\.hidden = state\.queue\.length === 0/);
+  assert.match(queue, /clearRow\.hidden = explicitCount === 0/);
+  assert.match(
+    queue,
+    /explicitQueue\.some\(\(item\) => !item\.libraryTrackId\)/,
+  );
   assert.match(css, /\.queue-list__clear[\s\S]*justify-content: center/);
   assert.match(
     css,

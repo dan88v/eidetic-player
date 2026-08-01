@@ -6,16 +6,14 @@ import test from "node:test";
 import { LocalFilesystemProvider } from "../src/filesystem/local-filesystem-provider.js";
 import { PathService } from "../src/filesystem/path-service.js";
 import type { SourceService } from "../src/filesystem/source-service.js";
+import type { PlaybackPlanSnapshot } from "../src/playback-plan/playback-plan-types.js";
 import {
   PlayerService as ConcretePlayerService,
   type PlayerService,
 } from "../src/player/player-service.js";
 import { PlayerSessionRepository } from "../src/player-session/player-session-repository.js";
 import { PlayerSessionService } from "../src/player-session/player-session-service.js";
-import type {
-  PlayerSessionSnapshot,
-  ResolvedQueueItem,
-} from "../src/player-session/player-session-types.js";
+import type { PlayerSessionSnapshot } from "../src/player-session/player-session-types.js";
 
 const currentId = "queue-11111111-1111-4111-8111-111111111111";
 const secondaryId = "queue-22222222-2222-4222-8222-222222222222";
@@ -170,8 +168,7 @@ void test("session restore keeps the current item, drops missing secondary files
         },
       ],
     });
-    let restored: readonly ResolvedQueueItem[] = [];
-    let selectedIndex = -1;
+    const restored: PlaybackPlanSnapshot[] = [];
     let restoredPlayback: unknown;
     const snapshot: PlayerSessionSnapshot = {
       currentQueueItemId: currentId,
@@ -191,17 +188,29 @@ void test("session restore keeps the current item, drops missing secondary files
     };
     const player = {
       getState() {
-        return { mpvAvailable: true };
+        return {
+          mpvAvailable: true,
+          playerSessionId: "session-test",
+          trackTransitionId: 1,
+          queueRevision: 1,
+          currentQueueIndex: 0,
+          queue: [],
+          positionSeconds: 42,
+          volume: 73,
+          muted: true,
+          shuffleEnabled: true,
+          repeatMode: "all",
+        };
       },
-      restoreResolvedQueue(
-        items: readonly ResolvedQueueItem[],
-        index: number,
-        playback: unknown,
-      ) {
-        restored = items;
-        selectedIndex = index;
+      restorePlaybackPlan(plan: PlaybackPlanSnapshot, playback: unknown) {
+        restored[0] = plan;
         restoredPlayback = playback;
         return Promise.resolve();
+      },
+      getPlaybackPlanSnapshot() {
+        const snapshot = restored[0];
+        assert.ok(snapshot);
+        return snapshot;
       },
       getSessionSnapshot() {
         return snapshot;
@@ -221,22 +230,25 @@ void test("session restore keeps the current item, drops missing secondary files
     const result = await service.restore();
     assert.equal(result.status, "restored");
     assert.equal(result.discardedCount, 1);
-    assert.equal(restored.length, 1);
-    assert.equal(restored[0]?.id, currentId);
-    assert.equal(selectedIndex, 0);
+    const restoredPlan = restored[0];
+    assert.ok(restoredPlan);
+    assert.equal(restoredPlan.context?.originalItems.length, 1);
+    assert.equal(restoredPlan.current?.item.nativePath, currentPath);
+    assert.equal(restoredPlan.explicitQueue.length, 0);
+    assert.equal(restoredPlan.history.entries.length, 1);
+    assert.equal(restoredPlan.shuffleEnabled, true);
+    assert.equal(restoredPlan.repeatMode, "all");
     assert.deepEqual(restoredPlayback, {
       positionSeconds: 42,
       volume: 73,
       muted: true,
-      shuffleEnabled: true,
-      repeatMode: "all",
     });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-void test("an unavailable saved current item invalidates the whole session without fallback", async () => {
+void test("an unavailable saved current item is discarded while the next safe Context item remains", async () => {
   const root = await mkdtemp(join(tmpdir(), "eidetic-session-"));
   try {
     const availablePath = join(root, "available.mp3");
@@ -266,14 +278,33 @@ void test("an unavailable saved current item invalidates the whole session witho
         },
       ],
     });
-    let restoreCalls = 0;
+    const restored: PlaybackPlanSnapshot[] = [];
+    let restoredPlayback: unknown;
     const player = {
       getState() {
-        return { mpvAvailable: true };
+        return {
+          mpvAvailable: true,
+          playerSessionId: "session-test",
+          trackTransitionId: 1,
+          queueRevision: 0,
+          currentQueueIndex: -1,
+          queue: [],
+          positionSeconds: 0,
+          volume: 100,
+          muted: false,
+          shuffleEnabled: false,
+          repeatMode: "off",
+        };
       },
-      restoreResolvedQueue() {
-        restoreCalls += 1;
+      restorePlaybackPlan(plan: PlaybackPlanSnapshot, playback: unknown) {
+        restored[0] = plan;
+        restoredPlayback = playback;
         return Promise.resolve();
+      },
+      getPlaybackPlanSnapshot() {
+        const snapshot = restored[0];
+        assert.ok(snapshot);
+        return snapshot;
       },
       getSessionSnapshot() {
         return { currentQueueItemId: null, queue: [] };
@@ -291,9 +322,25 @@ void test("an unavailable saved current item invalidates the whole session witho
       player,
     );
     const result = await service.restore();
-    assert.equal(result.status, "empty");
-    assert.equal(restoreCalls, 0);
-    await assert.rejects(readFile(configPath), /ENOENT/);
+    assert.equal(result.status, "restored");
+    assert.equal(result.savedCount, 2);
+    assert.equal(result.restoredCount, 1);
+    assert.equal(result.discardedCount, 1);
+    const restoredPlan = restored[0];
+    assert.ok(restoredPlan);
+    assert.equal(restoredPlan.current, null);
+    assert.equal(restoredPlan.context?.originalItems.length, 1);
+    assert.equal(restoredPlan.context.resumeCursor, 0);
+    assert.equal(
+      restoredPlan.context.originalItems[0]?.item.nativePath,
+      availablePath,
+    );
+    assert.deepEqual(restoredPlayback, {
+      positionSeconds: 0,
+      volume: 100,
+      muted: false,
+    });
+    assert.ok((await readFile(configPath, "utf8")).includes("available.mp3"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

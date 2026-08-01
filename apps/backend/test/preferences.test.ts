@@ -37,6 +37,7 @@ void test("missing store stays in-memory until safe migration", async () => {
     const initial = await store.initialize();
     assert.equal(initial.persistence, "defaults");
     assert.equal(initial.legacyImport, "required");
+    assert.equal(initial.preferences.continuePlaybackMode, "off");
     assert.deepEqual(initial.preferences, defaultUiPreferences);
     assert.equal(
       await readFile(join(testFixture.root, "preferences.json"), "utf8").catch(
@@ -64,6 +65,70 @@ void test("missing store stays in-memory until safe migration", async () => {
     });
     assert.equal(duplicate.revision, 1);
     assert.equal(duplicate.preferences.volume, 63);
+  } finally {
+    await testFixture.cleanup();
+  }
+});
+
+void test("continue playback is an additive schema-3 preference with an Off default", async () => {
+  const testFixture = await fixture();
+  try {
+    await mkdir(testFixture.root, { recursive: true });
+    const previousPreferences: Record<string, unknown> = {
+      ...defaultUiPreferences,
+      futurePreference: { preserved: true },
+    };
+    delete previousPreferences.continuePlaybackMode;
+    await writeFile(
+      join(testFixture.root, "preferences.json"),
+      JSON.stringify({
+        schemaVersion: 3,
+        revision: 4,
+        preferences: previousPreferences,
+        migration: {
+          legacyLocalStorage: "imported",
+          sourceSchema: 3,
+          futureMigrationField: "keep",
+        },
+        futureTopLevel: 42,
+      }),
+    );
+
+    const store = new PreferencesStore(testFixture.root);
+    const initial = await store.initialize();
+    assert.equal(initial.schemaVersion, 3);
+    assert.equal(initial.preferences.continuePlaybackMode, "off");
+
+    const saved = await store.patch({
+      expectedRevision: initial.revision,
+      changes: { continuePlaybackMode: "same-artist" },
+    });
+    assert.equal(saved.schemaVersion, 3);
+    assert.equal(saved.preferences.continuePlaybackMode, "same-artist");
+
+    await assert.rejects(
+      store.patch({
+        expectedRevision: saved.revision,
+        changes: { continuePlaybackMode: "album" } as never,
+      }),
+      { code: "INVALID_PREFERENCES_PATCH", statusCode: 400 },
+    );
+
+    const reopened = new PreferencesStore(testFixture.root);
+    const restored = await reopened.initialize();
+    assert.equal(restored.preferences.continuePlaybackMode, "same-artist");
+    const raw = JSON.parse(
+      await readFile(join(testFixture.root, "preferences.json"), "utf8"),
+    ) as {
+      schemaVersion: number;
+      preferences: Record<string, unknown>;
+      migration: Record<string, unknown>;
+      futureTopLevel: number;
+    };
+    assert.equal(raw.schemaVersion, 3);
+    assert.deepEqual(raw.preferences.futurePreference, { preserved: true });
+    assert.equal(raw.migration.futureMigrationField, "keep");
+    assert.equal(raw.futureTopLevel, 42);
   } finally {
     await testFixture.cleanup();
   }

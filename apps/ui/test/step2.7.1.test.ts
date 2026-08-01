@@ -91,24 +91,28 @@ void test("Library root toolbar order and Search height match the compact contro
   );
 });
 
-void test("Search row and menu share Album-or-single Track playback", () => {
+void test("Search Track playback creates one typed Search context", () => {
   assert.match(shared, /"album" \| "artist" \| "track" \| "tracks"/);
+  assert.match(shared, /interface LibrarySearchPlayRequest/);
   assert.match(
     library,
-    /const playSearchTrack = async[\s\S]*api\.play\(\{ context: "track", id: trackId \}\)/,
+    /const playSearchTrack = async[\s\S]*api\.playSearch\(\{[\s\S]*query: search\.query,[\s\S]*selectedTrackId: trackId/,
   );
   assert.match(
     library,
     /trackRow\(track, \(\) => void playSearchTrack\(track\.id\), true\)/,
   );
   assert.match(library, /label: t\("library\.play"\)[\s\S]*run: playTrack/);
-  assert.match(service, /playbackContextForTrack\(trackId\)/);
+  assert.match(service, /async resolveSearch\(/);
   assert.match(
     service,
-    /target\.albumId[\s\S]*resolveContext\("album", target\.albumId, trackId\)[\s\S]*resolveTrack\(trackId\)/,
+    /searchContextTracks\(normalizedQuery\)[\s\S]*kind: "search"/,
   );
-  assert.doesNotMatch(client, /playSearch|search\/play/);
-  assert.doesNotMatch(backend, /search\/play|resolveSearchContext/);
+  assert.match(client, /playSearch[\s\S]*"\/api\/library\/search\/play"/);
+  assert.match(
+    backend,
+    /url\.pathname === "\/api\/library\/search\/play"[\s\S]*resolveSearch\(body\.query, body\.selectedTrackId\)[\s\S]*context\.playbackContext/,
+  );
   assert.match(
     backend,
     /body\.context === "track"[\s\S]*Add a single Track through the Track Queue action/,
