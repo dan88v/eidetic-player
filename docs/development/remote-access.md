@@ -10,6 +10,10 @@ API.
 - The local UI continues to use the backend listener on `127.0.0.1:4310`.
 - Remote access owns a separate listener on `0.0.0.0:8080`.
 - The remote listener starts only when remote access is available and enabled.
+- Startup reads the persisted preference through one shared initialization
+  promise. Every concurrent startup caller waits for that read before deciding
+  whether to start the listener, so an appliance saved as enabled converges to
+  `Listening` after boot without an Off/On toggle.
 - Only private IPv4 and link-local clients are accepted. Loopback is accepted
   only by the explicit development fixture.
 - Listener failure is reported in Settings but does not fail backend readiness.
@@ -21,6 +25,8 @@ The remote gateway receives narrow adapters for player, queue, library,
 folders, artwork, audio-output state, and display wake. It does not proxy the
 local API and cannot reach update, display configuration, network
 administration, SMB credentials, analysis, or visualizer endpoints.
+Restoring the listener preference remains asynchronous and cannot block core
+backend readiness.
 
 ## Persistent state
 

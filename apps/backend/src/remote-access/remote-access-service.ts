@@ -129,7 +129,7 @@ export class RemoteAccessService {
     enabled: false,
     devices: [],
   };
-  private initialized = false;
+  private initialization: Promise<void> | null = null;
   private readOnly = false;
   private pairing: ActivePairing | null = null;
   private status: RemoteAccessState["status"] = "unavailable";
@@ -149,9 +149,12 @@ export class RemoteAccessService {
     private readonly store = new RemoteAccessStore(),
   ) {}
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
+  initialize(): Promise<void> {
+    this.initialization ??= this.initializeOnce();
+    return this.initialization;
+  }
+
+  private async initializeOnce(): Promise<void> {
     if (!this.available) {
       this.status = "unavailable";
       this.publish();

@@ -138,6 +138,7 @@ function controllerFixture(state: "active" | "dimmed" | "standby"): {
   readonly document: FakeDocument;
   readonly wakeCalls: { value: number };
   readonly timerCalls: { set: number; clear: number; lastDelay: number };
+  readonly advance: (milliseconds: number) => void;
   readonly destroy: () => void;
 } {
   const fakeDocument = new FakeDocument();
@@ -195,6 +196,9 @@ function controllerFixture(state: "active" | "dimmed" | "standby"): {
     document: fakeDocument,
     wakeCalls,
     timerCalls,
+    advance: (milliseconds) => {
+      now += milliseconds;
+    },
     destroy: () => {
       controller.destroy();
     },
@@ -318,6 +322,25 @@ void test("standby key and wheel wake events are consumed", async () => {
     assert.equal(fixture.wakeCalls.value, 1);
     fixture.destroy();
   }
+});
+
+void test("standby ignores one synthetic mouse relocation and wakes on confirmed movement", async () => {
+  const fixture = controllerFixture("standby");
+  const move = (
+    fixture.controller as unknown as {
+      onMouseMove(
+        event: Pick<MouseEvent, "isTrusted" | "movementX" | "movementY">,
+      ): void;
+    }
+  ).onMouseMove.bind(fixture.controller);
+  move({ isTrusted: true, movementX: 20, movementY: 0 });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(fixture.wakeCalls.value, 0);
+  fixture.advance(250);
+  move({ isTrusted: true, movementX: 5, movementY: 5 });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(fixture.wakeCalls.value, 1);
+  fixture.destroy();
 });
 
 void test("HDMI standby deadline declares inhibition and release restores dimmed", () => {

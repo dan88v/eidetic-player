@@ -33,7 +33,11 @@ inhibition establishes a new epoch and therefore a full countdown.
 
 Local `pointerdown`, `keydown`, and `wheel` activity resets the deadline.
 Trusted, non-zero mouse movement is coalesced before it resets the deadline.
-Touch-start and pointer events are not both registered.
+While dimmed or in standby, mouse movement must contain at least two coalesced
+samples totaling eight pixels within 1.2 seconds before it can wake the
+display. This rejects the isolated pointer relocation that a Wayland output
+topology change can synthesize when the output is disabled. Touch-start and
+pointer events are not both registered.
 
 While dimmed or in standby, a viewport-sized wake shield consumes the first
 input before restoring the display. That input must never activate Play, Next,
@@ -47,6 +51,11 @@ consumed by the shield. The backend publishes its newer Display revision; the
 idle controller accepts that snapshot, removes the software overlay and wake
 shield, establishes a fresh local activity epoch, and resumes the saved idle
 policy without issuing a second wake request.
+
+Remote access does not wake the display automatically. Only the authenticated
+`Wake display` action calls the display wake adapter; enabling its listener,
+pairing a device, or receiving ordinary Remote traffic does not reset local
+idle activity.
 
 Automatic dim and standby are suspended while playback is loading or playing.
 Starting playback clears the idle timer and restores Active if necessary.

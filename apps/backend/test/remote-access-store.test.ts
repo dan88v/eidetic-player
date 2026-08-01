@@ -16,6 +16,23 @@ import {
   remoteIpv4,
 } from "../src/remote-access/remote-access-service.js";
 
+class DelayedRemoteAccessStore extends RemoteAccessStore {
+  private releasePendingLoad: (() => void) | null = null;
+  private readonly pendingLoad = new Promise<void>((resolve) => {
+    this.releasePendingLoad = resolve;
+  });
+
+  release(): void {
+    this.releasePendingLoad?.();
+    this.releasePendingLoad = null;
+  }
+
+  override async load() {
+    await this.pendingLoad;
+    return super.load();
+  }
+}
+
 void test("Remote Access store defaults Off and writes atomically with private permissions", async () => {
   const root = await mkdtemp(join(tmpdir(), "eidetic-remote-store-"));
   const path = join(root, "config", "remote-access.json");
@@ -44,6 +61,36 @@ void test("Remote Access store defaults Off and writes atomically with private p
       assert.equal((await lstat(join(root, "config"))).mode & 0o777, 0o700);
       assert.equal((await lstat(path)).mode & 0o777, 0o600);
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("concurrent startup waits for enabled preference before starting the listener", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-remote-startup-"));
+  const path = join(root, "remote-access.json");
+  try {
+    const seed = new RemoteAccessStore(path);
+    const initial = await seed.load();
+    await seed.save({ ...initial.document, revision: 2, enabled: true });
+    const delayed = new DelayedRemoteAccessStore(path);
+    const service = new RemoteAccessService(true, true, delayed);
+    let starts = 0;
+    service.attachLifecycle({
+      start: () => {
+        starts += 1;
+        return Promise.resolve();
+      },
+      stop: () => Promise.resolve(),
+    });
+    const eagerInitialization = service.initialize();
+    const storedPreferenceStartup = service.startStoredPreference();
+    assert.equal(starts, 0);
+    delayed.release();
+    await Promise.all([eagerInitialization, storedPreferenceStartup]);
+    assert.equal(starts, 1);
+    assert.equal(service.snapshot().status, "listening");
+    await service.close();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

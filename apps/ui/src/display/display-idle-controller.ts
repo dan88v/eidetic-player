@@ -8,6 +8,8 @@ import type { DisplayApiClient } from "../api/display-api-client";
 
 const DIM_TEST_MILLISECONDS = 10_000;
 const STANDBY_TEST_MILLISECONDS = 15_000;
+const MOUSE_WAKE_CONFIRMATION_MILLISECONDS = 1_200;
+const MOUSE_WAKE_CONFIRMATION_DISTANCE = 8;
 
 export interface DisplayIdlePreferences {
   readonly screenDimTimeoutSeconds: ScreenDimTimeoutSeconds;
@@ -78,6 +80,9 @@ export class DisplayIdleController {
   private destroyed = false;
   private suppressClickUntil = 0;
   private lastMouseActivityAt = Number.NEGATIVE_INFINITY;
+  private wakeMouseLastAt = Number.NEGATIVE_INFINITY;
+  private wakeMouseDistance = 0;
+  private wakeMouseSamples = 0;
   private wakeRecoveryRequired = false;
   private hdmiInhibitedVisualState: "active" | "dimmed" = "active";
 
@@ -276,19 +281,32 @@ export class DisplayIdleController {
   };
 
   private readonly onMouseMove = (event: MouseEvent): void => {
+    const now = this.now();
     if (
       !event.isTrusted ||
       (event.movementX === 0 && event.movementY === 0) ||
-      this.now() - this.lastMouseActivityAt < 200
+      now - this.lastMouseActivityAt < 200
     )
       return;
-    this.lastMouseActivityAt = this.now();
+    this.lastMouseActivityAt = now;
     if (this.isWakeState()) {
-      this.suppressClickUntil = this.now() + 500;
+      if (now - this.wakeMouseLastAt > MOUSE_WAKE_CONFIRMATION_MILLISECONDS)
+        this.resetWakeMouseEvidence();
+      this.wakeMouseLastAt = now;
+      this.wakeMouseSamples += 1;
+      this.wakeMouseDistance += Math.hypot(event.movementX, event.movementY);
+      if (
+        this.wakeMouseSamples < 2 ||
+        this.wakeMouseDistance < MOUSE_WAKE_CONFIRMATION_DISTANCE
+      )
+        return;
+      this.resetWakeMouseEvidence();
+      this.suppressClickUntil = now + 500;
       void this.wake();
       return;
     }
-    this.lastActivityAt = this.now();
+    this.resetWakeMouseEvidence();
+    this.lastActivityAt = now;
     this.schedule();
   };
 
@@ -440,7 +458,10 @@ export class DisplayIdleController {
   }
 
   private applySnapshot(snapshot: DisplaySnapshot): void {
+    const previousState = this.snapshot.state;
     this.snapshot = snapshot;
+    if (snapshot.state !== previousState || !this.isWakeState())
+      this.resetWakeMouseEvidence();
     const dimmed =
       (snapshot.state === "dimmed" ||
         (snapshot.state === "inhibited" &&
@@ -474,6 +495,12 @@ export class DisplayIdleController {
   private clearTimer(): void {
     if (this.timer !== null) this.window.clearTimeout(this.timer);
     this.timer = null;
+  }
+
+  private resetWakeMouseEvidence(): void {
+    this.wakeMouseLastAt = Number.NEGATIVE_INFINITY;
+    this.wakeMouseDistance = 0;
+    this.wakeMouseSamples = 0;
   }
 
   private now(): number {
