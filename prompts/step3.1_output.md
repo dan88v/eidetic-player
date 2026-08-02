@@ -571,9 +571,12 @@ The first Linux CI run exposed a platform-specific assertion in the new
 deterministic recovery test. Its synthetic native path uses Windows separators;
 therefore Node's POSIX path implementation intentionally derived
 `C:\fixture\B` as the fallback technical title instead of Windows' `B`. The
-runtime recovery remained correct. The assertion now checks the actual public
-contract — a non-null Current, canonical planner display title `B`, aligned
-execution IDs and position 12 — without inspecting an OS-dependent fallback
-title or leaking/comparing a native path. The focused recovery pair and the
+runtime recovery remained correct. Removing only the direct Current-title
+assertion was insufficient because `currentPlayback.displayTitle` correctly
+inherits that same authoritative technical title. The recovery fixture now
+uses forward-slash native paths accepted by both Win32 and POSIX path parsers.
+It therefore keeps the stronger assertions that both Current and planner
+presentation resolve to `B`, together with aligned execution IDs and position
+12, without changing production behavior. The focused recovery pair and the
 complete local suite pass after this correction; the Linux CI rerun remains
 the authoritative POSIX confirmation.

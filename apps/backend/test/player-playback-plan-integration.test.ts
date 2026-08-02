@@ -443,7 +443,11 @@ void test("natural EOF preserves the matching technical future and removes only 
 });
 
 void test("implicit Context recovery realigns a stale technical ID before publishing Current", async () => {
-  const { player, harness, controller } = createHarness();
+  const context = ["A", "B", "C"].map((title) => ({
+    ...item(title),
+    nativePath: `C:/fixture/${title}.flac`,
+  }));
+  const { player, harness, controller } = createHarness({ context });
   const originalIds = [...harness.playlistItemIds];
 
   await player.next();
@@ -474,7 +478,7 @@ void test("implicit Context recovery realigns a stale technical ID before publis
     : [];
   assert.deepEqual(harness.playlistItemIds, projectedIds);
   assert.equal(new Set(harness.playlistItemIds).size, projectedIds.length);
-  assert.ok(published.currentTrack);
+  assert.equal(published.currentTrack?.title, "B");
   assert.equal(published.currentPlayback?.item.displayTitle, "B");
   assert.equal(published.positionSeconds, 12);
 });
