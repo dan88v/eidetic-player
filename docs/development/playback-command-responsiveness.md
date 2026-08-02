@@ -47,23 +47,46 @@ received a newer observed value. Interactive IPC is sent immediately on the
 single MPV connection. Read-only background refresh has a bounded two-request
 lane, and queued reads cannot hold up an interactive command.
 
-One MPV `start-file` owns one transition generation. The related `path` and
-`playlist-pos` property changes join that active generation instead of
-invalidating its settling refresh; a genuinely newer `start-file` still
-invalidates an older refresh. This prevents a transient `playlist-pos = -1`
-event from leaving the transition permanently pending after MPV has loaded and
-started the new file.
+One MPV `start-file` owns one transition generation and carries MPV's stable
+`playlist_entry_id`. Every observed playlist row exposes the matching numeric
+`id`; `PlayerService` binds that ID to one planner execution occurrence. The
+mapping survives prefix removal, reindexing, and duplicate native paths, and
+is cleared when the MPV core or exact playlist is replaced.
 
-After an implicit Context transition, an MPV playlist observation may already
-have discarded the consumed prefix while the local execution-ID array still
-describes the previous playlist shape. Before publishing Current, the backend
-may realign that observed playlist suffix to the planner execution projection,
-but only when the observed current path and every remaining path match the
-planned Current and future in order. If the scalar `playlist-pos` observation
-is transiently stale, exactly one playlist entry explicitly marked `current`
-and matching the observed path supplies the effective index. A missing,
-ambiguous, or path-mismatched marker is never trusted; public Current remains
-withheld until an authoritative transition resolves it.
+The audible item is resolved from `playlist-playing-pos` or the unique
+`playing` row whose path matches MPV's observed `path`. `playlist-pos` and the
+`current` marker are only validated fallbacks because MPV may already point
+them at the next selected item while the previous item is still audible. A
+scalar index is never accepted when its playlist path disagrees.
+
+A transition refresh is committed transactionally. Failed property reads do
+not overwrite the last good cache, and Current is not published until path,
+playlist, duration, position, idle state, the audible playlist row, its MPV
+ID, and planner Current describe one occurrence. Property events arriving
+during an in-flight refresh request at most one coalesced follow-up pass. There
+is no polling or retry timer; the existing MPV event stream drives recovery,
+and settling never depends on a later unrelated Pause, Play, or Next command.
+
+When planner Current changes before that observation is complete, the previous
+public playback projection remains frozen. REST and SSE therefore expose one
+coherent old frame followed by one coherent new frame, never a new
+`currentPlayback` paired with a null or old `currentTrack`. State derivation is
+also fail-closed: an unresolved playlist index or execution-ID repair cannot
+mutate Queue identities, increment the track transition, or publish a partial
+frame.
+
+Metadata and artwork enrichment may finish while technical reconciliation
+removes consumed playlist prefixes. Adjacent preload results retain only their
+path-scoped enrichment data across awaits and merge it into the current Queue
+at commit time. They must never write back a previously captured Queue array or
+resurrect rows removed by MPV reconciliation.
+
+Natural EOF is the sole owner of automatic planner advance. Its queued work is
+tied to the ended MPV entry and becomes a no-op if a newer manual Current has
+already won. `file-loaded` captures the latest `start-file` token and may only
+confirm the expected planner target and reconcile its future; it never infers
+another planner advance. A stale callback therefore cannot clear a newer
+navigation target or publish an unrelated track.
 
 `beforePlayback` audio preparation is started without blocking Play or
 navigation. Play and Pause use explicit `set_property pause` targets; they
@@ -75,6 +98,13 @@ never depend on `cycle pause`.
 optimistic view. The volume popover protects its local preview while pointer
 capture is active, continues sending bounded live commands, sends the final
 value on release, and restores the confirmed value on cancellation.
+
+The UI transition coordinator may recover an active same-generation snapshot
+whose public Current was temporarily missing when the matching authoritative
+Current arrives at the same public revision. That exception applies only from
+`null` to a non-null `currentPlayback`; equal-revision swaps between two tracks
+and attempts to revive `idle`, `stopped`, `unavailable`, or `error` snapshots
+remain stale and are rejected.
 
 Only confirmed user volume/mute intents are offered to the preferences
 controller. Shuffle and repeat are persisted only after their user command

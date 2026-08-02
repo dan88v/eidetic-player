@@ -43,6 +43,7 @@ class FakeMpvController {
     readonly selectedIndex: number;
   }[] = [];
   paths: string[] = [];
+  playlistEntryIds: number[] = [];
   playlistPosition = 0;
   setPropertyHook: ((name: string, value: unknown) => Promise<unknown>) | null =
     null;
@@ -64,6 +65,7 @@ class FakeMpvController {
       const index = Number(command[1]);
       if (Number.isInteger(index) && index >= 0 && index < this.paths.length) {
         this.paths.splice(index, 1);
+        this.playlistEntryIds.splice(index, 1);
         if (index < this.playlistPosition) this.playlistPosition -= 1;
         else if (index === this.playlistPosition)
           this.playlistPosition = Math.max(
@@ -73,6 +75,7 @@ class FakeMpvController {
       }
     } else if (command[0] === "playlist-clear") {
       this.paths = this.paths.slice(0, 1);
+      this.playlistEntryIds = this.playlistEntryIds.slice(0, 1);
       this.playlistPosition = 0;
     } else if (command[0] === "stop") {
       this.playlistPosition = 0;
@@ -85,6 +88,9 @@ class FakeMpvController {
     if (name === "playlist")
       return Promise.resolve(
         this.paths.map((filename, index) => ({
+          ...(this.playlistEntryIds[index] === undefined
+            ? {}
+            : { id: this.playlistEntryIds[index] }),
           filename,
           current: index === this.playlistPosition,
           playing: index === this.playlistPosition,
@@ -107,6 +113,7 @@ class FakeMpvController {
     if (this.loadPlaylistHook)
       await this.loadPlaylistHook(paths, selectedIndex);
     this.paths = [...paths];
+    this.playlistEntryIds = [];
     this.playlistPosition = selectedIndex;
   }
 
@@ -143,9 +150,25 @@ interface PlayerHarness {
   plannerTransitionChain: Promise<void>;
   executionMutationChain: Promise<void>;
   transitionPending: boolean;
+  transitionPublicPlaybackSnapshot: unknown;
   enrichmentPathKey: string | null;
+  enrichmentGeneration: number;
+  preloadParsing: Promise<void>;
+  readonly mpvExecutionIds: Map<number, string>;
+  canSettleTrackTransition(refreshed: ReadonlySet<string>): boolean;
   deriveStateFromProperties(): void;
   refreshProperties(): Promise<void>;
+  queueExecutionReconciliation(): Promise<void>;
+  syncPlaybackPlan(): void;
+  resolveEnrichment(path: string): Promise<{
+    readonly metadata: { readonly durationSeconds: number | null };
+    readonly artwork: null;
+  }>;
+  scheduleAdjacentPreload(
+    nextPath: string | null,
+    previousPath: string | null,
+    generation: number,
+  ): void;
   handleMpvMessage(message: MpvResponse): void;
   handleUnexpectedExit(): Promise<void>;
   startController(): Promise<void>;
@@ -292,7 +315,31 @@ function createHarness(
   harness.controller = controller;
   harness.originalQueue = [...controller.paths];
   harness.playlistItemIds = entries.map((entry) => entry.executionEntryId);
-  harness.refreshProperties = () => Promise.resolve();
+  harness.refreshProperties = async () => {
+    const playlist = await controller.getProperty("playlist");
+    const currentPath = controller.paths[controller.playlistPosition] ?? null;
+    harness.properties.set("pause", false);
+    harness.properties.set("time-pos", 0);
+    harness.properties.set("duration", 60);
+    harness.properties.set("playlist", playlist);
+    harness.properties.set("playlist-pos", controller.playlistPosition);
+    harness.properties.set("playlist-playing-pos", controller.playlistPosition);
+    harness.properties.set("path", currentPath);
+    harness.properties.set("idle-active", currentPath === null);
+    if (
+      harness.transitionPending &&
+      !harness.canSettleTrackTransition(
+        new Set(["path", "playlist", "duration", "time-pos", "idle-active"]),
+      )
+    )
+      return;
+    harness.enrichmentPathKey = currentPath
+      ? harness.pathKey(currentPath)
+      : null;
+    harness.transitionPending = false;
+    harness.transitionPublicPlaybackSnapshot = null;
+    harness.deriveStateFromProperties();
+  };
   return { player, harness, controller };
 }
 
@@ -426,6 +473,152 @@ void test("natural EOF advances exactly once to a planned item without reloading
   assert.equal(harness.playlistItemIds[0], plan.current.executionEntryId);
 });
 
+void test("natural EOF publishes the old and new Current atomically across the MPV transition", async () => {
+  const { player, harness, controller } = createHarness();
+  const published: PlayerState[] = [];
+  const unsubscribe = player.subscribe(() => {
+    published.push(player.getPublicState());
+  });
+  try {
+    controller.playlistPosition = 1;
+    harness.handleMpvMessage({
+      event: "end-file",
+      reason: "eof",
+    } as MpvResponse);
+    await flushTransitions(harness);
+
+    const duringTransition = player.getPublicState();
+    assert.equal(duringTransition.currentPlayback?.item.displayTitle, "A");
+    assert.equal(duringTransition.currentTrack?.title, "A");
+
+    harness.handleMpvMessage({ event: "file-loaded" });
+    await flushTransitions(harness);
+
+    const settled = player.getPublicState();
+    assert.equal(settled.currentPlayback?.item.displayTitle, "B");
+    assert.equal(settled.currentTrack?.title, "B");
+    assert.equal(
+      published.some(
+        (state) =>
+          state.status === "playing" &&
+          state.currentPlayback !== null &&
+          state.currentTrack === null,
+      ),
+      false,
+    );
+  } finally {
+    unsubscribe();
+  }
+});
+
+void test("manual Next keeps one coherent public Current until MPV confirms the target", async () => {
+  const { player, harness } = createHarness();
+  const published: PlayerState[] = [];
+  const unsubscribe = player.subscribe(() => {
+    published.push(player.getPublicState());
+  });
+  try {
+    await player.next();
+
+    const awaitingMpv = player.getPublicState();
+    assert.equal(player.getPlaybackPlanSnapshot().current?.item.title, "B");
+    assert.equal(awaitingMpv.currentPlayback?.item.displayTitle, "A");
+    assert.equal(awaitingMpv.currentTrack?.title, "A");
+
+    harness.handleMpvMessage({ event: "start-file" });
+    harness.handleMpvMessage({ event: "file-loaded" });
+    await flushTransitions(harness);
+
+    const settled = player.getPublicState();
+    assert.equal(settled.currentPlayback?.item.displayTitle, "B");
+    assert.equal(settled.currentTrack?.title, "B");
+    assert.equal(
+      published.some(
+        (state) =>
+          state.status === "playing" &&
+          state.currentPlayback !== null &&
+          state.currentTrack === null,
+      ),
+      false,
+    );
+  } finally {
+    unsubscribe();
+  }
+});
+
+void test("a deferred planner reload preserves the previous public Current until coherent refresh", async () => {
+  const { player, harness, controller } = createHarness();
+  const currentQueueItem = harness.state.queue[0];
+  const currentExecutionId = harness.playlistItemIds[0];
+  assert.ok(currentQueueItem && currentExecutionId);
+  harness.state = {
+    ...harness.state,
+    queue: [currentQueueItem],
+    currentQueueIndex: 0,
+  };
+  controller.paths = [currentQueueItem.path];
+  harness.originalQueue = [currentQueueItem.path];
+  harness.playlistItemIds = [currentExecutionId];
+  const loadEntered = deferred<undefined>();
+  const releaseLoad = deferred<undefined>();
+  controller.loadPlaylistHook = async () => {
+    loadEntered.resolve(undefined);
+    await releaseLoad.promise;
+  };
+
+  const navigating = player.next();
+  await loadEntered.promise;
+  const duringLoad = player.getPublicState();
+  assert.equal(player.getPlaybackPlanSnapshot().current?.item.title, "B");
+  assert.equal(duringLoad.currentPlayback?.item.displayTitle, "A");
+  assert.equal(duringLoad.currentTrack?.title, "A");
+
+  releaseLoad.resolve(undefined);
+  await navigating;
+  const settled = player.getPublicState();
+  assert.equal(settled.currentPlayback?.item.displayTitle, "B");
+  assert.equal(settled.currentTrack?.title, "B");
+});
+
+void test("external playback suspension refuses a mixed in-flight Current frame", async () => {
+  const { player, harness } = createHarness();
+  await player.next();
+
+  assert.throws(
+    () => player.captureExternalPlaybackSuspension(),
+    /changing tracks/u,
+  );
+
+  harness.handleMpvMessage({ event: "start-file" });
+  harness.handleMpvMessage({ event: "file-loaded" });
+  await flushTransitions(harness);
+  const suspension = player.captureExternalPlaybackSuspension();
+  assert.equal(
+    suspension.playbackInstanceId,
+    player.getPublicState().currentPlayback?.playbackInstanceId,
+  );
+  assert.equal(
+    suspension.positionSeconds,
+    player.getPublicState().positionSeconds,
+  );
+});
+
+void test("Explicit Queue mutations remain visible while Current publication is frozen", async () => {
+  const { player, harness } = createHarness();
+  await player.next();
+  harness.playbackPlanner.enqueueExplicit([item("Queued")]);
+  harness.syncPlaybackPlan();
+
+  const publicState = player.getPublicState();
+  assert.equal(publicState.currentPlayback?.item.displayTitle, "A");
+  assert.equal(publicState.currentTrack?.title, "A");
+  assert.deepEqual(
+    publicState.explicitQueue?.map((entry) => entry.item.displayTitle),
+    ["Queued"],
+  );
+  assert.equal(publicState.queue.length, 1);
+});
+
 void test("natural EOF preserves the matching technical future and removes only the consumed item", async () => {
   const { harness, controller } = createHarness();
   const expectedRemainingPaths = controller.paths.slice(1);
@@ -440,6 +633,97 @@ void test("natural EOF preserves the matching technical future and removes only 
   assert.deepEqual(controller.appends, []);
   assert.deepEqual(controller.loads, []);
   assert.deepEqual(controller.paths, expectedRemainingPaths);
+});
+
+void test("a queued EOF cannot advance a newer manual Current", async () => {
+  const { player, harness } = createHarness();
+  let naturalEnds = 0;
+  const unsubscribe = player.subscribeNaturalEnd(() => {
+    naturalEnds += 1;
+  });
+  const endedExecutionId =
+    player.getPlaybackPlanSnapshot().current?.executionEntryId;
+  assert.ok(endedExecutionId);
+  harness.mpvExecutionIds.set(101, endedExecutionId);
+  const gate = deferred<undefined>();
+  harness.plannerTransitionChain = gate.promise;
+
+  harness.handleMpvMessage({
+    event: "end-file",
+    reason: "eof",
+    playlist_entry_id: 101,
+  } as MpvResponse);
+  await player.next();
+  assert.equal(player.getPlaybackPlanSnapshot().current?.item.title, "B");
+
+  gate.resolve(undefined);
+  await flushTransitions(harness);
+  assert.equal(player.getPlaybackPlanSnapshot().current?.item.title, "B");
+  assert.equal(naturalEnds, 0);
+  unsubscribe();
+});
+
+void test("an unmapped EOF row removed from MPV cannot inherit the active Current", async () => {
+  const { player, harness, controller } = createHarness();
+  await naturalEndToPlannedNext(harness, controller);
+  const current = player.getPlaybackPlanSnapshot().current;
+  assert.equal(current?.item.title, "B");
+  assert.ok(current);
+  const future = harness.playbackPlanner.projectExecutionPlan().future;
+  controller.playlistEntryIds = [202, 203];
+  harness.mpvExecutionIds.clear();
+  harness.mpvExecutionIds.set(202, current.executionEntryId);
+  const next = future[0];
+  assert.ok(next);
+  harness.mpvExecutionIds.set(203, next.executionEntryId);
+  const playlist = await controller.getProperty("playlist");
+  harness.properties.set("playlist", playlist);
+  harness.properties.set("playlist-pos", 0);
+  harness.properties.set("playlist-playing-pos", 0);
+  harness.properties.set("path", current.item.nativePath);
+  harness.properties.set("idle-active", false);
+
+  let naturalEnds = 0;
+  const unsubscribe = player.subscribeNaturalEnd(() => {
+    naturalEnds += 1;
+  });
+  try {
+    harness.handleMpvMessage({
+      event: "end-file",
+      reason: "eof",
+      playlist_entry_id: 101,
+    } as MpvResponse);
+    await flushTransitions(harness);
+
+    assert.equal(
+      player.getPlaybackPlanSnapshot().current?.executionEntryId,
+      current.executionEntryId,
+    );
+    assert.equal(player.getPublicState().currentTrack?.title, "B");
+    assert.equal(naturalEnds, 0);
+  } finally {
+    unsubscribe();
+  }
+});
+
+void test("a stale file-loaded callback cannot settle a newer start-file token", async () => {
+  const { harness } = createHarness();
+  const gate = deferred<undefined>();
+  harness.plannerTransitionChain = gate.promise;
+  let refreshCalls = 0;
+  harness.refreshProperties = () => {
+    refreshCalls += 1;
+    return Promise.resolve();
+  };
+
+  harness.handleMpvMessage({ event: "start-file", playlist_entry_id: 101 });
+  harness.handleMpvMessage({ event: "file-loaded" });
+  harness.handleMpvMessage({ event: "start-file", playlist_entry_id: 102 });
+  gate.resolve(undefined);
+  await flushTransitions(harness);
+
+  assert.equal(refreshCalls, 0);
+  assert.equal(harness.transitionPending, true);
 });
 
 void test("implicit Context recovery realigns a stale technical ID before publishing Current", async () => {
@@ -459,6 +743,7 @@ void test("implicit Context recovery realigns a stale technical ID before publis
   controller.playlistPosition = 0;
   harness.playlistItemIds = originalIds;
   harness.transitionPending = false;
+  harness.transitionPublicPlaybackSnapshot = null;
   harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
   harness.properties.set("pause", false);
   harness.properties.set("idle-active", false);
@@ -481,6 +766,201 @@ void test("implicit Context recovery realigns a stale technical ID before publis
   assert.equal(published.currentTrack?.title, "B");
   assert.equal(published.currentPlayback?.item.displayTitle, "B");
   assert.equal(published.positionSeconds, 12);
+});
+
+void test("artist-radio continuation keeps Current through MPV prefix removal by stable row ID", async () => {
+  const artistId = `artist-${"a".repeat(32)}`;
+  const boundaryTrackId = `track-${"b".repeat(32)}`;
+  const candidates = [
+    "Neon Brother",
+    "Lover, Please Stay",
+    "Radio Three",
+    "Radio Four",
+    "Radio Five",
+    "Radio Six",
+    "Radio Seven",
+    "Radio Eight",
+    "Radio Nine",
+  ].map((title, index) => {
+    const trackId = `track-${String(index + 1).repeat(32)}`;
+    return {
+      trackId,
+      path: `C:\\fixture\\${title}.mp3`,
+      artistName: "Nothing But Thieves",
+      origin: {
+        kind: "folders" as const,
+        sourceId: "source-radio",
+        relativePath: `${title}.mp3`,
+        libraryTrackId: trackId,
+      },
+    };
+  });
+  const { player, harness, controller } = createHarness({
+    context: [
+      item("Album boundary", {
+        libraryTrackId: boundaryTrackId,
+        primaryArtistId: artistId,
+      }),
+    ],
+    continuationArtistId: artistId,
+  });
+  player.setSameArtistResolver(() => Promise.resolve(candidates));
+  await player.setContinuePlaybackMode("same-artist");
+  await player.next();
+
+  const radioProjection = harness.playbackPlanner.projectExecutionPlan();
+  const radioEntries = radioProjection.current
+    ? [radioProjection.current, ...radioProjection.future]
+    : [];
+  assert.equal(radioEntries.length, 9);
+  assert.equal(player.getPlaybackPlanSnapshot().context?.kind, "artist-radio");
+  assert.equal(
+    player.getPlaybackPlanSnapshot().current?.source,
+    "continuation",
+  );
+  const initialCurrent = radioEntries[0];
+  assert.ok(initialCurrent);
+  controller.playlistEntryIds = radioEntries.map((_, index) => 307 + index);
+  harness.transitionPending = false;
+  harness.transitionPublicPlaybackSnapshot = null;
+  harness.enrichmentPathKey = harness.pathKey(initialCurrent.item.nativePath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 31);
+  harness.properties.set("path", initialCurrent.item.nativePath);
+  harness.properties.set("playlist-pos", 0);
+  harness.properties.set("playlist-playing-pos", 0);
+  harness.properties.set("playlist", await controller.getProperty("playlist"));
+  harness.deriveStateFromProperties();
+  for (const [index, entry] of radioEntries.entries())
+    assert.equal(
+      harness.mpvExecutionIds.get(307 + index),
+      entry.executionEntryId,
+    );
+
+  const published: PlayerState[] = [];
+  const unsubscribe = player.subscribe(() => {
+    published.push(player.getPublicState());
+  });
+  try {
+    controller.playlistPosition = 1;
+    harness.handleMpvMessage({
+      event: "end-file",
+      reason: "eof",
+      playlist_entry_id: 307,
+    } as MpvResponse);
+    await flushTransitions(harness);
+    const planned = player.getPlaybackPlanSnapshot().current;
+    assert.ok(planned);
+    assert.equal(planned.source, "continuation");
+    assert.equal(
+      player.getPlaybackPlanSnapshot().context?.kind,
+      "artist-radio",
+    );
+    assert.equal(
+      harness.playbackPlanner.projectExecutionPlan().future.length,
+      7,
+    );
+
+    harness.handleMpvMessage({ event: "start-file", playlist_entry_id: 308 });
+    harness.handleMpvMessage({ event: "file-loaded" });
+    await flushTransitions(harness);
+
+    assert.equal(controller.playlistPosition, 0);
+    assert.equal(controller.playlistEntryIds[0], 308);
+    assert.equal(controller.playlistEntryIds.length, 8);
+    assert.equal(harness.mpvExecutionIds.has(307), false);
+    assert.equal(harness.mpvExecutionIds.get(308), planned.executionEntryId);
+    assert.equal(harness.state.currentQueueIndex, 0);
+
+    harness.transitionPending = false;
+    harness.transitionPublicPlaybackSnapshot = null;
+    harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
+    harness.properties.set("pause", false);
+    harness.properties.set("idle-active", false);
+    harness.properties.set("duration", 60);
+    harness.properties.set("time-pos", 44.6);
+    harness.properties.set("path", planned.item.nativePath);
+    harness.properties.set("playlist-pos", 0);
+    harness.properties.set("playlist-playing-pos", 0);
+    harness.properties.set(
+      "playlist",
+      await controller.getProperty("playlist"),
+    );
+    harness.deriveStateFromProperties();
+
+    const settled = player.getPublicState();
+    assert.equal(settled.status, "playing");
+    assert.ok(settled.currentPlayback);
+    assert.ok(settled.currentTrack);
+    assert.equal(settled.currentPlayback.source, "continuation");
+    assert.equal(settled.currentPlayback.item.displayTitle, planned.item.title);
+    assert.equal(settled.currentTrack.title, planned.item.title);
+    assert.equal(settled.positionSeconds, 44.6);
+    assert.equal(harness.state.queue.length, 8);
+    assert.equal(
+      published.some(
+        (state) =>
+          state.status === "playing" &&
+          (!state.currentPlayback || !state.currentTrack),
+      ),
+      false,
+    );
+    assert.equal(
+      published.some(
+        (state) =>
+          state.currentPlayback &&
+          state.currentTrack &&
+          state.currentPlayback.item.displayTitle !== state.currentTrack.title,
+      ),
+      false,
+    );
+  } finally {
+    unsubscribe();
+  }
+});
+
+void test("Current recovery publishes immediately and reconciles a divergent technical future", async () => {
+  const context = ["A", "B", "C"].map((title) => ({
+    ...item(title),
+    nativePath: `C:/fixture/${title}.flac`,
+  }));
+  const { player, harness, controller } = createHarness({ context });
+  await player.next();
+  const planned = player.getPlaybackPlanSnapshot().current;
+  const plannedFuture =
+    harness.playbackPlanner.projectExecutionPlan().future[0];
+  assert.equal(planned?.item.title, "B");
+  assert.equal(plannedFuture?.item.title, "C");
+  const divergentPath = "C:/fixture/Unplanned.flac";
+  controller.paths = [planned.item.nativePath, divergentPath];
+  controller.playlistPosition = 0;
+  harness.transitionPending = false;
+  harness.transitionPublicPlaybackSnapshot = null;
+  harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 12);
+  harness.properties.set("path", planned.item.nativePath);
+  harness.properties.set("playlist-pos", 0);
+  harness.properties.set("playlist-playing-pos", 0);
+  harness.properties.set("playlist", [
+    { id: 201, filename: planned.item.nativePath, playing: true },
+    { id: 202, filename: divergentPath },
+  ]);
+
+  harness.deriveStateFromProperties();
+  assert.equal(player.getPublicState().currentTrack?.title, "B");
+  assert.equal(player.getPublicState().positionSeconds, 12);
+
+  await harness.queueExecutionReconciliation();
+  await harness.executionMutationChain;
+  assert.deepEqual(controller.paths, [
+    planned.item.nativePath,
+    plannedFuture.item.nativePath,
+  ]);
 });
 
 void test("implicit Context recovery rejects an observed track outside planned Current", async () => {
@@ -508,7 +988,119 @@ void test("implicit Context recovery rejects an observed track outside planned C
   harness.deriveStateFromProperties();
 
   assert.deepEqual(harness.playlistItemIds, originalIds);
-  assert.equal(player.getPublicState().currentTrack, null);
+  assert.equal(harness.transitionPending, true);
+  assert.equal(player.getPublicState().currentTrack?.title, "A");
+  assert.equal(player.getPublicState().currentPlayback?.item.displayTitle, "A");
+});
+
+void test("a conflicting partial MPV identity snapshot cannot mutate or publish Current", () => {
+  const { player, harness } = createHarness();
+  const beforeIds = [...harness.playlistItemIds];
+  const beforePaths = [...harness.originalQueue];
+  const beforeTransitionId = harness.state.trackTransitionId;
+  const plannedExecutionId =
+    player.getPlaybackPlanSnapshot().current?.executionEntryId;
+  assert.ok(plannedExecutionId);
+  const conflictingExecutionId = beforeIds[1];
+  assert.ok(conflictingExecutionId);
+  harness.mpvExecutionIds.set(501, conflictingExecutionId);
+  const currentPath = harness.state.currentTrack?.path;
+  assert.ok(currentPath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 17);
+  harness.properties.set("path", currentPath);
+  harness.properties.set("playlist-pos", 0);
+  harness.properties.set("playlist-playing-pos", 0);
+  harness.properties.set("playlist", [
+    { id: 501, filename: currentPath, current: true, playing: true },
+  ]);
+
+  harness.deriveStateFromProperties();
+
+  assert.equal(harness.transitionPending, true);
+  assert.equal(harness.state.trackTransitionId, beforeTransitionId);
+  assert.equal(harness.state.currentQueueIndex, 0);
+  assert.deepEqual(harness.playlistItemIds, beforeIds);
+  assert.deepEqual(harness.originalQueue, beforePaths);
+  assert.equal(harness.mpvExecutionIds.get(501), conflictingExecutionId);
+  assert.equal(new Set(harness.playlistItemIds).size, beforeIds.length);
+  const published = player.getPublicState();
+  assert.equal(published.currentPlayback?.item.displayTitle, "A");
+  assert.equal(published.currentTrack?.title, "A");
+});
+
+void test("adjacent metadata preload merges into the latest Queue after technical prefix removal", async () => {
+  const { player, harness, controller } = createHarness();
+  await player.next();
+  const planned = player.getPlaybackPlanSnapshot().current;
+  assert.equal(planned?.item.title, "B");
+  assert.ok(planned);
+  const playlist = await controller.getProperty("playlist");
+  harness.transitionPending = false;
+  harness.transitionPublicPlaybackSnapshot = null;
+  harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 12);
+  harness.properties.set("path", planned.item.nativePath);
+  harness.properties.set("playlist-pos", 1);
+  harness.properties.set("playlist-playing-pos", 1);
+  harness.properties.set("playlist", playlist);
+  harness.deriveStateFromProperties();
+
+  const originalQueue = [...harness.state.queue];
+  const nextItem = originalQueue[2];
+  assert.ok(nextItem);
+  const enrichmentStarted = deferred<undefined>();
+  const enrichment = deferred<{
+    readonly metadata: { readonly durationSeconds: number | null };
+    readonly artwork: null;
+  }>();
+  harness.resolveEnrichment = (path) => {
+    assert.equal(path, nextItem.path);
+    enrichmentStarted.resolve(undefined);
+    return enrichment.promise;
+  };
+
+  harness.scheduleAdjacentPreload(
+    nextItem.path,
+    null,
+    harness.enrichmentGeneration,
+  );
+  await enrichmentStarted.promise;
+
+  const latestQueue = originalQueue.slice(1).map((item, index) => ({
+    ...item,
+    index,
+    isCurrent: index === 0,
+  }));
+  harness.state = {
+    ...harness.state,
+    currentQueueIndex: 0,
+    queue: latestQueue,
+  };
+  const queueRevision = harness.state.queueRevision;
+  const trackTransitionId = harness.state.trackTransitionId;
+  enrichment.resolve({
+    metadata: { durationSeconds: 73 },
+    artwork: null,
+  });
+  await harness.preloadParsing;
+
+  assert.deepEqual(
+    harness.state.queue.map((item) => item.id),
+    latestQueue.map((item) => item.id),
+  );
+  assert.equal(harness.state.queue.length, 2);
+  assert.equal(harness.state.queue[0]?.isCurrent, true);
+  assert.equal(harness.state.queue[1]?.durationSeconds, 73);
+  assert.equal(harness.state.queueRevision, queueRevision);
+  assert.equal(harness.state.trackTransitionId, trackTransitionId);
+  assert.equal(player.getPublicState().currentTrack?.title, "B");
+  assert.equal(player.getPublicState().currentPlayback?.item.displayTitle, "B");
 });
 
 void test("implicit Context recovery uses the authoritative MPV playlist marker when playlist-pos is stale", async () => {
@@ -528,6 +1120,7 @@ void test("implicit Context recovery uses the authoritative MPV playlist marker 
   controller.playlistPosition = 0;
   harness.playlistItemIds = originalIds;
   harness.transitionPending = false;
+  harness.transitionPublicPlaybackSnapshot = null;
   harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
   harness.properties.set("pause", false);
   harness.properties.set("idle-active", false);
@@ -542,6 +1135,42 @@ void test("implicit Context recovery uses the authoritative MPV playlist marker 
   assert.equal(harness.state.currentQueueIndex, 0);
   assert.equal(published.currentTrack?.title, "B");
   assert.equal(published.currentPlayback?.item.displayTitle, "B");
+  assert.equal(published.positionSeconds, 12);
+});
+
+void test("audible playing marker wins while MPV current and playlist-pos already point at the next item", async () => {
+  const context = ["A", "B", "C"].map((title) => ({
+    ...item(title),
+    nativePath: `C:/fixture/${title}.flac`,
+  }));
+  const { player, harness } = createHarness({ context });
+  await player.next();
+  const planned = player.getPlaybackPlanSnapshot().current;
+  assert.equal(planned?.item.title, "B");
+  assert.ok(planned);
+  const [pathA, pathB, pathC] = context.map((entry) => entry.nativePath);
+  assert.ok(pathA && pathB && pathC);
+
+  harness.transitionPending = false;
+  harness.transitionPublicPlaybackSnapshot = null;
+  harness.enrichmentPathKey = harness.pathKey(pathB);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 12);
+  harness.properties.set("path", pathB);
+  harness.properties.set("playlist-pos", 2);
+  harness.properties.set("playlist-playing-pos", 1);
+  harness.properties.set("playlist", [
+    { id: 101, filename: pathA },
+    { id: 102, filename: pathB, playing: true },
+    { id: 103, filename: pathC, current: true },
+  ]);
+  harness.deriveStateFromProperties();
+
+  const published = player.getPublicState();
+  assert.equal(harness.state.currentQueueIndex, 1);
+  assert.equal(published.currentTrack?.title, "B");
   assert.equal(published.positionSeconds, 12);
 });
 
@@ -771,6 +1400,10 @@ void test("Repeat One leaves every future source untouched and never enables MPV
   });
   await player.setRepeatMode("one");
   const before = player.getPlaybackPlanSnapshot();
+  let naturalEnds = 0;
+  const unsubscribe = player.subscribeNaturalEnd(() => {
+    naturalEnds += 1;
+  });
   controller.clearCalls();
 
   harness.handleMpvMessage({
@@ -789,6 +1422,8 @@ void test("Repeat One leaves every future source untouched and never enables MPV
   assert.deepEqual(after.explicitQueue, before.explicitQueue);
   assert.deepEqual(after.history, before.history);
   assert.equal(controller.loads.length, 0);
+  assert.equal(naturalEnds, 1);
+  unsubscribe();
   assert.equal(
     controller.sets.some(
       (entry) => entry.name === "loop-playlist" && entry.value === "inf",

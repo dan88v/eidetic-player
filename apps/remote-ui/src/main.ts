@@ -14,12 +14,13 @@ import {
   type PlaybackSourceSnapshot,
 } from "../../../packages/shared/src/playback-source";
 import { createClientSessionId } from "./client-session-id";
+import { LatestRequestCoordinator } from "./latest-request-coordinator";
 import {
   formatRemoteTrackCount,
-  mergeRemotePlayerProgress,
   remotePlaybackContextKindLabel,
   remotePlayerDisplay,
   remotePlayerPresentationChanged,
+  RemotePlayerStateCoordinator,
   remotePlayerTrackKey,
   remoteQueuePresentationChanged,
   remoteSameArtistSummary,
@@ -41,6 +42,20 @@ interface ApiEnvelope<T> {
   readonly ok: boolean;
   readonly data: T;
   readonly error?: { readonly message?: string };
+}
+
+interface ApiRequestPolicy {
+  readonly deferUnauthorized?: boolean;
+}
+
+class RemoteApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RemoteApiError";
+  }
 }
 
 interface BrowseEntry {
@@ -82,6 +97,9 @@ let activeSeek: {
   readonly input: HTMLInputElement;
   readonly trackKey: string | null;
 } | null = null;
+const playerStateCoordinator = new RemotePlayerStateCoordinator();
+const bootstrapRequests = new LatestRequestCoordinator();
+let remoteEventRevision = 0;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -123,7 +141,11 @@ function setRemoteIcon(target: HTMLElement, name: RemoteIconName): void {
   target.innerHTML = `<svg class="remote-control-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${remoteIconPaths[name]}</svg>`;
 }
 
-async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function api<T>(
+  path: string,
+  init: RequestInit = {},
+  policy: ApiRequestPolicy = {},
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set("content-type", "application/json");
   if (csrfToken && init.method && init.method !== "GET")
@@ -135,11 +157,14 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   const envelope = (await response.json()) as ApiEnvelope<T>;
   if (response.status === 401) {
-    resetAuthentication();
-    throw new Error("Pair this browser again.");
+    if (!policy.deferUnauthorized) resetAuthentication();
+    throw new RemoteApiError(401, "Pair this browser again.");
   }
   if (!response.ok || !envelope.ok)
-    throw new Error(envelope.error?.message ?? "The remote request failed.");
+    throw new RemoteApiError(
+      response.status,
+      envelope.error?.message ?? "The remote request failed.",
+    );
   return envelope.data;
 }
 
@@ -211,14 +236,17 @@ function currentDeviceId(): string | null {
 }
 
 async function runCommand(path: string, body = {}): Promise<void> {
-  if (connection !== "connected") return;
+  if (connection !== "connected" || !bootstrap) return;
+  const requestDeviceId = bootstrap.device.id;
+  const checkpoint = playerStateCoordinator.beginHttpRequest();
   try {
     const player = await api<RemotePlayerState>(path, {
       method: "POST",
       body: commandBody(body),
     });
-    if (bootstrap) bootstrap = { ...bootstrap, player };
-    renderCurrentSurface();
+    if (currentDeviceId() !== requestDeviceId) return;
+    const accepted = playerStateCoordinator.acceptHttp(player, checkpoint);
+    if (accepted) receivePlayerState(accepted);
   } catch (error) {
     showMessage(error instanceof Error ? error.message : "Command failed.");
   }
@@ -238,6 +266,7 @@ async function runAction(path: string, body = {}): Promise<void> {
 
 function resetAuthentication(): void {
   closeStream();
+  bootstrapRequests.invalidate();
   bootstrap = null;
   csrfToken = "";
   renderPairing();
@@ -339,22 +368,55 @@ function renderPairing(): void {
 }
 
 async function loadBootstrap(): Promise<void> {
-  try {
-    const next = await api<RemoteBootstrap>("/api/bootstrap");
-    const previousBuild = bootstrap?.buildId;
-    bootstrap = next;
-    csrfToken = next.csrfToken;
-    clientSessionId = createClientSessionId();
-    clientIntentId = 0;
-    renderShell();
-    setConnection("connected");
-    openStream();
-    if (previousBuild && previousBuild !== next.buildId)
-      window.location.reload();
-  } catch {
-    if (!bootstrap) renderPairing();
-    else scheduleReconnect();
-  }
+  if (destroyed) return;
+  await bootstrapRequests.run(
+    () =>
+      api<RemoteBootstrap>("/api/bootstrap", {}, { deferUnauthorized: true }),
+    {
+      success: (next) => {
+        const currentBootstrap = bootstrap;
+        const previousBuild = currentBootstrap?.buildId;
+        const playerSessionChanged =
+          currentBootstrap !== null &&
+          next.player.playerSessionId !==
+            currentBootstrap.player.playerSessionId;
+        const stalePlayerSnapshot =
+          currentBootstrap !== null &&
+          !playerSessionChanged &&
+          next.eventRevision < remoteEventRevision;
+        bootstrap = stalePlayerSnapshot
+          ? {
+              ...next,
+              player: currentBootstrap.player,
+              playbackSource: currentBootstrap.playbackSource,
+              audioOutput: currentBootstrap.audioOutput,
+            }
+          : next;
+        if (stalePlayerSnapshot) {
+          playerStateCoordinator.reset(bootstrap.player, remoteEventRevision);
+        } else {
+          playerStateCoordinator.reset(next.player, next.eventRevision);
+          remoteEventRevision = next.eventRevision;
+        }
+        csrfToken = next.csrfToken;
+        clientSessionId = createClientSessionId();
+        clientIntentId = 0;
+        renderShell();
+        setConnection("connected");
+        openStream();
+        if (previousBuild && previousBuild !== next.buildId)
+          window.location.reload();
+      },
+      failure: (error) => {
+        if (error instanceof RemoteApiError && error.status === 401) {
+          resetAuthentication();
+          return;
+        }
+        if (!bootstrap) renderPairing();
+        else scheduleReconnect();
+      },
+    },
+  );
 }
 
 function renderShell(): void {
@@ -1124,14 +1186,14 @@ async function reorderQueue(
     ...candidate,
     index,
   }));
-  bootstrap = {
-    ...bootstrap,
-    player: {
-      ...previousPlayer,
-      explicitQueue: reindexedQueue,
-      queue: compatibilityQueue(reindexedQueue),
-    },
-  };
+  const optimisticPlayer = playerStateCoordinator.replaceLocal({
+    ...previousPlayer,
+    explicitQueue: reindexedQueue,
+    queue: compatibilityQueue(reindexedQueue),
+  });
+  if (!optimisticPlayer) return;
+  bootstrap = { ...bootstrap, player: optimisticPlayer };
+  const checkpoint = playerStateCoordinator.beginHttpRequest();
   renderCurrentSurface();
   try {
     const player = await api<RemotePlayerState>("/api/queue/reorder", {
@@ -1143,12 +1205,23 @@ async function reorderQueue(
       }),
     });
     if (currentDeviceId() !== requestDeviceId) return;
-    bootstrap = { ...bootstrap, player };
-    renderCurrentSurface();
+    const accepted = playerStateCoordinator.acceptHttp(player, checkpoint);
+    if (accepted) receivePlayerState(accepted);
   } catch (error) {
     if (currentDeviceId() !== requestDeviceId) return;
-    bootstrap = { ...bootstrap, player: previousPlayer };
-    renderCurrentSurface();
+    const currentPlayer = bootstrap.player;
+    if (
+      playerStateCoordinator.isLatestHttpRequest(checkpoint) &&
+      currentPlayer.playerSessionId === previousPlayer.playerSessionId &&
+      currentPlayer.queueRevision === previousPlayer.queueRevision
+    ) {
+      const rolledBack = playerStateCoordinator.replaceLocal({
+        ...currentPlayer,
+        explicitQueue: previousPlayer.explicitQueue,
+        queue: previousPlayer.queue,
+      });
+      if (rolledBack) receivePlayerState(rolledBack);
+    }
     showMessage(error instanceof Error ? error.message : "Reorder failed.");
   }
 }
@@ -1714,12 +1787,17 @@ function openConfirmation(
 function openStream(): void {
   closeStream();
   if (document.visibilityState !== "visible" || !bootstrap) return;
-  stream = new EventSource("/api/events", { withCredentials: true });
-  stream.onopen = () => {
+  const openedStream = new EventSource("/api/events", {
+    withCredentials: true,
+  });
+  stream = openedStream;
+  openedStream.onopen = () => {
+    if (stream !== openedStream) return;
     retryDelay = 1_000;
     setConnection("connected");
   };
-  stream.onerror = () => {
+  openedStream.onerror = () => {
+    if (stream !== openedStream) return;
     closeStream();
     scheduleReconnect();
   };
@@ -1735,7 +1813,8 @@ function openStream(): void {
     "library-invalidated",
     "connection",
   ]) {
-    stream.addEventListener(type, (event) => {
+    openedStream.addEventListener(type, (event) => {
+      if (stream !== openedStream) return;
       const envelope = JSON.parse(
         (event as MessageEvent<string>).data,
       ) as RemoteEventEnvelope;
@@ -1784,17 +1863,26 @@ function receivePlaybackSource(next: PlaybackSourceSnapshot): void {
 function receiveEvent(envelope: RemoteEventEnvelope): void {
   if (!bootstrap) return;
   if (
+    !Number.isSafeInteger(envelope.revision) ||
+    envelope.revision <= remoteEventRevision
+  )
+    return;
+  remoteEventRevision = envelope.revision;
+  if (
     (envelope.type === "player" || envelope.type === "queue") &&
     envelope.data
   ) {
-    receivePlayerState(envelope.data as RemotePlayerState);
-  } else if (envelope.type === "player-progress" && envelope.data) {
-    receivePlayerState(
-      mergeRemotePlayerProgress(
-        bootstrap.player,
-        envelope.data as RemotePlayerProgress,
-      ),
+    const accepted = playerStateCoordinator.acceptEvent(
+      envelope.data as RemotePlayerState,
+      envelope.revision,
     );
+    if (accepted) receivePlayerState(accepted);
+  } else if (envelope.type === "player-progress" && envelope.data) {
+    const accepted = playerStateCoordinator.acceptProgress(
+      envelope.data as RemotePlayerProgress,
+      envelope.revision,
+    );
+    if (accepted) receivePlayerState(accepted);
   } else if (envelope.type === "snapshot" && envelope.data) {
     const snapshot = envelope.data as {
       readonly player: RemotePlayerState;
@@ -1806,7 +1894,11 @@ function receiveEvent(envelope: RemoteEventEnvelope): void {
       audioOutput: snapshot.audioOutput,
       playbackSource: snapshot.playbackSource,
     };
-    receivePlayerState(snapshot.player);
+    const accepted = playerStateCoordinator.acceptEvent(
+      snapshot.player,
+      envelope.revision,
+    );
+    if (accepted) receivePlayerState(accepted);
   } else if (envelope.type === "playback-source" && envelope.data) {
     receivePlaybackSource(envelope.data as PlaybackSourceSnapshot);
   } else if (envelope.type === "audio-output" && envelope.data) {
@@ -1862,6 +1954,7 @@ window.addEventListener("offline", () => {
 });
 window.addEventListener("pagehide", () => {
   destroyed = true;
+  bootstrapRequests.invalidate();
   closeStream();
   libraryAbort?.abort();
 });

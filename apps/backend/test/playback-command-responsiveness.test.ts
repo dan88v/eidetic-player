@@ -29,6 +29,7 @@ interface FakeController {
   setProperty(name: string, value: unknown): Promise<unknown>;
   command(command: readonly unknown[]): Promise<unknown>;
   getProperty(name: string): Promise<unknown>;
+  appendToPlaylist(paths: readonly string[]): Promise<void>;
 }
 
 interface PlayerHarness {
@@ -36,10 +37,13 @@ interface PlayerHarness {
   controller: FakeController;
   originalQueue: string[];
   playlistItemIds: string[];
+  readonly properties: Map<string, unknown>;
   transitionPending: boolean;
+  transitionRecoveryRefresh: Promise<void> | null;
   enrichmentPathKey: string | null;
   handleMpvMessage(message: MpvResponse): void;
   refreshProperties(): Promise<void>;
+  queueExecutionReconciliation(): Promise<void>;
   pathKey(path: string): string;
   playbackPlanSnapshot: ReturnType<PlaybackPlanner["snapshot"]>;
 }
@@ -69,6 +73,9 @@ function createHarness(
     },
     getProperty() {
       return Promise.resolve(undefined);
+    },
+    appendToPlaylist() {
+      return Promise.resolve();
     },
   };
   const player = new PlayerService(undefined, undefined, {
@@ -341,23 +348,130 @@ void test("refresh from an older transition generation cannot clear the newer tr
   );
 });
 
-void test("property changes within one active transition do not strand its settling refresh", async () => {
+void test("a later MPV property event recovers a transition whose refresh was discarded", async () => {
   const { harness, controller } = createHarness();
-  const resolvers: ((value: unknown) => void)[] = [];
+  const current = queue[0];
+  assert.ok(current);
+  harness.enrichmentPathKey = harness.pathKey(current.path);
+  harness.queueExecutionReconciliation = () => Promise.resolve();
+  const staleResolvers: ((value: unknown) => void)[] = [];
   controller.getProperty = () =>
     new Promise((resolve) => {
-      resolvers.push(resolve);
+      staleResolvers.push(resolve);
     });
   harness.handleMpvMessage({ event: "start-file" });
-  const refresh = harness.refreshProperties();
+  const staleRefresh = harness.refreshProperties();
+  harness.handleMpvMessage({ event: "start-file" });
+  for (const resolve of staleResolvers) resolve(undefined);
+  await staleRefresh;
+  assert.equal(harness.transitionPending, true);
+
+  const playlist = queue.map((item, index) => ({
+    filename: item.path,
+    current: index === 0,
+    playing: index === 0,
+  }));
+  const settledValues = new Map<string, unknown>([
+    ["pause", false],
+    ["time-pos", 17],
+    ["duration", 180],
+    ["playlist", playlist],
+    ["playlist-pos", 0],
+    ["playlist-playing-pos", 0],
+    ["media-title", current.displayTitle],
+    ["metadata", { title: current.displayTitle }],
+    ["path", current.path],
+    ["audio-params", { samplerate: 44_100 }],
+    ["audio-codec-name", "flac"],
+    ["audio-buffer", 0.2],
+    ["idle-active", false],
+  ]);
+  controller.getProperty = (name) => Promise.resolve(settledValues.get(name));
+  harness.enrichmentPathKey = harness.pathKey(current.path);
   harness.handleMpvMessage({
     event: "property-change",
-    name: "playlist-pos",
-    data: -1,
+    name: "time-pos",
+    data: 17,
   });
-  for (const resolve of resolvers) resolve(undefined);
-  await refresh;
+  const recovery = harness.transitionRecoveryRefresh;
+  assert.ok(recovery);
+  await recovery;
+
   assert.equal(harness.transitionPending, false);
+  assert.equal(harness.state.currentQueueIndex, 0);
+  assert.equal(harness.state.currentTrack?.path, current.path);
+  assert.equal(harness.state.positionSeconds, 17);
+});
+
+void test("a failed critical read keeps the transition pending and preserves the last good snapshot", async () => {
+  const { harness, controller } = createHarness();
+  const previousPlaylist = [{ filename: queue[0]?.path, current: true }];
+  harness.properties.set("playlist", previousPlaylist);
+  controller.getProperty = (name) =>
+    name === "playlist"
+      ? Promise.reject(new Error("transient playlist read failure"))
+      : Promise.resolve(undefined);
+  harness.handleMpvMessage({ event: "start-file" });
+  await harness.refreshProperties();
+  assert.equal(harness.transitionPending, true);
+  assert.equal(harness.properties.get("playlist"), previousPlaylist);
+});
+
+void test("a critical event during one refresh coalesces exactly one coherent follow-up pass", async () => {
+  const { harness, controller } = createHarness();
+  const current = queue[0];
+  assert.ok(current);
+  harness.enrichmentPathKey = harness.pathKey(current.path);
+  harness.queueExecutionReconciliation = () => Promise.resolve();
+  const coherentPlaylist = [
+    { id: 101, filename: current.path, current: true, playing: true },
+  ];
+  const coherentValues = new Map<string, unknown>([
+    ["pause", false],
+    ["time-pos", 9],
+    ["duration", 180],
+    ["playlist", coherentPlaylist],
+    ["playlist-pos", 0],
+    ["playlist-playing-pos", 0],
+    ["media-title", current.displayTitle],
+    ["metadata", { title: current.displayTitle }],
+    ["path", current.path],
+    ["audio-params", { samplerate: 44_100 }],
+    ["audio-codec-name", "flac"],
+    ["audio-buffer", 0.2],
+    ["idle-active", false],
+  ]);
+  let readCount = 0;
+  let releaseFirstPath!: (value: unknown) => void;
+  controller.getProperty = (name) => {
+    const pass = Math.floor(readCount / coherentValues.size);
+    readCount += 1;
+    if (pass === 0 && name === "path")
+      return new Promise((resolve) => {
+        releaseFirstPath = resolve;
+      });
+    if (pass === 0 && name === "playlist") return Promise.resolve([]);
+    return Promise.resolve(coherentValues.get(name));
+  };
+
+  harness.handleMpvMessage({ event: "start-file", playlist_entry_id: 101 });
+  harness.enrichmentPathKey = harness.pathKey(current.path);
+  const first = harness.refreshProperties();
+  harness.handleMpvMessage({
+    event: "property-change",
+    name: "time-pos",
+    data: 9,
+  });
+  releaseFirstPath(current.path);
+  await first;
+  await new Promise((resolve) => setImmediate(resolve));
+  const recovery = harness.transitionRecoveryRefresh;
+  if (recovery) await recovery;
+
+  assert.equal(readCount, coherentValues.size * 2);
+  assert.equal(harness.transitionPending, false);
+  assert.equal(harness.state.currentTrack?.path, current.path);
+  assert.equal(harness.state.positionSeconds, 9);
 });
 
 void test("128 randomized property races always settle one Current transition", async () => {
@@ -396,6 +510,7 @@ void test("128 randomized property races always settle one Current transition", 
       ["duration", 180],
       ["playlist", playlist],
       ["playlist-pos", 0],
+      ["playlist-playing-pos", 0],
       ["media-title", current.displayTitle],
       ["metadata", { title: current.displayTitle }],
       ["path", current.path],
@@ -440,6 +555,11 @@ void test("128 randomized property races always settle one Current transition", 
       event: "property-change",
       name: "playlist-pos",
       data: iteration % 3 === 0 ? 0 : -1,
+    });
+    harness.handleMpvMessage({
+      event: "property-change",
+      name: "playlist-playing-pos",
+      data: 0,
     });
     for (const pending of pendingReads)
       pending.resolve(propertyValues.get(pending.name));

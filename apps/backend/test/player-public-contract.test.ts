@@ -132,6 +132,7 @@ function playerFixture(): {
       artwork: null,
       source: "Local File",
     },
+    durationSeconds: 180,
     currentQueueIndex: 0,
     queue: entries.map((entry, index) =>
       technicalQueueItem(entry, index, index === 0),
@@ -257,6 +258,7 @@ void test("same-path technical occurrences advance the observed track generation
   const technical = harness as PlayerHarness & {
     readonly properties: Map<string, unknown>;
     playlistItemIds: string[];
+    readonly mpvExecutionIds: Map<number, string>;
     enrichmentPathKey: string | null;
     trackTransitionId: number;
     pathKey(path: string): string;
@@ -264,7 +266,13 @@ void test("same-path technical occurrences advance the observed track generation
   };
   const first = harness.state.queue[0];
   assert.ok(first);
+  const planned = technical.playbackPlanSnapshot.current;
+  assert.ok(planned);
   const secondId = "execution-22222222-2222-4222-8222-222222222222";
+  technical.playbackPlanSnapshot = {
+    ...technical.playbackPlanSnapshot,
+    current: { ...planned, executionEntryId: secondId },
+  };
   harness.state = {
     ...harness.state,
     trackTransitionId: 9,
@@ -276,16 +284,19 @@ void test("same-path technical occurrences advance the observed track generation
   };
   technical.trackTransitionId = 9;
   technical.playlistItemIds = [first.id, secondId];
+  technical.mpvExecutionIds.set(101, first.id);
+  technical.mpvExecutionIds.set(102, secondId);
   technical.enrichmentPathKey = technical.pathKey(first.path);
   technical.properties.set("path", first.path);
   technical.properties.set("playlist-pos", 1);
+  technical.properties.set("playlist-playing-pos", 1);
   technical.properties.set("duration", 180);
   technical.properties.set("time-pos", 0);
   technical.properties.set("pause", false);
   technical.properties.set("idle-active", false);
   technical.properties.set("playlist", [
-    { filename: first.path },
-    { filename: first.path },
+    { id: 101, filename: first.path },
+    { id: 102, filename: first.path, playing: true },
   ]);
 
   technical.deriveStateFromProperties();
@@ -370,7 +381,7 @@ void test("PlayerService rejects stale explicit index and Queue revision asserti
   );
 });
 
-void test("a planner transition never associates stale observed metadata with the new Current", () => {
+void test("a planner transition freezes the old coherent Current until MPV confirms the new one", () => {
   const { player, harness } = playerFixture();
   const planner = (
     player as unknown as { readonly playbackPlanner: PlaybackPlanner }
@@ -400,18 +411,19 @@ void test("a planner transition never associates stale observed metadata with th
   const publicState = player.getPublicState();
   const transitioning = publicState.currentPlayback;
   assert.ok(transitioning);
-  assert.equal(publicState.trackTransitionId, previousTransitionId);
   assert.equal(
-    publicState.playbackPlanRevision,
-    (previousPlanRevision ?? 0) + 1,
+    player.getPlaybackPlanSnapshot().current?.item.title,
+    "Explicit A",
   );
-  assert.equal(publicState.currentTrack, null);
+  assert.equal(publicState.trackTransitionId, previousTransitionId);
+  assert.equal(publicState.playbackPlanRevision, previousPlanRevision);
+  assert.equal(publicState.currentTrack?.title, "Stale observed title");
   assert.equal(publicState.positionSeconds, 0);
-  assert.equal(publicState.durationSeconds, 182);
-  assert.equal(transitioning.source, "explicit-queue");
-  assert.equal(transitioning.item.displayTitle, "Explicit A");
-  assert.equal(transitioning.item.artwork, null);
-  assert.notEqual(transitioning.item.displayTitle, "Stale observed title");
+  assert.equal(publicState.durationSeconds, 180);
+  assert.equal(transitioning.source, "context");
+  assert.equal(transitioning.item.displayTitle, "Stale observed title");
+  assert.equal(transitioning.item.artwork?.id, "stale-artwork");
+  assert.notEqual(transitioning.item.displayTitle, "Explicit A");
 });
 
 void test("getSessionSnapshot orders forward History before Explicit Queue and remaining Context without collisions", () => {

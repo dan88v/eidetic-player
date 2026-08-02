@@ -8,10 +8,12 @@ import {
   remotePlaybackContextKindLabel,
   remotePlayerDisplay,
   remotePlayerPresentationChanged,
+  RemotePlayerStateCoordinator,
   remotePlayerTrackKey,
   remoteQueuePresentationChanged,
   remoteSameArtistSummary,
 } from "../src/player-presentation.js";
+import { LatestRequestCoordinator } from "../src/latest-request-coordinator.js";
 import type { RemotePlayerState } from "../../../packages/shared/src/remote-access.js";
 
 const root = resolve(import.meta.dirname, "..");
@@ -26,8 +28,13 @@ void test("Remote UI is standalone and never imports the appliance UI", async ()
   assert.match(source, /visibilitychange/u);
   assert.match(source, /stream\?\.close\(\)/u);
   assert.match(source, /envelope\.type === "snapshot"/u);
-  assert.match(source, /receivePlayerState\(snapshot\.player\)/u);
+  assert.match(
+    source,
+    /playerStateCoordinator\.acceptEvent\(\s*snapshot\.player,/u,
+  );
   assert.match(source, /"player-progress"/u);
+  assert.match(source, /bootstrapRequests\.run/u);
+  assert.match(source, /deferUnauthorized: true/u);
 });
 
 void test("Remote UI has no PWA, credential storage, visualizer, or custom keyboard", async () => {
@@ -210,6 +217,8 @@ void test("Remote Player keeps position ticks incremental during seek", () => {
     libraryTrackId: "track-11111111111111111111111111111111",
   } as const;
   const player = {
+    playerSessionId: "player-session-a",
+    playbackPlanRevision: 1,
     trackTransitionId: 1,
     status: "playing",
     mpvAvailable: true,
@@ -312,6 +321,8 @@ void test("Remote Player keeps position ticks incremental during seek", () => {
     false,
   );
   const progressMerged = mergeRemotePlayerProgress(player, {
+    playerSessionId: player.playerSessionId,
+    playbackPlanRevision: player.playbackPlanRevision,
     trackTransitionId: player.trackTransitionId,
     status: player.status,
     mpvAvailable: player.mpvAvailable,
@@ -328,6 +339,14 @@ void test("Remote Player keeps position ticks incremental during seek", () => {
   assert.equal(progressMerged.explicitQueue, player.explicitQueue);
   assert.equal(progressMerged.playbackContext, player.playbackContext);
   assert.equal(remoteQueuePresentationChanged(player, progressMerged), false);
+  assert.equal(
+    mergeRemotePlayerProgress(player, {
+      ...progressMerged,
+      playerSessionId: "obsolete-session",
+      positionSeconds: 99,
+    }),
+    player,
+  );
   assert.equal(
     remotePlayerPresentationChanged(player, { ...player, paused: true }),
     true,
@@ -382,6 +401,407 @@ void test("Remote Player keeps position ticks incremental during seek", () => {
     }),
     false,
   );
+});
+
+void test("Remote player rejects late HTTP state and mismatched progress after a newer SSE", () => {
+  const base = {
+    playerSessionId: "player-session-a",
+    playbackPlanRevision: 4,
+    trackTransitionId: 7,
+    status: "playing",
+    mpvAvailable: true,
+    canGoNext: true,
+    currentTrack: null,
+    currentPlayback: {
+      playbackInstanceId: "playback-a",
+      source: "context",
+      relationId: "context-a",
+      contextId: "context",
+      historyEntryId: null,
+      startedSequence: 4,
+      item: {
+        filename: "a.flac",
+        displayTitle: "A",
+        artist: null,
+        album: null,
+        durationSeconds: 100,
+        artwork: null,
+        available: true,
+        libraryTrackId: null,
+      },
+    },
+    explicitQueue: [],
+    playbackContext: null,
+    playbackHistory: {
+      entryCount: 1,
+      cursor: 0,
+      canGoBack: false,
+      canGoForward: false,
+    },
+    playbackContinuation: {
+      mode: "off",
+      artistId: null,
+      artistName: null,
+      active: false,
+    },
+    contextRevision: 2,
+    queue: [],
+    queueRevision: 3,
+    positionSeconds: 10,
+    durationSeconds: 100,
+    paused: false,
+    volume: 50,
+    muted: false,
+    shuffleEnabled: false,
+    repeatMode: "off",
+    error: null,
+  } satisfies RemotePlayerState;
+  const next = {
+    ...base,
+    playbackPlanRevision: 5,
+    trackTransitionId: 8,
+    positionSeconds: 2,
+    currentPlayback: {
+      ...base.currentPlayback,
+      playbackInstanceId: "playback-b",
+      relationId: "context-b",
+      startedSequence: 5,
+      item: {
+        ...base.currentPlayback.item,
+        filename: "b.flac",
+        displayTitle: "B",
+      },
+    },
+  } satisfies RemotePlayerState;
+  const coordinator = new RemotePlayerStateCoordinator();
+  coordinator.reset(base, 40);
+  const pendingHttp = coordinator.beginHttpRequest();
+  assert.equal(coordinator.acceptEvent(next, 41), next);
+  assert.equal(
+    coordinator.acceptHttp(
+      { ...base, currentPlayback: null, positionSeconds: 0 },
+      pendingHttp,
+    ),
+    null,
+  );
+  assert.equal(
+    coordinator.acceptProgress(
+      {
+        playerSessionId: base.playerSessionId,
+        playbackPlanRevision: base.playbackPlanRevision,
+        trackTransitionId: base.trackTransitionId,
+        status: "playing",
+        mpvAvailable: true,
+        positionSeconds: 78,
+        durationSeconds: 100,
+        paused: false,
+        volume: 50,
+        muted: false,
+        shuffleEnabled: false,
+        repeatMode: "off",
+        error: null,
+      },
+      42,
+    ),
+    null,
+  );
+  const progressed = coordinator.acceptProgress(
+    {
+      playerSessionId: next.playerSessionId,
+      playbackPlanRevision: next.playbackPlanRevision,
+      trackTransitionId: next.trackTransitionId,
+      status: "playing",
+      mpvAvailable: true,
+      positionSeconds: 12,
+      durationSeconds: 100,
+      paused: false,
+      volume: 50,
+      muted: false,
+      shuffleEnabled: false,
+      repeatMode: "off",
+      error: null,
+    },
+    43,
+  );
+  assert.ok(progressed?.currentPlayback);
+  assert.equal(progressed.currentPlayback.item.displayTitle, "B");
+  assert.equal(progressed.positionSeconds, 12);
+  assert.equal(coordinator.acceptEvent(base, 42), null);
+  assert.equal(
+    coordinator.acceptEvent(
+      { ...base, currentPlayback: null, positionSeconds: 0 },
+      44,
+    ),
+    null,
+  );
+});
+
+void test("Remote renders a new authoritative Current while observed track enrichment is pending", () => {
+  const artworkA = {
+    id: "artwork-a",
+    mimeType: "image/jpeg",
+    sourceType: "embedded",
+    revision: "a",
+  } as const;
+  const artworkB = {
+    id: "artwork-b",
+    mimeType: "image/jpeg",
+    sourceType: "embedded",
+    revision: "b",
+  } as const;
+  const observedA = {
+    filename: "a.flac",
+    title: "A",
+    artist: "Artist A",
+    album: "Album A",
+    artists: ["Artist A"],
+    albumArtist: null,
+    trackNumber: 1,
+    trackTotal: 2,
+    discNumber: 1,
+    discTotal: 1,
+    year: 2026,
+    genre: [],
+    durationSeconds: 100,
+    format: "FLAC",
+    codec: "flac",
+    sampleRate: 44_100,
+    bitDepth: 16,
+    bitrate: 900_000,
+    lossless: true,
+    container: "FLAC",
+    artwork: artworkA,
+    source: "Local File",
+  } as const;
+  const previous = {
+    playerSessionId: "player-session-transition",
+    playbackPlanRevision: 10,
+    trackTransitionId: 20,
+    status: "playing",
+    mpvAvailable: true,
+    canGoNext: true,
+    currentTrack: observedA,
+    currentPlayback: {
+      playbackInstanceId: "playback-a",
+      source: "context",
+      relationId: "context-a",
+      contextId: "context",
+      historyEntryId: null,
+      startedSequence: 10,
+      item: {
+        filename: "a.flac",
+        displayTitle: "A",
+        artist: "Artist A",
+        album: "Album A",
+        durationSeconds: 100,
+        artwork: artworkA,
+        available: true,
+        libraryTrackId: null,
+      },
+    },
+    explicitQueue: [],
+    playbackContext: null,
+    playbackHistory: {
+      entryCount: 1,
+      cursor: 0,
+      canGoBack: false,
+      canGoForward: false,
+    },
+    playbackContinuation: {
+      mode: "off",
+      artistId: null,
+      artistName: null,
+      active: false,
+    },
+    contextRevision: 4,
+    queue: [],
+    queueRevision: 2,
+    positionSeconds: 91,
+    durationSeconds: 100,
+    paused: false,
+    volume: 50,
+    muted: false,
+    shuffleEnabled: false,
+    repeatMode: "off",
+    error: null,
+  } satisfies RemotePlayerState;
+  const pendingEnrichment = {
+    ...previous,
+    playbackPlanRevision: 11,
+    currentTrack: null,
+    currentPlayback: {
+      ...previous.currentPlayback,
+      playbackInstanceId: "playback-b",
+      relationId: "context-b",
+      startedSequence: 11,
+      item: {
+        ...previous.currentPlayback.item,
+        filename: "b.flac",
+        displayTitle: "B",
+        artist: "Artist B",
+        album: "Album B",
+        artwork: artworkB,
+      },
+    },
+    positionSeconds: 0,
+  } satisfies RemotePlayerState;
+  const coordinator = new RemotePlayerStateCoordinator();
+  coordinator.reset(previous, 100);
+  const acceptedPending = coordinator.acceptEvent(pendingEnrichment, 101);
+  assert.ok(acceptedPending);
+  assert.deepEqual(remotePlayerDisplay(acceptedPending), {
+    title: "B",
+    artist: "Artist B",
+    album: "Album B",
+    artwork: artworkB,
+    hasCurrent: true,
+  });
+
+  const observedB = {
+    ...observedA,
+    filename: "b.flac",
+    title: "B",
+    artist: "Artist B",
+    album: "Album B",
+    artists: ["Artist B"],
+    artwork: artworkB,
+  } as const;
+  const settled = coordinator.acceptEvent(
+    {
+      ...pendingEnrichment,
+      trackTransitionId: 21,
+      currentTrack: observedB,
+      positionSeconds: 0.08,
+    },
+    102,
+  );
+  assert.ok(settled);
+  assert.equal(remotePlayerDisplay(settled).title, "B");
+  assert.equal(remotePlayerDisplay(settled).artwork, artworkB);
+});
+
+void test("Remote player accepts only the newest concurrent HTTP response", () => {
+  const player = {
+    playerSessionId: "player-session-a",
+    playbackPlanRevision: 1,
+    trackTransitionId: 1,
+    queueRevision: 0,
+    contextRevision: 0,
+    currentPlayback: null,
+  } as unknown as RemotePlayerState;
+  const coordinator = new RemotePlayerStateCoordinator();
+  coordinator.reset(player, 1);
+  const first = coordinator.beginHttpRequest();
+  const second = coordinator.beginHttpRequest();
+  assert.equal(coordinator.acceptHttp({ ...player, volume: 25 }, first), null);
+  assert.equal(
+    coordinator.acceptHttp({ ...player, volume: 75 }, second)?.volume,
+    75,
+  );
+});
+
+void test("Remote progress merges onto the optimistic Queue snapshot", () => {
+  const player = {
+    playerSessionId: "player-session-queue",
+    playbackPlanRevision: 3,
+    trackTransitionId: 5,
+    queueRevision: 7,
+    contextRevision: 2,
+    currentPlayback: null,
+    explicitQueue: [
+      { explicitQueueEntryId: "explicit-a", index: 0 },
+      { explicitQueueEntryId: "explicit-b", index: 1 },
+    ],
+    queue: [
+      { id: "explicit-a", index: 0 },
+      { id: "explicit-b", index: 1 },
+    ],
+  } as unknown as RemotePlayerState;
+  const coordinator = new RemotePlayerStateCoordinator();
+  coordinator.reset(player, 10);
+  const optimistic = coordinator.replaceLocal({
+    ...player,
+    explicitQueue: [...player.explicitQueue].reverse(),
+    queue: [...player.queue].reverse(),
+  });
+  assert.ok(optimistic);
+  const pendingHttp = coordinator.beginHttpRequest();
+  const progressed = coordinator.acceptProgress(
+    {
+      playerSessionId: player.playerSessionId,
+      playbackPlanRevision: player.playbackPlanRevision,
+      trackTransitionId: player.trackTransitionId,
+      status: "playing",
+      mpvAvailable: true,
+      positionSeconds: 12,
+      durationSeconds: 100,
+      paused: false,
+      volume: 50,
+      muted: false,
+      shuffleEnabled: false,
+      repeatMode: "off",
+      error: null,
+    },
+    11,
+  );
+  assert.deepEqual(
+    progressed?.explicitQueue.map((entry) => entry.explicitQueueEntryId),
+    ["explicit-b", "explicit-a"],
+  );
+  assert.equal(coordinator.isCurrent(pendingHttp), false);
+  assert.equal(coordinator.isLatestHttpRequest(pendingHttp), true);
+  assert.ok(progressed);
+  const rolledBack = coordinator.replaceLocal({
+    ...progressed,
+    explicitQueue: player.explicitQueue,
+    queue: player.queue,
+  });
+  assert.ok(rolledBack);
+  assert.deepEqual(
+    rolledBack.explicitQueue.map((entry) => entry.explicitQueueEntryId),
+    ["explicit-a", "explicit-b"],
+  );
+  assert.equal(rolledBack.positionSeconds, 12);
+});
+
+void test("Remote bootstrap applies only the latest deferred outcome", async () => {
+  function deferred<T>() {
+    let resolvePromise!: (value: T) => void;
+    let rejectPromise!: (error: unknown) => void;
+    const promise = new Promise<T>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    });
+    return { promise, resolve: resolvePromise, reject: rejectPromise };
+  }
+
+  const coordinator = new LatestRequestCoordinator();
+  const first = deferred<string>();
+  const second = deferred<string>();
+  const effects: string[] = [];
+  const handlers = {
+    success: (value: string) => {
+      effects.push(`success:${value}`);
+    },
+    failure: (error: unknown) => {
+      effects.push(
+        `failure:${error instanceof Error ? error.message : "unknown"}`,
+      );
+    },
+  };
+  const firstRun = coordinator.run(() => first.promise, handlers);
+  const secondRun = coordinator.run(() => second.promise, handlers);
+  second.resolve("new-bootstrap");
+  assert.equal(await secondRun, "applied");
+  first.reject(new Error("obsolete-401"));
+  assert.equal(await firstRun, "stale");
+  assert.deepEqual(effects, ["success:new-bootstrap"]);
+
+  const current = deferred<string>();
+  const currentRun = coordinator.run(() => current.promise, handlers);
+  current.reject(new Error("current-401"));
+  assert.equal(await currentRun, "applied");
+  assert.deepEqual(effects, ["success:new-bootstrap", "failure:current-401"]);
 });
 
 void test("Remote Library labels Album and Artist track counts", () => {

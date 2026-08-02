@@ -13,6 +13,20 @@ import type {
 } from "../../../../packages/shared/src/player.js";
 
 const MAX_REPORTED_AUDIO_BUFFER_SECONDS = 1;
+const TRANSITION_CORE_PROPERTIES = [
+  "path",
+  "playlist",
+  "duration",
+  "time-pos",
+  "idle-active",
+] as const;
+const TRANSITION_TRACK_PROPERTIES = [
+  "media-title",
+  "metadata",
+  "audio-params",
+  "audio-codec-name",
+  "audio-buffer",
+] as const;
 import {
   ArtworkService,
   type ArtworkResource,
@@ -24,7 +38,11 @@ import { normalizeMetadataText } from "../metadata/metadata-text.js";
 import type { NormalizedMetadata } from "../metadata/types.js";
 import { discoverMpv } from "./mpv-discovery.js";
 import { MpvController } from "./mpv-controller.js";
-import type { MpvResponse } from "./mpv-transport.js";
+import type {
+  MpvPlaylistEntry,
+  MpvPlaylistEntryId,
+  MpvResponse,
+} from "./mpv-transport.js";
 import { PlayerError } from "./player-error.js";
 import { buildExplicitQueue, buildQueue } from "./queue-builder.js";
 import { LimitedConcurrency } from "../utils/limited-concurrency.js";
@@ -114,13 +132,6 @@ const initialState: PlayerState = {
   error: null,
 };
 
-interface MpvPlaylistEntry {
-  readonly filename?: unknown;
-  readonly title?: unknown;
-  readonly current?: unknown;
-  readonly playing?: unknown;
-}
-
 interface AudioParameters {
   readonly samplerate?: unknown;
 }
@@ -165,6 +176,25 @@ interface PlaybackPlanAttempt {
   readonly consumedExplicit: Map<ExplicitQueueEntryId, ExplicitQueueEntry>;
 }
 
+interface MpvFileTransitionToken {
+  readonly coreGeneration: number;
+  readonly generation: number;
+  readonly mpvPlaylistEntryId: MpvPlaylistEntryId | null;
+  readonly executionEntryId: string | null;
+}
+
+interface MpvEndFileToken {
+  readonly coreGeneration: number;
+  readonly mpvPlaylistEntryId: MpvPlaylistEntryId | null;
+  readonly executionEntryId: string | null;
+}
+
+interface TransitionPublicPlaybackSnapshot {
+  readonly plan: PlaybackPlanSnapshot;
+  readonly playbackPlanRevision: number;
+  readonly canGoNext: boolean;
+}
+
 export class PlayerService implements AudioOutputMpvAdapter {
   private state: PlayerState = initialState;
   private controller: MpvController | null = null;
@@ -176,6 +206,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
   private stagedQueue: string[] | null = null;
   private readonly itemIds = new Map<string, string>();
   private playlistItemIds: string[] = [];
+  private readonly mpvExecutionIds = new Map<MpvPlaylistEntryId, string>();
   private readonly queueOrigins = new Map<string, PersistedQueueOrigin>();
   private readonly executionOrigins = new Map<string, PersistedQueueOrigin>();
   private restartAttempted = false;
@@ -193,6 +224,12 @@ export class PlayerService implements AudioOutputMpvAdapter {
   private preloadParsing: Promise<void> = Promise.resolve();
   private nextArtwork: ArtworkRef | null = null;
   private transitionPending = false;
+  private transitionRecoveryRefresh: Promise<void> | null = null;
+  private transitionRecoveryRequested = false;
+  private transitionPropertyBaselines = new Map<string, number>();
+  private activeMpvFileTransition: MpvFileTransitionToken | null = null;
+  private transitionPublicPlaybackSnapshot: TransitionPublicPlaybackSnapshot | null =
+    null;
   private trackTransitionId = 0;
   private readonly preloadedEnrichments = new Map<
     string,
@@ -224,6 +261,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
     Promise.resolve();
   private readonly propertyVersions = new Map<string, number>();
   private refreshGeneration = 0;
+  private activePropertyRefreshes = 0;
+  private mpvCoreGeneration = 0;
   private transitionGeneration = 0;
   private lastOutputVolumeReapplyGeneration = 0;
   private lastOutputMuteReapplyGeneration = 0;
@@ -234,6 +273,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
   private plannerTransitionChain: Promise<void> = Promise.resolve();
   private executionReconcileGeneration = 0;
   private plannerNavigationPending = false;
+  private plannerNavigationTargetId: string | null = null;
   private readonly activePlaybackPlanAttempts = new Set<PlaybackPlanAttempt>();
   private sameArtistResolver:
     ((artistId: string) => Promise<readonly SameArtistCandidate[]>) | null =
@@ -297,7 +337,17 @@ export class PlayerService implements AudioOutputMpvAdapter {
         return `library-source://${sourceId}/${logicalPath}`;
       return `player-item://${encodeURIComponent(playbackInstanceId)}`;
     };
-    const plan = this.playbackPlanSnapshot;
+    const transitionPublicPlayback = this.transitionPublicPlaybackSnapshot;
+    const plan = transitionPublicPlayback
+      ? {
+          ...transitionPublicPlayback.plan,
+          explicitQueue: this.playbackPlanSnapshot.explicitQueue,
+          revisions: {
+            ...transitionPublicPlayback.plan.revisions,
+            explicitQueue: this.playbackPlanSnapshot.revisions.explicitQueue,
+          },
+        }
+      : this.playbackPlanSnapshot;
     const technicalByExecutionId = new Map(
       this.state.queue.map((item) => [item.id, item]),
     );
@@ -482,8 +532,10 @@ export class PlayerService implements AudioOutputMpvAdapter {
         active: context?.kind === "artist-radio",
       },
       contextRevision: plan.revisions.context,
-      playbackPlanRevision: this.publicPlaybackRevision,
-      canGoNext: this.publicCanGoNext,
+      playbackPlanRevision:
+        transitionPublicPlayback?.playbackPlanRevision ??
+        this.publicPlaybackRevision,
+      canGoNext: transitionPublicPlayback?.canGoNext ?? this.publicCanGoNext,
     };
   }
 
@@ -575,17 +627,25 @@ export class PlayerService implements AudioOutputMpvAdapter {
   }
 
   captureExternalPlaybackSuspension(): LocalPlaybackSuspensionSnapshot {
+    if (this.transitionPending || this.transitionPublicPlaybackSnapshot)
+      throw new PlayerError(
+        "LOCAL_TRANSITION_PENDING",
+        "Local playback is changing tracks. Try the external source again.",
+        409,
+      );
+    const publicState = this.getPublicState();
     return {
-      playerSessionId: this.state.playerSessionId,
-      playbackPlanRevision: this.publicPlaybackRevision,
+      playerSessionId: publicState.playerSessionId,
+      playbackPlanRevision:
+        publicState.playbackPlanRevision ?? this.publicPlaybackRevision,
       playbackInstanceId:
-        this.playbackPlanSnapshot.current?.playbackInstanceId ?? null,
-      trackTransitionId: this.state.trackTransitionId,
-      positionSeconds: this.state.positionSeconds,
-      volume: this.state.volume,
-      muted: this.state.muted,
-      wasPlaying: this.state.status === "playing" && !this.state.paused,
-      wasPaused: this.state.paused,
+        publicState.currentPlayback?.playbackInstanceId ?? null,
+      trackTransitionId: publicState.trackTransitionId,
+      positionSeconds: publicState.positionSeconds,
+      volume: publicState.volume,
+      muted: publicState.muted,
+      wasPlaying: publicState.status === "playing" && !publicState.paused,
+      wasPaused: publicState.paused,
     };
   }
 
@@ -1081,6 +1141,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       existingTargetIndex >= 0
     ) {
       this.plannerNavigationPending = true;
+      this.plannerNavigationTargetId = decision.current.executionEntryId;
       this.pendingTrackTargetId = decision.current.executionEntryId;
       this.pendingTrackTargetExpiresAt = performance.now() + 10_000;
       await controller.setProperty("playlist-pos", existingTargetIndex);
@@ -1245,10 +1306,20 @@ export class PlayerService implements AudioOutputMpvAdapter {
       }
     }
     this.properties.clear();
+    this.refreshGeneration += 1;
+    this.transitionGeneration += 1;
     this.originalQueue = [];
     this.stagedQueue = null;
     this.playlistItemIds = [];
+    this.mpvExecutionIds.clear();
     this.executionOrigins.clear();
+    this.activeMpvFileTransition = null;
+    this.transitionPublicPlaybackSnapshot = null;
+    this.transitionPending = false;
+    this.transitionRecoveryRequested = false;
+    this.transitionPropertyBaselines.clear();
+    this.plannerNavigationPending = false;
+    this.plannerNavigationTargetId = null;
     this.update({
       status: this.playbackPlanSnapshot.explicitQueue.length
         ? "stopped"
@@ -1263,10 +1334,29 @@ export class PlayerService implements AudioOutputMpvAdapter {
   }
 
   private syncPlaybackPlan(): void {
+    const previousSnapshot = this.playbackPlanSnapshot;
     const previousCurrentId =
-      this.playbackPlanSnapshot.current?.playbackInstanceId ?? null;
+      previousSnapshot.current?.playbackInstanceId ?? null;
     const nextSnapshot = this.playbackPlanner.snapshot();
     const nextCurrentId = nextSnapshot.current?.playbackInstanceId ?? null;
+    const technicalCurrentId =
+      this.state.queue[this.state.currentQueueIndex]?.id ?? null;
+    const technicalCurrentPath = this.state.currentTrack?.path ?? null;
+    const nextCurrent = nextSnapshot.current;
+    const nextAlreadyMatchesTechnical = Boolean(
+      nextCurrent?.item.nativePath &&
+      technicalCurrentId === nextCurrent.executionEntryId &&
+      technicalCurrentPath &&
+      this.pathKey(technicalCurrentPath) ===
+        this.pathKey(nextCurrent.item.nativePath),
+    );
+    if (
+      previousCurrentId !== nextCurrentId &&
+      previousCurrentId !== null &&
+      this.state.currentTrack !== null &&
+      !nextAlreadyMatchesTechnical
+    )
+      this.beginTrackTransition();
     if (previousCurrentId !== nextCurrentId) this.publicPlaybackRevision += 1;
     this.playbackPlanSnapshot = nextSnapshot;
     this.publicCanGoNext = this.playbackPlanner.canAdvance();
@@ -1418,6 +1508,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
         this.pendingTrackTargetId === attemptedTargetId)
     ) {
       this.plannerNavigationPending = false;
+      this.plannerNavigationTargetId = null;
       this.clearPendingTrackTarget();
     }
     await this.reconcilePlaybackAfterRollback(restored);
@@ -1664,7 +1755,24 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const controller = this.requireController();
     if (options.autoplay) await this.beforePlayback();
     const hadQueue = this.state.queue.length > 0;
+    const preservePublicTransition =
+      this.transitionPublicPlaybackSnapshot !== null;
+    this.refreshGeneration += 1;
+    this.transitionGeneration += 1;
+    this.transitionPending = preservePublicTransition;
+    this.transitionRecoveryRequested = false;
+    this.transitionPropertyBaselines = preservePublicTransition
+      ? new Map<string, number>(
+          [...TRANSITION_CORE_PROPERTIES, ...TRANSITION_TRACK_PROPERTIES].map(
+            (name) => [name, this.propertyVersions.get(name) ?? 0],
+          ),
+        )
+      : new Map<string, number>();
+    this.activeMpvFileTransition = null;
+    this.plannerNavigationPending = false;
+    this.plannerNavigationTargetId = null;
     this.itemIds.clear();
+    this.mpvExecutionIds.clear();
     this.playlistItemIds = queue.map(
       (_, index) => options.itemIds?.[index] ?? `queue-${randomUUID()}`,
     );
@@ -1700,6 +1808,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       await controller.setProperty("pause", !options.autoplay);
       this.preparingPlaylist = false;
       await this.refreshProperties();
+      if (this.transitionPending) this.requestTransitionRecoveryRefresh();
     } catch (error) {
       this.preparingPlaylist = false;
       this.updateError(
@@ -2396,6 +2505,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       executable: this.executable,
       onUnexpectedExit: () => void this.handleUnexpectedExit(),
     });
+    this.mpvCoreGeneration += 1;
     this.controller = controller;
     this.unsubscribeMpv = controller.subscribe((message) => {
       this.handleMpvMessage(message);
@@ -2414,9 +2524,12 @@ export class PlayerService implements AudioOutputMpvAdapter {
       this.trackTransitionId += 1;
     }
     this.originalQueue = [];
+    this.refreshGeneration += 1;
+    this.transitionGeneration += 1;
     this.stagedQueue = null;
     this.itemIds.clear();
     this.playlistItemIds = [];
+    this.mpvExecutionIds.clear();
     this.queueOrigins.clear();
     this.executionOrigins.clear();
     this.enrichmentGeneration += 1;
@@ -2425,6 +2538,12 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.nextArtwork = null;
     this.preloadedEnrichments.clear();
     this.transitionPending = false;
+    this.transitionRecoveryRequested = false;
+    this.transitionPropertyBaselines.clear();
+    this.activeMpvFileTransition = null;
+    this.transitionPublicPlaybackSnapshot = null;
+    this.plannerNavigationPending = false;
+    this.plannerNavigationTargetId = null;
     this.clearPendingTrackTarget();
     this.artworkService.setPinned([]);
     this.update({
@@ -2473,6 +2592,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       this.properties.clear();
       this.executionReconcileGeneration += 1;
       this.plannerNavigationPending = false;
+      this.plannerNavigationTargetId = null;
       this.preparingPlaylist = false;
       this.resetLocalState();
       this.update({
@@ -2603,12 +2723,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
         (message.name === "path" &&
           this.pathKey(this.asString(message.data) ?? "") !==
             this.pathKey(this.state.currentTrack?.path ?? "")) ||
-        (message.name === "playlist-pos" &&
+        (message.name === "playlist-playing-pos" &&
           Math.trunc(this.asNumber(message.data, -1)) !==
             this.state.currentQueueIndex)
       )
         this.beginTrackTransition();
-      if (this.transitionPending) return;
+      if (this.transitionPending) {
+        this.requestTransitionRecoveryRefresh();
+        return;
+      }
       if (message.name === "time-pos") {
         this.queuePositionUpdate(this.asNumber(message.data));
       } else {
@@ -2620,12 +2743,20 @@ export class PlayerService implements AudioOutputMpvAdapter {
       case "start-file":
         if (this.preparingPlaylist) break;
         this.commandIntents.record("navigation", "start-file");
-        this.beginTrackTransition(true);
+        this.beginTrackTransition(
+          true,
+          this.asPlaylistEntryId(message.playlist_entry_id),
+        );
         break;
       case "file-loaded":
         if (this.preparingPlaylist) break;
         this.commandIntents.record("navigation", "file-loaded");
-        this.queuePlannerTransition(() => this.handlePlannerFileLoaded());
+        {
+          const token = this.activeMpvFileTransition;
+          this.queuePlannerTransition(() =>
+            this.handlePlannerFileLoaded(token),
+          );
+        }
         break;
       case "playback-restart":
         if (this.preparingPlaylist) break;
@@ -2638,10 +2769,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
         else {
           this.flushPosition();
           if ((message as { reason?: unknown }).reason === "eof") {
-            for (const listener of this.naturalEndListeners)
-              listener(this.state);
-            if (this.playbackPlanSnapshot.repeatMode !== "one")
-              this.queuePlannerTransition(() => this.handlePlannerNaturalEnd());
+            const token = this.captureEndFileToken(message);
+            if (this.playbackPlanSnapshot.repeatMode === "one")
+              this.queuePlannerTransition(() =>
+                this.handlePlannerRepeatedNaturalEnd(token),
+              );
+            else
+              this.queuePlannerTransition(() =>
+                this.handlePlannerNaturalEnd(token),
+              );
           }
         }
         break;
@@ -2662,11 +2798,14 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const next = this.plannerTransitionChain.then(operation);
     this.plannerTransitionChain = next.catch((error: unknown) => {
       console.warn("[playback-plan] transition reconciliation failed", error);
+      if (this.transitionPending) this.requestTransitionRecoveryRefresh();
     });
   }
 
-  private async handlePlannerNaturalEnd(): Promise<void> {
-    if (!this.playbackPlanSnapshot.current) return;
+  private async handlePlannerNaturalEnd(token: MpvEndFileToken): Promise<void> {
+    if (!this.isValidEndFileToken(token)) return;
+    for (const listener of this.naturalEndListeners) listener(this.state);
+    this.beginTrackTransition();
     this.hydrateCurrentPrimaryArtistIdentity();
     const attempt = this.beginPlaybackPlanAttempt();
     try {
@@ -2681,6 +2820,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
         );
         if (existingIndex >= 0) {
           this.plannerNavigationPending = true;
+          this.plannerNavigationTargetId = decision.current.executionEntryId;
+          const observedExecutionId =
+            this.activeMpvFileTransition?.executionEntryId ??
+            this.observedCurrentExecutionId();
+          if (observedExecutionId !== decision.current.executionEntryId)
+            await this.requireController().setProperty(
+              "playlist-pos",
+              existingIndex,
+            );
           return;
         }
       } else this.capturePlaybackPlanMutation(attempt, before);
@@ -2697,42 +2845,71 @@ export class PlayerService implements AudioOutputMpvAdapter {
     }
   }
 
-  private async handlePlannerFileLoaded(): Promise<void> {
-    const controller = this.controller;
-    if (!controller) return;
-    const playlistIndex = Math.trunc(
-      this.asNumber(await controller.getProperty("playlist-pos"), -1),
-    );
-    const actualExecutionId = this.playlistItemIds[playlistIndex] ?? null;
-    let expectedExecutionId =
-      this.playbackPlanSnapshot.current?.executionEntryId ?? null;
-    if (
-      actualExecutionId &&
-      expectedExecutionId &&
-      actualExecutionId !== expectedExecutionId &&
-      !this.plannerNavigationPending
-    ) {
-      this.hydrateCurrentPrimaryArtistIdentity();
-      const previousPlan = this.playbackPlanner.serialize();
-      const decision = this.playbackPlanner.advance();
-      this.syncPlaybackPlan();
-      if (
-        decision.kind !== "start" ||
-        decision.current.executionEntryId !== actualExecutionId
-      ) {
-        this.playbackPlanner.restore(previousPlan);
-        this.syncPlaybackPlan();
-      } else this.hydrateCurrentPrimaryArtistIdentity();
-      expectedExecutionId =
-        this.playbackPlanSnapshot.current?.executionEntryId ?? null;
+  private handlePlannerRepeatedNaturalEnd(
+    token: MpvEndFileToken,
+  ): Promise<void> {
+    if (!this.isValidEndFileToken(token)) return Promise.resolve();
+    for (const listener of this.naturalEndListeners) listener(this.state);
+    return Promise.resolve();
+  }
+
+  private isValidEndFileToken(token: MpvEndFileToken): boolean {
+    if (token.coreGeneration !== this.mpvCoreGeneration) return false;
+    const current = this.playbackPlanSnapshot.current;
+    if (!current) return false;
+    if (token.mpvPlaylistEntryId !== null && token.executionEntryId === null) {
+      this.commandIntents.record("navigation", "stale-discarded");
+      return false;
     }
-    this.plannerNavigationPending = false;
-    await this.refreshProperties();
-    if (actualExecutionId && actualExecutionId === expectedExecutionId)
-      await this.queueExecutionReconciliation();
+    if (
+      token.executionEntryId !== null &&
+      token.executionEntryId !== current.executionEntryId
+    ) {
+      this.commandIntents.record("navigation", "stale-discarded");
+      return false;
+    }
+    return true;
+  }
+
+  private async handlePlannerFileLoaded(
+    token: MpvFileTransitionToken | null,
+  ): Promise<void> {
+    if (!this.controller || !this.isActiveFileTransition(token)) return;
+    try {
+      await this.refreshProperties();
+      if (!this.isActiveFileTransition(token)) return;
+      const actualExecutionId = this.observedCurrentExecutionId();
+      this.confirmPlannerNavigation(actualExecutionId);
+      if (
+        actualExecutionId &&
+        actualExecutionId ===
+          this.playbackPlanSnapshot.current?.executionEntryId
+      )
+        await this.queueExecutionReconciliation();
+    } finally {
+      if (this.transitionPending) this.requestTransitionRecoveryRefresh();
+    }
   }
 
   private async refreshProperties(): Promise<void> {
+    this.activePropertyRefreshes += 1;
+    try {
+      await this.readAndApplyProperties();
+    } finally {
+      this.activePropertyRefreshes = Math.max(
+        0,
+        this.activePropertyRefreshes - 1,
+      );
+      if (
+        this.activePropertyRefreshes === 0 &&
+        this.transitionPending &&
+        this.transitionRecoveryRequested
+      )
+        this.requestTransitionRecoveryRefresh();
+    }
+  }
+
+  private async readAndApplyProperties(): Promise<void> {
     const controller = this.controller;
     if (!controller) return;
     const refreshGeneration = ++this.refreshGeneration;
@@ -2743,6 +2920,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       "duration",
       "playlist",
       "playlist-pos",
+      "playlist-playing-pos",
       "media-title",
       "metadata",
       "path",
@@ -2752,12 +2930,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
       "idle-active",
     ];
     const versions = names.map((name) => this.propertyVersions.get(name) ?? 0);
-    const values = await Promise.all(
+    const reads = await Promise.all(
       names.map(async (name) => {
         try {
-          return await controller.getProperty(name, "background");
+          return {
+            ok: true as const,
+            value: await controller.getProperty(name, "background"),
+          };
         } catch {
-          return undefined;
+          return { ok: false as const };
         }
       }),
     );
@@ -2768,20 +2949,110 @@ export class PlayerService implements AudioOutputMpvAdapter {
       this.commandIntents.record("navigation", "stale-discarded");
       return;
     }
-    names.forEach((name, index) => {
-      if ((this.propertyVersions.get(name) ?? 0) === versions[index])
-        this.properties.set(name, values[index]);
-      else this.commandIntents.record("navigation", "stale-discarded");
-    });
-    this.transitionPending = false;
+    const refreshed = new Set<string>();
+    let criticalChangedDuringRefresh = false;
+    for (const [index, name] of names.entries()) {
+      const read = reads[index];
+      if (!read?.ok) continue;
+      if ((this.propertyVersions.get(name) ?? 0) === versions[index]) {
+        this.properties.set(name, read.value);
+        refreshed.add(name);
+      } else {
+        this.commandIntents.record("navigation", "stale-discarded");
+        if ((TRANSITION_CORE_PROPERTIES as readonly string[]).includes(name))
+          criticalChangedDuringRefresh = true;
+      }
+    }
+    let settledTransition = false;
+    if (this.transitionPending) {
+      if (criticalChangedDuringRefresh) this.transitionRecoveryRequested = true;
+      if (!this.canSettleTrackTransition(refreshed)) return;
+      this.clearUnfreshTransitionTrackProperties(refreshed);
+      this.transitionPending = false;
+      this.transitionRecoveryRequested = false;
+      this.transitionPublicPlaybackSnapshot = null;
+      settledTransition = true;
+    }
     this.deriveStateFromProperties();
+    if (
+      settledTransition &&
+      this.observedCurrentExecutionId() ===
+        this.playbackPlanSnapshot.current?.executionEntryId
+    )
+      void this.queueExecutionReconciliation().catch((error: unknown) => {
+        console.warn(
+          "[playback-plan] transition future reconciliation failed",
+          error,
+        );
+      });
   }
 
-  private beginTrackTransition(forceNewGeneration = false): void {
+  private requestTransitionRecoveryRefresh(): void {
+    if (!this.transitionPending) return;
+    this.transitionRecoveryRequested = true;
+    if (this.transitionRecoveryRefresh || this.activePropertyRefreshes > 0)
+      return;
+    const recovery = Promise.resolve().then(async () => {
+      while (
+        this.transitionPending &&
+        this.transitionRecoveryRequested &&
+        !this.shuttingDown
+      ) {
+        if (this.activePropertyRefreshes > 0) return;
+        this.transitionRecoveryRequested = false;
+        await this.refreshProperties();
+      }
+    });
+    this.transitionRecoveryRefresh = recovery;
+    void recovery
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          console.warn(
+            "[player] transition recovery refresh failed",
+            error instanceof Error ? error.message : "unknown error",
+          );
+        },
+      )
+      .then(() => {
+        if (this.transitionRecoveryRefresh === recovery)
+          this.transitionRecoveryRefresh = null;
+        if (this.transitionPending && this.transitionRecoveryRequested)
+          this.requestTransitionRecoveryRefresh();
+      });
+  }
+
+  private beginTrackTransition(
+    forceNewGeneration = false,
+    mpvPlaylistEntryId: MpvPlaylistEntryId | null = null,
+  ): void {
     if (this.transitionPending && !forceNewGeneration) return;
+    if (!this.transitionPending && !this.transitionPublicPlaybackSnapshot)
+      this.transitionPublicPlaybackSnapshot = {
+        plan: this.playbackPlanSnapshot,
+        playbackPlanRevision: this.publicPlaybackRevision,
+        canGoNext: this.publicCanGoNext,
+      };
     this.transitionGeneration += 1;
     this.commandIntents.record("navigation", "transition-start");
-    if (this.transitionPending) return;
+    this.transitionPropertyBaselines = new Map(
+      [...TRANSITION_CORE_PROPERTIES, ...TRANSITION_TRACK_PROPERTIES].map(
+        (name) => [name, this.propertyVersions.get(name) ?? 0],
+      ),
+    );
+    this.activeMpvFileTransition = {
+      coreGeneration: this.mpvCoreGeneration,
+      generation: this.transitionGeneration,
+      mpvPlaylistEntryId,
+      executionEntryId:
+        mpvPlaylistEntryId === null
+          ? null
+          : (this.mpvExecutionIds.get(mpvPlaylistEntryId) ?? null),
+    };
+    if (this.transitionPending) {
+      this.transitionRecoveryRequested = false;
+      return;
+    }
     this.transitionPending = true;
     this.enrichmentGeneration += 1;
     this.enrichmentPathKey = null;
@@ -2793,6 +3064,145 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.artworkService.setPinned([]);
   }
 
+  private canSettleTrackTransition(refreshed: ReadonlySet<string>): boolean {
+    const isFresh = (name: string): boolean =>
+      refreshed.has(name) ||
+      (this.propertyVersions.get(name) ?? 0) >
+        (this.transitionPropertyBaselines.get(name) ?? 0);
+    if (!TRANSITION_CORE_PROPERTIES.every(isFresh)) return false;
+    const planned = this.playbackPlanSnapshot.current;
+    const idle = this.asBoolean(this.properties.get("idle-active"), false);
+    const path = this.asString(this.properties.get("path"));
+    if (!planned)
+      return idle && path === null && this.properties.get("playlist") === null;
+    if (idle || !path) return false;
+    if (this.pathKey(path) !== this.pathKey(planned.item.nativePath))
+      return false;
+    const duration = this.asNumber(this.properties.get("duration"), -1);
+    const position = this.asNumber(this.properties.get("time-pos"), -1);
+    if (duration <= 0 || position < 0) return false;
+    const playlist = this.properties.get("playlist");
+    const playlistIndex = this.resolveObservedPlaylistIndex(
+      path,
+      Math.trunc(
+        this.asNumber(this.properties.get("playlist-playing-pos"), -1),
+      ),
+      playlist,
+      Math.trunc(this.asNumber(this.properties.get("playlist-pos"), -1)),
+    );
+    if (playlistIndex < 0 || !Array.isArray(playlist)) return false;
+    const observedEntry = playlist[playlistIndex] as
+      MpvPlaylistEntry | undefined;
+    const observedMpvId = this.asPlaylistEntryId(observedEntry?.id);
+    const token = this.activeMpvFileTransition;
+    if (
+      token?.mpvPlaylistEntryId !== null &&
+      token?.mpvPlaylistEntryId !== undefined &&
+      observedMpvId !== token.mpvPlaylistEntryId
+    )
+      return false;
+    return this.repairObservedExecutionIdentities(
+      path,
+      playlistIndex,
+      playlist,
+    );
+  }
+
+  private clearUnfreshTransitionTrackProperties(
+    refreshed: ReadonlySet<string>,
+  ): void {
+    for (const name of TRANSITION_TRACK_PROPERTIES) {
+      const fresh =
+        refreshed.has(name) ||
+        (this.propertyVersions.get(name) ?? 0) >
+          (this.transitionPropertyBaselines.get(name) ?? 0);
+      if (!fresh) this.properties.delete(name);
+    }
+    this.transitionPropertyBaselines.clear();
+  }
+
+  private isActiveFileTransition(
+    token: MpvFileTransitionToken | null,
+  ): boolean {
+    if (!token) return this.activeMpvFileTransition === null;
+    const active = this.activeMpvFileTransition;
+    return (
+      active?.coreGeneration === token.coreGeneration &&
+      active.generation === token.generation &&
+      active.mpvPlaylistEntryId === token.mpvPlaylistEntryId
+    );
+  }
+
+  private captureEndFileToken(message: MpvResponse): MpvEndFileToken {
+    const mpvPlaylistEntryId = this.asPlaylistEntryId(
+      message.playlist_entry_id,
+    );
+    let executionEntryId =
+      mpvPlaylistEntryId === null
+        ? null
+        : (this.mpvExecutionIds.get(mpvPlaylistEntryId) ?? null);
+    if (executionEntryId === null && mpvPlaylistEntryId !== null) {
+      const playlist = this.properties.get("playlist");
+      if (Array.isArray(playlist)) {
+        const index = playlist.findIndex(
+          (entry) =>
+            entry !== null &&
+            typeof entry === "object" &&
+            this.asPlaylistEntryId((entry as MpvPlaylistEntry).id) ===
+              mpvPlaylistEntryId,
+        );
+        executionEntryId = this.playlistItemIds[index] ?? null;
+      }
+    }
+    if (executionEntryId === null && mpvPlaylistEntryId === null) {
+      const planned = this.playbackPlanSnapshot.current;
+      const plannedExecutionId = planned?.executionEntryId ?? null;
+      const technicalId =
+        this.state.queue[this.state.currentQueueIndex]?.id ?? null;
+      const observedCurrentPath = this.state.currentTrack?.path;
+      const observedCurrentMatches =
+        typeof observedCurrentPath === "string" &&
+        this.pathKey(observedCurrentPath) ===
+          this.pathKey(planned?.item.nativePath ?? "");
+      if (
+        technicalId === plannedExecutionId &&
+        plannedExecutionId !== null &&
+        observedCurrentMatches
+      )
+        executionEntryId = plannedExecutionId;
+    }
+    return {
+      coreGeneration: this.mpvCoreGeneration,
+      mpvPlaylistEntryId,
+      executionEntryId,
+    };
+  }
+
+  private observedCurrentExecutionId(): string | null {
+    const path = this.asString(this.properties.get("path"));
+    const playlist = this.properties.get("playlist");
+    const index = this.resolveObservedPlaylistIndex(
+      path,
+      Math.trunc(
+        this.asNumber(this.properties.get("playlist-playing-pos"), -1),
+      ),
+      playlist,
+      Math.trunc(this.asNumber(this.properties.get("playlist-pos"), -1)),
+    );
+    return index >= 0 ? (this.playlistItemIds[index] ?? null) : null;
+  }
+
+  private confirmPlannerNavigation(actualExecutionId: string | null): void {
+    if (
+      !actualExecutionId ||
+      !this.plannerNavigationPending ||
+      actualExecutionId !== this.plannerNavigationTargetId
+    )
+      return;
+    this.plannerNavigationPending = false;
+    this.plannerNavigationTargetId = null;
+  }
+
   private deriveStateFromProperties(): void {
     if (this.transitionPending) return;
     const pause = this.commandIntents.observePaused(
@@ -2801,21 +3211,35 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const idle = this.asBoolean(this.properties.get("idle-active"), false);
     const duration = this.asNumber(this.properties.get("duration"));
     const path = this.asString(this.properties.get("path"));
-    const reportedPlaylistIndex = Math.trunc(
+    const reportedPlayingIndex = Math.trunc(
+      this.asNumber(this.properties.get("playlist-playing-pos"), -1),
+    );
+    const reportedQueuedIndex = Math.trunc(
       this.asNumber(this.properties.get("playlist-pos"), -1),
     );
     const playlist = this.properties.get("playlist");
     const playlistIndex = this.resolveObservedPlaylistIndex(
       path,
-      reportedPlaylistIndex,
+      reportedPlayingIndex,
+      playlist,
+      reportedQueuedIndex,
+    );
+    const identitiesCoherent = this.repairObservedExecutionIdentities(
+      path,
+      playlistIndex,
       playlist,
     );
-    this.repairObservedExecutionIdentities(path, playlistIndex, playlist);
+    if (!idle && (!path || playlistIndex < 0 || !identitiesCoherent)) {
+      this.beginTrackTransition();
+      this.requestTransitionRecoveryRefresh();
+      return;
+    }
     const queue = this.createQueue(playlist, playlistIndex, duration);
     const queueStructureChanged =
       queue.length !== this.state.queue.length ||
       queue.some((item, index) => item.id !== this.state.queue[index]?.id);
     const currentQueueItemId = this.playlistItemIds[playlistIndex] ?? null;
+    this.confirmPlannerNavigation(currentQueueItemId);
     const previousQueueItemId =
       this.state.queue[this.state.currentQueueIndex]?.id ?? null;
     const occurrenceChanged = currentQueueItemId !== previousQueueItemId;
@@ -2836,7 +3260,9 @@ export class PlayerService implements AudioOutputMpvAdapter {
     }
     if (path && (trackChanged || occurrenceChanged))
       this.trackTransitionId += 1;
-    const currentTrack = path ? this.createTrack(path, duration) : null;
+    const currentTrack = path
+      ? this.createTrack(path, duration, playlistIndex)
+      : null;
     this.commandIntents.confirmNavigation(currentQueueItemId);
     if (currentQueueItemId === this.pendingTrackTargetId)
       this.clearPendingTrackTarget();
@@ -2898,12 +3324,32 @@ export class PlayerService implements AudioOutputMpvAdapter {
 
   private resolveObservedPlaylistIndex(
     path: string | null,
-    reportedIndex: number,
+    reportedPlayingIndex: number,
     playlist: unknown,
+    reportedQueuedIndex = -1,
   ): number {
-    if (!path || !Array.isArray(playlist)) return reportedIndex;
+    if (!path || !Array.isArray(playlist)) return -1;
+    const observedPlaylist: readonly unknown[] = playlist;
     const pathKey = this.pathKey(path);
-    const markedMatches = playlist.flatMap((entry, index) => {
+    const matchesPath = (index: number): boolean => {
+      const entry = observedPlaylist[index];
+      if (!entry || typeof entry !== "object") return false;
+      const entryPath = this.asString((entry as MpvPlaylistEntry).filename);
+      return Boolean(entryPath && this.pathKey(entryPath) === pathKey);
+    };
+    const playingMatches = observedPlaylist.flatMap((entry, index) => {
+      if (!entry || typeof entry !== "object") return [];
+      const playlistEntry = entry as MpvPlaylistEntry;
+      const entryPath = this.asString(playlistEntry.filename);
+      return playlistEntry.playing === true &&
+        entryPath &&
+        this.pathKey(entryPath) === pathKey
+        ? [index]
+        : [];
+    });
+    if (playingMatches.length === 1) return playingMatches[0] ?? -1;
+    if (matchesPath(reportedPlayingIndex)) return reportedPlayingIndex;
+    const currentMatches = observedPlaylist.flatMap((entry, index) => {
       if (!entry || typeof entry !== "object") return [];
       const playlistEntry = entry as MpvPlaylistEntry;
       const entryPath = this.asString(playlistEntry.filename);
@@ -2913,15 +3359,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
         ? [index]
         : [];
     });
-    if (markedMatches.length === 1) return markedMatches[0] ?? reportedIndex;
-    return reportedIndex;
+    if (currentMatches.length === 1) return currentMatches[0] ?? -1;
+    return matchesPath(reportedQueuedIndex) ? reportedQueuedIndex : -1;
   }
 
   private repairObservedExecutionIdentities(
     path: string | null,
     playlistIndex: number,
     playlist: unknown,
-  ): void {
+  ): boolean {
     const planned = this.playbackPlanSnapshot.current;
     if (
       !path ||
@@ -2931,39 +3377,126 @@ export class PlayerService implements AudioOutputMpvAdapter {
       playlistIndex >= playlist.length ||
       this.pathKey(path) !== this.pathKey(planned.item.nativePath)
     )
-      return;
-    if (this.playlistItemIds[playlistIndex] === planned.executionEntryId)
-      return;
+      return false;
+    const observedEntries = playlist.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const observed = entry as MpvPlaylistEntry;
+      const observedPath = this.asString(observed.filename);
+      return observedPath
+        ? [
+            {
+              path: observedPath,
+              mpvId: this.asPlaylistEntryId(observed.id),
+            },
+          ]
+        : [];
+    });
+    if (observedEntries.length !== playlist.length) return false;
+    const currentObserved = observedEntries[playlistIndex];
+    if (
+      !currentObserved ||
+      this.pathKey(currentObserved.path) !== this.pathKey(path)
+    )
+      return false;
+
+    const fallbackIdentities = this.capturePlaylistIdentities(
+      this.originalQueue,
+      this.playlistItemIds,
+    );
+    const candidateMpvExecutionIds = new Map(this.mpvExecutionIds);
+    const pendingExecutionOrigins = new Map<string, PersistedQueueOrigin>();
+    const occurrences = new Map<string, number>();
+    const claimed = new Set<string>();
+    const nextIds = observedEntries.map(({ path: observedPath, mpvId }) => {
+      const key = this.pathKey(observedPath);
+      const occurrence = occurrences.get(key) ?? 0;
+      occurrences.set(key, occurrence + 1);
+      const mapped =
+        mpvId === null ? undefined : candidateMpvExecutionIds.get(mpvId);
+      if (mapped && !claimed.has(mapped)) {
+        claimed.add(mapped);
+        return mapped;
+      }
+      const fallback = fallbackIdentities.get(key)?.[occurrence];
+      if (fallback && !claimed.has(fallback)) {
+        claimed.add(fallback);
+        return fallback;
+      }
+      const generated = `queue-${randomUUID()}`;
+      claimed.add(generated);
+      return generated;
+    });
+    const assignUnknownMpvIdentity = (
+      index: number,
+      executionEntryId: string,
+    ): boolean => {
+      const observed = observedEntries[index];
+      if (!observed) return false;
+      const existing =
+        observed.mpvId === null
+          ? undefined
+          : candidateMpvExecutionIds.get(observed.mpvId);
+      if (existing) return existing === executionEntryId;
+      const duplicateIndex = nextIds.findIndex(
+        (candidate, candidateIndex) =>
+          candidateIndex !== index && candidate === executionEntryId,
+      );
+      if (duplicateIndex >= 0) {
+        const duplicateMpvId = observedEntries[duplicateIndex]?.mpvId ?? null;
+        if (
+          duplicateMpvId !== null &&
+          candidateMpvExecutionIds.get(duplicateMpvId) === executionEntryId
+        )
+          return false;
+        nextIds[duplicateIndex] = `queue-${randomUUID()}`;
+      }
+      nextIds[index] = executionEntryId;
+      if (observed.mpvId !== null)
+        candidateMpvExecutionIds.set(observed.mpvId, executionEntryId);
+      return true;
+    };
+    if (!assignUnknownMpvIdentity(playlistIndex, planned.executionEntryId))
+      return false;
 
     const projection = this.playbackPlanner.projectExecutionPlan();
     const plannedSuffix = projection.current
       ? [projection.current, ...projection.future]
       : [];
-    const observedPaths = playlist.flatMap((entry) => {
-      if (!entry || typeof entry !== "object") return [];
-      const observedPath = this.asString((entry as MpvPlaylistEntry).filename);
-      return observedPath ? [observedPath] : [];
-    });
-    if (
-      observedPaths.length !== playlist.length ||
-      observedPaths.length - playlistIndex !== plannedSuffix.length ||
-      !plannedSuffix.every(
-        (entry, index) =>
-          this.pathKey(observedPaths[playlistIndex + index] ?? "") ===
-          this.pathKey(entry.item.nativePath),
+    for (const [offset, entry] of plannedSuffix.entries()) {
+      const observedIndex = playlistIndex + offset;
+      const observed = observedEntries[observedIndex];
+      if (
+        !observed ||
+        this.pathKey(observed.path) !== this.pathKey(entry.item.nativePath)
       )
+        break;
+      if (assignUnknownMpvIdentity(observedIndex, entry.executionEntryId))
+        pendingExecutionOrigins.set(
+          entry.executionEntryId,
+          this.persistedOrigin(entry),
+        );
+    }
+    if (
+      nextIds[playlistIndex] !== planned.executionEntryId ||
+      new Set(nextIds).size !== nextIds.length
     )
-      return;
-
-    this.playlistItemIds = [
-      ...this.playlistItemIds.slice(0, playlistIndex),
-      ...plannedSuffix.map((entry) => entry.executionEntryId),
-    ];
-    for (const entry of plannedSuffix)
-      this.executionOrigins.set(
-        entry.executionEntryId,
-        this.persistedOrigin(entry),
-      );
+      return false;
+    this.playlistItemIds = nextIds;
+    this.originalQueue = observedEntries.map((entry) => entry.path);
+    const activeMpvIds = new Set(
+      observedEntries.flatMap((entry) =>
+        entry.mpvId === null ? [] : [entry.mpvId],
+      ),
+    );
+    this.mpvExecutionIds.clear();
+    for (const mpvId of activeMpvIds) {
+      const executionEntryId = candidateMpvExecutionIds.get(mpvId);
+      if (executionEntryId) this.mpvExecutionIds.set(mpvId, executionEntryId);
+    }
+    for (const [executionEntryId, origin] of pendingExecutionOrigins)
+      this.executionOrigins.set(executionEntryId, origin);
+    this.confirmPlannerNavigation(planned.executionEntryId);
+    return true;
   }
 
   private createQueue(
@@ -3091,7 +3624,11 @@ export class PlayerService implements AudioOutputMpvAdapter {
     });
   }
 
-  private createTrack(path: string, durationSeconds: number): PlayerTrack {
+  private createTrack(
+    path: string,
+    durationSeconds: number,
+    playlistIndex: number,
+  ): PlayerTrack {
     const metadataValue = this.properties.get("metadata");
     const metadata =
       metadataValue && typeof metadataValue === "object"
@@ -3107,6 +3644,12 @@ export class PlayerService implements AudioOutputMpvAdapter {
       return null;
     };
     const filename = basename(path);
+    const plannedItem =
+      this.playbackPlanSnapshot.current &&
+      this.pathKey(this.playbackPlanSnapshot.current.item.nativePath) ===
+        this.pathKey(path)
+        ? this.playbackPlanSnapshot.current.item
+        : null;
     const audioParameters = this.properties.get("audio-params") as
       AudioParameters | undefined;
     const bitDepthText = getMetadata(
@@ -3118,9 +3661,6 @@ export class PlayerService implements AudioOutputMpvAdapter {
       ? Number.parseInt(bitDepthText, 10)
       : Number.NaN;
     const codec = this.asString(this.properties.get("audio-codec-name"));
-    const playlistIndex = Math.trunc(
-      this.asNumber(this.properties.get("playlist-pos"), -1),
-    );
     const executionEntryId = this.playlistItemIds[playlistIndex];
     const origin =
       (executionEntryId
@@ -3129,9 +3669,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const baseTrack: PlayerTrack = {
       path,
       filename,
-      title: getMetadata("title") ?? filename.replace(/\.[^.]+$/, ""),
-      artist: getMetadata("artist", "album_artist") ?? "Unknown Artist",
-      album: getMetadata("album") ?? "Unknown Album",
+      title:
+        getMetadata("title") ??
+        plannedItem?.title ??
+        filename.replace(/\.[^.]+$/, ""),
+      artist:
+        getMetadata("artist", "album_artist") ??
+        plannedItem?.artist ??
+        "Unknown Artist",
+      album: getMetadata("album") ?? plannedItem?.album ?? "Unknown Album",
       artists: [],
       albumArtist: null,
       trackNumber: null,
@@ -3237,32 +3783,43 @@ export class PlayerService implements AudioOutputMpvAdapter {
         // Keep the one-item preload chain usable after parser errors.
       })
       .then(async () => {
-        let queue = this.state.queue;
+        const enrichments: {
+          readonly path: string;
+          readonly durationSeconds: number | null;
+          readonly artwork: ArtworkRef | null;
+        }[] = [];
         if (nextPath) {
           if (!this.canApplyGeneration(generation)) return;
           const next = await this.resolveEnrichment(nextPath);
           if (!this.canApplyGeneration(generation)) return;
           this.rememberPreloaded(nextPath, next);
           this.nextArtwork = next.artwork;
-          queue = this.withQueueEnrichment(
-            nextPath,
-            next.metadata.durationSeconds,
-            next.artwork,
-            queue,
-          );
+          enrichments.push({
+            path: nextPath,
+            durationSeconds: next.metadata.durationSeconds,
+            artwork: next.artwork,
+          });
         }
         if (previousPath) {
           if (!this.canApplyGeneration(generation)) return;
           const previous = await this.resolveEnrichment(previousPath);
           if (!this.canApplyGeneration(generation)) return;
           this.rememberPreloaded(previousPath, previous);
+          enrichments.push({
+            path: previousPath,
+            durationSeconds: previous.metadata.durationSeconds,
+            artwork: previous.artwork,
+          });
+        }
+        if (!this.canApplyGeneration(generation)) return;
+        let queue = this.state.queue;
+        for (const enrichment of enrichments)
           queue = this.withQueueEnrichment(
-            previousPath,
-            previous.metadata.durationSeconds,
-            previous.artwork,
+            enrichment.path,
+            enrichment.durationSeconds,
+            enrichment.artwork,
             queue,
           );
-        }
         if (queue !== this.state.queue)
           this.update({
             queue,
@@ -3791,7 +4348,17 @@ export class PlayerService implements AudioOutputMpvAdapter {
   }
 
   private pathKey(path: string): string {
-    return resolve(path).toLocaleLowerCase("en");
+    const normalized = resolve(path);
+    return process.platform === "win32"
+      ? normalized.toLocaleLowerCase("en")
+      : normalized;
+  }
+  private asPlaylistEntryId(value: unknown): MpvPlaylistEntryId | null {
+    return typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 0
+      ? value
+      : null;
   }
   private asString(value: unknown): string | null {
     return typeof value === "string" && value ? value : null;

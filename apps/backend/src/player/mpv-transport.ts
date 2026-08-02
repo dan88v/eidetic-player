@@ -1,13 +1,26 @@
 import { createConnection, type Socket } from "node:net";
 import { JsonLineParser } from "./json-line-parser.js";
 
+export type MpvPlaylistEntryId = number;
+
+export interface MpvPlaylistEntry {
+  readonly id?: MpvPlaylistEntryId;
+  readonly filename?: unknown;
+  readonly title?: unknown;
+  readonly current?: unknown;
+  readonly playing?: unknown;
+}
+
 export interface MpvResponse {
   readonly request_id?: number;
   readonly error?: string;
   readonly data?: unknown;
   readonly event?: string;
   readonly name?: string;
+  /** The observation identifier supplied to observe_property. */
   readonly id?: number;
+  /** The stable MPV playlist entry identifier carried by file events. */
+  readonly playlist_entry_id?: MpvPlaylistEntryId;
 }
 
 interface PendingRequest {

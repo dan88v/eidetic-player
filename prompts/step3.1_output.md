@@ -654,3 +654,173 @@ Final validation after the extended stress coverage PASS:
 
 No commit, push, Raspberry deployment, service restart, installer, or remote
 update was performed.
+
+## Follow-up — occurrence-scoped MPV transition authority
+
+The preceding “definitive implicit-transition settling” conclusion was not
+complete. The defect recurred on the Raspberry Pi after more automatic and
+manual transitions, so the earlier generation/path fixes and their stress
+fixtures are superseded by the occurrence-scoped model in this follow-up.
+
+The failure was captured live before any further playback command. The public
+API reported `status: playing`, planner Current `08 Trip Switch.mp3`,
+`currentTrack: null`, and `positionSeconds: 0`. At the same instant direct MPV
+IPC reported the same audible path, `playlist-pos: 0`,
+`playlist-playing-pos: 0`, and playlist row ID `150` marked both `current` and
+`playing`. The remaining technical playlist was valid. This proved the
+failure was neither Raspberry performance nor Remote rendering: the backend
+had lost the execution-occurrence identity while MPV continued normally.
+
+The repair no longer treats a positional ID array or a complete path suffix as
+occurrence authority:
+
+- `playlist-playing-pos` and the unique path-matching `playing` row identify
+  the audible item; `playlist-pos/current` remain validated fallbacks because
+  they may already identify the next selected row;
+- every MPV playlist row's stable numeric `id` is bound to one planner
+  execution ID, surviving prefix removal, reindexing, duplicate paths, and
+  History/Context future differences;
+- `start-file` and `end-file` retain MPV's matching `playlist_entry_id` plus a
+  core/transition generation;
+- a queued EOF advances only the planner Current occurrence that actually
+  ended; a stale EOF after manual Next is a no-op;
+- `file-loaded` only confirms the captured `start-file` token and expected
+  target. It no longer performs an inferred second `advance()` or clears a
+  newer navigation target;
+- a planner target that differs from MPV's automatic next row is selected
+  explicitly before future reconciliation.
+
+Property refresh is now transactional. A rejected read never replaces cached
+data with `undefined`; path, playlist, duration, position, idle state, audible
+row, stable MPV ID, and planner Current must form one coherent observation
+before `transitionPending` is cleared. Events arriving during a read request
+at most one coalesced follow-up pass. Recovery remains event-driven and adds no
+polling, timer, second SSE, MPV, or FFmpeg process.
+
+The Remote client also serializes full player SSE, compact progress SSE, and
+command HTTP responses. Full/progress contracts carry player session,
+playback-plan revision, and track-transition identity. Old-track progress,
+out-of-order envelopes, callbacks from a replaced EventSource, and an HTTP
+response overtaken by newer SSE can no longer replace the current Remote
+presentation with `Nothing Playing` or rewind its progress.
+
+Focused regression coverage now includes the exact audible-vs-selected MPV
+index split, stable entry IDs, a failed critical read, one coalesced dirty
+refresh, 128 seeded property races, divergent technical future repair, a
+queued stale EOF, a stale `file-loaded` callback, and monotonic Remote
+HTTP/SSE ordering. Exact final suite counts are recorded below.
+
+This remains internal to the Local MPV adapter and Remote transport ordering.
+It does not alter external-provider ownership, output release/restore, DSP,
+Queue policy, arbitration persistence, or the Step 3.1 public source contract.
+
+Two additional real-application races were found and closed before accepting
+this follow-up. First, planner Current could advance before its matching MPV
+observation was ready. The previous complete public plan projection is now
+held for the duration of that transition, and the new `currentPlayback`,
+`currentTrack`, position, context, History, and Queue projection become visible
+as one atomic frame. State derivation is fail-closed when playlist index or
+execution-ID repair is not coherent; a rejected repair is transactional and
+cannot mutate ID maps, origins, Queue rows, or `trackTransitionId`.
+
+Second, adjacent metadata preload used to retain a Queue array across its
+asynchronous reads. Technical future reconciliation could remove consumed MPV
+prefixes in the meantime, after which the preload wrote the old array back with
+the new Queue revision. The planner and observed track still described the same
+song, but `state.queue[currentQueueIndex]` referred to an old occurrence, so the
+public guard correctly suppressed `currentTrack`. Preload now retains only
+path-scoped enrichment results across awaits and rebases them onto the live
+Queue in one synchronous commit. A deterministic deferred-metadata regression
+proves `[A, B, C] -> [B, C]` cannot resurrect `A`, alter transition/revision
+identity, or blank public Current.
+
+The final native Windows reproduction used the mandatory `npm.cmd run dev`
+Neutralino/WebView2 path and generated media outside the repository. After the
+Queue rebase fix, 347 REST samples across the 11 consecutive automatic
+Currents `02` through `12` contained zero `playing` states with a missing
+Current and zero playback/track identity mismatches. Eight manually triggered
+Next operations, sampled while each HTTP request was in flight, added 52
+transition samples with the same zero/zero result; each command settled in
+112-149 ms. The fresh native application at a
+1296x839 outer window (1280x800 client target) visibly showed `Manual QA 01`,
+artist, format, duration, timeline, stable dark artwork placeholder, and
+responsive paused transport without blank content, scroll, or layout shift.
+Neutralino, backend, Vite, MPV, the Remote listener, and ports 4310/5173/8080
+then shut down cleanly.
+
+A second live Raspberry capture covered the boundary that had not previously
+been represented explicitly. At `2026-08-02T15:00:54+02:00`, Same-artist
+continuation had installed an `artist-radio` Context whose Current was
+`09 Lover, Please Stay.mp3`. The public backend still reported `playing` and
+the correct continuation Current, but exposed `currentTrack: null` and
+`positionSeconds: 0`. Direct MPV IPC at the same instant reported the same
+path at 44.6 seconds, `playlist-pos: 0`, `playlist-playing-pos: 0`, and stable
+row ID `308` marked both `current` and `playing`, followed by seven valid
+future rows. This confirms that the occurrence repair applies equally to the
+album-to-radio boundary and not only to transitions inside an album.
+
+Pausing the affected installed build immediately repaired its presentation.
+That observation is diagnostic rather than a UI workaround: MPV's new `pause`
+property event caused the old backend to perform another property refresh and
+finally settle the stranded transition. The new coalesced recovery pass is
+scheduled by the transition itself, so it no longer depends on a later Pause,
+Play, or Next command.
+
+A production-path regression now models nine artist-radio entries with MPV
+IDs `307` through `315`, advances naturally from ID `307`, removes the consumed
+prefix, and proves ID `308` becomes audible row zero while seven future rows
+remain. Public Current, observed track, continuation source, `playing` state,
+and position 44.6 remain coherent in every published frame. An additional
+fail-closed regression removes an ended MPV ID from both the active playlist
+and identity map before its queued EOF is handled; the obsolete EOF cannot
+inherit the new Current's identity, advance the planner, or notify natural-end
+consumers.
+
+The local appliance UI also accepts the narrow recovery from an active empty
+same-generation frame to its authoritative non-null Current at the same public
+revision. Same-revision swaps between two non-null tracks and revival from
+terminal states remain rejected. The Remote coordinator separately serializes
+bootstrap attempts, full SSE, progress SSE, optimistic Queue reorder, and
+command responses; obsolete attempts, stale 401 responses, and old-track
+progress cannot replace a newer presentation or rewind its Queue/position.
+
+Final validation for this occurrence-scoped follow-up PASS:
+
+- `npm.cmd run format:check`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build`, including appliance UI, Remote UI, and backend
+- `npm.cmd test` — 814 total, 801 passed, 13 expected Windows skips,
+  0 failed
+- playback-plan integration — 44/44
+- UI/Remote focused transition and ordering tests — 62/62
+- `npm.cmd run test:remote` — 35 total, 34 passed, 1 expected Windows
+  symlink skip, 0 failed
+- `npm.cmd run mpv:doctor`
+- `npm.cmd run test:mpv` — 14/14, including 24 automatic implicit Context
+  transitions in one real MPV process
+- `npm.cmd run ffmpeg:doctor`
+- `npm.cmd run test:ffmpeg` — 3/3
+- `npm.cmd run test:posix` — 3 passed, 2 Windows-only platform skips
+- `npm.cmd run verify:linux:executables` — 48 tracked deployment files with
+  valid Git modes
+- `git diff --check`
+
+The Windows-only `test:case-sensitive` helper cannot produce a meaningful
+result because its path walker splits only POSIX separators and consequently
+reports every Windows import as mismatched; Linux CI remains the authoritative
+case-sensitive filesystem check. An initial full MPV run exceeded its external
+six-minute wrapper timeout with one orphaned test process. That exact active
+scenario passed in isolation, the verified test process and temporary fixture
+were removed, and the subsequent clean full run passed 14/14 in 30.7 seconds.
+
+The final mandatory native QA used the exact `npm.cmd run dev` command and the
+real Neutralino/WebView2 window at 1296x839 outer size (1280x800 client target).
+The empty-launch surface retained its dark reserved artwork, aligned timeline
+and transport, and showed no white content, scroll, or layout shift. Normal
+window close returned success code 0; backend received SIGTERM, and MPV,
+FFmpeg, Neutralino, Node/Vite, the screenshot, temporary MPV fixtures, and
+ports 4310/5173/8080 were all clean afterward.
+
+No commit, push, Raspberry deployment, service restart, installer, or remote
+update was performed.

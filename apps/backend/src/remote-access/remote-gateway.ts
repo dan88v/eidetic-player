@@ -334,6 +334,8 @@ function remoteCompatibilityQueueItem(
 export function remotePlayerState(state: PlayerState): RemotePlayerState {
   const explicitQueue = remoteExplicitQueue(state.explicitQueue);
   return {
+    playerSessionId: state.playerSessionId,
+    playbackPlanRevision: state.playbackPlanRevision ?? 0,
     trackTransitionId: state.trackTransitionId,
     status: state.status,
     mpvAvailable: state.mpvAvailable,
@@ -364,6 +366,8 @@ export function remotePlayerState(state: PlayerState): RemotePlayerState {
 
 export function remotePlayerProgress(state: PlayerState): RemotePlayerProgress {
   return {
+    playerSessionId: state.playerSessionId,
+    playbackPlanRevision: state.playbackPlanRevision ?? 0,
     trackTransitionId: state.trackTransitionId,
     status: state.status,
     mpvAvailable: state.mpvAvailable,
@@ -421,6 +425,8 @@ export function remotePlaybackSource(
 function remotePlayerPresentationSignature(state: PlayerState): string {
   const explicitQueue = state.explicitQueue ?? [];
   return JSON.stringify({
+    playerSessionId: state.playerSessionId,
+    playbackPlanRevision: state.playbackPlanRevision ?? 0,
     trackTransitionId: state.trackTransitionId,
     canGoNext: state.canGoNext !== false,
     currentTrack: remoteCurrentTrack(state.currentTrack),

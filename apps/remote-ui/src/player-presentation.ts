@@ -16,10 +16,141 @@ export interface RemotePlayerDisplay {
   readonly hasCurrent: boolean;
 }
 
+export interface RemotePlayerStateCheckpoint {
+  readonly eventRevision: number;
+  readonly requestRevision: number;
+  readonly stateRevision: number;
+}
+
+function remotePlayerProgressMatches(
+  state: RemotePlayerState,
+  progress: RemotePlayerProgress,
+): boolean {
+  return (
+    progress.playerSessionId === state.playerSessionId &&
+    progress.playbackPlanRevision === state.playbackPlanRevision &&
+    progress.trackTransitionId === state.trackTransitionId
+  );
+}
+
+function remotePlayerStateCanFollow(
+  previous: RemotePlayerState,
+  next: RemotePlayerState,
+): boolean {
+  if (next.playerSessionId !== previous.playerSessionId) return false;
+  if (next.playbackPlanRevision < previous.playbackPlanRevision) return false;
+  if (next.trackTransitionId < previous.trackTransitionId) return false;
+  if (next.queueRevision < previous.queueRevision) return false;
+  if (next.contextRevision < previous.contextRevision) return false;
+  return !(
+    next.playbackPlanRevision === previous.playbackPlanRevision &&
+    next.trackTransitionId === previous.trackTransitionId &&
+    remotePlayerTrackKey(next) !== remotePlayerTrackKey(previous)
+  );
+}
+
+/**
+ * Serializes the Remote player's three asynchronous state sources. SSE event
+ * revisions invalidate pending HTTP responses, while progress deltas are
+ * accepted only for the exact public Current identity they describe.
+ */
+export class RemotePlayerStateCoordinator {
+  private state: RemotePlayerState | null = null;
+  private eventRevision = 0;
+  private stateRevision = 0;
+  private requestRevision = 0;
+
+  reset(state: RemotePlayerState, eventRevision: number): RemotePlayerState {
+    this.state = state;
+    this.eventRevision = eventRevision;
+    this.stateRevision += 1;
+    this.requestRevision += 1;
+    return state;
+  }
+
+  beginHttpRequest(): RemotePlayerStateCheckpoint {
+    this.requestRevision += 1;
+    return this.checkpoint();
+  }
+
+  checkpoint(): RemotePlayerStateCheckpoint {
+    return {
+      eventRevision: this.eventRevision,
+      requestRevision: this.requestRevision,
+      stateRevision: this.stateRevision,
+    };
+  }
+
+  isCurrent(checkpoint: RemotePlayerStateCheckpoint): boolean {
+    return (
+      checkpoint.eventRevision === this.eventRevision &&
+      checkpoint.requestRevision === this.requestRevision &&
+      checkpoint.stateRevision === this.stateRevision
+    );
+  }
+
+  isLatestHttpRequest(checkpoint: RemotePlayerStateCheckpoint): boolean {
+    return checkpoint.requestRevision === this.requestRevision;
+  }
+
+  replaceLocal(next: RemotePlayerState): RemotePlayerState | null {
+    if (!this.canCommit(next)) return null;
+    this.state = next;
+    this.stateRevision += 1;
+    return next;
+  }
+
+  acceptHttp(
+    next: RemotePlayerState,
+    checkpoint: RemotePlayerStateCheckpoint,
+  ): RemotePlayerState | null {
+    if (!this.isCurrent(checkpoint) || !this.canCommit(next)) return null;
+    this.state = next;
+    this.stateRevision += 1;
+    return next;
+  }
+
+  acceptEvent(
+    next: RemotePlayerState,
+    eventRevision: number,
+  ): RemotePlayerState | null {
+    if (!this.observeEvent(eventRevision) || !this.canCommit(next)) return null;
+    this.state = next;
+    return next;
+  }
+
+  acceptProgress(
+    progress: RemotePlayerProgress,
+    eventRevision: number,
+  ): RemotePlayerState | null {
+    if (!this.observeEvent(eventRevision) || !this.state) return null;
+    if (!remotePlayerProgressMatches(this.state, progress)) return null;
+    this.state = mergeRemotePlayerProgress(this.state, progress);
+    return this.state;
+  }
+
+  private observeEvent(eventRevision: number): boolean {
+    if (
+      !Number.isSafeInteger(eventRevision) ||
+      eventRevision < 0 ||
+      eventRevision <= this.eventRevision
+    )
+      return false;
+    this.eventRevision = eventRevision;
+    this.stateRevision += 1;
+    return true;
+  }
+
+  private canCommit(next: RemotePlayerState): boolean {
+    return !this.state || remotePlayerStateCanFollow(this.state, next);
+  }
+}
+
 export function mergeRemotePlayerProgress(
   state: RemotePlayerState,
   progress: RemotePlayerProgress,
 ): RemotePlayerState {
+  if (!remotePlayerProgressMatches(state, progress)) return state;
   return { ...state, ...progress };
 }
 

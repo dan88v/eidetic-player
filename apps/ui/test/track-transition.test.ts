@@ -209,6 +209,35 @@ void test("same-generation planner rollback advances its public revision", () =>
   );
 });
 
+void test("same-generation Current recovers from an active empty snapshot at the same public revision", () => {
+  const coordinator = new TrackTransitionCoordinator();
+  const current = authoritativeState(6, "recovered", 9);
+  const empty = {
+    ...current,
+    currentPlayback: null,
+    currentTrack: null,
+    currentQueueIndex: -1,
+    status: "playing" as const,
+    positionSeconds: 0,
+    durationSeconds: 0,
+  };
+  coordinator.accept(empty);
+  const recovered = coordinator.accept(current);
+  assert.equal(
+    recovered.currentPlayback?.playbackInstanceId,
+    "playback-recovered",
+  );
+  assert.equal(recovered.currentTrack?.title, "recovered title");
+  assert.equal(coordinator.getDiagnostics().staleStatesIgnored, 0);
+
+  const conflicting = authoritativeState(6, "conflicting", 9);
+  assert.equal(
+    coordinator.accept(conflicting).currentPlayback?.playbackInstanceId,
+    "playback-recovered",
+  );
+  assert.equal(coordinator.getDiagnostics().staleStatesIgnored, 1);
+});
+
 void test("same-generation authoritative stop cannot be undone by a late Current", () => {
   const coordinator = new TrackTransitionCoordinator();
   const current = authoritativeState(7, "one", 3);
@@ -225,6 +254,10 @@ void test("same-generation authoritative stop cannot be undone by a late Current
   });
   assert.equal(stopped.currentPlayback, null);
   assert.equal(coordinator.accept(current).currentPlayback, null);
+  assert.equal(
+    coordinator.accept({ ...current, playbackPlanRevision: 4 }).currentPlayback,
+    null,
+  );
 });
 
 void test("new metadata cannot retain the previous artwork", () => {

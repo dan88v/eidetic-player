@@ -129,16 +129,33 @@ export class TrackTransitionCoordinator {
     }
     const staleGeneration =
       state.trackTransitionId < previous.trackTransitionId;
+    const previousTrackId = this.trackId(previous);
+    const nextTrackId = this.trackId(state);
     const sameGenerationDifferentTrack =
       state.trackTransitionId === previous.trackTransitionId &&
-      this.trackId(state) !== this.trackId(previous);
+      nextTrackId !== previousTrackId;
     const authoritativePlanAdvanced =
       sameGenerationDifferentTrack &&
       state.playbackPlanRevision !== undefined &&
       state.playbackPlanRevision > this.highestPlaybackPlanRevision;
+    const recoveredMissingCurrent =
+      sameGenerationDifferentTrack &&
+      previousTrackId === null &&
+      nextTrackId !== null &&
+      previous.status !== "idle" &&
+      previous.status !== "stopped" &&
+      previous.status !== "unavailable" &&
+      previous.status !== "error" &&
+      previous.playbackPlanRevision !== undefined &&
+      state.playbackPlanRevision === previous.playbackPlanRevision &&
+      state.playbackPlanRevision === this.highestPlaybackPlanRevision &&
+      state.currentPlayback !== undefined &&
+      state.currentPlayback !== null;
     if (
       staleGeneration ||
-      (sameGenerationDifferentTrack && !authoritativePlanAdvanced)
+      (sameGenerationDifferentTrack &&
+        !authoritativePlanAdvanced &&
+        !recoveredMissingCurrent)
     ) {
       this.staleStatesIgnored += 1;
       return previous;

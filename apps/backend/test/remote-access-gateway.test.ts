@@ -58,6 +58,7 @@ async function requestStatus(options: {
 function playerState(): PlayerState {
   return {
     playerSessionId: "00000000-0000-4000-8000-000000000001",
+    playbackPlanRevision: 0,
     trackTransitionId: 0,
     status: "idle",
     mpvAvailable: true,
@@ -522,11 +523,13 @@ void test("Remote Gateway enforces pairing, security headers, route allowlist an
   }
 });
 
-void test("Remote read models omit native paths, command sessions, and raw output routes", () => {
+void test("Remote read models omit native paths, command state, and raw output routes", () => {
   const state = playerState();
   const commands = state.commands;
   assert.ok(commands);
   assert.deepEqual(remotePlayerState(state), {
+    playerSessionId: "00000000-0000-4000-8000-000000000001",
+    playbackPlanRevision: 0,
     trackTransitionId: 0,
     status: "idle",
     mpvAvailable: true,
@@ -684,8 +687,9 @@ void test("Remote read models omit native paths, command sessions, and raw outpu
   assert.equal(remote.playbackContext?.remainingCount, 4);
   assert.equal(remote.playbackHistory.canGoBack, true);
   assert.equal(remote.playbackContinuation.mode, "same-artist");
+  assert.equal(remote.playerSessionId, "private-player-session");
   const player = JSON.stringify(remote);
-  assert.doesNotMatch(player, /C:\\|\/home\/|private-player-session/u);
+  assert.doesNotMatch(player, /C:\\|\/home\//u);
   assert.doesNotMatch(
     player,
     /clientSessionId|commands|nativePath|technical-context-item/u,
@@ -749,6 +753,7 @@ void test("Remote player position ticks stay bounded with a 2000-entry explicit 
   }));
   const state: PlayerState = {
     ...playerState(),
+    playbackPlanRevision: 7,
     explicitQueue,
     queueRevision: 7,
     contextRevision: 3,
@@ -761,9 +766,16 @@ void test("Remote player position ticks stay bounded with a 2000-entry explicit 
     assert.fail("A position-only update must be a progress event.");
   const progressJson = JSON.stringify(progress);
   assert.ok(progressJson.length < 1_000);
+  assert.equal(progress.data.playerSessionId, state.playerSessionId);
+  assert.equal(progress.data.playbackPlanRevision, 7);
   assert.doesNotMatch(
     progressJson,
     /explicitQueue|explicit-1999|playbackContext|currentPlayback/u,
+  );
+
+  assert.equal(
+    projector.project({ ...state, playbackPlanRevision: 8 }).type,
+    "player",
   );
 
   const queueChanged = projector.project({

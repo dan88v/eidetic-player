@@ -62,6 +62,7 @@ export type RemotePlayerTrack = Omit<PlayerTrack, "path">;
 export type RemoteQueueItem = Omit<QueueItem, "path">;
 export type RemotePlayerState = Pick<
   PlayerState,
+  | "playerSessionId"
   | "trackTransitionId"
   | "status"
   | "mpvAvailable"
@@ -75,6 +76,8 @@ export type RemotePlayerState = Pick<
   | "queueRevision"
   | "error"
 > & {
+  /** Monotonic Current revision within playerSessionId. */
+  readonly playbackPlanRevision: number;
   readonly canGoNext: boolean;
   readonly currentTrack: RemotePlayerTrack | null;
   readonly currentPlayback: CurrentPlaybackView | null;
@@ -89,6 +92,8 @@ export type RemotePlayerState = Pick<
 
 export type RemotePlayerProgress = Pick<
   RemotePlayerState,
+  | "playerSessionId"
+  | "playbackPlanRevision"
   | "trackTransitionId"
   | "status"
   | "mpvAvailable"

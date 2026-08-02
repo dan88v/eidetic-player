@@ -82,6 +82,30 @@ stream. The stream closes while the page is hidden and bootstrap is refreshed
 before reconnecting. Remote access never starts an FFmpeg analyzer, adds a
 visualizer stream, or adds polling.
 
+Remote player state is monotonic across that stream and command responses. A
+full state and its compact progress delta carry the player-session, public
+Current revision, and track-transition identity. The client applies a progress
+delta only to that exact identity, rejects out-of-order event revisions, and
+invalidates an in-flight command response as soon as a newer player event is
+observed. Concurrent command responses are accepted only for the newest local
+intent. A late HTTP response or old-track progress tick therefore cannot clear
+or rewind newer Current metadata, artwork, or position.
+
+Touch reorder installs its optimistic Queue in that same coordinator before
+the request starts, so an intervening progress delta retains the visible row
+order. Success and rollback then pass through the same monotonic state path.
+Bootstrap requests use a latest-request gate for both success and failure: an
+obsolete timeout or `401` has no side effects, while a `401` from the current
+bootstrap still clears authentication and returns to pairing immediately.
+
+`currentPlayback` is the authoritative public identity. Player transitions are
+normally published atomically, so the Remote sees one complete old Current and
+then one complete new Current. If an accepted state already contains a newer
+`currentPlayback` while matching observed-track enrichment is pending, the
+Remote renders that playback item's title and artwork instead of substituting a
+blank state or mixing in metadata from the previous track. A later matching
+`currentTrack` may add technical detail without changing the public identity.
+
 The remote Player keeps its seek input mounted during position-only events.
 Pointer drag previews locally and commits one authoritative seek on release;
 normal player ticks update only the range and time labels. The Player surface

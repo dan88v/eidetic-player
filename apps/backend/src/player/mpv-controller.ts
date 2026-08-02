@@ -6,12 +6,13 @@ import {
   type MpvRequestPriority,
 } from "./mpv-transport.js";
 
-const observedProperties = [
+export const mpvObservedProperties = [
   "pause",
   "time-pos",
   "duration",
   "playlist",
   "playlist-pos",
+  "playlist-playing-pos",
   "media-title",
   "metadata",
   "path",
@@ -55,7 +56,7 @@ export class MpvController {
       });
       this.transport = await MpvTransport.connect(this.endpoint.path);
       await Promise.all(
-        observedProperties.map((property, index) =>
+        mpvObservedProperties.map((property, index) =>
           this.command(["observe_property", index + 1, property]),
         ),
       );
