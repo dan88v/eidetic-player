@@ -514,6 +514,7 @@ img {
   place-items: center;
   padding: 0;
   border-radius: 50%;
+  color: #f6f8fc;
 }
 
 .remote-round-button--primary {
@@ -526,13 +527,17 @@ img {
 .remote-round-button--mode {
   width: clamp(44px, 12vw, 50px);
   height: clamp(44px, 12vw, 50px);
-  color: #9ba7ba;
+  color: #f6f8fc;
 }
 
 .remote-round-button--active {
   border-color: #3f75bf;
-  color: #c5dcff;
+  color: #fff;
   background: #17305a;
+}
+
+.remote-round-button:disabled {
+  color: #738096;
 }
 
 .remote-round-button[data-repeat-mode="one"] {

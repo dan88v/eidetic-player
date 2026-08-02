@@ -112,10 +112,13 @@ normal player ticks update only the range and time labels. The Player surface
 omits the mini-player, fixes its timeline and transport above the bottom
 navigation, and scales the square artwork into the remaining height so target
 phone viewports do not require vertical scrolling. Other destinations retain
-the mini-player. Album and Artist rows label aggregate values as `track` or
-`tracks` rather than showing an unexplained number. The mobile viewport blocks
-device pinch/double-tap zoom by product request while semantic controls,
-accessible names, and minimum touch targets remain required.
+the mini-player. Available transport icons use the high-contrast foreground;
+the muted foreground is reserved for controls whose native `disabled` state is
+actually set. Album rows show the canonical album artist before the localized
+track count, while Artist rows show their album count before the track count.
+The mobile viewport blocks device pinch/double-tap zoom by product request
+while semantic controls, accessible names, and minimum touch targets remain
+required.
 
 The local appliance UI receives Remote access management snapshots as a named
 event on its existing player SSE. This lets a completed pairing consume the

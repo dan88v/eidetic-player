@@ -3,9 +3,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
+  formatRemoteAlbumCount,
   formatRemoteTrackCount,
   mergeRemotePlayerProgress,
   remotePlaybackContextKindLabel,
+  remoteLibraryRecordDetail,
   remotePlayerDisplay,
   remotePlayerPresentationChanged,
   RemotePlayerStateCoordinator,
@@ -194,6 +196,14 @@ void test("Remote Player mirrors the appliance transport and hides fixed volume"
   assert.match(source, /outputLevelMode !== "fixed"/u);
   assert.doesNotMatch(source, /Fixed 100%/u);
   assert.match(styles, /\.remote-round-button--mode/u);
+  assert.match(
+    styles,
+    /\.remote-round-button--mode\s*\{[\s\S]*color: #f6f8fc;/u,
+  );
+  assert.match(
+    styles,
+    /\.remote-round-button:disabled\s*\{[\s\S]*color: #738096;/u,
+  );
   assert.match(styles, /\.remote-header__action\s*\{[\s\S]*border:/u);
   assert.match(source, /mini\.hidden = destination === "player"/u);
   assert.match(source, /setPointerCapture/u);
@@ -804,10 +814,32 @@ void test("Remote bootstrap applies only the latest deferred outcome", async () 
   assert.deepEqual(effects, ["success:new-bootstrap", "failure:current-401"]);
 });
 
-void test("Remote Library labels Album and Artist track counts", () => {
+void test("Remote Library labels Album and Artist counts with their owner", () => {
   assert.equal(formatRemoteTrackCount(1), "1 track");
   assert.equal(formatRemoteTrackCount(12), "12 tracks");
   assert.equal(formatRemoteTrackCount("12"), null);
+  assert.equal(formatRemoteAlbumCount(1), "1 album");
+  assert.equal(formatRemoteAlbumCount(4), "4 albums");
+  assert.equal(formatRemoteAlbumCount(-1), null);
+  assert.equal(
+    remoteLibraryRecordDetail({
+      albumArtist: "Massive Attack",
+      trackCount: 11,
+    }),
+    "Massive Attack · 11 tracks",
+  );
+  assert.equal(
+    remoteLibraryRecordDetail({ albumCount: 3, trackCount: 29 }),
+    "3 albums · 29 tracks",
+  );
+  assert.equal(
+    remoteLibraryRecordDetail({
+      artist: "Portishead",
+      album: "Dummy",
+      playCount: 7,
+    }),
+    "Portishead · Dummy · 7",
+  );
   assert.equal(
     remotePlaybackContextKindLabel("direct-folder"),
     "Direct folder",

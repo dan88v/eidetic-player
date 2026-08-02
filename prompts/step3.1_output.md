@@ -655,6 +655,45 @@ Final validation after the extended stress coverage PASS:
 No commit, push, Raspberry deployment, service restart, installer, or remote
 update was performed.
 
+## Follow-up — Remote control contrast and Library summaries
+
+The Remote Player no longer gives available transport controls the same muted
+appearance as disabled controls. Previous, Play/Pause, Next, Shuffle, and
+Repeat now use the high-contrast foreground whenever they are actionable;
+only a native disabled state applies the muted icon color and reduced opacity.
+Mode selection remains visible through the existing blue border/background,
+without changing button size, spacing, order, or touch targets.
+
+Library Album rows now render `Album artist · N tracks`. Library Artist rows
+render `N albums · N tracks`, with singular forms for one album or track.
+Track, history, most-played, and playlist details retain their existing order.
+The values come from the existing bounded Library summaries; no endpoint,
+polling, stream, or backend contract was added.
+
+Focused formatter and CSS regressions cover enabled/disabled icon contrast,
+album artist ordering, album-count ordering, pluralization, invalid counts,
+and unchanged track detail ordering.
+
+Final validation for this Remote UI follow-up PASS:
+
+- targeted Prettier check for implementation, tests, documentation, and report
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build:remote`
+- `npm.cmd run test:remote` — 35 total, 34 passed, 1 expected Windows
+  symlink skip, 0 failed
+- `git diff --check`
+
+Responsive browser inspection could not be performed in this session because
+the integrated browser runtime reported no available browser. No unrelated
+browser fallback or synthetic screenshot was substituted. The existing
+320–430 px responsive/touch geometry is unchanged, and the scoped CSS plus
+Remote build/regressions are the available local evidence; device visual QA
+remains required after installation.
+
+No commit, push, Raspberry deployment, service restart, installer, or remote
+update was performed.
+
 ## Follow-up — occurrence-scoped MPV transition authority
 
 The preceding “definitive implicit-transition settling” conclusion was not

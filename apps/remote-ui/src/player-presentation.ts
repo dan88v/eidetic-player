@@ -321,3 +321,34 @@ export function formatRemoteTrackCount(value: unknown): string | null {
     return null;
   return `${String(value)} ${value === 1 ? "track" : "tracks"}`;
 }
+
+export function formatRemoteAlbumCount(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
+    return null;
+  return `${String(value)} ${value === 1 ? "album" : "albums"}`;
+}
+
+export function remoteLibraryRecordDetail(
+  record: Readonly<Record<string, unknown>>,
+): string {
+  const values: string[] = [];
+  const albumArtist =
+    typeof record.albumArtist === "string" && record.albumArtist.length > 0
+      ? record.albumArtist
+      : null;
+  if (albumArtist) values.push(albumArtist);
+  else
+    for (const key of ["artist", "album"])
+      if (typeof record[key] === "string" && record[key].length > 0)
+        values.push(record[key]);
+  if (
+    typeof record.playCount === "string" ||
+    typeof record.playCount === "number"
+  )
+    values.push(String(record.playCount));
+  const albumCount = formatRemoteAlbumCount(record.albumCount);
+  const trackCount = formatRemoteTrackCount(record.trackCount);
+  if (albumCount) values.push(albumCount);
+  if (trackCount) values.push(trackCount);
+  return values.join(" · ");
+}

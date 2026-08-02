@@ -17,6 +17,7 @@ import { createClientSessionId } from "./client-session-id";
 import { LatestRequestCoordinator } from "./latest-request-coordinator";
 import {
   formatRemoteTrackCount,
+  remoteLibraryRecordDetail,
   remotePlaybackContextKindLabel,
   remotePlayerDisplay,
   remotePlayerPresentationChanged,
@@ -1370,18 +1371,6 @@ function recordLabel(record: Record<string, unknown>): string {
   return "Library item";
 }
 
-function recordDetail(record: Record<string, unknown>): string {
-  const trackCount = formatRemoteTrackCount(record.trackCount);
-  const values = ["artist", "album", "playCount"]
-    .map((key) => record[key])
-    .filter(
-      (value): value is string | number =>
-        typeof value === "string" || typeof value === "number",
-    );
-  if (trackCount) values.push(trackCount);
-  return values.join(" · ");
-}
-
 function renderCollection(
   body: HTMLElement,
   records: readonly Record<string, unknown>[],
@@ -1393,7 +1382,7 @@ function renderCollection(
     const copy = element("div");
     copy.append(
       element("strong", "", recordLabel(record)),
-      element("small", "", recordDetail(record)),
+      element("small", "", remoteLibraryRecordDetail(record)),
     );
     const play = button("Play", "remote-secondary", () => {
       void playLibraryRecord(record, false);
