@@ -26,6 +26,9 @@ These documents expand the mandatory rules in the repository
   privileged runner, structured progress, restart recovery, and Settings UX.
 - [Playback command responsiveness](playback-command-responsiveness.md) -
   latest-intent ordering, MPV confirmation, transition races, and UI rollback.
+- [Playback source arbitration](playback-source-arbitration.md) - single-owner
+  local/external transitions, MPV output release, rollback, source-aware UI,
+  and fixture-only provider boundaries.
 - [Performance](performance.md) — Raspberry Pi 3B budgets, Canvas, SSE, MPV,
   and FFmpeg.
 - [Cassette main player](cassette-player.md) — Queue tape progress, mechanics,

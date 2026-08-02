@@ -24,6 +24,10 @@ import { PreferencesApiClient } from "./api/preferences-api-client";
 import { PreferencesController } from "./state/preferences-controller";
 import { loadAuthoritativeBootstrap } from "./bootstrap/backend-bootstrap";
 import { defaultDisplaySnapshot } from "../../../packages/shared/src/display";
+import {
+  defaultPlaybackSourceSnapshot,
+  type PlaybackSourceSnapshot,
+} from "../../../packages/shared/src/playback-source";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -75,7 +79,7 @@ async function bootstrap(): Promise<void> {
   let systemCapabilities = defaultSystemCapabilities;
   let buildInfo = developmentBuildInfo;
   let preferencesSnapshot: PreferencesSnapshot = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     revision: 0,
     preferences: defaultUiPreferences,
     persistence: "degraded",
@@ -83,6 +87,8 @@ async function bootstrap(): Promise<void> {
     warning: true,
   };
   let displaySnapshot = defaultDisplaySnapshot;
+  let playbackSourceSnapshot: PlaybackSourceSnapshot =
+    defaultPlaybackSourceSnapshot;
   let migrationFailed = false;
   let bootstrapAvailable = false;
   const preferencesApi = new PreferencesApiClient();
@@ -112,6 +118,7 @@ async function bootstrap(): Promise<void> {
     buildInfo = initial.buildInfo;
     preferencesSnapshot = initial.preferences;
     displaySnapshot = initial.display;
+    playbackSourceSnapshot = initial.playbackSource;
     if (preferencesSnapshot.legacyImport === "required") {
       const legacy = readLegacyPreferences();
       try {
@@ -180,6 +187,7 @@ async function bootstrap(): Promise<void> {
     buildInfo,
     preferencesController,
     displaySnapshot,
+    playbackSourceSnapshot,
   );
   if (migrationFailed || preferencesSnapshot.legacyImport === "manual-required")
     mountedApp.showSettingsWarning(t("settings.migrationWarning"));

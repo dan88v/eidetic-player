@@ -26,6 +26,7 @@ import type {
   CanonicalAudioOutput,
 } from "../../../../packages/shared/src/audio-output";
 import type { AudioOutputApiClient } from "../api/audio-output-api-client";
+import { PlayerApiError } from "../api/player-api-client";
 import {
   disconnectedAudioProcessingState,
   maximumSoftwareVolumeChoices,
@@ -55,7 +56,10 @@ import {
   type ScreenDimTimeoutSeconds,
   type ScreenStandbyTimeoutSeconds,
 } from "../../../../packages/shared/src/display";
-import type { ContinuePlaybackMode } from "../../../../packages/shared/src/preferences";
+import type {
+  ContinuePlaybackMode,
+  ExternalPlaybackEndPolicy,
+} from "../../../../packages/shared/src/preferences";
 
 export interface SettingsScreenOptions {
   readonly animationsEnabled: boolean;
@@ -66,6 +70,7 @@ export interface SettingsScreenOptions {
   readonly returnToNowPlayingSeconds: ReturnToNowPlayingSeconds;
   readonly onScreenKeyboardMode: OnScreenKeyboardMode;
   readonly continuePlaybackMode: ContinuePlaybackMode;
+  readonly externalPlaybackEndPolicy: ExternalPlaybackEndPolicy;
   readonly systemCapabilities: SystemCapabilities;
   readonly enterMaintenanceMode: () => Promise<void>;
   readonly updateApi: UpdateApiClient;
@@ -107,6 +112,9 @@ export interface SettingsScreenOptions {
   readonly onContinuePlaybackModeChange: (
     value: ContinuePlaybackMode,
   ) => boolean;
+  readonly onExternalPlaybackEndPolicyChange: (
+    value: ExternalPlaybackEndPolicy,
+  ) => boolean;
 }
 
 type SettingsPage =
@@ -125,6 +133,7 @@ type SettingsPage =
   | "audio-advanced"
   | "playback"
   | "playback-continue"
+  | "playback-external-end"
   | "keyboard"
   | "browsing"
   | "visualizer"
@@ -254,6 +263,7 @@ export function createSettingsScreen(
   let inactivity = options.returnToNowPlayingSeconds;
   let onScreenKeyboard = options.onScreenKeyboardMode;
   let continuePlayback = options.continuePlaybackMode;
+  let externalPlaybackEndPolicy = options.externalPlaybackEndPolicy;
   let networkSnapshot = options.networkSnapshot;
   let audioOutputState = options.audioOutputState;
   let audioProcessingState: AudioProcessingState =
@@ -313,7 +323,8 @@ export function createSettingsScreen(
     )
       page = "display";
     else if (page === "display") page = "system";
-    else if (page === "playback-continue") page = "playback";
+    else if (page === "playback-continue" || page === "playback-external-end")
+      page = "playback";
     else if (page === "remote-access") page = "root";
     else
       page =
@@ -335,6 +346,7 @@ export function createSettingsScreen(
   ): void => {
     if (audioProcessingBusy) return;
     audioProcessingBusy = true;
+    let positiveGainConfirmationRequired = false;
     render();
     void options.audioOutputApi
       .patchProcessing(patch)
@@ -352,6 +364,13 @@ export function createSettingsScreen(
         }
       })
       .catch((error: unknown) => {
+        if (
+          error instanceof PlayerApiError &&
+          error.code === "POSITIVE_GAIN_CONFIRMATION_REQUIRED"
+        ) {
+          positiveGainConfirmationRequired = true;
+          return;
+        }
         options.showToast(
           error instanceof Error
             ? error.message
@@ -362,6 +381,32 @@ export function createSettingsScreen(
       .finally(() => {
         audioProcessingBusy = false;
         render();
+        if (!positiveGainConfirmationRequired) return;
+        const activation = patch.changes.audioProcessingEnabled
+          ? "sound-processing"
+          : patch.changes.equalizerEnabled
+            ? "parametric-eq"
+            : null;
+        const returnFocus = activation
+          ? (section.querySelector<HTMLButtonElement>(
+              `[data-audio-setting="${activation}"] [data-value="on"]`,
+            ) ?? undefined)
+          : undefined;
+        section.append(confirmationDialog.backdrop, confirmationDialog.element);
+        confirmationDialog.open({
+          title: "Enable with possible clipping?",
+          description:
+            "The current EQ and headroom settings can add positive gain. Audio may clip.",
+          confirmLabel: "Enable anyway",
+          ...(returnFocus ? { returnFocus } : {}),
+          onConfirm: () => {
+            patchAudioProcessing(
+              { ...patch, confirmPositiveGain: true },
+              successMessage,
+              returnPage,
+            );
+          },
+        });
       });
   };
 
@@ -751,6 +796,11 @@ export function createSettingsScreen(
         description:
           "Choose what plays after the current context and queue end.",
       },
+      "playback-external-end": {
+        title: "After external playback ends",
+        description:
+          "Choose what happens to interrupted local playback after AirPlay or Spotify Connect ends.",
+      },
       "audio-output": {
         title: "Output Device",
         description: "Choose the physical audio output.",
@@ -971,7 +1021,16 @@ export function createSettingsScreen(
         render();
         resetSettingsScroll();
       });
-      panel.append(continuePlaybackButton);
+      const externalPlaybackButton = document.createElement("button");
+      externalPlaybackButton.className = "settings-row-base setting-navigation";
+      externalPlaybackButton.type = "button";
+      externalPlaybackButton.innerHTML = `<span><strong>After external playback ends</strong><small>${externalPlaybackEndPolicy === "keep-paused" ? "Keep paused" : "Resume interrupted playback"}</small></span>${chevron()}`;
+      externalPlaybackButton.addEventListener("click", () => {
+        page = "playback-external-end";
+        render();
+        resetSettingsScroll();
+      });
+      panel.append(continuePlaybackButton, externalPlaybackButton);
       return;
     }
 
@@ -992,6 +1051,37 @@ export function createSettingsScreen(
             () => {
               if (!options.onContinuePlaybackModeChange(value)) return false;
               continuePlayback = value;
+              return true;
+            },
+            "playback",
+            description,
+          ),
+        );
+      return;
+    }
+
+    if (page === "playback-external-end") {
+      const choices: readonly [ExternalPlaybackEndPolicy, string, string][] = [
+        [
+          "keep-paused",
+          "Keep local playback paused",
+          "Return to Eidetic Player without automatically resuming the interrupted local track.",
+        ],
+        [
+          "resume-interrupted",
+          "Resume interrupted playback",
+          "Resume local playback only when it was playing before the external source started.",
+        ],
+      ];
+      for (const [value, label, description] of choices)
+        panel.append(
+          selectionRow(
+            label,
+            externalPlaybackEndPolicy === value,
+            () => {
+              if (!options.onExternalPlaybackEndPolicyChange(value))
+                return false;
+              externalPlaybackEndPolicy = value;
               return true;
             },
             "playback",
@@ -1146,6 +1236,7 @@ export function createSettingsScreen(
           });
         },
       });
+      soundProcessing.dataset.audioSetting = "sound-processing";
       const parametricEq = segmentedSettingRow<"on" | "bypass">({
         label: "Parametric EQ",
         description: !processing.audioProcessingEnabled
@@ -1165,6 +1256,7 @@ export function createSettingsScreen(
           });
         },
       });
+      parametricEq.dataset.audioSetting = "parametric-eq";
       const eqBands = navigationRow(
         "Parametric EQ Bands",
         !processing.audioProcessingEnabled || !processing.equalizerEnabled
@@ -1180,7 +1272,7 @@ export function createSettingsScreen(
         label: "Gain Compensation",
         description:
           processing.headroomMode === "off"
-            ? "Off. Positive EQ gain can clip."
+            ? "Off. Processing remains available; positive EQ gain can clip."
             : processing.headroomMode === "manual"
               ? `Manual preamp · ${String(audioProcessingState.signalPath.preampDb)} dB`
               : `Automatic · ${String(audioProcessingState.signalPath.preampDb)} dB`,
@@ -1421,7 +1513,7 @@ export function createSettingsScreen(
         const warning = document.createElement("p");
         warning.className = "settings-warning";
         warning.textContent =
-          "Headroom is Off while EQ has positive gain. Clipping is possible.";
+          "Projected gain is positive. Processing remains available, but clipping is possible.";
         panel.append(warning);
       }
       return;

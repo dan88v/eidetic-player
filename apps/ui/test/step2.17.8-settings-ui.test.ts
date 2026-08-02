@@ -72,6 +72,19 @@ void test("Fixed output reuses the canonical confirmation surface", async () => 
   assert.doesNotMatch(settings, /createElement\("dialog"\)|showModal\(\)/);
 });
 
+void test("positive gain activation offers a concise enable-anyway confirmation", async () => {
+  const [settings, contract] = await Promise.all([
+    readFile("apps/ui/src/screens/settings.ts", "utf8"),
+    readFile("packages/shared/src/audio-processing.ts", "utf8"),
+  ]);
+  assert.match(contract, /confirmPositiveGain\?: boolean/);
+  assert.match(settings, /POSITIVE_GAIN_CONFIRMATION_REQUIRED/);
+  assert.match(settings, /title: "Enable with possible clipping\?"/);
+  assert.match(settings, /confirmLabel: "Enable anyway"/);
+  assert.match(settings, /confirmPositiveGain: true/);
+  assert.doesNotMatch(settings, /window\.confirm|createElement\("dialog"\)/);
+});
+
 void test("Balance is top-level, centered, human-labelled, and Stereo-only", async () => {
   const [settings, css] = await Promise.all([
     readFile("apps/ui/src/screens/settings.ts", "utf8"),
@@ -145,7 +158,19 @@ void test("Fixed Software Volume hides Default and Cassette volume triggers", as
     shell,
     /querySelectorAll<HTMLButtonElement>\(\s*'\[data-control="volume"\]'/,
   );
-  assert.match(shell, /trigger\.hidden = locked/);
+  assert.match(shell, /trigger\.hidden = triggerUnavailable/);
+  assert.match(
+    shell,
+    /source\.activeSource === "local"[\s\S]*outputLevelMode === "fixed"/,
+  );
+  assert.doesNotMatch(
+    shell,
+    /source\.activeSource !== "local" && source\.output\.levelMode === "fixed"/,
+  );
+  assert.match(
+    standard,
+    /volumeButton\.hidden = external \|\| volumeButton\.disabled/,
+  );
   assert.match(shell, /const audioLevelPolicyReady = audioOutputApi/);
   assert.match(
     shell,

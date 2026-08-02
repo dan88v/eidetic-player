@@ -23,7 +23,11 @@ export function createMainPlayerHost(
     view.element.dataset.mainPlayerSurface = options.mode;
     return view;
   };
-  if (options.mode === "default")
+  if (
+    options.mode === "default" ||
+    (options.initialPlaybackSource !== undefined &&
+      options.initialPlaybackSource.activeSource !== "local")
+  )
     return activate(createNowPlayingScreen(options));
   try {
     return activate(

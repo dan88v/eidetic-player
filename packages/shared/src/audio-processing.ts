@@ -77,6 +77,7 @@ export interface AudioProcessingState {
 export interface AudioProcessingPatch {
   readonly changes: Partial<AudioProcessingPreferences>;
   readonly confirmFixedOutput?: boolean;
+  readonly confirmPositiveGain?: boolean;
 }
 
 export interface AudioProcessingPatchResult {

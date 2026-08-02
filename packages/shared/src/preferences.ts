@@ -47,11 +47,13 @@ export const uiPreferenceKeys = [
   "screenDimLevelPercent",
   "screenStandbyTimeoutSeconds",
   "continuePlaybackMode",
+  "externalPlaybackEndPolicy",
 ] as const;
 
 export type UiPreferenceKey = (typeof uiPreferenceKeys)[number];
 
 export type ContinuePlaybackMode = "off" | "same-artist";
+export type ExternalPlaybackEndPolicy = "keep-paused" | "resume-interrupted";
 
 export interface UiPreferences extends AudioProcessingPreferences {
   readonly animationsEnabled: boolean;
@@ -78,11 +80,12 @@ export interface UiPreferences extends AudioProcessingPreferences {
   readonly screenDimLevelPercent: ScreenDimLevelPercent;
   readonly screenStandbyTimeoutSeconds: ScreenStandbyTimeoutSeconds;
   readonly continuePlaybackMode: ContinuePlaybackMode;
+  readonly externalPlaybackEndPolicy: ExternalPlaybackEndPolicy;
 }
 
 export const defaultUiPreferences: UiPreferences = Object.freeze({
   animationsEnabled: true,
-  visualizerMode: "meter",
+  visualizerMode: "spectrumMono",
   mainPlayerMode: "default",
   timelineStyle: "waveform",
   timelineTimeMode: "total",
@@ -113,6 +116,7 @@ export const defaultUiPreferences: UiPreferences = Object.freeze({
   screenDimLevelPercent: 20,
   screenStandbyTimeoutSeconds: 0,
   continuePlaybackMode: "off",
+  externalPlaybackEndPolicy: "keep-paused",
 });
 
 export type PreferencesPersistence =
@@ -122,7 +126,7 @@ export type LegacyPreferencesImport =
   "required" | "imported" | "not-found" | "manual-required" | "manual";
 
 export interface PreferencesSnapshot {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly revision: number;
   readonly preferences: UiPreferences;
   readonly persistence: PreferencesPersistence;
@@ -181,6 +185,8 @@ export function isValidUiPreferenceValue<K extends UiPreferenceKey>(
       return isOneOf(value, ["off", "all", "one"]);
     case "continuePlaybackMode":
       return isOneOf(value, ["off", "same-artist"]);
+    case "externalPlaybackEndPolicy":
+      return isOneOf(value, ["keep-paused", "resume-interrupted"]);
     case "folderViewMode":
     case "libraryAlbumViewMode":
     case "favoriteAlbumViewMode":

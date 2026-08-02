@@ -426,6 +426,33 @@ img {
   text-align: center;
 }
 
+.remote-player__source,
+.remote-source-banner {
+  color: #75a7ff;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.remote-source-banner {
+  flex-basis: 100%;
+  margin: 0.35rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgb(47 125 255 / 38%);
+  border-radius: 0.75rem;
+  background: rgb(47 125 255 / 12%);
+  line-height: 1.35;
+}
+
+.remote-volume--fixed {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.remote-volume--fixed small {
+  color: #9ca6b7;
+  line-height: 1.35;
+}
+
 .remote-player__controls {
   display: grid;
   gap: clamp(6px, 1.4dvh, 12px);

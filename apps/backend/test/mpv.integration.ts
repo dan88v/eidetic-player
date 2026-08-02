@@ -98,6 +98,64 @@ void test("MPV headless IPC integration", async (context) => {
   }
 });
 
+void test("one persistent MPV releases and restores its output for external ownership", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "eidetic-mpv-source-owner-"));
+  const path = join(root, "ownership.wav");
+  await writeFile(path, silentWav(8));
+  const player = new PlayerService();
+  try {
+    await player.initialize();
+    await player.openResolvedQueue([path], 0);
+    await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) => state.currentTrack?.path === path && !state.paused,
+      5_000,
+    );
+    await player.seek(1.25);
+    const suspension = player.captureExternalPlaybackSuspension();
+    assert.equal(suspension.wasPlaying, true);
+    const planBefore = player.getPlaybackPlanSnapshot();
+
+    await player.releaseAudioOutputForExternalPlayback();
+    assert.equal(
+      await player.commandMpv(["get_property", "idle-active"]),
+      true,
+    );
+    assert.equal(
+      await player.commandMpv(["get_property", "current-ao"]).catch(() => null),
+      null,
+    );
+    assert.equal(player.getState().paused, true);
+    assert.equal(
+      player.getPlaybackPlanSnapshot().current?.playbackInstanceId,
+      planBefore.current?.playbackInstanceId,
+    );
+
+    await player.restoreAudioOutputAfterExternalPlayback(suspension, false);
+    const restored = await waitFor(
+      () => Promise.resolve(player.getState()),
+      (state) =>
+        state.currentTrack?.path === path &&
+        state.paused &&
+        Math.abs(state.positionSeconds - suspension.positionSeconds) < 0.4,
+      5_000,
+    );
+    assert.equal(restored.status, "paused");
+    assert.equal(
+      player.getPlaybackPlanSnapshot().current?.playbackInstanceId,
+      planBefore.current?.playbackInstanceId,
+    );
+  } finally {
+    await player.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 void test("MPV loads the selected fifth item without flashing the first", async (context) => {
   const discovery = await discoverMpv();
   if (!discovery) {

@@ -8,6 +8,10 @@ import type {
 } from "../../../packages/shared/src/player.js";
 import { SseHub } from "../src/api/sse-hub.js";
 import type { PlayerService } from "../src/player/player-service.js";
+import {
+  defaultPlaybackSourceSnapshot,
+  type PlaybackSourceSnapshot,
+} from "../../../packages/shared/src/playback-source.js";
 
 type StateListener = (state: PlayerState) => void;
 
@@ -28,6 +32,27 @@ class FixturePlayer {
   }
 
   publish(state: PlayerState): void {
+    this.state = state;
+    this.listener?.(state);
+  }
+}
+
+class FixturePlaybackSource {
+  private listener: ((state: PlaybackSourceSnapshot) => void) | null = null;
+  private state = defaultPlaybackSourceSnapshot;
+
+  snapshot(): PlaybackSourceSnapshot {
+    return this.state;
+  }
+
+  subscribe(listener: (state: PlaybackSourceSnapshot) => void): () => void {
+    this.listener = listener;
+    return () => {
+      if (this.listener === listener) this.listener = null;
+    };
+  }
+
+  publish(state: PlaybackSourceSnapshot): void {
     this.state = state;
     this.listener?.(state);
   }
@@ -280,4 +305,38 @@ void test("local player SSE keeps one stream and bounds progress ticks with a 20
   }
 
   assert.equal(response.ended(), true);
+});
+
+void test("playback source state uses a named event on the existing local stream", () => {
+  const player = new FixturePlayer(playerState(0));
+  const source = new FixturePlaybackSource();
+  const response = fixtureResponse();
+  const hub = new SseHub(
+    player as unknown as PlayerService,
+    undefined,
+    undefined,
+    source,
+  );
+  try {
+    hub.add(response.response);
+    assert.equal(response.writeHeadCount(), 1);
+    assert.equal(frame(response.writes.at(-1) ?? "").event, "playback-source");
+    source.publish({
+      ...defaultPlaybackSourceSnapshot,
+      revision: 1,
+      transitionGeneration: 1,
+      activeSource: "spotify",
+      phase: "active",
+      providerState: "playing",
+    });
+    const published = frame(response.writes.at(-1) ?? "");
+    assert.equal(published.event, "playback-source");
+    assert.equal(
+      (published.data as PlaybackSourceSnapshot).activeSource,
+      "spotify",
+    );
+    assert.equal(response.writeHeadCount(), 1);
+  } finally {
+    hub.close();
+  }
 });

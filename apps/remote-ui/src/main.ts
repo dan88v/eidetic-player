@@ -9,6 +9,10 @@ import type {
   ExplicitQueueItem,
   PlaybackContextQueueDecision,
 } from "../../../packages/shared/src/player";
+import {
+  playbackSourceDisplayName,
+  type PlaybackSourceSnapshot,
+} from "../../../packages/shared/src/playback-source";
 import { createClientSessionId } from "./client-session-id";
 import {
   formatRemoteTrackCount,
@@ -187,10 +191,17 @@ function formatTime(seconds: number): string {
 }
 
 function metadataTitle(state: RemotePlayerState): string {
+  if (bootstrap?.playbackSource.activeSource !== "local")
+    return bootstrap?.playbackSource.metadata?.title ?? "External playback";
   return remotePlayerDisplay(state).title;
 }
 
 function artworkFor(state: RemotePlayerState): string | null {
+  const source = bootstrap?.playbackSource;
+  if (source && source.activeSource !== "local") {
+    const id = source.artwork?.id;
+    return id ? `/api/artwork/external/${encodeURIComponent(id)}` : null;
+  }
   const id = remotePlayerDisplay(state).artwork?.id;
   return id ? `/api/artwork/player/${encodeURIComponent(id)}` : null;
 }
@@ -440,6 +451,8 @@ function updateMiniPlayer(target?: HTMLElement): void {
   if (!mini) return;
   mini.hidden = destination === "player";
   const state = bootstrap.player;
+  const source = bootstrap.playbackSource;
+  const external = source.activeSource !== "local";
   const display = remotePlayerDisplay(state);
   mini.replaceChildren();
   const open = button("", "remote-mini-player__open", () => {
@@ -459,13 +472,33 @@ function updateMiniPlayer(target?: HTMLElement): void {
   const copy = element("span", "remote-mini-player__copy");
   copy.append(
     element("strong", "", metadataTitle(state)),
-    element("small", "", display.artist ?? "Eidetic Player"),
+    element(
+      "small",
+      "",
+      external
+        ? [
+            source.metadata?.artist,
+            playbackSourceDisplayName(source.activeSource),
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : (display.artist ?? "Eidetic Player"),
+    ),
   );
   open.append(art, copy);
-  const toggle = button(state.paused ? "▶" : "Ⅱ", "remote-icon-button", () => {
+  const paused = external ? source.providerState !== "playing" : state.paused;
+  const toggle = button(paused ? "▶" : "Ⅱ", "remote-icon-button", () => {
     void runCommand("/api/player/play-pause");
   });
-  toggle.setAttribute("aria-label", state.paused ? "Play" : "Pause");
+  toggle.setAttribute("aria-label", paused ? "Play" : "Pause");
+  toggle.disabled =
+    connection !== "connected" ||
+    (external &&
+      !(paused ? source.capabilities.play : source.capabilities.pause));
+  toggle.dataset.commandAvailable = String(
+    !external ||
+      (paused ? source.capabilities.play : source.capabilities.pause),
+  );
   toggle.dataset.requiresConnection = "";
   mini.append(open, toggle);
 }
@@ -497,6 +530,8 @@ function pageHeading(title: string, description?: string): HTMLElement {
 function renderPlayer(content: HTMLElement): void {
   if (!bootstrap) return;
   const state = bootstrap.player;
+  const source = bootstrap.playbackSource;
+  const external = source.activeSource !== "local";
   const display = remotePlayerDisplay(state);
   const page = element("section", "remote-player");
   const artwork = element("div", "remote-player__artwork");
@@ -512,23 +547,51 @@ function renderPlayer(content: HTMLElement): void {
   const metadata = element("div", "remote-player__metadata");
   metadata.append(
     element("h1", "", metadataTitle(state)),
-    element("p", "", display.artist ?? "No artist"),
-    element("small", "", display.album ?? "No album"),
+    element(
+      "p",
+      "",
+      external
+        ? (source.metadata?.artist ?? "No artist")
+        : (display.artist ?? "No artist"),
+    ),
+    element(
+      "small",
+      "",
+      external
+        ? (source.metadata?.album ?? "No album")
+        : (display.album ?? "No album"),
+    ),
   );
+  if (external)
+    metadata.prepend(
+      element(
+        "span",
+        "remote-player__source",
+        `Now Playing — ${playbackSourceDisplayName(source.activeSource)}`,
+      ),
+    );
   const timeline = element("div", "remote-timeline");
   const time = element("div", "remote-timeline__time");
-  const elapsed = element("span", "", formatTime(state.positionSeconds));
+  const activePosition = external
+    ? (source.positionSeconds ?? 0)
+    : state.positionSeconds;
+  const activeDuration = external
+    ? (source.durationSeconds ?? source.metadata?.durationSeconds ?? 0)
+    : state.durationSeconds;
+  const elapsed = element("span", "", formatTime(activePosition));
   elapsed.dataset.playerElapsed = "";
-  const duration = element("span", "", formatTime(state.durationSeconds));
+  const duration = element("span", "", formatTime(activeDuration));
   duration.dataset.playerDuration = "";
   time.append(elapsed, duration);
   const seek = element("input");
   seek.type = "range";
   seek.min = "0";
-  seek.max = String(Math.max(1, state.durationSeconds));
+  seek.max = String(Math.max(1, activeDuration));
   seek.step = "1";
-  seek.value = String(state.positionSeconds);
-  seek.disabled = !display.hasCurrent || connection !== "connected";
+  seek.value = String(activePosition);
+  seek.disabled =
+    connection !== "connected" ||
+    (external ? !source.capabilities.seek : !display.hasCurrent);
   seek.setAttribute("aria-label", "Playback position");
   seek.dataset.playerSeek = "";
   let ignoreNextChange: string | null = null;
@@ -571,6 +634,11 @@ function renderPlayer(content: HTMLElement): void {
   });
   setRemoteIcon(previous, "previous");
   previous.setAttribute("aria-label", "Previous");
+  previous.disabled =
+    connection !== "connected" || (external && !source.capabilities.previous);
+  previous.dataset.commandAvailable = String(
+    !external || source.capabilities.previous,
+  );
   previous.dataset.requiresConnection = "";
   const play = button(
     "",
@@ -579,16 +647,30 @@ function renderPlayer(content: HTMLElement): void {
       void runCommand("/api/player/play-pause");
     },
   );
-  setRemoteIcon(play, state.paused ? "play" : "pause");
-  play.setAttribute("aria-label", state.paused ? "Play" : "Pause");
+  const activePaused = external
+    ? source.providerState !== "playing"
+    : state.paused;
+  setRemoteIcon(play, activePaused ? "play" : "pause");
+  play.setAttribute("aria-label", activePaused ? "Play" : "Pause");
+  play.disabled =
+    connection !== "connected" ||
+    (external &&
+      !(activePaused ? source.capabilities.play : source.capabilities.pause));
+  play.dataset.commandAvailable = String(
+    !external ||
+      (activePaused ? source.capabilities.play : source.capabilities.pause),
+  );
   play.dataset.requiresConnection = "";
   const next = button("", "remote-round-button", () => {
     void runCommand("/api/player/next");
   });
   setRemoteIcon(next, "next");
   next.setAttribute("aria-label", "Next");
+  const canGoNext = external ? source.capabilities.next : state.canGoNext;
   next.dataset.commandAvailable = String(state.canGoNext);
-  next.disabled = !state.canGoNext || connection !== "connected";
+  if (external)
+    next.dataset.commandAvailable = String(source.capabilities.next);
+  next.disabled = !canGoNext || connection !== "connected";
   next.dataset.requiresConnection = "";
   const shuffle = button(
     "",
@@ -628,19 +710,32 @@ function renderPlayer(content: HTMLElement): void {
   repeat.setAttribute("aria-pressed", String(state.repeatMode !== "off"));
   shuffle.dataset.requiresConnection = "";
   repeat.dataset.requiresConnection = "";
+  shuffle.dataset.commandAvailable = String(!external);
+  repeat.dataset.commandAvailable = String(!external);
+  shuffle.disabled = external || connection !== "connected";
+  repeat.disabled = external || connection !== "connected";
   transport.append(shuffle, previous, play, next, repeat);
   let volumeSection: HTMLElement | null = null;
-  if (bootstrap.outputLevelMode !== "fixed") {
+  const variableLevel = external
+    ? source.output.levelMode !== "fixed"
+    : bootstrap.outputLevelMode !== "fixed";
+  const activeMaximumVolume = external
+    ? source.output.maximumSoftwareVolume
+    : bootstrap.maximumSoftwareVolume;
+  const activeVolume = external ? source.volume : state.volume;
+  const activeMuted = external ? source.muted : state.muted;
+  if (variableLevel) {
     volumeSection = element("section", "remote-volume");
     const label = element("label");
     label.append(
-      element("span", "", `Volume ${String(Math.round(state.volume))}%`),
+      element("span", "", `Volume ${String(Math.round(activeVolume))}%`),
     );
     const volume = element("input");
     volume.type = "range";
     volume.min = "0";
-    volume.max = String(bootstrap.maximumSoftwareVolume);
-    volume.value = String(state.volume);
+    volume.max = String(activeMaximumVolume);
+    volume.value = String(activeVolume);
+    volume.disabled = external && !source.capabilities.volume;
     volume.setAttribute("aria-label", "Volume");
     volume.addEventListener("change", () => {
       void runCommand("/api/player/volume", {
@@ -649,13 +744,24 @@ function renderPlayer(content: HTMLElement): void {
     });
     label.append(volume);
     const mute = button(
-      state.muted ? "Unmute" : "Mute",
+      activeMuted ? "Unmute" : "Mute",
       "remote-secondary",
       () => {
-        void runCommand("/api/player/mute", { muted: !state.muted });
+        void runCommand("/api/player/mute", { muted: !activeMuted });
       },
     );
+    mute.disabled = external && !source.capabilities.mute;
     volumeSection.append(label, mute);
+  } else if (external) {
+    volumeSection = element("section", "remote-volume remote-volume--fixed");
+    volumeSection.append(
+      element("strong", "", "Fixed output · 100%"),
+      element(
+        "small",
+        "",
+        "Volume and mute are controlled by the external source or amplifier.",
+      ),
+    );
   }
   if (!state.mpvAvailable)
     page.append(
@@ -668,6 +774,15 @@ function renderPlayer(content: HTMLElement): void {
   const controls = element("div", "remote-player__controls");
   controls.append(timeline, transport);
   if (volumeSection) controls.append(volumeSection);
+  if (external) {
+    controls.append(
+      element("p", "remote-muted", "DSP: Not applied to external sources"),
+      element("p", "remote-muted", `Output: ${source.output.description}`),
+      button("Resume local playback", "remote-secondary", () => {
+        void runCommand("/api/player/resume-local");
+      }),
+    );
+  }
   page.append(artwork, metadata, controls);
   content.replaceChildren(page);
 }
@@ -675,17 +790,28 @@ function renderPlayer(content: HTMLElement): void {
 function updatePlayerProgress(state: RemotePlayerState): void {
   const seek = document.querySelector<HTMLInputElement>("[data-player-seek]");
   if (!seek) return;
-  seek.max = String(Math.max(1, state.durationSeconds));
+  const source = bootstrap?.playbackSource;
+  const external = source?.activeSource !== "local";
+  const position = external
+    ? (source?.positionSeconds ?? 0)
+    : state.positionSeconds;
+  const activeDuration = external
+    ? (source?.durationSeconds ?? source?.metadata?.durationSeconds ?? 0)
+    : state.durationSeconds;
+  seek.max = String(Math.max(1, activeDuration));
   seek.disabled =
-    !remotePlayerDisplay(state).hasCurrent || connection !== "connected";
-  if (activeSeek?.input !== seek) seek.value = String(state.positionSeconds);
+    connection !== "connected" ||
+    (external
+      ? !source?.capabilities.seek
+      : !remotePlayerDisplay(state).hasCurrent);
+  if (activeSeek?.input !== seek) seek.value = String(position);
   const elapsed = document.querySelector<HTMLElement>("[data-player-elapsed]");
   const duration = document.querySelector<HTMLElement>(
     "[data-player-duration]",
   );
   if (elapsed && activeSeek?.input !== seek)
-    elapsed.textContent = formatTime(state.positionSeconds);
-  if (duration) duration.textContent = formatTime(state.durationSeconds);
+    elapsed.textContent = formatTime(position);
+  if (duration) duration.textContent = formatTime(activeDuration);
 }
 
 function renderQueue(content: HTMLElement): void {
@@ -697,6 +823,14 @@ function renderQueue(content: HTMLElement): void {
     "Queue",
     formatRemoteTrackCount(explicitCount) ?? undefined,
   );
+  if (bootstrap.playbackSource.activeSource !== "local")
+    heading.append(
+      element(
+        "p",
+        "remote-source-banner",
+        `Local playback is paused while ${playbackSourceDisplayName(bootstrap.playbackSource.activeSource)} is active.`,
+      ),
+    );
   if (explicitCount > 0) {
     heading.append(
       button("Clear", "remote-text-button", () => {
@@ -1593,6 +1727,7 @@ function openStream(): void {
     "snapshot",
     "player",
     "player-progress",
+    "playback-source",
     "queue",
     "audio-output",
     "source-availability",
@@ -1632,6 +1767,20 @@ function receivePlayerState(next: RemotePlayerState): void {
     updateMiniPlayer();
 }
 
+function receivePlaybackSource(next: PlaybackSourceSnapshot): void {
+  if (!bootstrap) return;
+  const previous = bootstrap.playbackSource;
+  bootstrap = { ...bootstrap, playbackSource: next };
+  if (
+    previous.revision === next.revision &&
+    previous.transitionGeneration === next.transitionGeneration
+  )
+    return;
+  if (destination === "player" || destination === "queue")
+    renderCurrentSurface();
+  else updateMiniPlayer();
+}
+
 function receiveEvent(envelope: RemoteEventEnvelope): void {
   if (!bootstrap) return;
   if (
@@ -1650,9 +1799,16 @@ function receiveEvent(envelope: RemoteEventEnvelope): void {
     const snapshot = envelope.data as {
       readonly player: RemotePlayerState;
       readonly audioOutput: RemoteBootstrap["audioOutput"];
+      readonly playbackSource: PlaybackSourceSnapshot;
     };
-    bootstrap = { ...bootstrap, audioOutput: snapshot.audioOutput };
+    bootstrap = {
+      ...bootstrap,
+      audioOutput: snapshot.audioOutput,
+      playbackSource: snapshot.playbackSource,
+    };
     receivePlayerState(snapshot.player);
+  } else if (envelope.type === "playback-source" && envelope.data) {
+    receivePlaybackSource(envelope.data as PlaybackSourceSnapshot);
   } else if (envelope.type === "audio-output" && envelope.data) {
     bootstrap = {
       ...bootstrap,

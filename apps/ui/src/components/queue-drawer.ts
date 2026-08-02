@@ -18,6 +18,8 @@ import {
   queueDrawerPresentation,
   type QueueDrawerTrack,
 } from "./queue-drawer-model";
+import type { PlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source";
+import { playbackSourceDisplayName } from "../../../../packages/shared/src/playback-source";
 
 const focusableSelector =
   'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
@@ -29,6 +31,7 @@ export interface QueueDrawer {
   containFocus(event: KeyboardEvent): void;
   dismissConfirmation(): boolean;
   update(state: PlayerState): void;
+  updatePlaybackSource(state: PlaybackSourceSnapshot): void;
   destroy(): void;
 }
 
@@ -132,6 +135,7 @@ export function createQueueDrawer(options: {
       </div>
     </div>
     <ol class="queue-list">
+      <li class="queue-drawer__source-banner" role="status" hidden></li>
       <li class="queue-section queue-section--current">
         <h3>${t("queueDrawer.nowPlaying")}</h3>
         <div class="queue-current queue-item--current" aria-current="true" hidden>
@@ -170,6 +174,9 @@ export function createQueueDrawer(options: {
     </ol>`;
   const closeButton = element.querySelector<HTMLButtonElement>(
     ".queue-drawer__close",
+  );
+  const sourceBanner = element.querySelector<HTMLElement>(
+    ".queue-drawer__source-banner",
   );
   const list = element.querySelector<HTMLOListElement>(".queue-list");
   const clearButton = element.querySelector<HTMLButtonElement>(
@@ -232,6 +239,7 @@ export function createQueueDrawer(options: {
   );
   if (
     !closeButton ||
+    !sourceBanner ||
     !list ||
     !clearButton ||
     !clearRow ||
@@ -386,6 +394,13 @@ export function createQueueDrawer(options: {
       if (!confirmationOpen) return false;
       setConfirmationOpen(false);
       return true;
+    },
+    updatePlaybackSource(source) {
+      const external = source.activeSource !== "local";
+      sourceBanner.hidden = !external;
+      sourceBanner.textContent = external
+        ? `Local playback is paused while ${playbackSourceDisplayName(source.activeSource)} is active.`
+        : "";
     },
     update(state) {
       const nextQueueSnapshot = state.explicitQueue ?? state.queue;

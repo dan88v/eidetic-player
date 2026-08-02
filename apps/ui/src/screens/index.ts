@@ -24,7 +24,11 @@ import type {
   ScreenDimTimeoutSeconds,
   ScreenStandbyTimeoutSeconds,
 } from "../../../../packages/shared/src/display";
-import type { ContinuePlaybackMode } from "../../../../packages/shared/src/preferences";
+import type {
+  ContinuePlaybackMode,
+  ExternalPlaybackEndPolicy,
+} from "../../../../packages/shared/src/preferences";
+import type { PlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source";
 import type {
   AddLocalSourceResponse,
   DirectoryQueueResponse,
@@ -77,6 +81,10 @@ export interface ScreenContext {
   readonly setOnScreenKeyboardMode: (value: OnScreenKeyboardMode) => boolean;
   readonly continuePlaybackMode: ContinuePlaybackMode;
   readonly setContinuePlaybackMode: (value: ContinuePlaybackMode) => boolean;
+  readonly externalPlaybackEndPolicy: ExternalPlaybackEndPolicy;
+  readonly setExternalPlaybackEndPolicy: (
+    value: ExternalPlaybackEndPolicy,
+  ) => boolean;
   readonly showToast: (
     message: string,
     tone?: "error" | "success" | "neutral",
@@ -86,6 +94,7 @@ export interface ScreenContext {
   readonly openFolders: () => void;
   readonly toggleVolume: (trigger: HTMLButtonElement) => void;
   readonly playerState: PlayerState;
+  readonly playbackSource: PlaybackSourceSnapshot;
   readonly playerActions: PlayerActions;
   readonly foldersApi: FoldersApiClient;
   readonly removableApi: RemovableStorageApiClient;
@@ -185,6 +194,7 @@ export function createScreen(
         removableDevices: context.removableDevices,
         onToggleVolume: context.toggleVolume,
         initialPlayerState: context.playerState,
+        initialPlaybackSource: context.playbackSource,
         actions: context.playerActions,
         favorites: context.favorites,
         onCassetteError: context.handleCassetteError,
@@ -299,6 +309,7 @@ export function createScreen(
         returnToNowPlayingSeconds: context.state.returnToNowPlayingSeconds,
         onScreenKeyboardMode: context.state.onScreenKeyboardMode,
         continuePlaybackMode: context.continuePlaybackMode,
+        externalPlaybackEndPolicy: context.externalPlaybackEndPolicy,
         systemCapabilities: context.systemCapabilities,
         enterMaintenanceMode: context.enterMaintenanceMode,
         updateApi: context.updateApi,
@@ -327,6 +338,7 @@ export function createScreen(
         onReturnToNowPlayingSecondsChange: context.setReturnToNowPlayingSeconds,
         onScreenKeyboardModeChange: context.setOnScreenKeyboardMode,
         onContinuePlaybackModeChange: context.setContinuePlaybackMode,
+        onExternalPlaybackEndPolicyChange: context.setExternalPlaybackEndPolicy,
       });
   }
 }

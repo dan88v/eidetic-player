@@ -6,6 +6,7 @@ import type { SmbSnapshot } from "../../../../packages/shared/src/smb";
 import type { AudioOutputState } from "../../../../packages/shared/src/audio-output";
 import type { SoftwareUpdateSnapshot } from "../../../../packages/shared/src/update";
 import type { DisplaySnapshot } from "../../../../packages/shared/src/display";
+import type { PlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source";
 
 export interface ComponentView<T extends HTMLElement = HTMLElement> {
   readonly element: T;
@@ -18,6 +19,7 @@ export interface ComponentView<T extends HTMLElement = HTMLElement> {
   updateAudioOutputState?(snapshot: AudioOutputState): void;
   updateSoftwareUpdateState?(snapshot: SoftwareUpdateSnapshot): void;
   updateDisplayState?(snapshot: DisplaySnapshot): void;
+  updatePlaybackSource?(snapshot: PlaybackSourceSnapshot): void;
   requestLeave?(leave: () => void): boolean;
   destroy(): void;
 }

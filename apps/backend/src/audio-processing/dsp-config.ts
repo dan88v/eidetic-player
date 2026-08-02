@@ -207,9 +207,6 @@ export function buildAudioSignalPath(
     preampDb: preamp,
     projectedPeakGainDb,
     filterLabel: EIDETIC_DSP_FILTER_LABEL,
-    warning:
-      preferences.headroomMode === "off" && projectedPeakGainDb > 0
-        ? "positive-gain"
-        : null,
+    warning: projectedPeakGainDb > 0 ? "positive-gain" : null,
   };
 }

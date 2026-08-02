@@ -35,6 +35,11 @@ future Raspberry shell.
 
 - `PlayerService` owns the playback session, Queue, current track, transport
   state, MPV commands, and authoritative state publication.
+- `PlaybackSourceArbiter` owns the single active-source decision and serializes
+  local/external output acquisition, release, rollback, and active-source
+  command routing. It wraps the existing `PlayerService` through a narrow local
+  adapter and does not own another player or another Queue. See
+  [playback source arbitration](playback-source-arbitration.md).
 - MPV owns decoding, playback position, pause, playlist behavior, volume, mute,
   repeat, shuffle, and the selected audio output.
 - `AudioOutputService` owns the validated MPV device list, preferred/effective

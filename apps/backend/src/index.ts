@@ -147,6 +147,13 @@ import {
   type RemoteLibraryRead,
 } from "./remote-access/remote-gateway.js";
 import { RemoteAccessError } from "./remote-access/remote-access-error.js";
+import { PlaybackArbitrationStore } from "./playback-source/playback-arbitration-store.js";
+import { LocalPlaybackAdapter } from "./playback-source/local-playback-adapter.js";
+import { PlaybackSourceArbiter } from "./playback-source/playback-source-arbiter.js";
+import { ActivePlaybackController } from "./playback-source/active-playback-controller.js";
+import { FixtureExternalPlaybackProvider } from "./playback-source/fixture-external-playback-provider.js";
+import { PlaybackSourceError } from "./playback-source/playback-source-error.js";
+import type { PlaybackSourceKind } from "../../../packages/shared/src/playback-source.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -358,9 +365,38 @@ const playerSession = new PlayerSessionService(
   removableStorage,
   smb,
 );
+const externalPlaybackFixture =
+  process.env.NODE_ENV !== "production" &&
+  process.env.EIDETIC_EXTERNAL_PLAYBACK_FIXTURE === "1";
+const fixtureAirPlay = externalPlaybackFixture
+  ? new FixtureExternalPlaybackProvider("airplay")
+  : null;
+const fixtureSpotify = externalPlaybackFixture
+  ? new FixtureExternalPlaybackProvider("spotify")
+  : null;
+const playbackSourceArbiter = new PlaybackSourceArbiter(
+  new LocalPlaybackAdapter(player, playerSession, audioOutput, audioProcessing),
+  [fixtureAirPlay, fixtureSpotify].filter(
+    (provider): provider is FixtureExternalPlaybackProvider =>
+      provider !== null,
+  ),
+  new PlaybackArbitrationStore(),
+  preferences,
+);
+const activePlayback = new ActivePlaybackController(
+  player,
+  audioProcessing,
+  playbackSourceArbiter,
+);
+player.setBeforeLocalPlaybackOwnershipHook(() =>
+  activePlayback.requestLocalOwnership(),
+);
 const powerActions = new PowerActionCoordinator(
   availablePowerActions,
-  () => playerSession.flush(),
+  async () => {
+    await playbackSourceArbiter.requestLocalOwnership(false);
+    await Promise.all([playerSession.flush(), playbackSourceArbiter.flush()]);
+  },
   createLinuxPowerActionAdapter({
     executeHostActions: !applianceFixture,
     stopBackend: () => {
@@ -368,7 +404,7 @@ const powerActions = new PowerActionCoordinator(
     },
   }),
 );
-const events = new SseHub(player, audioOutput, display);
+const events = new SseHub(player, audioOutput, display, playbackSourceArbiter);
 const removableEvents = new RemovableStorageSseHub(removableStorage);
 const networkEvents = new NetworkSseHub(network);
 const smbEvents = new SmbSseHub(smb);
@@ -544,6 +580,7 @@ const playerRecovery = new PlayerRecoveryService(async () => {
       preferences.snapshot().preferences.continuePlaybackMode,
     );
     await audioProcessing.recoverAfterMpvRestart();
+    await playbackSourceArbiter.initialize();
     bootstrapReadiness = "ready";
     bootstrapFailureCode = null;
     preloadWaveforms(true);
@@ -589,6 +626,7 @@ const bootstrapPromise = Promise.all([
     );
     await audioProcessing.initialize(preferences.snapshot());
     playerSession.start();
+    await playbackSourceArbiter.initialize();
     await analyzer.initialize(player.getMpvExecutable() ?? undefined);
     const bootstrapState = player.getState();
     if (!bootstrapState.mpvAvailable) {
@@ -699,20 +737,23 @@ async function readBody(
 }
 
 async function execute(command: PlayerCommand): Promise<void> {
-  if (command.type === "volume")
+  const localActive = playbackSourceArbiter.snapshot().activeSource === "local";
+  if (localActive && command.type === "volume")
     player.noteCommandApiReceived("volume", command.metadata);
-  else if (command.type === "mute")
+  else if (localActive && command.type === "mute")
     player.noteCommandApiReceived("mute", command.metadata);
   else if (
-    command.type === "play" ||
-    command.type === "pause" ||
-    command.type === "play-pause"
+    localActive &&
+    (command.type === "play" ||
+      command.type === "pause" ||
+      command.type === "play-pause")
   )
     player.noteCommandApiReceived("transport", command.metadata);
   else if (
-    command.type === "next" ||
-    command.type === "previous" ||
-    command.type === "queue-play"
+    localActive &&
+    (command.type === "next" ||
+      command.type === "previous" ||
+      command.type === "queue-play")
   )
     player.noteCommandApiReceived("navigation", command.metadata);
   switch (command.type) {
@@ -720,38 +761,42 @@ async function execute(command: PlayerCommand): Promise<void> {
       await player.open(command.paths, command.queueDecision);
       break;
     case "seek":
-      await player.seek(command.positionSeconds);
-      analyzer.restartAtCurrentPosition();
+      await activePlayback.seek(command.positionSeconds, command.metadata);
+      if (playbackSourceArbiter.snapshot().activeSource === "local")
+        analyzer.restartAtCurrentPosition();
       break;
     case "volume":
-      await audioProcessing.setVolume(command.volume, command.metadata);
+      await activePlayback.setVolume(command.volume, command.metadata);
       break;
     case "mute":
-      await audioProcessing.setMuted(command.muted, command.metadata);
+      await activePlayback.setMuted(command.muted, command.metadata);
       break;
     case "play-pause":
-      await player.playPause(command.metadata);
+      await activePlayback.playPause(command.metadata);
       break;
     case "play":
-      await player.play(command.metadata);
+      await activePlayback.play(command.metadata);
       break;
     case "pause":
-      await player.pause(command.metadata);
+      await activePlayback.pause(command.metadata);
       break;
     case "previous":
-      await player.previous(command.metadata, command.targetQueueItemId);
+      await activePlayback.previous(
+        command.metadata,
+        command.targetQueueItemId,
+      );
       break;
     case "next":
-      await player.next(command.metadata, command.targetQueueItemId);
+      await activePlayback.next(command.metadata, command.targetQueueItemId);
       break;
     case "shuffle":
-      await player.setShuffle(command.enabled);
+      await activePlayback.setShuffle(command.enabled);
       break;
     case "repeat":
-      await player.setRepeatMode(command.mode);
+      await activePlayback.setRepeatMode(command.mode);
       break;
     case "queue-play":
-      await player.playQueueIndex(
+      await activePlayback.playQueueIndex(
         command.index,
         async (origin) => {
           if (origin.kind === "removable")
@@ -867,6 +912,7 @@ const remoteGateway = new RemoteGateway(
   {
     buildId: buildInfo.shortCommitSha,
     playerState: () => player.getPublicState(),
+    playbackSource: () => playbackSourceArbiter.snapshot(),
     audioOutput: () => audioOutput.snapshot(),
     outputLevel: () => {
       const snapshot = preferences.snapshot().preferences;
@@ -881,6 +927,8 @@ const remoteGateway = new RemoteGateway(
       player.subscribe(() => {
         listener(player.getPublicState());
       }),
+    subscribePlaybackSource: (listener) =>
+      playbackSourceArbiter.subscribe(listener),
     subscribeAudioOutput: (listener) => audioOutput.subscribe(listener),
     subscribeLibrary: async (listener) =>
       (await indexedLibraryPromise).subscribe(listener),
@@ -906,6 +954,10 @@ const remoteGateway = new RemoteGateway(
       }
       if (action === "context-clear") {
         await player.clearPlaybackContext();
+        return player.getPublicState();
+      }
+      if (action === "resume-local") {
+        await activePlayback.resumeLocalPlayback();
         return player.getPublicState();
       }
       const type = commandTypes[action];
@@ -1143,6 +1195,18 @@ const remoteGateway = new RemoteGateway(
     },
     artwork: async (kind, id) => {
       if (kind === "player") return player.getArtworkResource(id);
+      if (kind === "external") {
+        const resource =
+          fixtureAirPlay?.artworkResource(id) ??
+          fixtureSpotify?.artworkResource(id);
+        return resource
+          ? {
+              bytes: resource.bytes,
+              mimeType: "image/png",
+              etag: resource.etag,
+            }
+          : null;
+      }
       const artwork = await player.resolveQueueArtwork(id);
       return artwork ? player.getArtworkResource(artwork.id) : null;
     },
@@ -1269,12 +1333,18 @@ const audioProcessingPreferenceNames = new Set([
 function audioProcessingPatchBody(value: unknown): AudioProcessingPatch {
   const body = objectBody(value);
   if (
-    !hasOnlyKeys(body, ["changes", "confirmFixedOutput"]) ||
+    !hasOnlyKeys(body, [
+      "changes",
+      "confirmFixedOutput",
+      "confirmPositiveGain",
+    ]) ||
     !body.changes ||
     typeof body.changes !== "object" ||
     Array.isArray(body.changes) ||
     (body.confirmFixedOutput !== undefined &&
-      typeof body.confirmFixedOutput !== "boolean")
+      typeof body.confirmFixedOutput !== "boolean") ||
+    (body.confirmPositiveGain !== undefined &&
+      typeof body.confirmPositiveGain !== "boolean")
   )
     throw new AudioProcessingError(
       "INVALID_AUDIO_PROCESSING",
@@ -1284,6 +1354,9 @@ function audioProcessingPatchBody(value: unknown): AudioProcessingPatch {
     changes: body.changes,
     ...(typeof body.confirmFixedOutput === "boolean"
       ? { confirmFixedOutput: body.confirmFixedOutput }
+      : {}),
+    ...(typeof body.confirmPositiveGain === "boolean"
+      ? { confirmPositiveGain: body.confirmPositiveGain }
       : {}),
   };
 }
@@ -1986,6 +2059,8 @@ async function handleRequest(
     ) {
       requireJson(request);
       const body = startUpdateBody(await readBody(request, 2048));
+      await playbackSourceArbiter.requestLocalOwnership(false);
+      await playbackSourceArbiter.flush();
       await softwareUpdate.start(body.planId, body.expectedTargetCommitSha);
       sendJson(response, 202, {
         ok: true,
@@ -1995,6 +2070,135 @@ async function handleRequest(
     }
     if (request.method === "GET" && url.pathname === "/api/player/state") {
       sendJson(response, 200, { ok: true, data: player.getPublicState() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/playback-source") {
+      sendJson(response, 200, {
+        ok: true,
+        data: playbackSourceArbiter.snapshot(),
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/playback-source/resume-local"
+    ) {
+      requireJson(request);
+      if (Object.keys(objectBody(await readBody(request, 512))).length !== 0)
+        throw new PlaybackSourceError(
+          "INVALID_SOURCE_COMMAND",
+          "The playback source command is invalid.",
+          400,
+        );
+      await activePlayback.resumeLocalPlayback();
+      sendJson(response, 200, {
+        ok: true,
+        data: playbackSourceArbiter.snapshot(),
+      });
+      return;
+    }
+    const externalArtworkMatch =
+      /^\/api\/playback-source\/artwork\/(external-artwork-(?:airplay|spotify)-[0-9a-f-]{36})$/u.exec(
+        url.pathname,
+      );
+    if (
+      externalArtworkMatch &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      const id = externalArtworkMatch[1] ?? "";
+      const resource =
+        fixtureAirPlay?.artworkResource(id) ??
+        fixtureSpotify?.artworkResource(id);
+      if (!resource) {
+        sendJson(response, 404, {
+          ok: false,
+          error: {
+            code: "EXTERNAL_ARTWORK_NOT_FOUND",
+            message: "Artwork not found.",
+          },
+        });
+        return;
+      }
+      if (request.headers["if-none-match"] === resource.etag) {
+        response.writeHead(304);
+        response.end();
+        return;
+      }
+      response.setHeader("content-type", "image/png");
+      response.setHeader("content-length", resource.bytes.length);
+      response.setHeader("etag", resource.etag);
+      response.setHeader("cache-control", "private, max-age=3600");
+      response.setHeader("x-content-type-options", "nosniff");
+      response.writeHead(200);
+      if (request.method === "HEAD") response.end();
+      else response.end(resource.bytes);
+      return;
+    }
+    const fixtureSourceMatch = externalPlaybackFixture
+      ? /^\/api\/development\/playback-source\/(airplay|spotify)\/(start|play|pause|buffering|end|disconnect|crash|progress|failure)$/u.exec(
+          url.pathname,
+        )
+      : null;
+    if (fixtureSourceMatch && request.method === "POST") {
+      requireJson(request);
+      const source = fixtureSourceMatch[1] as Exclude<
+        PlaybackSourceKind,
+        "local"
+      >;
+      const action = fixtureSourceMatch[2] ?? "";
+      const provider = source === "airplay" ? fixtureAirPlay : fixtureSpotify;
+      if (!provider)
+        throw new PlaybackSourceError(
+          "EXTERNAL_SOURCE_NOT_AVAILABLE",
+          "The fixture provider is unavailable.",
+          404,
+        );
+      const body = objectBody(await readBody(request, 4096));
+      if (action === "start") {
+        const sessionId = provider.prepareSession({
+          ...(typeof body.title === "string" ? { title: body.title } : {}),
+          ...(typeof body.artist === "string" ? { artist: body.artist } : {}),
+          ...(typeof body.album === "string" ? { album: body.album } : {}),
+          ...(typeof body.durationSeconds === "number"
+            ? { durationSeconds: body.durationSeconds }
+            : {}),
+          ...(typeof body.volume === "number" ? { volume: body.volume } : {}),
+          ...(typeof body.muted === "boolean" ? { muted: body.muted } : {}),
+        });
+        await playbackSourceArbiter.acquire(source, sessionId);
+      } else if (action === "progress") {
+        if (typeof body.positionSeconds !== "number")
+          throw new PlaybackSourceError(
+            "INVALID_FIXTURE_PROGRESS",
+            "Fixture progress is invalid.",
+            400,
+          );
+        provider.updateProgress(body.positionSeconds);
+      } else if (action === "failure") {
+        provider.setFailureMode({
+          ...(typeof body.configure === "boolean"
+            ? { configure: body.configure }
+            : {}),
+          ...(typeof body.acquire === "boolean"
+            ? { acquire: body.acquire }
+            : {}),
+          ...(typeof body.release === "boolean"
+            ? { release: body.release }
+            : {}),
+          ...(typeof body.routeSupported === "boolean"
+            ? { routeSupported: body.routeSupported }
+            : {}),
+        });
+      } else {
+        provider.simulate(
+          action as
+            "play" | "pause" | "buffering" | "end" | "disconnect" | "crash",
+        );
+      }
+      sendJson(response, 200, {
+        ok: true,
+        data: playbackSourceArbiter.snapshot(),
+      });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/player/retry-mpv") {
@@ -2041,6 +2245,10 @@ async function handleRequest(
       if (Object.hasOwn(patch.changes, "continuePlaybackMode"))
         await player.setContinuePlaybackMode(
           snapshot.preferences.continuePlaybackMode,
+        );
+      if (Object.hasOwn(patch.changes, "externalPlaybackEndPolicy"))
+        playbackSourceArbiter.setEndPolicy(
+          snapshot.preferences.externalPlaybackEndPolicy,
         );
       sendJson(response, 200, { ok: true, data: snapshot });
       return;
@@ -2580,6 +2788,7 @@ async function handleRequest(
           system: systemCapabilities,
           buildInfo,
           preferences: preferences.snapshot(),
+          playbackSource: playbackSourceArbiter.snapshot(),
           display: display.snapshot(),
           restore: {
             status: restore.status,
@@ -3984,6 +4193,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof PlaybackSourceError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof RemoteAccessError) {
       sendJson(response, error.statusCode, {
         ok: false,
@@ -4081,8 +4297,6 @@ function shutdown(signal: NodeJS.Signals): void {
   shuttingDown = true;
   console.log(`[backend] received ${signal}, shutting down`);
   events.close();
-  audioOutput.close();
-  audioProcessing.close();
   removableEvents.close();
   networkEvents.close();
   smbEvents.close();
@@ -4100,10 +4314,15 @@ function shutdown(signal: NodeJS.Signals): void {
   playHistoryTracker?.stop();
   unsubscribeAnalyzerState();
   server.close();
-  playerSession.stop();
   void bootstrapPromise
     .catch(() => undefined)
+    .then(() => playbackSourceArbiter.shutdown())
     .then(() => playerSession.flush())
+    .then(() => {
+      playerSession.stop();
+      audioOutput.close();
+      audioProcessing.close();
+    })
     .then(() =>
       Promise.all([
         visualizerEvents.close(),

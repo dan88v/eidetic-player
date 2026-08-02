@@ -1,5 +1,6 @@
 import type { ArtworkRef } from "../../../../packages/shared/src/player";
 import { artworkUrl } from "../api/player-api-client";
+import { shouldRetainArtworkImage } from "./artwork-transition";
 
 const warned = new Set<string>();
 
@@ -200,9 +201,17 @@ export function createArtwork(options: {
   return {
     element,
     update(artwork, alt, generation = currentGeneration + 1) {
+      const nextRevision = artwork?.revision ?? null;
+      if (
+        shouldRetainArtworkImage(currentRevision, nextRevision, image !== null)
+      ) {
+        currentGeneration = generation;
+        if (image && !options.decorative) image.alt = alt;
+        return;
+      }
       if (
         generation === currentGeneration &&
-        currentRevision === (artwork?.revision ?? null)
+        currentRevision === nextRevision
       ) {
         if (image && !options.decorative) image.alt = alt;
         return;

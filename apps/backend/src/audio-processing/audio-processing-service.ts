@@ -228,13 +228,37 @@ export class AudioProcessingService {
         "INVALID_AUDIO_PROCESSING",
         "Balance is available only in Stereo mode.",
       );
-    const signal = buildAudioSignalPath(next, this.player.getState().volume);
-    if (next.outputLevelMode === "fixed" && signal.projectedPeakGainDb > 0)
+    const softwareVolume = this.player.getState().volume;
+    const previousSignal = buildAudioSignalPath(previous, softwareVolume);
+    const signal = buildAudioSignalPath(next, softwareVolume);
+    const enablingPositiveGainFeature =
+      (!previous.audioProcessingEnabled && next.audioProcessingEnabled) ||
+      (next.audioProcessingEnabled &&
+        !previous.equalizerEnabled &&
+        next.equalizerEnabled);
+    const protectedPositiveGain =
+      next.outputLevelMode === "fixed" &&
+      next.headroomMode !== "off" &&
+      signal.projectedPeakGainDb > 0;
+    if (protectedPositiveGain && enablingPositiveGainFeature) {
+      if (patch.confirmPositiveGain !== true)
+        throw new AudioProcessingError(
+          "POSITIVE_GAIN_CONFIRMATION_REQUIRED",
+          "The current EQ and headroom settings can add positive gain and may clip.",
+          409,
+        );
+    } else if (
+      protectedPositiveGain &&
+      (enteringFixed ||
+        signal.projectedPeakGainDb >
+          Math.max(0, previousSignal.projectedPeakGainDb))
+    ) {
       throw new AudioProcessingError(
         "FIXED_OUTPUT_POSITIVE_GAIN",
-        "Fixed output requires headroom that prevents positive projected gain.",
+        "Fixed output requires non-positive projected gain unless Headroom is explicitly Off.",
         409,
       );
+    }
 
     let persistedChanges: Partial<UiPreferences> = { ...patch.changes };
     if (enteringFixed)

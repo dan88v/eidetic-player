@@ -23,6 +23,7 @@ import {
   type RemoteGatewayAdapters,
   type RemoteLibraryAction,
 } from "../src/remote-access/remote-gateway.js";
+import { defaultPlaybackSourceSnapshot } from "../../../packages/shared/src/playback-source.js";
 
 const origin = "http://127.0.0.1:8080";
 
@@ -183,6 +184,7 @@ function adapters(
   return {
     buildId: "fixture",
     playerState: () => player,
+    playbackSource: () => defaultPlaybackSourceSnapshot,
     audioOutput: () => audioOutput,
     outputLevel: () => ({
       mode: "variable",
@@ -196,6 +198,7 @@ function adapters(
         playerListeners.delete(listener);
       };
     },
+    subscribePlaybackSource: () => () => undefined,
     subscribeAudioOutput: () => () => undefined,
     subscribeLibrary: () => Promise.resolve(() => undefined),
     command(action) {

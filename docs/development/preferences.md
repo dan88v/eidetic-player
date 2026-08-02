@@ -19,12 +19,14 @@ paths, or player-session state. Those stores retain their existing owners.
 
 ## Schema and writes
 
-Schema version 3 contains a monotonic revision, the original UI
+Schema version 4 contains a monotonic revision, the original UI
 preferences, the typed audio level/DSP preferences, and the legacy-import
-state. It adds the display Dim timeout, Dim level, and Standby timeout with
-Off/20%/Off defaults. Dim level accepts 5%, 10%, 20%, 30%, 40%, and 50%.
-Schemas 1 and 2 migrate in memory to schema 3 and are committed only on the
-next legitimate write. Each known field is validated independently. An invalid
+state. Schema 3 added the display Dim timeout, Dim level, and Standby timeout
+with Off/20%/Off defaults. Schema 4 adds `externalPlaybackEndPolicy`, defaulting
+to `keep-paused`; its alternative `resume-interrupted` is applied only by the
+playback source arbiter after a validated external release. Schemas 1 through 3
+migrate in memory to schema 4 and are committed only on the next legitimate
+write. Dim level accepts 5%, 10%, 20%, 30%, 40%, and 50%. Each known field is validated independently. An invalid
 known value falls back only in memory; unknown top-level, migration, and
 preference fields are preserved on an unrelated patch.
 
@@ -77,6 +79,15 @@ Fixed output pauses playback, forces MPV volume to 100 and mute off, and
 rejects ordinary volume/mute commands with a typed conflict. Returning to
 Variable restores `lastVariableVolume`, clamped by
 `maximumSoftwareVolume`, without restoring a hidden mute state.
+Automatic and Manual headroom normally keep projected DSP gain non-positive in
+Fixed mode. If enabling Sound Processing or Parametric EQ would still produce
+positive gain, the backend requires an explicit clipping-risk confirmation and
+then applies the user's choice. Other changes that introduce or increase
+positive gain remain rejected. Headroom Off needs no confirmation; every
+positive-gain signal path reports a clipping warning.
+
+Fresh profiles default to Mono Spectrum. A persisted visualizer choice remains
+authoritative, including an explicit Meter selection.
 
 ## Legacy migration and rollback
 

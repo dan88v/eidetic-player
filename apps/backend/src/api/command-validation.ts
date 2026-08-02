@@ -15,7 +15,10 @@ export type PlayerCommand =
       readonly paths: readonly string[];
       readonly queueDecision?: PlaybackContextQueueDecision;
     }
-  | { readonly type: "seek"; readonly positionSeconds: number }
+  | ({
+      readonly type: "seek";
+      readonly positionSeconds: number;
+    } & CommandMetadata)
   | ({ readonly type: "volume"; readonly volume: number } & CommandMetadata)
   | ({ readonly type: "mute"; readonly muted: boolean } & CommandMetadata)
   | { readonly type: "shuffle"; readonly enabled: boolean }
@@ -163,7 +166,14 @@ export function validateCommandBody(
           "INVALID_POSITION",
           "positionSeconds must be a finite non-negative number.",
         );
-      return { type, positionSeconds: value.positionSeconds };
+      {
+        const commandMetadata = metadata(value);
+        return {
+          type,
+          positionSeconds: value.positionSeconds,
+          ...(commandMetadata ? { metadata: commandMetadata } : {}),
+        };
+      }
     case "volume":
       if (
         typeof value.volume !== "number" ||

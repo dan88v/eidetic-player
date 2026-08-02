@@ -18,6 +18,7 @@ import type { PreferencesSnapshot } from "../../../../packages/shared/src/prefer
 import type { DisplaySnapshot } from "../../../../packages/shared/src/display";
 import type { RemoteAccessState } from "../../../../packages/shared/src/remote-access";
 import type { ContextPlayDecisionProvider } from "./context-play-decision";
+import type { PlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source";
 
 export interface AppBootstrap {
   readonly playerState: PlayerState;
@@ -26,6 +27,7 @@ export interface AppBootstrap {
   readonly buildInfo: BuildInfo;
   readonly preferences: PreferencesSnapshot;
   readonly display: DisplaySnapshot;
+  readonly playbackSource: PlaybackSourceSnapshot;
 }
 
 const apiBaseUrl = config.development
@@ -80,9 +82,17 @@ export class PlayerApiClient {
     onAudioOutputState?: (state: AudioOutputState) => void,
     onRemoteAccessState?: (state: RemoteAccessState) => void,
     onDisplayState?: (state: DisplaySnapshot) => void,
+    onPlaybackSourceState?: (
+      state: PlaybackSourceSnapshot,
+      reconnectBaseline: boolean,
+    ) => void,
   ): () => void {
     const source = new EventSource(`${this.baseUrl}/api/player/events`);
     let lastState: PlayerState | null = null;
+    let awaitingPlaybackSourceBaseline = true;
+    source.onopen = () => {
+      awaitingPlaybackSourceBaseline = true;
+    };
     source.onmessage = (event) => {
       try {
         if (typeof event.data !== "string")
@@ -136,6 +146,19 @@ export class PlayerApiClient {
         onConnectionError();
       }
     });
+    source.addEventListener("playback-source", (event) => {
+      try {
+        if (typeof event.data !== "string")
+          throw new Error("Invalid SSE payload");
+        onPlaybackSourceState?.(
+          JSON.parse(event.data) as PlaybackSourceSnapshot,
+          awaitingPlaybackSourceBaseline,
+        );
+        awaitingPlaybackSourceBaseline = false;
+      } catch {
+        onConnectionError();
+      }
+    });
     source.onerror = onConnectionError;
     return () => {
       source.close();
@@ -153,6 +176,9 @@ export class PlayerApiClient {
 
   retryMpv(): Promise<void> {
     return this.post("retry-mpv", {});
+  }
+  resumeLocalPlayback(): Promise<void> {
+    return this.postSource("resume-local", {});
   }
   play(metadata?: PlayerCommandRequestMetadata): Promise<void> {
     return this.post("play", metadata ?? {});
@@ -172,8 +198,11 @@ export class PlayerApiClient {
   ): Promise<void> {
     return this.post("next", { targetQueueItemId, ...metadata });
   }
-  seek(positionSeconds: number): Promise<void> {
-    return this.post("seek", { positionSeconds });
+  seek(
+    positionSeconds: number,
+    metadata?: PlayerCommandRequestMetadata,
+  ): Promise<void> {
+    return this.post("seek", { positionSeconds, ...metadata });
   }
   volume(
     volume: number,
@@ -230,6 +259,18 @@ export class PlayerApiClient {
     await this.parse(response);
   }
 
+  private async postSource(path: string, body: unknown): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/api/playback-source/${path}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    await this.parse(response);
+  }
+
   private contextPlayDecision(): Promise<
     PlaybackContextQueueDecision | null | undefined
   > {
@@ -255,4 +296,8 @@ export function artworkUrl(artwork: ArtworkRef): string {
 
 export function queueArtworkUrl(queueItemId: string): string {
   return `${apiBaseUrl}/api/player/queue/${encodeURIComponent(queueItemId)}/artwork`;
+}
+
+export function externalArtworkUrl(artworkId: string): string {
+  return `${apiBaseUrl}/api/playback-source/artwork/${encodeURIComponent(artworkId)}`;
 }

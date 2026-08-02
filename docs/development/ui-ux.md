@@ -353,7 +353,11 @@ remain subdued and editable without redundant `Bypassed` pills. Fixed Software
 Volume hides the volume trigger from both Default and Cassette main players.
 Audio also provides an inline `Gain Compensation — On / Off` control: On maps
 to automatic headroom and Off maps to Headroom Off; the Headroom subpage keeps
-Auto, Manual, and Off for detailed control.
+Auto, Manual, and Off for detailed control. Headroom Off is an explicit
+clipping-risk override and needs no confirmation. With Auto or Manual headroom,
+enabling Sound Processing or Parametric EQ is never a dead end: a concise
+canonical modal warns about positive gain and lets the user cancel or enable
+anyway. The positive-gain warning remains visible.
 Advanced exposes a read-only signal path even when Eidetic processing is
 bypassed. Selection, refresh, success, and error outcomes use the shared toast.
 

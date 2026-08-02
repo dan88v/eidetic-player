@@ -38,6 +38,7 @@ void test("missing store stays in-memory until safe migration", async () => {
     assert.equal(initial.persistence, "defaults");
     assert.equal(initial.legacyImport, "required");
     assert.equal(initial.preferences.continuePlaybackMode, "off");
+    assert.equal(initial.preferences.visualizerMode, "spectrumMono");
     assert.deepEqual(initial.preferences, defaultUiPreferences);
     assert.equal(
       await readFile(join(testFixture.root, "preferences.json"), "utf8").catch(
@@ -70,7 +71,7 @@ void test("missing store stays in-memory until safe migration", async () => {
   }
 });
 
-void test("continue playback is an additive schema-3 preference with an Off default", async () => {
+void test("schema 4 adds external end policy without changing continue playback", async () => {
   const testFixture = await fixture();
   try {
     await mkdir(testFixture.root, { recursive: true });
@@ -79,6 +80,7 @@ void test("continue playback is an additive schema-3 preference with an Off defa
       futurePreference: { preserved: true },
     };
     delete previousPreferences.continuePlaybackMode;
+    delete previousPreferences.externalPlaybackEndPolicy;
     await writeFile(
       join(testFixture.root, "preferences.json"),
       JSON.stringify({
@@ -96,14 +98,15 @@ void test("continue playback is an additive schema-3 preference with an Off defa
 
     const store = new PreferencesStore(testFixture.root);
     const initial = await store.initialize();
-    assert.equal(initial.schemaVersion, 3);
+    assert.equal(initial.schemaVersion, 4);
     assert.equal(initial.preferences.continuePlaybackMode, "off");
+    assert.equal(initial.preferences.externalPlaybackEndPolicy, "keep-paused");
 
     const saved = await store.patch({
       expectedRevision: initial.revision,
       changes: { continuePlaybackMode: "same-artist" },
     });
-    assert.equal(saved.schemaVersion, 3);
+    assert.equal(saved.schemaVersion, 4);
     assert.equal(saved.preferences.continuePlaybackMode, "same-artist");
 
     await assert.rejects(
@@ -113,10 +116,29 @@ void test("continue playback is an additive schema-3 preference with an Off defa
       }),
       { code: "INVALID_PREFERENCES_PATCH", statusCode: 400 },
     );
+    const policy = await store.patch({
+      expectedRevision: saved.revision,
+      changes: { externalPlaybackEndPolicy: "resume-interrupted" },
+    });
+    assert.equal(
+      policy.preferences.externalPlaybackEndPolicy,
+      "resume-interrupted",
+    );
+    await assert.rejects(
+      store.patch({
+        expectedRevision: policy.revision,
+        changes: { externalPlaybackEndPolicy: "always" } as never,
+      }),
+      { code: "INVALID_PREFERENCES_PATCH", statusCode: 400 },
+    );
 
     const reopened = new PreferencesStore(testFixture.root);
     const restored = await reopened.initialize();
     assert.equal(restored.preferences.continuePlaybackMode, "same-artist");
+    assert.equal(
+      restored.preferences.externalPlaybackEndPolicy,
+      "resume-interrupted",
+    );
     const raw = JSON.parse(
       await readFile(join(testFixture.root, "preferences.json"), "utf8"),
     ) as {
@@ -125,7 +147,7 @@ void test("continue playback is an additive schema-3 preference with an Off defa
       migration: Record<string, unknown>;
       futureTopLevel: number;
     };
-    assert.equal(raw.schemaVersion, 3);
+    assert.equal(raw.schemaVersion, 4);
     assert.deepEqual(raw.preferences.futurePreference, { preserved: true });
     assert.equal(raw.migration.futureMigrationField, "keep");
     assert.equal(raw.futureTopLevel, 42);
@@ -145,6 +167,28 @@ void test("a genuinely new profile records legacy not-found", async () => {
     });
     assert.equal(migrated.legacyImport, "not-found");
     assert.equal(migrated.persistence, "persisted");
+    assert.equal(migrated.preferences.visualizerMode, "spectrumMono");
+  } finally {
+    await testFixture.cleanup();
+  }
+});
+
+void test("an existing explicit meter preference survives the new install default", async () => {
+  const testFixture = await fixture();
+  try {
+    await mkdir(testFixture.root, { recursive: true });
+    await writeFile(
+      join(testFixture.root, "preferences.json"),
+      JSON.stringify({
+        schemaVersion: 4,
+        revision: 2,
+        preferences: { ...defaultUiPreferences, visualizerMode: "meter" },
+        migration: { legacyLocalStorage: "imported", sourceSchema: 4 },
+      }),
+    );
+    const store = new PreferencesStore(testFixture.root);
+    const restored = await store.initialize();
+    assert.equal(restored.preferences.visualizerMode, "meter");
   } finally {
     await testFixture.cleanup();
   }
@@ -159,7 +203,7 @@ void test("display preferences migrate with safe defaults and reject inverted ti
       sourceAvailable: true,
       preferences: {},
     });
-    assert.equal(migrated.schemaVersion, 3);
+    assert.equal(migrated.schemaVersion, 4);
     assert.equal(migrated.preferences.screenDimTimeoutSeconds, 0);
     assert.equal(migrated.preferences.screenDimLevelPercent, 20);
     assert.equal(migrated.preferences.screenStandbyTimeoutSeconds, 0);
@@ -214,7 +258,7 @@ void test("atomic patch preserves unknown and invalid raw fields", async () => {
     );
     const store = new PreferencesStore(testFixture.root);
     const initial = await store.initialize();
-    assert.equal(initial.preferences.visualizerMode, "meter");
+    assert.equal(initial.preferences.visualizerMode, "spectrumMono");
     assert.equal(initial.warning, true);
 
     const saved = await store.patch({
@@ -231,7 +275,7 @@ void test("atomic patch preserves unknown and invalid raw fields", async () => {
       migration: Record<string, unknown>;
       futureTopLevel: number;
     };
-    assert.equal(raw.schemaVersion, 3);
+    assert.equal(raw.schemaVersion, 4);
     assert.equal(saved.preferences.outputLevelMode, "variable");
     assert.equal(saved.preferences.equalizerBands.length, 6);
     assert.equal(raw.preferences.visualizerMode, "future-visualizer");
@@ -320,10 +364,10 @@ void test("future schema is preserved in degraded read-only mode", async () => {
   try {
     await mkdir(testFixture.root, { recursive: true });
     const future = JSON.stringify({
-      schemaVersion: 4,
+      schemaVersion: 5,
       revision: 9,
       preferences: { volume: 12, futureSetting: true },
-      migration: { legacyLocalStorage: "imported", sourceSchema: 4 },
+      migration: { legacyLocalStorage: "imported", sourceSchema: 5 },
     });
     await writeFile(join(testFixture.root, "preferences.json"), future, "utf8");
     const store = new PreferencesStore(testFixture.root);

@@ -147,6 +147,18 @@ export interface SameArtistCandidate {
   readonly artistName?: string;
 }
 
+export interface LocalPlaybackSuspensionSnapshot {
+  readonly playerSessionId: string;
+  readonly playbackPlanRevision: number;
+  readonly playbackInstanceId: string | null;
+  readonly trackTransitionId: number;
+  readonly positionSeconds: number;
+  readonly volume: number;
+  readonly muted: boolean;
+  readonly wasPlaying: boolean;
+  readonly wasPaused: boolean;
+}
+
 interface PlaybackPlanAttempt {
   readonly previous: PlaybackPlanSnapshot;
   attempted: PlaybackPlanSnapshot;
@@ -208,6 +220,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
     (name: AudioOutputPropertyName, value: unknown) => void
   >();
   private beforePlayback: () => Promise<void> = () => Promise.resolve();
+  private beforeLocalPlaybackOwnership: () => Promise<void> = () =>
+    Promise.resolve();
   private readonly propertyVersions = new Map<string, number>();
   private refreshGeneration = 0;
   private transitionGeneration = 0;
@@ -560,6 +574,114 @@ export class PlayerService implements AudioOutputMpvAdapter {
     });
   }
 
+  captureExternalPlaybackSuspension(): LocalPlaybackSuspensionSnapshot {
+    return {
+      playerSessionId: this.state.playerSessionId,
+      playbackPlanRevision: this.publicPlaybackRevision,
+      playbackInstanceId:
+        this.playbackPlanSnapshot.current?.playbackInstanceId ?? null,
+      trackTransitionId: this.state.trackTransitionId,
+      positionSeconds: this.state.positionSeconds,
+      volume: this.state.volume,
+      muted: this.state.muted,
+      wasPlaying: this.state.status === "playing" && !this.state.paused,
+      wasPaused: this.state.paused,
+    };
+  }
+
+  async releaseAudioOutputForExternalPlayback(
+    timeoutMilliseconds = 2_000,
+  ): Promise<void> {
+    const controller = this.requireController();
+    await controller.setProperty("pause", true);
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      if ((await controller.getProperty("pause").catch(() => false)) === true)
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if ((await controller.getProperty("pause").catch(() => false)) !== true)
+      throw new PlayerError(
+        "MPV_PAUSE_CONFIRMATION_FAILED",
+        "Local playback could not be paused before changing source.",
+        409,
+      );
+    this.commandIntents.observePaused(true);
+    await controller.command(["stop", "keep-playlist"]);
+    while (Date.now() < deadline) {
+      const idle = await controller
+        .getProperty("idle-active")
+        .catch(() => false);
+      const currentAo = await controller
+        .getProperty("current-ao")
+        .catch(() => null);
+      if (idle === true && currentAo === null) {
+        this.update({ paused: true, status: "paused" });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new PlayerError(
+      "MPV_OUTPUT_RELEASE_FAILED",
+      "Local playback did not release the audio output.",
+      409,
+    );
+  }
+
+  async restoreAudioOutputAfterExternalPlayback(
+    snapshot: LocalPlaybackSuspensionSnapshot,
+    resume: boolean,
+  ): Promise<void> {
+    if (snapshot.playerSessionId !== this.state.playerSessionId)
+      throw new PlayerError(
+        "LOCAL_SESSION_CHANGED",
+        "Local playback changed while the external source was active.",
+        409,
+      );
+    const current = this.playbackPlanSnapshot.current;
+    if (
+      snapshot.playbackInstanceId !== null &&
+      current?.playbackInstanceId !== snapshot.playbackInstanceId
+    )
+      throw new PlayerError(
+        "LOCAL_SESSION_CHANGED",
+        "Local playback changed while the external source was active.",
+        409,
+      );
+    const controller = this.requireController();
+    if (current) {
+      await this.applyPlannerDecision(
+        {
+          kind: "start",
+          reason: "context-resume",
+          current,
+        },
+        { autoplay: false, reloadCurrent: true },
+      );
+      if (snapshot.positionSeconds > 0.05)
+        await controller.seekWhenReady(snapshot.positionSeconds);
+    }
+    await controller.setProperty("volume", snapshot.volume);
+    await controller.setProperty("mute", snapshot.muted);
+    await controller.setProperty("pause", true);
+    this.commandIntents.observeVolume(snapshot.volume);
+    this.commandIntents.observeMute(snapshot.muted);
+    this.commandIntents.observePaused(true);
+    this.update({
+      positionSeconds: current ? snapshot.positionSeconds : 0,
+      volume: snapshot.volume,
+      muted: snapshot.muted,
+      paused: true,
+      status: current ? "paused" : "idle",
+    });
+    if (resume && current) {
+      await this.beforePlayback();
+      await controller.setProperty("pause", false);
+      this.commandIntents.observePaused(false);
+      this.update({ paused: false, status: "playing" });
+    }
+  }
+
   subscribeAudioOutputProperties(
     listener: (name: AudioOutputPropertyName, value: unknown) => void,
   ): () => void {
@@ -579,6 +701,10 @@ export class PlayerService implements AudioOutputMpvAdapter {
 
   setBeforePlaybackHook(hook: () => Promise<void>): void {
     this.beforePlayback = hook;
+  }
+
+  setBeforeLocalPlaybackOwnershipHook(hook: () => Promise<void>): void {
+    this.beforeLocalPlaybackOwnership = hook;
   }
 
   async waitForLibraryScanSlot(signal: AbortSignal): Promise<void> {
@@ -705,6 +831,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
     descriptor?: PlaybackContextDescriptor,
     queueDecision?: PlaybackContextQueueDecision,
   ): Promise<void> {
+    await this.beforeLocalPlaybackOwnership();
     const operation = this.openRequestChain.then(async () => {
       if (requestGeneration !== this.openRequestGeneration) return;
       const resolved = await buildExplicitQueue(paths, true);

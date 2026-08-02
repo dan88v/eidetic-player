@@ -73,6 +73,31 @@ export function createTrackPresentationSnapshot(
   });
 }
 
+export class SeamlessTrackPresentationCoordinator {
+  private committed: TrackPresentationSnapshot | null = null;
+
+  accept(state: PlayerState): TrackPresentationSnapshot {
+    const candidate = createTrackPresentationSnapshot(state);
+    const previous = this.committed;
+    const changedTrack = candidate.trackId !== previous?.trackId;
+    const destinationPending =
+      state.currentPlayback !== undefined &&
+      state.currentPlayback !== null &&
+      state.currentTrack === null;
+    if (previous && changedTrack && destinationPending)
+      return Object.freeze({
+        ...candidate,
+        title: previous.title,
+        artist: previous.artist,
+        album: previous.album,
+        technical: previous.technical,
+        artwork: previous.artwork,
+      });
+    this.committed = candidate;
+    return candidate;
+  }
+}
+
 export class TrackTransitionCoordinator {
   private accepted: PlayerState | null = null;
   private commandId = 0;

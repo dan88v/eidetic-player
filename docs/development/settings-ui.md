@@ -88,8 +88,13 @@ the authoritative automatic compensation, manual preamp, Off, or inactive
 state as plain text rather than a status pill.
 The Audio root also exposes `Gain Compensation — On / Off`: On selects
 automatic headroom, while Off selects Headroom Off. The adjacent Headroom page
-continues to provide Auto, Manual, and Off. Fixed output may reject Off when
-the active EQ would otherwise produce positive output gain.
+continues to provide Auto, Manual, and Off. Insufficient Auto or Manual
+compensation never makes Sound Processing or Parametric EQ impossible to
+enable: the first activation request opens the canonical concise clipping-risk
+confirmation, and `Enable anyway` retries with an explicit backend confirmation.
+Other changes that introduce or increase positive gain in Fixed remain
+protected. Headroom Off needs no confirmation, and every positive-gain state
+keeps the clipping warning visible.
 Bands 1 and 6 default respectively to low-shelf and high-shelf filters and
 expose a `Shelving / Bell` segmented field. Bands 2–5 remain bell filters.
 

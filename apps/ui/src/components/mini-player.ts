@@ -2,13 +2,19 @@ import type { PlayerState } from "../../../../packages/shared/src/player";
 import { icon } from "./icons";
 import { t } from "../i18n";
 import { createArtwork } from "./artwork";
-import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
+import { SeamlessTrackPresentationCoordinator } from "../state/track-transition-coordinator";
 import type { FavoriteTrackStore } from "../state/favorite-track-store";
 import { createFavoriteTrackIndicator } from "./favorite-track-indicator";
+import {
+  defaultPlaybackSourceSnapshot,
+  type PlaybackSourceSnapshot,
+} from "../../../../packages/shared/src/playback-source";
+import { createActivePlaybackPresentation } from "../state/active-playback-presentation";
+import { externalArtworkUrl } from "../api/player-api-client";
 
 export interface MiniPlayer {
   readonly element: HTMLElement;
-  update(state: PlayerState): void;
+  update(state: PlayerState, source?: PlaybackSourceSnapshot): void;
   setSurfaceDisabled(disabled: boolean): void;
   destroy(): void;
 }
@@ -82,6 +88,9 @@ export function createMiniPlayer(
   let surfaceDisabled = false;
   let playbackDisabled = true;
   let nextUnavailable = true;
+  let seekEnabled = false;
+  let showingExternalArtwork = false;
+  let externalArtworkRevision: string | null = null;
   const setProgress = (value: number): void => {
     progress = Math.max(0, Math.min(1, value));
     const percentage = progress * 100;
@@ -96,7 +105,7 @@ export function createMiniPlayer(
   };
   timeline.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
-    if (!duration) return;
+    if (!duration || !seekEnabled) return;
     dragging = true;
     timeline.classList.add("mini-player__timeline--dragging");
     timeline.setPointerCapture(event.pointerId);
@@ -129,7 +138,7 @@ export function createMiniPlayer(
   });
   timeline.addEventListener("keydown", (event) => {
     event.stopPropagation();
-    if (!duration) return;
+    if (!duration || !seekEnabled) return;
     const delta =
       event.key === "ArrowLeft" || event.key === "ArrowDown"
         ? -0.01
@@ -174,11 +183,19 @@ export function createMiniPlayer(
     else element.textContent = value;
   };
   let playIconName = "";
+  const localPresentationCoordinator =
+    new SeamlessTrackPresentationCoordinator();
   return {
     element: player,
-    update(state) {
-      const presentation = createTrackPresentationSnapshot(state);
+    update(state, source = defaultPlaybackSourceSnapshot) {
+      const localPresentation = localPresentationCoordinator.accept(state);
+      const presentation = createActivePlaybackPresentation(
+        state,
+        source,
+        localPresentation,
+      );
       duration = presentation.durationSeconds;
+      seekEnabled = presentation.capabilities.seek;
       timeline.tabIndex = duration > 0 && !surfaceDisabled ? 0 : -1;
       timeline.setAttribute(
         "aria-disabled",
@@ -187,32 +204,83 @@ export function createMiniPlayer(
       if (!dragging)
         setProgress(duration ? presentation.positionSeconds / duration : 0);
       setText(title, presentation.title ?? "");
-      setText(artist, presentation.artist ?? "");
-      artwork.update(presentation.artwork, "", presentation.generation);
-      favoriteIndicator?.setTrack(
-        state.currentPlayback?.item.libraryTrackId ??
-          state.queue[state.currentQueueIndex]?.libraryTrackId ??
-          null,
+      setText(
+        artist,
+        presentation.external
+          ? [presentation.artist, presentation.sourceName]
+              .filter(Boolean)
+              .join(" · ")
+          : (presentation.artist ?? ""),
       );
-      playbackDisabled =
-        !state.mpvAvailable ||
-        (state.currentPlayback !== undefined
-          ? state.currentPlayback === null &&
-            (state.explicitQueue?.length ?? 0) === 0
-          : state.queue.length === 0);
+      if (presentation.external) {
+        if (
+          source.artwork &&
+          (!showingExternalArtwork ||
+            externalArtworkRevision !== source.artwork.revision)
+        )
+          void artwork.loadUrl(
+            externalArtworkUrl(source.artwork.id),
+            source.artwork.revision,
+            "",
+          );
+        else if (!source.artwork && !showingExternalArtwork)
+          artwork.update(null, "", presentation.generation);
+        showingExternalArtwork = true;
+        externalArtworkRevision = source.artwork?.revision ?? null;
+        favoriteIndicator?.setTrack(null);
+      } else {
+        showingExternalArtwork = false;
+        externalArtworkRevision = null;
+        artwork.update(
+          localPresentation.artwork,
+          "",
+          localPresentation.generation,
+        );
+        favoriteIndicator?.setTrack(
+          state.currentPlayback?.item.libraryTrackId ??
+            state.queue[state.currentQueueIndex]?.libraryTrackId ??
+            null,
+        );
+      }
+      favoriteIndicator?.setSuppressed(presentation.external);
+      playbackDisabled = presentation.external
+        ? source.phase !== "active"
+        : !state.mpvAvailable ||
+          (state.currentPlayback !== undefined
+            ? state.currentPlayback === null &&
+              (state.explicitQueue?.length ?? 0) === 0
+            : state.queue.length === 0);
       const disabled = playbackDisabled || surfaceDisabled;
       nextUnavailable = state.canGoNext === false;
-      previousButton.disabled = disabled;
+      if (presentation.external)
+        nextUnavailable = !presentation.capabilities.next;
+      previousButton.disabled =
+        disabled ||
+        (presentation.external && !presentation.capabilities.previous);
       playButton.disabled = disabled;
       nextButton.disabled = disabled || nextUnavailable;
-      const nextPlayIcon = state.paused ? "play" : "pause";
-      if (nextPlayIcon !== playIconName) {
-        playIconName = nextPlayIcon;
-        playButton.innerHTML = icon(nextPlayIcon);
+      timeline.tabIndex =
+        duration > 0 && !surfaceDisabled && seekEnabled ? 0 : -1;
+      timeline.setAttribute(
+        "aria-disabled",
+        String(duration <= 0 || surfaceDisabled || !seekEnabled),
+      );
+      if (presentation.external) {
+        const externalPlayIcon = presentation.paused ? "play" : "pause";
+        if (externalPlayIcon !== playIconName) {
+          playIconName = externalPlayIcon;
+          playButton.innerHTML = icon(externalPlayIcon);
+        }
+      } else {
+        const nextPlayIcon = state.paused ? "play" : "pause";
+        if (nextPlayIcon !== playIconName) {
+          playIconName = nextPlayIcon;
+          playButton.innerHTML = icon(nextPlayIcon);
+        }
       }
       playButton.setAttribute(
         "aria-pressed",
-        String(!disabled && !state.paused),
+        String(!disabled && !presentation.paused),
       );
     },
     setSurfaceDisabled(disabled) {
@@ -222,8 +290,11 @@ export function createMiniPlayer(
       previousButton.disabled = disabled || playbackDisabled;
       playButton.disabled = disabled || playbackDisabled;
       nextButton.disabled = disabled || playbackDisabled || nextUnavailable;
-      timeline.tabIndex = duration > 0 && !disabled ? 0 : -1;
-      timeline.setAttribute("aria-disabled", String(duration <= 0 || disabled));
+      timeline.tabIndex = duration > 0 && !disabled && seekEnabled ? 0 : -1;
+      timeline.setAttribute(
+        "aria-disabled",
+        String(duration <= 0 || disabled || !seekEnabled),
+      );
     },
     destroy() {
       favoriteIndicator?.destroy();

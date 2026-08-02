@@ -38,6 +38,7 @@ import type {
   PlayerState,
   PublicPlaybackItem,
 } from "../../../../packages/shared/src/player.js";
+import type { PlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source.js";
 import { remoteIpv4, RemoteAccessService } from "./remote-access-service.js";
 
 const SESSION_COOKIE = "eidetic_remote_session";
@@ -85,6 +86,7 @@ export type RemoteLibraryAction =
 export interface RemoteGatewayAdapters {
   readonly buildId: string;
   playerState(): PlayerState;
+  playbackSource(): PlaybackSourceSnapshot;
   audioOutput(): AudioOutputState;
   outputLevel(): {
     readonly mode: "fixed" | "variable";
@@ -93,6 +95,9 @@ export interface RemoteGatewayAdapters {
   sources(): Promise<readonly LibrarySource[]>;
   librarySnapshot(): Promise<IndexedLibrarySnapshot>;
   subscribePlayer(listener: (state: PlayerState) => void): () => void;
+  subscribePlaybackSource(
+    listener: (state: PlaybackSourceSnapshot) => void,
+  ): () => void;
   subscribeAudioOutput(listener: (state: AudioOutputState) => void): () => void;
   subscribeLibrary(
     listener: (state: IndexedLibrarySnapshot) => void,
@@ -117,15 +122,43 @@ export interface RemoteGatewayAdapters {
     action: "play" | "queue",
     body: Record<string, unknown>,
   ): Promise<unknown>;
-  artwork(kind: "player" | "queue", id: string): Promise<RemoteArtwork | null>;
+  artwork(
+    kind: "player" | "queue" | "external",
+    id: string,
+  ): Promise<RemoteArtwork | null>;
   wakeDisplay(): Promise<void>;
   wakeAvailable(): boolean;
 }
 
 export interface RemoteArtwork {
-  readonly path: string;
+  readonly path?: string;
+  readonly bytes?: Buffer;
   readonly mimeType: string;
   readonly etag: string;
+}
+
+const MAX_EXTERNAL_ARTWORK_BYTES = 5 * 1024 * 1024;
+
+function validExternalArtwork(mimeType: string, bytes: Buffer): boolean {
+  if (bytes.length < 12 || bytes.length > MAX_EXTERNAL_ARTWORK_BYTES)
+    return false;
+  if (mimeType === "image/png")
+    return bytes
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mimeType === "image/jpeg")
+    return (
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes.at(-2) === 0xff &&
+      bytes.at(-1) === 0xd9
+    );
+  if (mimeType === "image/webp")
+    return (
+      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP"
+    );
+  return false;
 }
 
 interface RateEntry {
@@ -344,6 +377,44 @@ export function remotePlayerProgress(state: PlayerState): RemotePlayerProgress {
     error: state.error
       ? { code: state.error.code, message: state.error.message }
       : null,
+  };
+}
+
+export function remotePlaybackSource(
+  state: PlaybackSourceSnapshot,
+): PlaybackSourceSnapshot {
+  return {
+    schemaVersion: 1,
+    revision: state.revision,
+    transitionGeneration: state.transitionGeneration,
+    activeSource: state.activeSource,
+    phase: state.phase,
+    sessionId: state.sessionId,
+    providerState: state.providerState,
+    metadata: state.metadata
+      ? {
+          title: state.metadata.title,
+          artist: state.metadata.artist,
+          album: state.metadata.album,
+          durationSeconds: state.metadata.durationSeconds,
+        }
+      : null,
+    artwork: state.artwork
+      ? {
+          id: state.artwork.id,
+          mimeType: state.artwork.mimeType,
+          revision: state.artwork.revision,
+        }
+      : null,
+    positionSeconds: state.positionSeconds,
+    durationSeconds: state.durationSeconds,
+    capabilities: { ...state.capabilities },
+    volume: state.volume,
+    muted: state.muted,
+    output: { ...state.output },
+    localPlaybackSuspended: state.localPlaybackSuspended,
+    localWasPlaying: state.localWasPlaying,
+    lastError: state.lastError ? { ...state.lastError } : null,
   };
 }
 
@@ -593,6 +664,9 @@ export class RemoteGateway {
           const event = this.playerStreamProjector.project(state);
           this.broadcast(event.type, event.data);
         }),
+        this.adapters.subscribePlaybackSource((state) => {
+          this.broadcast("playback-source", remotePlaybackSource(state));
+        }),
         this.adapters.subscribeAudioOutput((state) => {
           this.broadcast("audio-output", remoteAudioOutput(state));
         }),
@@ -809,7 +883,7 @@ export class RemoteGateway {
         return;
       }
       const artworkMatch =
-        /^\/api\/artwork\/(player|queue)\/([A-Za-z0-9-]{1,128})$/u.exec(
+        /^\/api\/artwork\/(player|queue|external)\/([A-Za-z0-9-]{1,128})$/u.exec(
           url.pathname,
         );
       if (
@@ -819,13 +893,13 @@ export class RemoteGateway {
         await this.serveArtwork(
           request,
           response,
-          artworkMatch[1] as "player" | "queue",
+          artworkMatch[1] as "player" | "queue" | "external",
           artworkMatch[2] ?? "",
         );
         return;
       }
       const commandMatch =
-        /^\/api\/player\/(play|pause|play-pause|next|previous|seek|volume|mute|shuffle|repeat)$/u.exec(
+        /^\/api\/player\/(play|pause|play-pause|next|previous|seek|volume|mute|shuffle|repeat|resume-local)$/u.exec(
           url.pathname,
         );
       if (commandMatch && request.method === "POST") {
@@ -1014,6 +1088,7 @@ export class RemoteGateway {
       device: authenticated.device,
       buildId: this.adapters.buildId,
       player: remotePlayerState(this.adapters.playerState()),
+      playbackSource: remotePlaybackSource(this.adapters.playbackSource()),
       audioOutput: remoteAudioOutput(this.adapters.audioOutput()),
       outputLevelMode: output.mode,
       maximumSoftwareVolume: output.maximumSoftwareVolume,
@@ -1051,6 +1126,7 @@ export class RemoteGateway {
     });
     this.sendEvent(deviceId, "snapshot", {
       player: remotePlayerState(this.adapters.playerState()),
+      playbackSource: remotePlaybackSource(this.adapters.playbackSource()),
       audioOutput: remoteAudioOutput(this.adapters.audioOutput()),
     });
   }
@@ -1179,7 +1255,7 @@ export class RemoteGateway {
   private async serveArtwork(
     request: IncomingMessage,
     response: ServerResponse,
-    kind: "player" | "queue",
+    kind: "player" | "queue" | "external",
     id: string,
   ): Promise<void> {
     const artwork = await this.adapters.artwork(kind, id);
@@ -1192,11 +1268,21 @@ export class RemoteGateway {
       response.end();
       return;
     }
-    const body = await readFile(artwork.path);
+    const body =
+      artwork.bytes ?? (artwork.path ? await readFile(artwork.path) : null);
+    if (!body) {
+      errorResponse(response, 404, "NOT_FOUND", "Artwork not found.");
+      return;
+    }
+    if (kind === "external" && !validExternalArtwork(artwork.mimeType, body)) {
+      errorResponse(response, 404, "NOT_FOUND", "Artwork not found.");
+      return;
+    }
     response.setHeader("content-type", artwork.mimeType);
     response.setHeader("content-length", body.length);
     response.setHeader("etag", artwork.etag);
     response.setHeader("cache-control", "private, max-age=3600");
+    response.setHeader("x-content-type-options", "nosniff");
     response.writeHead(200);
     if (request.method === "HEAD") response.end();
     else response.end(body);

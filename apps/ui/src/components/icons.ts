@@ -1,5 +1,6 @@
 export type IconName =
   | "album"
+  | "airplay"
   | "back"
   | "chevronRight"
   | "close"
@@ -27,6 +28,7 @@ export type IconName =
   | "shuffle"
   | "settings"
   | "sources"
+  | "spotify"
   | "usb"
   | "usbStorage"
   | "volume"
@@ -36,6 +38,8 @@ export type IconName =
 const paths: Record<IconName, string> = {
   album:
     '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 15 3-3 5 5"/><circle cx="15.5" cy="8.5" r="1.5"/>',
+  airplay:
+    '<path d="M5 17.5h14a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2Z"/><path d="m12 13 4 6H8l4-6Z"/>',
   back: '<path d="m15 18-6-6 6-6"/>',
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
@@ -71,6 +75,8 @@ const paths: Record<IconName, string> = {
     '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
   sources:
     '<circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/>',
+  spotify:
+    '<circle cx="12" cy="12" r="9"/><path d="M7.5 9.2c3.4-1 7.3-.7 9.9.8M8.3 12.5c2.8-.8 6.2-.5 8.4.7M9 15.5c2.3-.6 4.9-.4 6.7.6"/>',
   usb: '<path d="M12 3v14M12 3l-2.5 2.5M12 3l2.5 2.5M12 10l-4-2M8 8v7M8 15a2 2 0 1 0 0 4M12 13l4-2M16 11v4"/><rect x="14.5" y="15" width="3" height="3"/>',
   usbStorage:
     '<path d="M9 2h6v4H9zM10.5 2v2M13.5 2v2"/><rect x="7" y="6" width="10" height="16" rx="2"/><circle cx="12" cy="17.5" r="1.25"/>',

@@ -87,7 +87,7 @@ void test("Favorites rows keep Library grid geometry and players show passive st
   assert.match(favorites, /library-track-row__number/);
   assert.match(miniPlayer, /createFavoriteTrackIndicator/);
   assert.match(nowPlaying, /createFavoriteTrackIndicator/);
-  assert.match(indicator, /element\.hidden = isFavorite !== true/);
+  assert.match(indicator, /suppressed \|\| isFavorite !== true/);
   assert.match(indicator, /setTrack\(trackId: string \| null\)/);
   assert.match(screens, /favorites: context\.favorites/);
 });

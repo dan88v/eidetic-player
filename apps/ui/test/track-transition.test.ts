@@ -398,7 +398,7 @@ void test("mini-player consumes the shared atomic presentation snapshot", async 
     "apps/ui/src/components/mini-player.ts",
     "utf8",
   );
-  assert.match(source, /createTrackPresentationSnapshot\(state\)/);
+  assert.match(source, /localPresentationCoordinator\.accept\(state\)/);
 });
 
 void test("local transports disable Next at the authoritative playback boundary", async () => {

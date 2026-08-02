@@ -2,6 +2,7 @@ import type { RepeatMode } from "../../../../packages/shared/src/player";
 import {
   defaultUiPreferences,
   type ContinuePlaybackMode,
+  type ExternalPlaybackEndPolicy,
   type UiPreferences,
 } from "../../../../packages/shared/src/preferences";
 import type {
@@ -333,6 +334,12 @@ export function loadContinuePlaybackMode(): ContinuePlaybackMode {
 
 export function saveContinuePlaybackMode(value: ContinuePlaybackMode): boolean {
   return save({ continuePlaybackMode: value });
+}
+
+export function saveExternalPlaybackEndPolicy(
+  value: ExternalPlaybackEndPolicy,
+): boolean {
+  return save({ externalPlaybackEndPolicy: value });
 }
 
 export interface PlaybackPreferences {

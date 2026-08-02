@@ -14,7 +14,7 @@ import type {
   VisualizerMode,
   MusicBrowsingVisibility,
 } from "../state/types";
-import { createTrackPresentationSnapshot } from "../state/track-transition-coordinator";
+import { SeamlessTrackPresentationCoordinator } from "../state/track-transition-coordinator";
 import { WaveformLoader } from "../timeline/waveform-loader";
 import {
   isSameWaveformRequest,
@@ -23,6 +23,10 @@ import {
 import type { FavoriteTrackStore } from "../state/favorite-track-store";
 import { createFavoriteTrackIndicator } from "../components/favorite-track-indicator";
 import type { RemovableDeviceListResponse } from "../../../../packages/shared/src/library";
+import type { PlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source";
+import { defaultPlaybackSourceSnapshot } from "../../../../packages/shared/src/playback-source";
+import { createActivePlaybackPresentation } from "../state/active-playback-presentation";
+import { externalArtworkUrl } from "../api/player-api-client";
 
 export interface PlayerActions {
   readonly openFiles: () => void;
@@ -31,6 +35,7 @@ export interface PlayerActions {
   readonly previous: () => void;
   readonly next: () => void;
   readonly seek: (positionSeconds: number) => void;
+  readonly resumeLocalPlayback: () => void;
   readonly shuffle: (enabled: boolean) => void;
   readonly repeat: (mode: RepeatMode) => void;
 }
@@ -41,6 +46,7 @@ export interface NowPlayingOptions {
   readonly timelineTimeMode: TimelineTimeMode;
   readonly musicBrowsingVisibility: MusicBrowsingVisibility;
   readonly initialPlayerState: PlayerState;
+  readonly initialPlaybackSource?: PlaybackSourceSnapshot;
   readonly actions: PlayerActions;
   readonly onVisualizerModeChange: (mode: VisualizerMode) => void;
   readonly onTimelineTimeModeChange: (mode: TimelineTimeMode) => void;
@@ -61,6 +67,8 @@ export function createNowPlayingScreen(
   options: NowPlayingOptions,
 ): ComponentView {
   let playerState = options.initialPlayerState;
+  let playbackSource =
+    options.initialPlaybackSource ?? defaultPlaybackSourceSnapshot;
   let waveformRequest: WaveformRequestIdentity = {
     queueItemId: null,
     trackGeneration: -1,
@@ -101,6 +109,7 @@ export function createNowPlayingScreen(
       </div>
       <div class="transport__zone transport__zone--right">
         <button class="transport__button transport__button--small" type="button" data-control="volume" aria-label="${t("volume.open")}" aria-expanded="false" aria-controls="volume-popover">${icon("volume")}<span>${t("volume.label")}</span></button>
+        <button class="transport__button transport__button--small" type="button" data-control="resume-local" aria-label="Resume local playback" title="Resume local playback" hidden>${icon("nowPlaying")}<span>Resume local playback</span></button>
         <button class="transport__button transport__button--small" type="button" data-control="queue" aria-haspopup="dialog" aria-controls="queue-drawer" aria-expanded="false" aria-label="${t("nowPlaying.queue")}">${icon("queue")}<span>${t("screen.queue.title")}</span></button>
       </div>
     </div>`;
@@ -159,6 +168,11 @@ export function createNowPlayingScreen(
   section
     .querySelector(".now-playing__title-row")
     ?.append(favoriteIndicator.element);
+  const sourceIndicator = document.createElement("span");
+  sourceIndicator.className =
+    "favorite-track-indicator now-playing__source-indicator";
+  sourceIndicator.hidden = true;
+  section.querySelector(".now-playing__title-row")?.append(sourceIndicator);
   const artist = section.querySelector<HTMLElement>(".now-playing__artist");
   const album = section.querySelector<HTMLElement>(".now-playing__album");
   const technical = section.querySelectorAll<HTMLElement>(
@@ -198,6 +212,9 @@ export function createNowPlayingScreen(
   const volumeButton = section.querySelector<HTMLButtonElement>(
     '[data-control="volume"]',
   );
+  const resumeLocal = section.querySelector<HTMLButtonElement>(
+    '[data-control="resume-local"]',
+  );
   if (
     !title ||
     !artist ||
@@ -217,7 +234,8 @@ export function createNowPlayingScreen(
     !libraryButton ||
     !foldersButton ||
     !usbNavigation ||
-    !volumeButton
+    !volumeButton ||
+    !resumeLocal
   )
     throw new Error("Now Playing controls are missing");
   let retryMpvBusy = false;
@@ -239,6 +257,7 @@ export function createNowPlayingScreen(
   volumeButton.addEventListener("click", () => {
     options.onToggleVolume(volumeButton);
   });
+  resumeLocal.addEventListener("click", options.actions.resumeLocalPlayback);
   queueButton.addEventListener("click", () => {
     queueButton.setAttribute("aria-expanded", "true");
     options.onOpenQueue(queueButton);
@@ -267,17 +286,27 @@ export function createNowPlayingScreen(
   };
   let playIconName = "";
   let volumeIconName = "";
+  let showingExternalArtwork = false;
+  let externalArtworkRevision: string | null = null;
+  const localPresentationCoordinator =
+    new SeamlessTrackPresentationCoordinator();
 
   const update = (state: PlayerState): void => {
     playerState = state;
-    const presentation = createTrackPresentationSnapshot(state);
+    const presentation = localPresentationCoordinator.accept(state);
+    const active = createActivePlaybackPresentation(
+      state,
+      playbackSource,
+      presentation,
+    );
+    const external = active.external;
     const unavailable =
       state.status === "unavailable" ||
       (!state.mpvAvailable && state.status !== "loading");
     const starting = !state.mpvAvailable && state.status === "loading";
     setText(
       title,
-      presentation.title ??
+      active.title ??
         (starting
           ? t("nowPlaying.startingTitle")
           : unavailable
@@ -286,19 +315,39 @@ export function createNowPlayingScreen(
     );
     setText(
       artist,
-      presentation.artist ??
+      active.artist ??
         (starting
           ? t("nowPlaying.recoveryInProgress")
           : unavailable
             ? t("nowPlaying.unavailableDescription")
             : ""),
     );
-    setText(album, presentation.album ?? "");
-    setText(technicalFormat, presentation.technical);
+    setText(album, active.album ?? "");
+    setText(technicalFormat, external ? "" : presentation.technical);
     setText(technicalSource, "");
     recovery.hidden = state.mpvAvailable;
     visualizerSlot.hidden = !state.mpvAvailable;
-    if (!state.mpvAvailable) {
+    if (external) {
+      recovery.hidden = true;
+      visualizerSlot.hidden = true;
+    }
+    volumeButton.hidden = external || volumeButton.disabled;
+    resumeLocal.hidden = !external;
+    if (external) {
+      sourceIndicator.hidden = false;
+      sourceIndicator.innerHTML = icon(
+        playbackSource.activeSource === "spotify" ? "spotify" : "airplay",
+      );
+      sourceIndicator.setAttribute("aria-label", `${active.sourceName} source`);
+      sourceIndicator.setAttribute("title", active.sourceName);
+      sourceIndicator.setAttribute("aria-hidden", "false");
+    } else {
+      sourceIndicator.hidden = true;
+      sourceIndicator.removeAttribute("aria-label");
+      sourceIndicator.removeAttribute("title");
+    }
+    favoriteIndicator.setSuppressed(external);
+    if (!external && !state.mpvAvailable) {
       retryMpvButton.disabled = retryMpvBusy || starting;
       retryMpvButton.textContent =
         retryMpvBusy || starting
@@ -310,46 +359,72 @@ export function createNowPlayingScreen(
           : t("nowPlaying.recoveryDescription");
     }
     const artworkAlt =
-      presentation.album && presentation.artist
+      active.album && active.artist
         ? t("artwork.albumBy")
-            .replace("{album}", presentation.album)
-            .replace("{artist}", presentation.artist)
+            .replace("{album}", active.album)
+            .replace("{artist}", active.artist)
         : t("artwork.album");
-    artwork.update(presentation.artwork, artworkAlt, presentation.generation);
-    favoriteIndicator.setTrack(
-      state.currentPlayback?.item.libraryTrackId ??
-        state.queue[state.currentQueueIndex]?.libraryTrackId ??
-        null,
-    );
+    if (external) {
+      const externalArtwork = playbackSource.artwork;
+      if (
+        externalArtwork &&
+        (!showingExternalArtwork ||
+          externalArtworkRevision !== externalArtwork.revision)
+      )
+        void artwork.loadUrl(
+          externalArtworkUrl(externalArtwork.id),
+          externalArtwork.revision,
+          artworkAlt,
+        );
+      else if (!externalArtwork && !showingExternalArtwork)
+        artwork.update(null, artworkAlt, active.generation);
+      showingExternalArtwork = true;
+      externalArtworkRevision = externalArtwork?.revision ?? null;
+      favoriteIndicator.setTrack(null);
+    } else {
+      showingExternalArtwork = false;
+      externalArtworkRevision = null;
+      artwork.update(presentation.artwork, artworkAlt, presentation.generation);
+      favoriteIndicator.setTrack(
+        state.currentPlayback?.item.libraryTrackId ??
+          state.queue[state.currentQueueIndex]?.libraryTrackId ??
+          null,
+      );
+    }
     visualizer.setTrack(
       state.playerSessionId,
-      presentation.trackId,
-      presentation.generation,
+      external ? null : presentation.trackId,
+      active.generation,
     );
     visualizer.setPlaybackState(
-      presentation.positionSeconds,
-      state.paused || state.status !== "playing",
+      active.positionSeconds,
+      active.paused,
       state.audioBufferSeconds,
     );
-    const usable =
-      state.mpvAvailable &&
-      (state.currentPlayback !== undefined
-        ? state.currentPlayback !== null ||
-          (state.explicitQueue?.length ?? 0) > 0
-        : state.queue.length > 0);
+    const usable = external
+      ? playbackSource.phase === "active"
+      : state.mpvAvailable &&
+        (state.currentPlayback !== undefined
+          ? state.currentPlayback !== null ||
+            (state.explicitQueue?.length ?? 0) > 0
+          : state.queue.length > 0);
     playButton.disabled = !usable;
-    previousButton.disabled = !usable;
-    nextButton.disabled = !usable || state.canGoNext === false;
-    shuffleButton.disabled = !state.mpvAvailable;
-    playButton.setAttribute("aria-pressed", String(usable && !state.paused));
-    const nextPlayIcon = usable && !state.paused ? "pause" : "play";
+    previousButton.disabled =
+      !usable || (external && !active.capabilities.previous);
+    nextButton.disabled =
+      !usable ||
+      (external ? !active.capabilities.next : state.canGoNext === false);
+    shuffleButton.disabled = external || !state.mpvAvailable;
+    repeatButton.disabled = external;
+    playButton.setAttribute("aria-pressed", String(usable && !active.paused));
+    const nextPlayIcon = usable && !active.paused ? "pause" : "play";
     if (nextPlayIcon !== playIconName) {
       playIconName = nextPlayIcon;
       playButton.innerHTML = icon(nextPlayIcon, "icon transport__play-icon");
     }
     shuffleButton.setAttribute("aria-pressed", String(state.shuffleEnabled));
     const nextVolumeIcon =
-      state.muted || state.volume === 0 ? "volumeMuted" : "volume";
+      active.muted || active.volume === 0 ? "volumeMuted" : "volume";
     if (nextVolumeIcon !== volumeIconName) {
       volumeIconName = nextVolumeIcon;
       volumeButton.innerHTML = `${icon(nextVolumeIcon)}<span>${t("volume.label")}</span>`;
@@ -357,7 +432,9 @@ export function createNowPlayingScreen(
     volumeButton.setAttribute(
       "aria-label",
       `${t("volume.open")} · ${
-        state.muted ? t("volume.muted") : `${String(Math.round(state.volume))}%`
+        active.muted
+          ? t("volume.muted")
+          : `${String(Math.round(active.volume))}%`
       }`,
     );
     repeatButton.setAttribute(
@@ -375,19 +452,25 @@ export function createNowPlayingScreen(
             : "nowPlaying.repeatOff",
       ),
     );
-    timeline.setPlayback(
-      presentation.positionSeconds,
-      presentation.durationSeconds,
-    );
-    timeline.setEnabled(usable);
+    timeline.setPlayback(active.positionSeconds, active.durationSeconds);
+    timeline.setEnabled(usable && (!external || active.capabilities.seek));
     const queueItemId =
       state.currentPlayback?.playbackInstanceId ??
       state.queue[state.currentQueueIndex]?.id ??
       null;
     const nextWaveformRequest = {
       queueItemId,
-      trackGeneration: presentation.generation,
+      trackGeneration: active.generation,
     };
+    if (external) {
+      waveformLoader.cancel();
+      waveformRequest = {
+        queueItemId: null,
+        trackGeneration: active.generation,
+      };
+      timeline.setWaveform(null, active.generation);
+      return;
+    }
     if (!isSameWaveformRequest(waveformRequest, nextWaveformRequest)) {
       waveformRequest = nextWaveformRequest;
       timeline.setWaveform(null, presentation.generation);
@@ -418,6 +501,10 @@ export function createNowPlayingScreen(
     element: section,
     updateRemovableDevices: updateUsbButton,
     updatePlayerState: update,
+    updatePlaybackSource(snapshot) {
+      playbackSource = snapshot;
+      update(playerState);
+    },
     destroy() {
       visualizer.destroy();
       timeline.destroy();

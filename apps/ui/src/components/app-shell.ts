@@ -70,6 +70,7 @@ import {
   saveReturnToNowPlayingSeconds,
   saveOnScreenKeyboardMode,
   saveContinuePlaybackMode,
+  saveExternalPlaybackEndPolicy,
 } from "../utils/storage";
 import { createEideticKeyboardAdapter } from "./eidetic-keyboard-adapter";
 import { createMiniPlayer, type MiniPlayer } from "./mini-player";
@@ -92,6 +93,13 @@ import {
 } from "../../../../packages/shared/src/display";
 import { DisplayApiClient } from "../api/display-api-client";
 import { DisplayIdleController } from "../display/display-idle-controller";
+import {
+  defaultPlaybackSourceSnapshot,
+  playbackSourceKeepsDisplayActive,
+  type PlaybackSourceSnapshot,
+} from "../../../../packages/shared/src/playback-source";
+import { PlaybackSourceStore } from "../state/playback-source-store";
+import { createActivePlaybackPresentation } from "../state/active-playback-presentation";
 
 export interface MountedApp {
   destroy(): void;
@@ -114,6 +122,7 @@ export function mountApp(
   buildInfo: BuildInfo = developmentBuildInfo,
   preferencesController?: PreferencesController,
   initialDisplaySnapshot: DisplaySnapshot = defaultDisplaySnapshot,
+  initialPlaybackSource: PlaybackSourceSnapshot = defaultPlaybackSourceSnapshot,
 ): MountedApp {
   const playbackQueueDialog = createPlaybackQueueDialog();
   const decideContextPlay = async () => {
@@ -163,6 +172,7 @@ export function mountApp(
       showMessage(t("playback.commandFailed"));
     },
   });
+  const playbackSourceStore = new PlaybackSourceStore(initialPlaybackSource);
   const trackTransitions = new TrackTransitionCoordinator();
   const preferences = loadPlaybackPreferences();
   const dropOverlay = document.createElement("div");
@@ -329,19 +339,32 @@ export function mountApp(
     },
   });
   let latestAudioProcessingState: AudioProcessingState | null = null;
+  const applyActiveVolumePolicy = (source: PlaybackSourceSnapshot): void => {
+    const local = source.activeSource === "local";
+    const localPreferences = latestAudioProcessingState?.preferences;
+    const locked = local
+      ? localPreferences?.outputLevelMode === "fixed"
+      : source.output.levelMode === "fixed";
+    const maximum = local
+      ? (localPreferences?.maximumSoftwareVolume ?? 100)
+      : source.output.maximumSoftwareVolume;
+    volumePopover.setPolicy(locked, maximum);
+  };
   const applyAudioLevelPolicy = (state: AudioProcessingState): void => {
     latestAudioProcessingState = state;
     const locked = state.preferences.outputLevelMode === "fixed";
+    const source = playbackSourceStore.getState();
+    const triggerUnavailable = locked || source.activeSource !== "local";
     root.dataset.audioLevelMode = state.preferences.outputLevelMode;
-    volumePopover.setPolicy(locked, state.preferences.maximumSoftwareVolume);
+    applyActiveVolumePolicy(source);
     for (const trigger of root.querySelectorAll<HTMLButtonElement>(
       '[data-control="volume"]',
     )) {
-      trigger.hidden = locked;
-      trigger.disabled = locked;
-      trigger.setAttribute("aria-disabled", String(locked));
+      trigger.hidden = triggerUnavailable;
+      trigger.disabled = triggerUnavailable;
+      trigger.setAttribute("aria-disabled", String(triggerUnavailable));
     }
-    if (locked) store.setVolumeOpen(false);
+    if (triggerUnavailable) store.setVolumeOpen(false);
   };
   const onAudioProcessing = (event: Event): void => {
     const detail = (event as CustomEvent<AudioProcessingState>).detail;
@@ -475,18 +498,29 @@ export function mountApp(
   displayController.setHdmiAudioActive(
     audioOutputState.selectedPhysicalOutputId === "hdmi",
   );
-  displayController.setPlaybackActive(
-    playbackKeepsDisplayActive(playerStore.getState()),
-  );
+  const setLocalDisplayActivity = (state: PlayerState): void => {
+    displayController.setPlaybackActive(playbackKeepsDisplayActive(state));
+  };
+  setLocalDisplayActivity(playerStore.getState());
+  if (playbackSourceKeepsDisplayActive(playbackSourceStore.getState()))
+    displayController.setPlaybackActive(true);
   const actions = {
     openFiles,
     retryMpv: () => api.retryMpv(),
     playPause: () => {
+      if (playbackSourceStore.getState().activeSource !== "local") {
+        run(api.playPause());
+        return;
+      }
       const targetPaused = !playerStore.getState().paused;
       const metadata = playerStore.beginTransportIntent(targetPaused);
       runIntent("transport", metadata, api.playPause(metadata));
     },
     previous: () => {
+      if (playbackSourceStore.getState().activeSource !== "local") {
+        run(api.previous());
+        return;
+      }
       trackTransitions.noteTrackCommand();
       const state = playerStore.getState();
       const targetId =
@@ -497,6 +531,10 @@ export function mountApp(
       runIntent("navigation", metadata, api.previous(undefined, metadata));
     },
     next: () => {
+      if (playbackSourceStore.getState().activeSource !== "local") {
+        run(api.next());
+        return;
+      }
       trackTransitions.noteTrackCommand();
       const state = playerStore.getState();
       const targetId = state.explicitQueue?.[0]?.playbackInstanceId ?? null;
@@ -505,6 +543,9 @@ export function mountApp(
     },
     seek: (positionSeconds: number) => {
       run(api.seek(positionSeconds));
+    },
+    resumeLocalPlayback: () => {
+      run(api.resumeLocalPlayback());
     },
     shuffle: (enabled: boolean) => {
       run(
@@ -569,10 +610,18 @@ export function mountApp(
     currentScreen?.destroy();
     const state = store.getState();
     topBar.setDetailActions(null, null);
-    topBar.setTitle(t(getNavigationItem(screen).titleKey));
+    topBar.setTitle(
+      screen === "nowPlaying"
+        ? createActivePlaybackPresentation(
+            playerStore.getState(),
+            playbackSourceStore.getState(),
+          ).heading
+        : t(getNavigationItem(screen).titleKey),
+    );
     currentScreen = createScreen(screen, {
       state,
       playerState: playerStore.getState(),
+      playbackSource: playbackSourceStore.getState(),
       playerActions: actions,
       foldersApi,
       removableApi,
@@ -593,6 +642,9 @@ export function mountApp(
         0,
       continuePlaybackMode:
         preferencesController?.getPreferences().continuePlaybackMode ?? "off",
+      externalPlaybackEndPolicy:
+        preferencesController?.getPreferences().externalPlaybackEndPolicy ??
+        "keep-paused",
       smbApi,
       smbSnapshot,
       selectedSmbConnection,
@@ -763,6 +815,18 @@ export function mountApp(
         }
         return true;
       },
+      setExternalPlaybackEndPolicy: (value) => {
+        const previous =
+          preferencesController?.getPreferences().externalPlaybackEndPolicy ??
+          "keep-paused";
+        if (!saveExternalPlaybackEndPolicy(value)) {
+          saveExternalPlaybackEndPolicy(previous);
+          showMessage(t("settings.saveError"));
+          return false;
+        }
+        void preferencesController?.flush();
+        return true;
+      },
       systemCapabilities,
       enterMaintenanceMode: async () => {
         closeOverlays();
@@ -846,7 +910,7 @@ export function mountApp(
         },
         favorites,
       );
-      miniPlayer.update(playerStore.getState());
+      miniPlayer.update(playerStore.getState(), playbackSourceStore.getState());
       miniPlayer.setSurfaceDisabled(
         state.mainPlayerMode === "cassette" &&
           (playerStore.getState().currentPlayback !== undefined
@@ -1246,9 +1310,13 @@ export function mountApp(
     }
   });
   const unsubscribePlayer = playerStore.subscribe((state) => {
-    displayController.setPlaybackActive(playbackKeepsDisplayActive(state));
+    const source = playbackSourceStore.getState();
+    displayController.setPlaybackActive(
+      playbackKeepsDisplayActive(state) ||
+        playbackSourceKeepsDisplayActive(source),
+    );
     currentScreen?.updatePlayerState?.(state);
-    miniPlayer?.update(state);
+    miniPlayer?.update(state, source);
     miniPlayer?.setSurfaceDisabled(
       store.getState().activeScreen === "nowPlaying" &&
         store.getState().mainPlayerMode === "cassette" &&
@@ -1266,11 +1334,48 @@ export function mountApp(
         state.playbackContext?.nextItem?.artwork ??
         null,
     ]);
-    volumePopover.setState(state.volume, state.muted);
+    volumePopover.setState(
+      source.activeSource === "local" ? state.volume : source.volume,
+      source.activeSource === "local" ? state.muted : source.muted,
+    );
     if (state.error && state.status === "error")
       showMessage(state.error.message);
   });
+  const unsubscribePlaybackSource = playbackSourceStore.subscribe(
+    (source, previousSource) => {
+      const state = playerStore.getState();
+      displayController.setPlaybackActive(
+        playbackKeepsDisplayActive(state) ||
+          playbackSourceKeepsDisplayActive(source),
+      );
+      const sourceClassChanged =
+        (source.activeSource === "local") !==
+        (previousSource.activeSource === "local");
+      if (
+        sourceClassChanged &&
+        store.getState().activeScreen === "nowPlaying" &&
+        store.getState().mainPlayerMode === "cassette"
+      )
+        renderScreen("nowPlaying");
+      else currentScreen?.updatePlaybackSource?.(source);
+      queueDrawer.updatePlaybackSource(source);
+      miniPlayer?.update(state, source);
+      volumePopover.setState(
+        source.activeSource === "local" ? state.volume : source.volume,
+        source.activeSource === "local" ? state.muted : source.muted,
+      );
+      if (latestAudioProcessingState)
+        applyAudioLevelPolicy(latestAudioProcessingState);
+      else applyActiveVolumePolicy(source);
+      if (store.getState().activeScreen === "nowPlaying")
+        topBar.setTitle(
+          createActivePlaybackPresentation(state, source).heading,
+        );
+    },
+  );
   queueDrawer.update(playerStore.getState());
+  queueDrawer.updatePlaybackSource(playbackSourceStore.getState());
+  applyActiveVolumePolicy(playbackSourceStore.getState());
   const unsubscribeEvents = api.subscribe(
     (state) => {
       playerStore.setState(trackTransitions.accept(state));
@@ -1284,6 +1389,11 @@ export function mountApp(
     },
     (snapshot) => {
       displayController.receiveExternalSnapshot(snapshot);
+    },
+    (source, reconnectBaseline) => {
+      if (reconnectBaseline)
+        playbackSourceStore.replaceStateAfterReconnect(source);
+      else playbackSourceStore.setState(source);
     },
   );
   void Promise.resolve(initialPlayerState)
@@ -1355,6 +1465,7 @@ export function mountApp(
       unsubscribeSoftwareUpdate();
       unsubscribeDrops();
       unsubscribePlayer();
+      unsubscribePlaybackSource();
       unsubscribeApp();
       currentScreen?.destroy();
       miniPlayer?.destroy();

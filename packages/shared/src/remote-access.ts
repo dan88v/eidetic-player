@@ -10,6 +10,7 @@ import type {
   PlayerTrack,
   QueueItem,
 } from "./player.js";
+import type { PlaybackSourceSnapshot } from "./playback-source.js";
 
 export const REMOTE_ACCESS_PORT = 8080;
 export const REMOTE_ACCESS_MAX_DEVICES = 8;
@@ -112,6 +113,7 @@ export interface RemoteBootstrap {
   readonly device: RemoteAccessDevice;
   readonly buildId: string;
   readonly player: RemotePlayerState;
+  readonly playbackSource: PlaybackSourceSnapshot;
   readonly audioOutput: RemoteAudioOutputState;
   readonly outputLevelMode: "fixed" | "variable";
   readonly maximumSoftwareVolume: number;
@@ -132,6 +134,7 @@ export type RemoteEventName =
   | "snapshot"
   | "player"
   | "player-progress"
+  | "playback-source"
   | "queue"
   | "audio-output"
   | "source-availability"

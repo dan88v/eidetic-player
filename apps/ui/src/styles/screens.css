@@ -184,6 +184,15 @@
     font-size: var(--font-size-sm);
     line-height: 1.35;
   }
+  .now-playing__source-indicator {
+    color: var(--color-text);
+  }
+  .now-playing__source-indicator .icon {
+    width: 2rem;
+    height: 2rem;
+    transform: scale(1.25);
+    fill: none;
+  }
   .now-playing__retry-mpv {
     min-width: 9.5rem;
     flex: 0 0 auto;

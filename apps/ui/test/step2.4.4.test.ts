@@ -25,7 +25,7 @@ void test("visualizers use the requested presentation order", async () => {
     /"meter" \| "spectrumMono" \| "spectrumStereo" \| "technical" \| "none"/,
   );
   assert.match(storage, /visualizerMode/);
-  assert.match(preferencesContract, /visualizerMode: "meter"/);
+  assert.match(preferencesContract, /visualizerMode: "spectrumMono"/);
   assert.match(
     preferencesContract,
     /isOneOf\(value, \[[\s\S]*?"technical"[\s\S]*?"none"[\s\S]*?\]\)/,

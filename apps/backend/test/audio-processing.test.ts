@@ -289,7 +289,8 @@ void test("Fixed output rejects positive projected DSP gain", async () => {
       changes: {
         audioProcessingEnabled: true,
         equalizerEnabled: true,
-        headroomMode: "off",
+        headroomMode: "manual",
+        manualPreampDb: 0,
         equalizerBands: defaultEqualizerBands.map((band, index) => ({
           ...band,
           gainDb: index === 0 ? 6 : 0,
@@ -305,6 +306,136 @@ void test("Fixed output rejects positive projected DSP gain", async () => {
         error instanceof AudioProcessingError &&
         error.code === "FIXED_OUTPUT_POSITIVE_GAIN",
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("Headroom Off explicitly permits positive-gain processing in Fixed output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-audio-headroom-off-"));
+  try {
+    const store = new PreferencesStore(join(root, "config"));
+    await store.initialize();
+    const snapshot = await store.migrateLegacy({
+      sourceAvailable: true,
+      preferences: {},
+    });
+    const service = new AudioProcessingService(
+      {
+        isMpvAvailable: () => true,
+        getState: () => ({ volume: 100, muted: false, paused: true }),
+        pauseForAudioPolicy() {
+          return Promise.resolve();
+        },
+        setVolume() {
+          return Promise.resolve();
+        },
+        setMuted() {
+          return Promise.resolve();
+        },
+        commandMpv() {
+          return Promise.resolve(undefined);
+        },
+        subscribeAudioOutputProperties() {
+          return () => undefined;
+        },
+      },
+      store,
+    );
+    await service.initialize(snapshot);
+    await service.patch({
+      changes: { outputLevelMode: "fixed" },
+      confirmFixedOutput: true,
+    });
+    await service.patch({
+      changes: {
+        equalizerEnabled: true,
+        headroomMode: "off",
+        equalizerBands: defaultEqualizerBands.map((band, index) => ({
+          ...band,
+          gainDb: index === 0 ? 6 : 0,
+        })),
+      },
+    });
+    const enabled = await service.patch({
+      changes: { audioProcessingEnabled: true },
+    });
+    assert.equal(enabled.state.preferences.audioProcessingEnabled, true);
+    assert.equal(enabled.state.signalPath.projectedPeakGainDb > 0, true);
+    assert.equal(enabled.state.signalPath.warning, "positive-gain");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("Fixed positive gain asks once before enabling processing or EQ", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-audio-gain-confirm-"));
+  try {
+    const store = new PreferencesStore(join(root, "config"));
+    await store.initialize();
+    const snapshot = await store.migrateLegacy({
+      sourceAvailable: true,
+      preferences: {},
+    });
+    const service = new AudioProcessingService(
+      {
+        isMpvAvailable: () => true,
+        getState: () => ({ volume: 100, muted: false, paused: true }),
+        pauseForAudioPolicy: () => Promise.resolve(),
+        setVolume: () => Promise.resolve(),
+        setMuted: () => Promise.resolve(),
+        commandMpv: () => Promise.resolve(undefined),
+        subscribeAudioOutputProperties: () => () => undefined,
+      },
+      store,
+    );
+    await service.initialize(snapshot);
+    await service.patch({
+      changes: { outputLevelMode: "fixed" },
+      confirmFixedOutput: true,
+    });
+    const boostedBands = defaultEqualizerBands.map((band, index) => ({
+      ...band,
+      gainDb: index === 0 ? 6 : 0,
+    }));
+    await service.patch({
+      changes: {
+        equalizerEnabled: true,
+        equalizerBands: boostedBands,
+        headroomMode: "manual",
+        manualPreampDb: 0,
+      },
+    });
+
+    await assert.rejects(
+      service.patch({ changes: { audioProcessingEnabled: true } }),
+      (error: unknown) =>
+        error instanceof AudioProcessingError &&
+        error.code === "POSITIVE_GAIN_CONFIRMATION_REQUIRED",
+    );
+    const processingEnabled = await service.patch({
+      changes: { audioProcessingEnabled: true },
+      confirmPositiveGain: true,
+    });
+    assert.equal(
+      processingEnabled.state.preferences.audioProcessingEnabled,
+      true,
+    );
+    assert.equal(processingEnabled.state.signalPath.warning, "positive-gain");
+
+    await service.patch({ changes: { equalizerEnabled: false } });
+    await assert.rejects(
+      service.patch({ changes: { equalizerEnabled: true } }),
+      (error: unknown) =>
+        error instanceof AudioProcessingError &&
+        error.code === "POSITIVE_GAIN_CONFIRMATION_REQUIRED",
+    );
+    const equalizerEnabled = await service.patch({
+      changes: { equalizerEnabled: true },
+      confirmPositiveGain: true,
+    });
+    assert.equal(equalizerEnabled.state.preferences.equalizerEnabled, true);
+    assert.equal(equalizerEnabled.state.signalPath.warning, "positive-gain");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

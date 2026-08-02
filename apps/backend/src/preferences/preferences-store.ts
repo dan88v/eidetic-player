@@ -27,14 +27,14 @@ import {
 import { displayTimeoutsAreCompatible } from "../../../../packages/shared/src/display.js";
 import { resolveAppDirectories } from "../platform/app-directories.js";
 
-const schemaVersion = 3 as const;
+const schemaVersion = 4 as const;
 const preferencesFilename = "preferences.json";
 const backupFilename = "preferences.json.bak";
 
 type JsonObject = Record<string, unknown>;
 
 interface StoredPreferencesDocument extends JsonObject {
-  schemaVersion: 3;
+  schemaVersion: 4;
   revision: number;
   preferences: JsonObject;
   migration: JsonObject;
@@ -114,7 +114,8 @@ function parseDocument(value: unknown): LoadedDocument {
   if (
     value.schemaVersion === 0 ||
     value.schemaVersion === 1 ||
-    value.schemaVersion === 2
+    value.schemaVersion === 2 ||
+    value.schemaVersion === 3
   ) {
     const sourceSchema = value.schemaVersion;
     const legacyPreferences = isObject(value.preferences)
@@ -175,7 +176,7 @@ function defaultDocument(): StoredPreferencesDocument {
     preferences: { ...defaultUiPreferences },
     migration: {
       legacyLocalStorage: "pending",
-      sourceSchema: 3,
+      sourceSchema: 4,
     },
   };
 }
