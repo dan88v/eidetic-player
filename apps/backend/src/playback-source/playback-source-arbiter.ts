@@ -428,7 +428,13 @@ export class PlaybackSourceArbiter {
           "MPV_OUTPUT_RELEASE_TIMEOUT",
           "Local playback did not release the audio output.",
         );
-      } else if (previousProvider) {
+      } else if (
+        previousProvider &&
+        !(
+          previousProvider === provider &&
+          provider.seamlessSessionReplacement === true
+        )
+      ) {
         await withTimeout(
           previousProvider.stop(generation),
           "EXTERNAL_SOURCE_RELEASE_TIMEOUT",
@@ -465,7 +471,9 @@ export class PlaybackSourceArbiter {
       const confirmed = provider.snapshot();
       if (
         confirmed.sessionId !== sessionId ||
-        (confirmed.state !== "playing" && confirmed.state !== "paused")
+        (confirmed.state !== "playing" &&
+          confirmed.state !== "paused" &&
+          confirmed.state !== "buffering")
       )
         throw new PlaybackSourceError(
           "EXTERNAL_SOURCE_CONFIRMATION_FAILED",
@@ -609,6 +617,18 @@ export class PlaybackSourceArbiter {
     provider: ExternalPlaybackProvider,
     event: ExternalProviderEvent,
   ): void {
+    if (
+      event.kind === "session-starting" &&
+      provider.automaticAcquisition === true &&
+      (provider !== this.activeProvider ||
+        event.sessionId !== this.source.sessionId)
+    ) {
+      if (this.shuttingDown) return;
+      void this.enqueue(() =>
+        this.acquireNow(provider.kind, event.sessionId, false),
+      ).catch(() => undefined);
+      return;
+    }
     if (
       provider !== this.activeProvider ||
       event.sessionId !== this.source.sessionId ||

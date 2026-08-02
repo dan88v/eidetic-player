@@ -98,12 +98,12 @@ boot helper mutates the network.
 
 ## UI contract
 
-Settings root has separate Interface and Network rows. Network uses the shared
-segmented control as a Wired/Wi-Fi view selector; selecting one never disables
-the other. Its in-content header follows Interface: Back and the short
-description stay on the left, the selector stays on the right, and the top bar
-retains the normal Settings hamburger. Root, Interface, and Network share the
-same content width and vertical rhythm. Current network/adapter details retain
+Settings root has separate Interface and Network rows. Network is a canonical
+navigation list containing Wired, Wi-Fi, and AirPlay in that order. Wired and
+Wi-Fi open their existing detail surfaces; AirPlay opens the managed receiver
+settings. Remote access remains a separate Settings-root item. Root, Interface,
+and Network share the same content width and vertical rhythm. Current
+network/adapter details retain
 the actual DHCP values, so the IPv4 section shows only its DHCP/Manual selector
 until Manual is selected. Manual reveals five fields using the existing IPv4
 keyboard profile; Apply stays hidden until the draft changes. Apply shows a
@@ -126,3 +126,8 @@ The fixture supports scan, radio, connect, hidden-network, disconnect, Forget,
 and IPv4 safe-transaction UI validation without touching the host network or
 retaining submitted passwords. Its documentation-only addresses use reserved
 example ranges.
+
+On supported Linux appliances, AirPlay displays only its On/Off preference,
+receiver name, public status, selected canonical output, and the local-network
+access notice. Technical component versions, ports, paths, and raw receiver
+configuration remain confined to protected logs and the read-only doctor.

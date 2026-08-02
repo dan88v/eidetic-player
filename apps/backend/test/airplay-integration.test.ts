@@ -1,0 +1,356 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+import { AirPlayStore } from "../src/airplay/airplay-store.js";
+import { renderAirPlayConfig } from "../src/airplay/airplay-config-renderer.js";
+import { AirPlayMetadataParser } from "../src/airplay/airplay-metadata-parser.js";
+import { AirPlayProvider } from "../src/airplay/airplay-provider.js";
+import { AirPlayService } from "../src/airplay/airplay-service.js";
+import type {
+  AirPlayPlatformAdapter,
+  AirPlayPlatformStatus,
+} from "../src/airplay/airplay-platform-adapter.js";
+
+function metadataItem(type: string, code: string, bytes: Buffer): string {
+  const hexadecimal = (value: string): string =>
+    Buffer.from(value, "ascii").toString("hex");
+  return `<item><type>${hexadecimal(type)}</type><code>${hexadecimal(code)}</code><length>${String(bytes.length)}</length><data encoding="base64">${bytes.toString("base64")}</data></item>`;
+}
+
+class FixturePlatform implements AirPlayPlatformAdapter {
+  readonly fixture = true;
+  readonly controlSocket = `\\\\.\\pipe\\eidetic-airplay-${String(process.pid)}-${randomUUID()}`;
+  readonly metadataPipe = join(
+    tmpdir(),
+    `eidetic-airplay-${randomUUID()}.fifo`,
+  );
+  readonly hookExecutable = "/usr/libexec/eidetic-player-airplay-hook";
+  stopped = false;
+  active = false;
+  advertisementChecks = 0;
+  restartCount = 0;
+
+  constructor(
+    private readonly advertisements: (
+      "verified" | "collision" | "unavailable"
+    )[] = ["verified"],
+  ) {}
+
+  status(): Promise<AirPlayPlatformStatus> {
+    return Promise.resolve({
+      available: true,
+      active: this.active,
+      protocol: "airplay2",
+      message: null,
+    });
+  }
+  verifyAdvertisement(): Promise<"verified" | "collision" | "unavailable"> {
+    const index = Math.min(
+      this.advertisementChecks,
+      this.advertisements.length - 1,
+    );
+    this.advertisementChecks += 1;
+    return Promise.resolve(this.advertisements[index] ?? "unavailable");
+  }
+  prepareRuntime(): Promise<void> {
+    return Promise.resolve();
+  }
+  writeConfiguration(): Promise<void> {
+    return Promise.resolve();
+  }
+  setEnabled(enabled: boolean): Promise<void> {
+    this.active = enabled;
+    return Promise.resolve();
+  }
+  restart(): Promise<void> {
+    this.restartCount += 1;
+    this.active = true;
+    return Promise.resolve();
+  }
+  stopRuntime(): Promise<void> {
+    this.stopped = true;
+    this.active = false;
+    return Promise.resolve();
+  }
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+function control(path: string, command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(path);
+    let reply = "";
+    socket.setEncoding("utf8");
+    socket.once("connect", () => {
+      socket.write(`${command}\n`);
+    });
+    socket.on("data", (chunk: string) => {
+      reply += chunk;
+    });
+    socket.once("end", () => {
+      resolve(reply);
+    });
+    socket.once("error", reject);
+  });
+}
+
+void test("AirPlay store defaults On with an anonymous persistent receiver name", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-store-"));
+  try {
+    const store = new AirPlayStore(root);
+    const initial = await store.initialize();
+    assert.equal(initial.enabled, true);
+    assert.match(
+      initial.receiverName,
+      /^Eidetic Player - [23456789A-HJ-NP-Z]{2}$/u,
+    );
+    assert.doesNotMatch(initial.receiverName, /[0-9a-f]{6,}/iu);
+    const saved = await store.save({ receiverName: "Living Room" });
+    assert.equal(saved.receiverName, "Living Room");
+    assert.equal(saved.receiverNameOrigin, "user");
+    assert.equal(saved.revision, 1);
+    assert.equal(
+      (
+        JSON.parse(await readFile(join(root, "airplay.json"), "utf8")) as {
+          enabled: boolean;
+        }
+      ).enabled,
+      true,
+    );
+    const disabled = await store.save({ enabled: false });
+    assert.equal(disabled.enabled, false);
+    assert.equal((await new AirPlayStore(root).initialize()).enabled, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("renaming an idle enabled receiver restarts it before advertisement verification", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-rename-"));
+  const platform = new FixturePlatform(["verified", "verified"]);
+  const provider = new AirPlayProvider(platform);
+  const service = new AirPlayService(
+    provider,
+    platform,
+    () => Promise.resolve(),
+    new AirPlayStore(root),
+  );
+  const route = {
+    physicalOutputId: "usb-dac",
+    description: "USB DAC",
+    routeKind: "alsa" as const,
+    providerTarget: "alsa/hw:2,0",
+    levelMode: "variable" as const,
+    maximumSoftwareVolume: 100,
+    availabilityRevision: 1,
+  };
+  try {
+    await service.initialize(() => route);
+    assert.equal(platform.restartCount, 0);
+    const renamed = await service.patch(
+      {
+        receiverName: "Listening Room",
+        expectedRevision: service.snapshot().revision,
+      },
+      () => route,
+    );
+    assert.equal(renamed.receiverName, "Listening Room");
+    assert.equal(renamed.serviceStatus, "ready");
+    assert.equal(platform.restartCount, 1);
+    assert.equal(platform.advertisementChecks, 2);
+  } finally {
+    service.close();
+    await provider.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("generated receiver collision retries are bounded and custom names fail visibly", async () => {
+  const route = {
+    physicalOutputId: "usb-dac",
+    description: "USB DAC",
+    routeKind: "alsa" as const,
+    providerTarget: "alsa/hw:2,0",
+    levelMode: "variable" as const,
+    maximumSoftwareVolume: 100,
+    availabilityRevision: 1,
+  };
+  const generatedRoot = await mkdtemp(
+    join(tmpdir(), "eidetic-airplay-collision-"),
+  );
+  const generatedPlatform = new FixturePlatform([
+    "collision",
+    "collision",
+    "verified",
+  ]);
+  const generatedProvider = new AirPlayProvider(generatedPlatform);
+  const generatedService = new AirPlayService(
+    generatedProvider,
+    generatedPlatform,
+    () => Promise.resolve(),
+    new AirPlayStore(generatedRoot),
+  );
+  try {
+    await generatedService.initialize(() => route);
+    assert.equal(generatedService.snapshot().serviceStatus, "ready");
+    assert.equal(generatedService.snapshot().revision, 2);
+    assert.equal(generatedPlatform.advertisementChecks, 3);
+  } finally {
+    generatedService.close();
+    await generatedProvider.shutdown();
+    await rm(generatedRoot, { recursive: true, force: true });
+  }
+
+  const customRoot = await mkdtemp(
+    join(tmpdir(), "eidetic-airplay-custom-collision-"),
+  );
+  const customStore = new AirPlayStore(customRoot);
+  await customStore.initialize();
+  await customStore.save({ receiverName: "Listening Room" });
+  const customPlatform = new FixturePlatform(["collision"]);
+  const customProvider = new AirPlayProvider(customPlatform);
+  const customService = new AirPlayService(
+    customProvider,
+    customPlatform,
+    () => Promise.resolve(),
+    customStore,
+  );
+  try {
+    await customService.initialize(() => route);
+    assert.equal(customService.snapshot().serviceStatus, "error");
+    assert.match(customService.snapshot().message ?? "", /already in use/u);
+    assert.equal(customService.snapshot().receiverName, "Listening Room");
+    assert.equal(customPlatform.active, false);
+    assert.equal(customPlatform.advertisementChecks, 1);
+  } finally {
+    customService.close();
+    await customProvider.shutdown();
+    await rm(customRoot, { recursive: true, force: true });
+  }
+});
+
+void test("AirPlay config is deterministic, escaped, and tied to the canonical route", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-config-"));
+  try {
+    const document = await new AirPlayStore(root).initialize();
+    const config = renderAirPlayConfig(
+      { ...document, receiverName: 'Room "A"' },
+      {
+        physicalOutputId: "usb-dac",
+        description: "USB DAC",
+        routeKind: "alsa",
+        providerTarget: "alsa/hw:2,0",
+        levelMode: "fixed",
+        maximumSoftwareVolume: 100,
+        availabilityRevision: 4,
+      },
+      {
+        controlSocket: "/run/user/1000/eidetic-player/airplay-control.sock",
+        metadataPipe: "/run/user/1000/eidetic-player/airplay-metadata",
+        hookExecutable: "/usr/libexec/eidetic-player-airplay-hook",
+      },
+    );
+    assert.match(config, /name = "Room \\"A\\"";/u);
+    assert.match(config, /output_backend = "alsa";/u);
+    assert.match(config, /output_device = "hw:2,0";/u);
+    assert.match(config, /ignore_volume_control = "yes";/u);
+    assert.match(config, /eidetic-player-airplay-hook before/u);
+    assert.doesNotMatch(config, /airplay-control\.sock before/u);
+    assert.throws(() =>
+      renderAirPlayConfig(
+        document,
+        {
+          physicalOutputId: "default",
+          description: "System default",
+          routeKind: "other",
+          providerTarget: "auto",
+          levelMode: "variable",
+          maximumSoftwareVolume: 100,
+          availabilityRevision: 1,
+        },
+        {
+          controlSocket: "/tmp/control",
+          metadataPipe: "/tmp/metadata",
+          hookExecutable: "/usr/libexec/hook",
+        },
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("AirPlay metadata parser handles fragmented text, progress, volume, and rejects malformed data", () => {
+  const parser = new AirPlayMetadataParser(48_000);
+  const title = metadataItem(
+    "core",
+    "minm",
+    Buffer.from("Neon Brother", "utf8"),
+  );
+  assert.deepEqual(parser.push(title.slice(0, 24)), []);
+  assert.deepEqual(parser.push(title.slice(24)), [
+    { kind: "text", field: "title", value: "Neon Brother" },
+  ]);
+  assert.deepEqual(
+    parser.push(metadataItem("ssnc", "prgr", Buffer.from("100/48100/96100"))),
+    [{ kind: "progress", positionSeconds: 1, durationSeconds: 2 }],
+  );
+  assert.deepEqual(
+    parser.push(
+      metadataItem("ssnc", "pvol", Buffer.from("-144.0,-144.0,-30.0,0.0")),
+    ),
+    [{ kind: "volume", volume: 0, muted: true }],
+  );
+  const malformed = metadataItem("core", "minm", Buffer.from("unsafe")).replace(
+    /dW5zYWZl/u,
+    "dW5zYW?l",
+  );
+  assert.deepEqual(parser.push(malformed), []);
+});
+
+void test("blocking AirPlay hook grants only after provider acquisition and releases on shutdown", async () => {
+  const platform = new FixturePlatform();
+  const provider = new AirPlayProvider(platform);
+  await provider.initialize();
+  provider.setPreparedRoute({
+    physicalOutputId: "usb-dac",
+    description: "USB DAC",
+    routeKind: "alsa",
+    providerTarget: "alsa/hw:2,0",
+    levelMode: "variable",
+    maximumSoftwareVolume: 100,
+    availabilityRevision: 1,
+  });
+  try {
+    const starting = new Promise<{ sessionId: string; generation: number }>(
+      (resolve) => {
+        provider.subscribe((event) => {
+          if (event.kind === "session-starting")
+            resolve({
+              sessionId: event.sessionId,
+              generation: event.generation,
+            });
+        });
+      },
+    );
+    const pendingReply = control(platform.controlSocket, "BEFORE 1");
+    const session = await starting;
+    let settled = false;
+    void pendingReply.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(settled, false);
+    await provider.acquire(session.sessionId, session.generation + 1);
+    assert.equal(await pendingReply, "GRANT\n");
+    assert.equal(await control(platform.controlSocket, "AFTER 1"), "OK\n");
+  } finally {
+    await provider.shutdown();
+  }
+  assert.equal(platform.stopped, true);
+});

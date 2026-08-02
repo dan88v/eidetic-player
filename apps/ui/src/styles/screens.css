@@ -1740,6 +1740,46 @@
     margin-top: 20px;
   }
 
+  .airplay-loading {
+    min-height: var(--settings-row-min-height);
+    padding: var(--space-6);
+    color: var(--color-text-secondary);
+  }
+
+  .airplay-name-row {
+    align-items: end;
+  }
+
+  .airplay-name-input {
+    width: min(28rem, 62vw);
+    min-height: var(--touch-min);
+    margin-top: var(--space-2);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    background: var(--color-bg);
+  }
+
+  .airplay-name-input:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  .airplay-save-name {
+    min-width: 7rem;
+    min-height: var(--touch-min);
+  }
+
+  .airplay-lan-notice {
+    margin: 0;
+    padding: var(--space-4) var(--space-6);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: var(--settings-row-description-size);
+    line-height: 1.45;
+  }
+
   .remote-access-settings {
     padding-bottom: 24px;
   }

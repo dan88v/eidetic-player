@@ -17,6 +17,7 @@ import { RemovableStorageApiClient } from "../api/removable-storage-api-client";
 import { LibraryApiClient } from "../api/library-api-client";
 import { NetworkApiClient } from "../api/network-api-client";
 import { RemoteAccessApiClient } from "../api/remote-access-api-client";
+import { AirPlayApiClient } from "../api/airplay-api-client";
 import { SmbApiClient } from "../api/smb-api-client";
 import { SystemApiClient } from "../api/system-api-client";
 import { AudioOutputApiClient } from "../api/audio-output-api-client";
@@ -144,6 +145,7 @@ export function mountApp(
   const libraryApi = new LibraryApiClient(decideContextPlay);
   const networkApi = new NetworkApiClient();
   const remoteAccessApi = new RemoteAccessApiClient();
+  const airPlayApi = new AirPlayApiClient();
   const smbApi = new SmbApiClient(decideContextPlay);
   const systemApi = new SystemApiClient();
   const audioOutputApi = new AudioOutputApiClient();
@@ -627,6 +629,7 @@ export function mountApp(
       removableApi,
       networkApi,
       remoteAccessApi,
+      airPlayApi,
       networkSnapshot,
       audioOutputApi,
       audioOutputState,

@@ -140,16 +140,62 @@ void test("top-bar audio copy identifies physical output and effective interface
   assert.equal(copy.detail, "ALSA · snd_rpi_rpi_dac");
 });
 
-void test("Network reuses the Interface content header and keeps the hamburger", () => {
+void test("Network uses canonical navigation rows for Wired, Wi-Fi, and AirPlay", () => {
   const settings = readFileSync(
     new URL("../src/screens/settings.ts", import.meta.url),
     "utf8",
   );
   assert.match(settings, /network-settings-header/);
   assert.match(settings, /header\.prepend\(back\)/);
-  assert.match(settings, /header\.append\(networkPanel\.selectorElement\)/);
+  assert.match(
+    settings,
+    /navigationRow\("Wired", wiredSummary, "network-wired"\)/,
+  );
+  assert.match(
+    settings,
+    /navigationRow\("Wi-Fi", wifiSummary, "network-wifi"\)/,
+  );
+  assert.match(settings, /"AirPlay",[\s\S]*"airplay"/u);
+  assert.doesNotMatch(
+    settings,
+    /header\.append\(networkPanel\.selectorElement\)/,
+  );
   assert.match(settings, /options\.setHeaderActions\(null, null\)/);
   assert.doesNotMatch(settings, /setHeaderActions\(navigateBack/);
+});
+
+void test("AirPlay settings stay minimal and use the dedicated revisioned API", () => {
+  const settings = readFileSync(
+    new URL("../src/screens/settings.ts", import.meta.url),
+    "utf8",
+  );
+  const client = readFileSync(
+    new URL("../src/api/airplay-api-client.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(settings, /label: "AirPlay receiver"/);
+  assert.match(settings, /nameLabel\.textContent = "Receiver name"/);
+  assert.match(settings, /statusLabel\.textContent = "Status"/);
+  assert.match(settings, /outputLabel\.textContent = "Output"/);
+  assert.match(
+    settings,
+    /Anyone on this local network can stream while AirPlay is enabled\./,
+  );
+  assert.match(settings, /title: "Stop AirPlay\?"/);
+  assert.match(settings, /confirmLabel: "Stop AirPlay"/);
+  assert.match(settings, /playbackSource\.activeSource === "airplay"/);
+  assert.match(
+    settings,
+    /snapshot\.providerState !== playbackSource\.providerState/,
+  );
+  assert.match(settings, /\? "Playing"/);
+  assert.match(settings, /\? "Paused"/);
+  assert.match(settings, /\? "Available"/);
+  assert.match(settings, /expectedRevision: airPlayState\.revision/);
+  assert.doesNotMatch(settings, /Shairport|NQPTP|UDP 319|UDP 320/u);
+  assert.match(client, /\/api\/airplay\/state/);
+  assert.match(client, /\/api\/airplay\/settings/);
+  assert.match(client, /AbortSignal\.timeout\(8_000\)/);
 });
 
 void test("IPv4 editor is draft-only, touch-keyboard aware, and protects navigation", () => {

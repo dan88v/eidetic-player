@@ -166,6 +166,35 @@ Windows or WSL. Artwork/metadata concurrency remains bounded at two, one
 realtime analyzer and one waveform process remain the lifecycle limits, and
 all caches are bounded. Further reductions require measurements on a real Pi.
 
+## Managed AirPlay receiver
+
+The production installer builds the exact Shairport Sync and NQPTP pins in
+`deploy/linux/airplay/sources.json` as the unprivileged runtime user. HTTPS
+archives are accepted only after their SHA-256 checksums match, archive paths
+and links are validated before extraction, and the maintained fail-closed
+Shairport patch is applied. The resulting binaries, source archives, patch,
+licenses, manifest, compiler identity, architecture, and binary hashes form a
+single staged release artifact. A verified root-owned cache keyed by integration
+version and architecture avoids rebuilding unchanged pins on normal updates.
+
+Shairport runs in `eidetic-player-airplay.service`, a systemd user service with
+no capabilities. Its fixed config and private FIFO/socket live in the runtime
+user's mode-0700 directories. NQPTP runs separately as a system service with a
+dynamic identity and only `CAP_NET_BIND_SERVICE`; UDP 319/320 conflicts abort
+activation rather than replacing an existing timing service. The installer
+also refuses unmanaged Shairport services. AirPlay defaults to On only when its
+store does not yet exist; subsequent Off and custom-name choices survive
+updates and normal uninstall. Purge removes the store and build cache.
+
+The receiver supports only explicit canonical ALSA and PipeWire routes. It
+never falls back to System default. The backend remains non-root, starts
+independently of receiver health, and owns the blocking private pre-play grant
+through the existing playback-source Arbiter. `eidetic-player-doctor` reports
+the managed artifact and service health without printing metadata, artwork,
+sender identity, or raw configuration. Real AirPlay 2, Classic fallback,
+ARM64 ABI, discovery, DAC output, volume, restart, rollback, and performance
+remain Raspberry Pi acceptance checks after exact-head CI is green.
+
 ## systemd and future runtime
 
 `deploy/linux/` contains a backend-only, non-root system-service prototype. It

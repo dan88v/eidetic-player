@@ -317,7 +317,7 @@ guide](docs/development/security-accessibility.md).
   hardware validation.
 - SMB discovery is not automatic; shares are configured explicitly.
 - There is no Windows installer.
-- Vinyl Player, AirPlay, Spotify Connect and cloud synchronization are not
+- Vinyl Player, Spotify Connect and cloud synchronization are not
   implemented.
 
 ## Roadmap

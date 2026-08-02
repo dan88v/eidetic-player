@@ -54,6 +54,8 @@ export interface ExternalProviderEvent {
 export interface ExternalPlaybackProvider {
   readonly kind: Exclude<PlaybackSourceKind, "local">;
   readonly capabilities: PlaybackSourceCapabilities;
+  readonly automaticAcquisition?: boolean;
+  readonly seamlessSessionReplacement?: boolean;
   probeActiveSession(): Promise<ExternalProviderSnapshot | null>;
   subscribe(listener: (event: ExternalProviderEvent) => void): () => void;
   configureOutput(route: ExternalPlaybackRoute): Promise<void>;

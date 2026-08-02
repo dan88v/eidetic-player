@@ -1,0 +1,32 @@
+#!/usr/bin/python3
+import socket
+import sys
+
+CONTROL_SOCKET = "/run/user/{uid}/eidetic-player/airplay-control.sock"
+COMMANDS = {"before": b"BEFORE 1\n", "after": b"AFTER 1\n"}
+EXPECTED = {"before": b"GRANT", "after": b"OK"}
+
+
+def main() -> int:
+    if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:
+        return 64
+    action = sys.argv[1]
+    path = CONTROL_SOCKET.format(uid=__import__("os").getuid())
+    reply = bytearray()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(4.5)
+            client.connect(path)
+            client.sendall(COMMANDS[action])
+            while len(reply) <= 32 and b"\n" not in reply:
+                chunk = client.recv(32)
+                if not chunk:
+                    break
+                reply.extend(chunk)
+    except (OSError, TimeoutError):
+        return 1
+    return 0 if bytes(reply).strip() == EXPECTED[action] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

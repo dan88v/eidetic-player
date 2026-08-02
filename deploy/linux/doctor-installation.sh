@@ -299,6 +299,133 @@ case "$installation_mode" in
     check power-capabilities fail
     ;;
 esac
+airplay_root="$(eidetic_target /opt/eidetic-player/current/airplay)"
+airplay_hook="$(eidetic_target /usr/libexec/eidetic-player-airplay-hook)"
+airplay_user_unit="$(eidetic_target /etc/systemd/user/eidetic-player-airplay.service)"
+airplay_nqptp_unit="$(eidetic_target /etc/systemd/system/eidetic-player-nqptp.service)"
+airplay_version=unavailable
+airplay_receiver_state=unavailable
+airplay_timing_state=unavailable
+check airplay-artifact "$({
+  [[ -x "$airplay_root/bin/shairport-sync" && ! -L "$airplay_root/bin/shairport-sync" &&
+    -x "$airplay_root/bin/nqptp" && ! -L "$airplay_root/bin/nqptp" &&
+    -r "$airplay_root/artifact.json" &&
+    -r "$airplay_root/share/eidetic-player-airplay/sources.json" ]] && printf pass || printf fail
+})"
+check airplay-hook "$({
+  [[ -x "$airplay_hook" && ! -L "$airplay_hook" &&
+    "$(stat -c '%a' "$airplay_hook" 2>/dev/null || true)" == 755 ]] && printf pass || printf fail
+})"
+check airplay-units "$({
+  [[ -r "$airplay_user_unit" && ! -L "$airplay_user_unit" &&
+    -r "$airplay_nqptp_unit" && ! -L "$airplay_nqptp_unit" ]] && printf pass || printf fail
+})"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  check airplay-ownership "$({
+    [[ -z "$(find "$airplay_root" ! -user root -print -quit 2>/dev/null)" &&
+      "$(stat -c '%u:%g' "$airplay_hook" 2>/dev/null || true)" == 0:0 &&
+      "$(stat -c '%u:%g' "$airplay_user_unit" 2>/dev/null || true)" == 0:0 &&
+      "$(stat -c '%u:%g' "$airplay_nqptp_unit" 2>/dev/null || true)" == 0:0 ]] &&
+      printf pass || printf fail
+  })"
+else
+  check airplay-ownership pass
+fi
+if [[ -r "$airplay_root/artifact.json" ]]; then
+  airplay_version="$(sed -n 's/.*"integrationVersion"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9.+_-]*\)".*/\1/p' \
+    "$airplay_root/artifact.json" | head -n 1)"
+  [[ -n "$airplay_version" ]] || airplay_version=invalid
+fi
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  airplay_timing_state="$(systemctl is-active eidetic-player-nqptp.service 2>/dev/null || true)"
+  [[ -n "$airplay_timing_state" ]] || airplay_timing_state=inactive
+  if [[ -n "$runtime_user" ]]; then
+    runtime_uid="$(id -u "$runtime_user" 2>/dev/null || true)"
+    if [[ -n "$runtime_uid" ]]; then
+      airplay_receiver_state="$(/usr/sbin/runuser -u "$runtime_user" -- env \
+        XDG_RUNTIME_DIR="/run/user/$runtime_uid" systemctl --user is-active \
+        eidetic-player-airplay.service 2>/dev/null || true)"
+      [[ -n "$airplay_receiver_state" ]] || airplay_receiver_state=inactive
+    fi
+  fi
+fi
+check airplay-artifact-integrity "$({
+  python3 - "$airplay_root" <<'PY' >/dev/null 2>&1 && printf pass || printf fail
+import hashlib
+import json
+import os
+import pathlib
+import stat
+import sys
+
+root = pathlib.Path(sys.argv[1])
+artifact = json.loads((root / "artifact.json").read_text(encoding="utf-8"))
+if artifact.get("schemaVersion") != 1:
+    raise SystemExit(1)
+for name in ("shairport-sync", "nqptp"):
+    path = root / "bin" / name
+    details = path.lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_mode & 0o022:
+        raise SystemExit(1)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if artifact.get("binaries", {}).get(name) != digest:
+        raise SystemExit(1)
+for path, directories, files in os.walk(root):
+    for name in directories + files:
+        if (pathlib.Path(path) / name).is_symlink():
+            raise SystemExit(1)
+PY
+})"
+if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_user" ]]; then
+  runtime_home="$(getent passwd "$runtime_user" | cut -d: -f6)"
+  runtime_uid="$(id -u "$runtime_user" 2>/dev/null || true)"
+  airplay_store="$runtime_home/.config/eidetic-player/airplay.json"
+  airplay_config="$runtime_home/.config/eidetic-player/airplay/shairport-sync.conf"
+  airplay_fifo="/run/user/$runtime_uid/eidetic-player/airplay-metadata"
+  airplay_socket="/run/user/$runtime_uid/eidetic-player/airplay-control.sock"
+  airplay_enabled="$({
+    python3 - "$airplay_store" <<'PY' 2>/dev/null || printf invalid
+import json
+import sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+print("true" if value.get("schemaVersion") == 1 and value.get("enabled") is True else
+      "false" if value.get("schemaVersion") == 1 and value.get("enabled") is False else "invalid")
+PY
+  })"
+  check airplay-store "$({
+    [[ -f "$airplay_store" && ! -L "$airplay_store" &&
+      "$(stat -c '%a' "$airplay_store" 2>/dev/null || true)" == 600 &&
+      "$(stat -c '%u' "$airplay_store" 2>/dev/null || true)" == "$runtime_uid" &&
+      "$airplay_enabled" != invalid ]] && printf pass || printf fail
+  })"
+  check airplay-config "$({
+    [[ -f "$airplay_config" && ! -L "$airplay_config" &&
+      "$(stat -c '%a' "$airplay_config" 2>/dev/null || true)" == 600 &&
+      "$(stat -c '%u' "$airplay_config" 2>/dev/null || true)" == "$runtime_uid" ]] &&
+      /usr/sbin/runuser -u "$runtime_user" -- timeout 5 \
+        "$airplay_root/bin/shairport-sync" -c "$airplay_config" --displayConfig \
+        >/dev/null 2>&1 && printf pass || printf fail
+  })"
+  if [[ "$airplay_enabled" == true ]]; then
+    check airplay-runtime "$({
+      [[ "$airplay_receiver_state" == active && "$airplay_timing_state" == active &&
+        -p "$airplay_fifo" && ! -L "$airplay_fifo" &&
+        -S "$airplay_socket" && ! -L "$airplay_socket" &&
+        "$(stat -c '%a' "$airplay_fifo" 2>/dev/null || true)" == 600 &&
+        "$(stat -c '%a' "$airplay_socket" 2>/dev/null || true)" == 600 ]] &&
+        systemctl is-active --quiet avahi-daemon &&
+        ss -H -lun 2>/dev/null | grep -Eq '[:.]319[[:space:]]' &&
+        ss -H -lun 2>/dev/null | grep -Eq '[:.]320[[:space:]]' &&
+        printf pass || printf fail
+    })"
+  else
+    check airplay-runtime "$([[ "$airplay_enabled" == false && "$airplay_receiver_state" != active ]] && printf pass || printf fail)"
+  fi
+else
+  check airplay-store pass
+  check airplay-config pass
+  check airplay-runtime pass
+fi
 update_config="$(eidetic_target /etc/eidetic-player/update.conf)"
 check update-config "$(
   if [[ -f "$update_config" && ! -L "$update_config" &&
@@ -552,6 +679,8 @@ if ((json)); then
   printf '"preferredAvailable":%s,"effectiveOutput":"%s","deviceCount":%s,' \
     "$app_preferred_available" "$app_effective_output" "$app_device_count"
   printf '"initialEnumerationStatus":"%s"}},' "$app_initial_enumeration_status"
+  printf '"airplay":{"integrationVersion":"%s","receiverService":"%s","timingService":"%s"},' \
+    "$airplay_version" "$airplay_receiver_state" "$airplay_timing_state"
   # Build provenance fields are validated against a closed, JSON-safe alphabet.
   printf '"build":{"commitSha":"%s","shortCommitSha":"%s","ref":"%s","packageVersion":"%s","builtAt":"%s","source":"%s","dirty":"%s","apiCoherence":"%s"}}\n' \
     "$build_commit_sha" "$build_short_sha" "$build_ref" "$build_package_version" \
@@ -571,6 +700,10 @@ else
     "$app_reachable" "$app_mpv_available" "$app_current_ao" "$app_preferred_available"
   printf '  app outputs         effective=%s devices=%s initial-enumeration=%s\n' \
     "$app_effective_output" "$app_device_count" "$app_initial_enumeration_status"
+  printf 'AirPlay diagnostics (read-only):\n'
+  printf '  integration         %s\n' "$airplay_version"
+  printf '  services            receiver=%s timing=%s\n' \
+    "$airplay_receiver_state" "$airplay_timing_state"
   printf 'Build provenance:\n'
   printf '  commit              %s\n' "$build_commit_sha"
   printf '  Build ID            %s\n' "$build_short_sha"

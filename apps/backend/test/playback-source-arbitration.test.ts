@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,6 +14,12 @@ import {
 } from "../src/playback-source/playback-arbitration-store.js";
 import { PlaybackSourceArbiter } from "../src/playback-source/playback-source-arbiter.js";
 import { FixtureExternalPlaybackProvider } from "../src/playback-source/fixture-external-playback-provider.js";
+import type { ExternalPlaybackRoute } from "../src/playback-source/external-playback-provider.js";
+import { AirPlayProvider } from "../src/airplay/airplay-provider.js";
+import type {
+  AirPlayPlatformAdapter,
+  AirPlayPlatformStatus,
+} from "../src/airplay/airplay-platform-adapter.js";
 
 function localState(playing = true): PlayerState {
   return {
@@ -64,7 +72,7 @@ class FixtureLocalAdapter {
     };
   }
 
-  routeForExternalPlayback() {
+  routeForExternalPlayback(): ExternalPlaybackRoute {
     return {
       physicalOutputId: "usb-dac",
       description: "USB DAC",
@@ -121,6 +129,105 @@ class FixtureLocalAdapter {
   }
 }
 
+class AutomaticFixtureProvider extends FixtureExternalPlaybackProvider {
+  readonly automaticAcquisition = true;
+  readonly seamlessSessionReplacement = true;
+}
+
+class AirPlayLocalAdapter extends FixtureLocalAdapter {
+  override routeForExternalPlayback(): ExternalPlaybackRoute {
+    return {
+      physicalOutputId: "usb-dac",
+      description: "USB DAC",
+      routeKind: "alsa" as const,
+      providerTarget: "alsa/hw:2,0",
+      levelMode: "variable" as const,
+      maximumSoftwareVolume: 80,
+      availabilityRevision: 3,
+    };
+  }
+}
+
+class ProductionAirPlayFixturePlatform implements AirPlayPlatformAdapter {
+  readonly fixture = true;
+  readonly controlSocket = `\\\\.\\pipe\\eidetic-airplay-arbiter-${String(process.pid)}-${randomUUID()}`;
+  readonly metadataPipe = join(
+    tmpdir(),
+    `eidetic-airplay-${randomUUID()}.fifo`,
+  );
+  readonly hookExecutable = "/usr/libexec/eidetic-player-airplay-hook";
+
+  status(): Promise<AirPlayPlatformStatus> {
+    return Promise.resolve({
+      available: true,
+      active: true,
+      protocol: "airplay2",
+      message: null,
+    });
+  }
+  verifyAdvertisement(): Promise<"verified"> {
+    return Promise.resolve("verified");
+  }
+  prepareRuntime(): Promise<void> {
+    return Promise.resolve();
+  }
+  writeConfiguration(): Promise<void> {
+    return Promise.resolve();
+  }
+  setEnabled(): Promise<void> {
+    return Promise.resolve();
+  }
+  restart(): Promise<void> {
+    return Promise.resolve();
+  }
+  stopRuntime(): Promise<void> {
+    return Promise.resolve();
+  }
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+function airPlayControl(path: string, command: string): Promise<string> {
+  return new Promise((resolveReply, reject) => {
+    const socket = createConnection(path);
+    let reply = "";
+    socket.setEncoding("utf8");
+    socket.once("connect", () => {
+      socket.write(`${command}\n`);
+    });
+    socket.on("data", (chunk: string) => {
+      reply += chunk;
+    });
+    socket.once("end", () => {
+      resolveReply(reply);
+    });
+    socket.once("error", reject);
+  });
+}
+
+function airPlayMetadataItem(
+  type: string,
+  code: string,
+  value: string,
+): string {
+  const hexadecimal = (text: string): string =>
+    Buffer.from(text, "ascii").toString("hex");
+  const bytes = Buffer.from(value, "utf8");
+  return `<item><type>${hexadecimal(type)}</type><code>${hexadecimal(code)}</code><length>${String(bytes.length)}</length><data encoding="base64">${bytes.toString("base64")}</data></item>`;
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  attempts = 100,
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail("Timed out waiting for playback-source state.");
+}
+
 async function fixture(playing = true) {
   const root = await mkdtemp(join(tmpdir(), "eidetic-source-arbiter-"));
   const preferences = new PreferencesStore(join(root, "preferences"));
@@ -147,6 +254,89 @@ async function fixture(playing = true) {
     },
   };
 }
+
+void test("automatic provider acquisition owns the output from session-starting exactly once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-source-auto-"));
+  const preferences = new PreferencesStore(join(root, "preferences"));
+  await preferences.initialize();
+  const local = new FixtureLocalAdapter(localState());
+  const airplay = new AutomaticFixtureProvider("airplay");
+  const arbiter = new PlaybackSourceArbiter(
+    local as unknown as LocalPlaybackAdapter,
+    [airplay],
+    new PlaybackArbitrationStore(join(root, "arbitration.json")),
+    preferences,
+  );
+  try {
+    await arbiter.initialize();
+    const sessionId = airplay.prepareSession({ title: "Automatic AirPlay" });
+    await waitFor(
+      () =>
+        arbiter.snapshot().activeSource === "airplay" &&
+        arbiter.snapshot().sessionId === sessionId,
+    );
+    assert.equal(local.releaseCount, 1);
+    assert.equal(arbiter.snapshot().providerState, "playing");
+    const replacement = airplay.prepareSession({ title: "Second sender" });
+    await waitFor(() => arbiter.snapshot().sessionId === replacement);
+    assert.equal(local.releaseCount, 1);
+    assert.equal(arbiter.snapshot().metadata?.title, "Second sender");
+  } finally {
+    await arbiter.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("production AirPlay provider grants only after Arbiter releases MPV and publishes metadata", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "eidetic-source-production-airplay-"),
+  );
+  const preferences = new PreferencesStore(join(root, "preferences"));
+  await preferences.initialize();
+  const local = new AirPlayLocalAdapter(localState());
+  const platform = new ProductionAirPlayFixturePlatform();
+  const airplay = new AirPlayProvider(platform);
+  const route = local.routeForExternalPlayback();
+  airplay.setPreparedRoute(route);
+  await airplay.initialize();
+  const arbiter = new PlaybackSourceArbiter(
+    local as unknown as LocalPlaybackAdapter,
+    [airplay],
+    new PlaybackArbitrationStore(join(root, "arbitration.json")),
+    preferences,
+  );
+  try {
+    await arbiter.initialize();
+    const grant = airPlayControl(platform.controlSocket, "BEFORE 1");
+    await waitFor(() => arbiter.snapshot().activeSource === "airplay");
+    assert.equal(await grant, "GRANT\n");
+    assert.equal(local.releaseCount, 1);
+    assert.equal(arbiter.snapshot().providerState, "buffering");
+    assert.equal(arbiter.snapshot().capabilities.next, false);
+
+    airplay.ingestFixtureMetadata(
+      airPlayMetadataItem("ssnc", "mdst", "") +
+        airPlayMetadataItem("core", "minm", "Current AirPlay Track") +
+        airPlayMetadataItem("core", "asar", "Sender Artist") +
+        airPlayMetadataItem("ssnc", "mden", "") +
+        airPlayMetadataItem("ssnc", "pbeg", ""),
+    );
+    await waitFor(
+      () =>
+        arbiter.snapshot().metadata?.title === "Current AirPlay Track" &&
+        arbiter.snapshot().providerState === "playing",
+    );
+    assert.equal(arbiter.snapshot().metadata?.artist, "Sender Artist");
+    assert.equal(
+      await airPlayControl(platform.controlSocket, "AFTER 1"),
+      "OK\n",
+    );
+    await waitFor(() => arbiter.snapshot().activeSource === "local");
+  } finally {
+    await arbiter.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 void test("external paused retains ownership until an explicit release", async () => {
   const subject = await fixture();

@@ -1,0 +1,25 @@
+[Unit]
+Description=Eidetic Player AirPlay receiver
+ConditionPathExists=/opt/eidetic-player/current/airplay/bin/shairport-sync
+After=network-online.target eidetic-player.service
+Requires=eidetic-player.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/test -S %t/eidetic-player/airplay-control.sock
+ExecStart=/opt/eidetic-player/current/airplay/bin/shairport-sync -c %h/.config/eidetic-player/airplay/shairport-sync.conf
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=15
+TimeoutStopSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/eidetic-player %t/eidetic-player
+
+[Install]
+WantedBy=default.target

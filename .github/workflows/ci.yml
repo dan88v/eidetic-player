@@ -17,6 +17,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  airplay-source-build:
+    name: AirPlay pinned source build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install AirPlay build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool patch pkg-config \
+            libpopt-dev libconfig-dev libasound2-dev libavahi-client-dev \
+            libssl-dev libsoxr-dev libplist-dev libsodium-dev uuid-dev \
+            libgcrypt20-dev libavutil-dev libavcodec-dev libavformat-dev \
+            libpipewire-0.3-dev
+
+      - name: Build and verify pinned AirPlay sources
+        run: |
+          artifact_root="$(mktemp -d)/airplay"
+          deploy/linux/airplay/build-airplay-integration.sh --output "$artifact_root"
+          test -x "$artifact_root/bin/shairport-sync"
+          test -x "$artifact_root/bin/nqptp"
+          test -s "$artifact_root/artifact.json"
+
   linux:
     name: Linux checks
     runs-on: ubuntu-latest

@@ -4,8 +4,8 @@
 
 `PlaybackSourceArbiter` is the single authority that decides whether the local
 MPV session, AirPlay, or Spotify Connect owns the selected physical audio
-output. Step 3.1 provides the contract and development-only in-process fixture
-providers. It does not install or start a real external playback service.
+output. Step 3.1 introduced the contract and development fixtures. Step 3.2
+adds the production AirPlay provider while preserving the same authority.
 
 The fixtures exist only when `EIDETIC_EXTERNAL_PLAYBACK_FIXTURE=1` is set in a
 non-production process. Their control routes are loopback-only and are absent
@@ -50,7 +50,10 @@ Transitions are serialized and carry a monotonic generation. A paused external
 provider retains ownership indefinitely. A local Play/context/Queue-Play intent
 preempts the external provider, while add, reorder, remove, and clear operations
 on the local Explicit Queue do not. For external-to-external replacement, the
-previous provider must stop and release before the new provider can acquire.
+previous provider must stop and release before the new provider can acquire. A
+new sender handled by the same single Shairport process is the narrow
+exception: its new session generation replaces the old one without restarting
+the daemon between the blocking pre-play request and grant.
 
 The end preference is `keep-paused` by default. `resume-interrupted` resumes
 only when local playback was genuinely playing before suspension and no newer
@@ -86,9 +89,34 @@ Recently Played, Most Played, or play counts.
 External `playing` and `buffering` inhibit display dim and standby. External
 `paused` retains audio ownership but participates in the normal idle countdown.
 
+## AirPlay provider
+
+Shairport Sync invokes the fixed `eidetic-player-airplay-hook before` command
+before preparing its audio backend. The hook sends the closed `BEFORE 1`
+message over the private runtime socket and blocks until the Arbiter has paused
+MPV, released the device, verified the canonical ALSA or PipeWire route, and
+answered `GRANT`. The maintained Shairport patch propagates a denied or failed
+hook exit status back to `player_play`, so audio preparation is fail-closed.
+The matching `AFTER 1` message ends the provider session.
+
+The private metadata FIFO carries only audited Shairport metadata codes. The
+bounded parser assembles fragmented items, ignores malformed or unknown items,
+validates UTF-8 and artwork signatures, and publishes title, artist, album,
+progress, artwork, and effective volume against the active session. Artwork is
+temporary and exposed only through an opaque resource ID. Fixed output ignores
+sender gain and stays at 100%; variable output maps the effective Shairport
+decibel range into the existing global level with hysteresis and bounded
+debounce.
+
+`airplay.json` stores the enabled preference and receiver name atomically. The
+first install defaults to On and creates `Eidetic Player - XY` using a
+cryptographically random non-ambiguous suffix. Settings exposes the receiver
+under Network without adding another SSE connection.
+
 ## Shutdown and deployment
 
-Quit, restart, maintenance, power, and update preparation flush arbitration and
-request a bounded provider release. Step 3.1 is a local arbitration core only:
-Raspberry Pi production remains Local-only until later provider integration
-steps.
+Quit, restart, maintenance, power, and update preparation flush arbitration,
+request a bounded provider release, stop the receiver runtime, and remove its
+private FIFO/socket state. Linux deployment builds exact verified Shairport
+Sync and NQPTP sources into a root-owned versioned cache, stages the integration
+inside the release, and installs least-privilege user/system units.

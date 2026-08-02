@@ -1,0 +1,133 @@
+diff --git a/common.h b/common.h
+index 772da08..ec8cc0d 100644
+--- a/common.h
++++ b/common.h
+@@ -561,7 +561,7 @@ unsigned int config_get_int_settings_as_int_array(config_setting_t *setting, int
+ APST_t string_to_service_type(const char *parameter, const char *setting_name);
+ void service_type_to_string(APST_t service_type, char *string_space);
+ 
+-void command_start(void);
++int command_start(void);
+ void command_stop(void);
+ void command_execute(const char *command, const char *extra_argument, const int block);
+ void command_set_volume(double volume);
+diff --git a/common.c b/common.c
+index f041c22..dfa2505 100644
+--- a/common.c
++++ b/common.c
+@@ -1328,7 +1328,7 @@ void command_set_volume(double volume) {
+   }
+ }
+ 
+-void command_start(void) {
++int command_start(void) {
+   // this has a cancellation point if waiting is enabled or a response is awaited
+   if (config.cmd_start) {
+     pid_t pid;
+@@ -1337,10 +1337,17 @@ void command_start(void) {
+     if (config.cmd_start_returns_output && pipe(pipes) != 0) {
+       warn("Unable to allocate pipe for popen of start command.");
+       debug(1, "pipe finished with error %d", errno);
+-      return;
++      return EXIT_FAILURE;
+     }
+     /*Spawn a child to run the program.*/
+     pid = fork();
++    if (pid < 0) {
++      if (config.cmd_start_returns_output) {
++        safe_socket_close(&pipes[0]);
++        safe_socket_close(&pipes[1]);
++      }
++      return EXIT_FAILURE;
++    }
+     if (pid == 0) { /* child process */
+       int argC;
+       char **argV;
+@@ -1351,7 +1358,7 @@ void command_start(void) {
+           warn("Unable to reopen pipe as stdout for popen of start command");
+           debug(1, "dup2 finished with error %d", errno);
+           safe_socket_close(&pipes[1]);
+-          return;
++          _exit(EXIT_FAILURE);
+         }
+       }
+ 
+@@ -1367,15 +1374,17 @@ void command_start(void) {
+         debug(1, "Error executing on-start command %s", config.cmd_start);
+         _exit(EXIT_FAILURE); /* only if execv fails */
+       }
++      _exit(EXIT_FAILURE);
+     } else {
+       if (config.cmd_blocking || config.cmd_start_returns_output) { /* pid!=0 means parent process
+                                     and if blocking is true, wait for
+                                     process to finish */
+-        pid_t rc = waitpid(pid, 0, 0);                              /* wait for child to exit */
+-        if ((rc != pid) && (errno != ECHILD)) {
+-          // In this context, ECHILD means that the child process has already completed, I think!
++        int status = 0;
++        pid_t rc = waitpid(pid, &status, 0);                        /* wait for child to exit */
++        if (rc != pid) {
+           warn("Execution of on-start command returned an error.");
+           debug(1, "on-start command %s finished with error %d", config.cmd_start, errno);
++          return EXIT_FAILURE;
+         }
+         if (config.cmd_start_returns_output) {
+           static char buffer[256];
+@@ -1383,6 +1392,8 @@ void command_start(void) {
+           safe_socket_close(&pipes[1]);
+           len = read(pipes[0], buffer, 255);
+           safe_socket_close(&pipes[0]);
++          if (len <= 0)
++            return EXIT_FAILURE;
+           buffer[len] = '\0';
+           if (buffer[len - 1] == '\n')
+             buffer[len - 1] = '\0'; // strip trailing newlines
+@@ -1391,10 +1402,15 @@ void command_start(void) {
+           set_alsa_out_dev(buffer);
+ #endif
+         }
++        if (!WIFEXITED(status) || WEXITSTATUS(status) != EXIT_SUCCESS) {
++          warn("Execution of on-start command denied playback.");
++          return WIFEXITED(status) ? WEXITSTATUS(status) : EXIT_FAILURE;
++        }
+       }
+       // debug(1,"Continue after on-start command");
+     }
+   }
++  return EXIT_SUCCESS;
+ }
+ void command_execute(const char *command, const char *extra_argument, const int block) {
+   // this has a cancellation point if waiting is enabled
+diff --git a/player.c b/player.c
+index 555c6a2..80b7ff2 100644
+--- a/player.c
++++ b/player.c
+@@ -5272,7 +5272,11 @@ void player_flush(uint32_t timestamp, rtsp_conn_info *conn) {
+ 
+ int player_play(rtsp_conn_info *conn) {
+   debug(2, "Connection %d: player_play.", conn->connection_number);
+-  command_start(); // before startup, and before the prepare() method runs
++  if (command_start() != EXIT_SUCCESS) {
++    warn("Connection %d: playback denied by the pre-play command.", conn->connection_number);
++    return -1;
++  }
++  // before startup, and before the prepare() method runs
+   // give the output device as much advance warning as possible to get ready
+   // and make sure it's done before launching the player thread
+   if (config.output->prepare)
+diff --git a/shairport.c b/shairport.c
+index d64538d..93fd0c2 100644
+--- a/shairport.c
++++ b/shairport.c
+@@ -1204,9 +1204,9 @@ int parse_options(int argc, char **argv) {
+       if (config_lookup_int(config.cfg, "sessioncontrol.session_timeout", &value)) {
+         if (value == 0) {
+           config.dont_check_timeout = 1;
+-        } else if (value < 60) {
++        } else if (value < 15) {
+           warn("Invalid value \"%d\" for \"session_timeout\". It must be 0 (i.e. no timeout) or at "
+-               "least 60. "
++               "least 15. "
+                "The default of %d will be used instead.",
+                value, config.timeout);
+           config.dont_check_timeout = 0;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -329,6 +330,8 @@ async function makeStagedFixture(): Promise<{
   const opt = await mkdtemp(resolve(tmpdir(), "eidetic staged "));
   const root = resolve(opt, "releases/.incoming-fixture.1234");
   const source = resolve(opt, "source checkout Ü");
+  const airPlayBinary = elfHeader("arm64");
+  const airPlayHash = createHash("sha256").update(airPlayBinary).digest("hex");
   const files = new Map<string, string | Buffer>([
     ["build-info.json", buildInfoFixture],
     ["backend/apps/backend/src/index.js", "export {};\n"],
@@ -342,6 +345,16 @@ async function makeStagedFixture(): Promise<{
     ["remote-ui/assets/remote.css", "body{}\n"],
     ["remote-ui/assets/remote.js", "export {};\n"],
     ["node_modules/music-metadata/package.json", '{"name":"music-metadata"}\n'],
+    ["airplay/bin/shairport-sync", airPlayBinary],
+    ["airplay/bin/nqptp", airPlayBinary],
+    [
+      "airplay/artifact.json",
+      `${JSON.stringify({ schemaVersion: 1, integrationVersion: "fixture", architecture: "aarch64", binaries: { "shairport-sync": airPlayHash, nqptp: airPlayHash } })}\n`,
+    ],
+    [
+      "airplay/share/eidetic-player-airplay/sources.json",
+      '{"schemaVersion":1}\n',
+    ],
   ]);
   for (const [relativePath, content] of files) {
     const path = resolve(root, relativePath);
@@ -455,6 +468,7 @@ void test("staged verifier accepts a complete release and rejects deployment mut
     "remote-ui/index.html",
     "remote-ui/assets/remote.css",
     "node_modules/music-metadata",
+    "airplay/artifact.json",
   ]) {
     const fixture = await makeStagedFixture();
     try {
@@ -471,6 +485,36 @@ void test("staged verifier accepts a complete release and rejects deployment mut
     } finally {
       await rm(fixture.opt, { recursive: true, force: true });
     }
+  }
+});
+
+void test("staged verifier validates AirPlay binary architecture and hashes", async () => {
+  const fixture = await makeStagedFixture();
+  try {
+    const valid = await verifyLinuxRelease({
+      root: fixture.root,
+      architecture: "arm64",
+      phase: "staged",
+      expectedOwner:
+        typeof process.getuid === "function" ? process.getuid() : 0,
+    });
+    assert.deepEqual(valid.failed, []);
+    await writeFile(
+      resolve(fixture.root, "airplay/bin/shairport-sync"),
+      elfHeader("x64"),
+    );
+    const invalid = await verifyLinuxRelease({
+      root: fixture.root,
+      architecture: "arm64",
+      phase: "staged",
+      expectedOwner:
+        typeof process.getuid === "function" ? process.getuid() : 0,
+    });
+    assert.ok(
+      invalid.failed.includes("verified staged AirPlay integration artifact"),
+    );
+  } finally {
+    await rm(fixture.opt, { recursive: true, force: true });
   }
 });
 

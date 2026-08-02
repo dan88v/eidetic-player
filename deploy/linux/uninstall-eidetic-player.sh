@@ -187,10 +187,13 @@ fi
 
 eidetic_console_phase_begin "Service shutdown"
 if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_user" ]]; then
+  /usr/sbin/runuser -u "$runtime_user" -- systemctl --user disable --now \
+    eidetic-player-airplay.service 2>/dev/null || true
   eidetic_console_command_preview runuser -u "$runtime_user" -- \
     systemctl --user stop eidetic-player.service
   /usr/sbin/runuser -u "$runtime_user" -- systemctl --user stop \
     eidetic-player.service 2>/dev/null || true
+  systemctl disable --now eidetic-player-nqptp.service 2>/dev/null || true
 fi
 eidetic_console_phase_done
 
@@ -241,6 +244,13 @@ restore_args=()
 ((dry_run)) && restore_args+=(--dry-run)
 restore_args+=(--include-power-integration)
 "$SCRIPT_DIR/restore-system-ui.sh" "${restore_args[@]}"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  systemctl daemon-reload
+  if [[ -n "$runtime_user" ]]; then
+    /usr/sbin/runuser -u "$runtime_user" -- systemctl --user daemon-reload \
+      2>/dev/null || true
+  fi
+fi
 eidetic_console_phase_done
 
 eidetic_console_phase_begin "Application removal"
@@ -252,6 +262,12 @@ else
   [[ "$opt" == "$(eidetic_target /opt/eidetic-player)" && "$opt" != "/" ]] ||
     eidetic_die "unsafe install path"
   rm -rf -- "$opt"
+  if ((purge)); then
+    airplay_cache="$(eidetic_target /var/cache/eidetic-player/airplay)"
+    [[ "$airplay_cache" == */var/cache/eidetic-player/airplay &&
+      "$airplay_cache" != "/" ]] || eidetic_die "unsafe AirPlay cache path"
+    rm -rf -- "$airplay_cache"
+  fi
   if ((purge)) && [[ -n "$runtime_user" ]]; then
     home="$(getent passwd "$runtime_user" | cut -d: -f6)"
     for relative in \

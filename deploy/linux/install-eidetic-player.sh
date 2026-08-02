@@ -293,7 +293,11 @@ if ((gpio_i2s_dac)); then
 fi
 
 packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg
-  network-manager dbus polkitd pkexec udisks2 cifs-utils xterm)
+  network-manager dbus polkitd pkexec udisks2 cifs-utils xterm
+  autoconf automake libtool patch libpopt-dev libconfig-dev libasound2-dev
+  avahi-daemon avahi-utils libavahi-client-dev libssl-dev libsoxr-dev libplist-dev
+  libsodium-dev uuid-dev libgcrypt20-dev xxd libplist-utils libavutil-dev
+  libavcodec-dev libavformat-dev libpipewire-0.3-dev)
 if [[ "$EIDETIC_DISTRO" == "raspios" ]]; then
   packages+=(libgtk-3-0t64 libwebkit2gtk-4.1-0)
 else
@@ -316,6 +320,27 @@ for key in "${questions[@]}"; do
   eidetic_console_plain_log "  $key=${choice[$key]}"
 done
 
+airplay_existing_store="$(eidetic_target "$EIDETIC_RUNTIME_HOME/.config/eidetic-player/airplay.json")"
+airplay_plan="On after activation"
+if [[ -f "$airplay_existing_store" && ! -L "$airplay_existing_store" &&
+  "$(stat -c '%s' "$airplay_existing_store" 2>/dev/null || printf 65537)" -le 65536 ]]; then
+  airplay_existing_enabled="$(python3 - "$airplay_existing_store" <<'PY' 2>/dev/null || printf invalid
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("enabled")
+print("true" if value is True else "false" if value is False else "invalid")
+PY
+)"
+  case "$airplay_existing_enabled" in
+    true) airplay_plan="Preserved (On)" ;;
+    false) airplay_plan="Preserved (Off)" ;;
+    *) airplay_plan="Preserved (requires repair)" ;;
+  esac
+elif [[ -e "$airplay_existing_store" ]]; then
+  airplay_plan="Preserved (requires repair)"
+fi
+
 eidetic_console_section "Installation summary"
 eidetic_console_info "  System               ${PRETTY_NAME:-${ID:-unknown}}"
 eidetic_console_info "  Architecture         $EIDETIC_ARCH"
@@ -325,6 +350,7 @@ eidetic_console_info "  Install path         /opt/eidetic-player"
 eidetic_console_info "  Autostart            ${choice[autostart]^}"
 eidetic_console_info "  Fullscreen           ${choice[fullscreen]^}"
 eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
+eidetic_console_info "  AirPlay receiver     $airplay_plan"
 eidetic_console_info "  Existing data        Preserved"
 eidetic_console_info "  Reboot               May be required; never automatic"
 
@@ -346,6 +372,7 @@ build_workspace=
 build_runtime=
 release_stage=
 update_conf_stage=
+airplay_cache_stage=
 keyboard_changed=0
 install_committed=0
 keyboard_attempt_state=
@@ -382,6 +409,8 @@ cleanup() {
     rm -rf -- "$build_workspace"
   [[ -z "$update_conf_stage" || ! -e "$update_conf_stage" ]] ||
     rm -f -- "$update_conf_stage"
+  [[ -z "$airplay_cache_stage" || ! -e "$airplay_cache_stage" ]] ||
+    rm -rf -- "$airplay_cache_stage"
   rm -rf -- "$tmp"
   if ((status != 0)); then
     if [[ "$installation_cancelled" == 1 ]]; then
@@ -445,6 +474,70 @@ ln -sfn "v$node_version" "$node_root/current.new"
 mv -Tf "$node_root/current.new" "$node_root/current"
 eidetic_console_phase_done
 
+airplay_integration_version="$(python3 -c \
+  'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["integrationVersion"])' \
+  "$SCRIPT_DIR/airplay/sources.json")"
+[[ "$airplay_integration_version" =~ ^[A-Za-z0-9.+_-]{1,128}$ ]] ||
+  eidetic_die "AirPlay integration manifest has an invalid version"
+airplay_cache_root="$(eidetic_target /var/cache/eidetic-player/airplay)"
+airplay_cache="$airplay_cache_root/${airplay_integration_version}-${EIDETIC_ARCH}"
+airplay_cache_hit=0
+
+airplay_cache_valid() {
+  local root="$1" shairport_version nqptp_version binary_details linkage feature
+  [[ -d "$root" && ! -L "$root" &&
+    -x "$root/bin/shairport-sync" && ! -L "$root/bin/shairport-sync" &&
+    -x "$root/bin/nqptp" && ! -L "$root/bin/nqptp" &&
+    -f "$root/artifact.json" && ! -L "$root/artifact.json" &&
+    -f "$root/share/eidetic-player-airplay/sources.json" ]] || return 1
+  [[ -z "$(find "$root" -type l -print -quit)" ]] || return 1
+  python3 - "$root" "$airplay_integration_version" "$EIDETIC_ARCH" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import stat
+import sys
+
+root = pathlib.Path(sys.argv[1])
+expected_version = sys.argv[2]
+expected_arch = {"amd64": "x86_64", "arm64": "aarch64"}[sys.argv[3]]
+artifact = json.loads((root / "artifact.json").read_text(encoding="utf-8"))
+for path, directories, files in os.walk(root):
+    for candidate in [path, *(os.path.join(path, name) for name in directories + files)]:
+        details = os.lstat(candidate)
+        if details.st_uid != 0 or stat.S_IMODE(details.st_mode) & 0o022:
+            raise SystemExit(1)
+if artifact.get("schemaVersion") != 1 or artifact.get("integrationVersion") != expected_version:
+    raise SystemExit(1)
+if artifact.get("architecture") != expected_arch:
+    raise SystemExit(1)
+for name in ("shairport-sync", "nqptp"):
+    digest = hashlib.sha256((root / "bin" / name).read_bytes()).hexdigest()
+    if artifact.get("binaries", {}).get(name) != digest:
+        raise SystemExit(1)
+PY
+  binary_details="$(file "$root/bin/shairport-sync" "$root/bin/nqptp" 2>/dev/null)" || return 1
+  case "$EIDETIC_ARCH" in
+    arm64) grep -Fq 'ARM aarch64' <<<"$binary_details" || return 1 ;;
+    amd64) grep -Eq 'x86-64|x86_64' <<<"$binary_details" || return 1 ;;
+  esac
+  shairport_version="$("$root/bin/shairport-sync" -V 2>&1)" || return 1
+  for feature in 5.2.1 AirPlay2 smi5 OpenSSL Avahi ALSA PipeWire soxr metadata; do
+    grep -Fq "$feature" <<<"$shairport_version" || return 1
+  done
+  nqptp_version="$("$root/bin/nqptp" -V 2>&1)" || return 1
+  grep -Fq '1.2.8' <<<"$nqptp_version" || return 1
+  grep -Eq 'Shared Memory Interface Version:[[:space:]]*5' <<<"$nqptp_version" || return 1
+  linkage="$(ldd "$root/bin/shairport-sync"; ldd "$root/bin/nqptp")" || return 1
+  ! grep -Fq 'not found' <<<"$linkage" || return 1
+}
+
+if [[ "$EIDETIC_ROOT" == "/" ]] && airplay_cache_valid "$airplay_cache"; then
+  airplay_cache_hit=1
+  eidetic_log "AirPlay integration cache hit: $airplay_integration_version ($EIDETIC_ARCH)"
+fi
+
 eidetic_console_phase_begin "Application runtime"
 releases="$(eidetic_target /opt/eidetic-player/releases)"
 opt="$(eidetic_target /opt/eidetic-player)"
@@ -501,6 +594,16 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
     runtime_npm_run build:linux
   }
   runtime_verify_artifacts() {
+    if ((airplay_cache_hit == 0)); then
+      eidetic_log "Building pinned AirPlay integration as runtime user."
+      eidetic_run_as_runtime_user \
+        "$runtime_user" "$build_workspace" "$build_runtime" "$node_release/bin" \
+        "$build_source/deploy/linux/airplay/build-airplay-integration.sh" \
+        --output "$build_source/dist/airplay" || {
+        EIDETIC_FAILURE_REASON="AirPlay source build failed. No release was activated."
+        return 1
+      }
+    fi
     [[ -d "$build_source/dist/backend" ]] || {
       EIDETIC_FAILURE_REASON="build phase failed: backend artifact was not produced"
       return 1
@@ -606,6 +709,22 @@ else
 fi
 eidetic_console_phase_done
 
+if [[ "$EIDETIC_ROOT" == "/" && "$airplay_cache_hit" == 0 ]]; then
+  install -d -m 0755 "$airplay_cache_root"
+  airplay_cache_stage="$(mktemp -d -p "$airplay_cache_root" ".incoming-${EIDETIC_ARCH}.XXXXXX")"
+  cp -a "$build_source/dist/airplay/." "$airplay_cache_stage/"
+  chown -R root:root "$airplay_cache_stage"
+  find "$airplay_cache_stage" -type d -exec chmod 0755 {} +
+  chmod 0755 "$airplay_cache_stage/bin/shairport-sync" "$airplay_cache_stage/bin/nqptp"
+  airplay_cache_valid "$airplay_cache_stage" ||
+    eidetic_die "AirPlay integration cache verification failed"
+  [[ ! -e "$airplay_cache" ]] ||
+    eidetic_die "AirPlay integration cache changed during build"
+  mv -T "$airplay_cache_stage" "$airplay_cache"
+  airplay_cache_stage=
+  airplay_cache_hit=1
+fi
+
 eidetic_console_phase_begin "Release staging and verification"
 release_base="$(date -u +%Y%m%dT%H%M%SZ)-$release_commit"
 release_id="$release_base"
@@ -635,6 +754,7 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   cp "$build_source/package-lock.json" "$release_stage/package-lock.json"
   install -d -m 0755 "$release_stage/deploy"
   cp -a "$SCRIPT_DIR" "$release_stage/deploy/linux"
+  cp -a "$airplay_cache" "$release_stage/airplay"
   find "$release_stage/deploy/linux" -type d -name __pycache__ -prune \
     -exec rm -rf -- {} +
   find "$release_stage/deploy/linux" -type f \( -name '*.pyc' -o -name '*.pyo' \) \
@@ -692,6 +812,19 @@ else
   install -d -m 0755 "$release_stage/deploy/linux"
   install -m 0755 "$SCRIPT_DIR/update-eidetic-player.sh" \
     "$release_stage/deploy/linux/update-eidetic-player.sh"
+  install -d -m 0755 \
+    "$release_stage/airplay/bin" \
+    "$release_stage/airplay/share/eidetic-player-airplay"
+  printf '#!/bin/sh\nexit 0\n' >"$release_stage/airplay/bin/shairport-sync"
+  printf '#!/bin/sh\nexit 0\n' >"$release_stage/airplay/bin/nqptp"
+  chmod 0755 \
+    "$release_stage/airplay/bin/shairport-sync" \
+    "$release_stage/airplay/bin/nqptp"
+  install -m 0644 "$SCRIPT_DIR/airplay/sources.json" \
+    "$release_stage/airplay/share/eidetic-player-airplay/sources.json"
+  printf '%s\n' \
+    "{\"schemaVersion\":1,\"integrationVersion\":\"$airplay_integration_version\",\"architecture\":\"fixture\",\"compiler\":\"fixture\",\"binaries\":{}}" \
+    >"$release_stage/airplay/artifact.json"
 fi
 
 install -m 0755 "$SCRIPT_DIR/runtime/eidetic-player-launch" \
@@ -721,6 +854,12 @@ fi
 [[ -d "$release_stage/node_modules/music-metadata" ]] ||
   eidetic_die \
     "release verification failed: production dependency music-metadata is missing"
+
+[[ -x "$release_stage/airplay/bin/shairport-sync" &&
+  -x "$release_stage/airplay/bin/nqptp" &&
+  -f "$release_stage/airplay/artifact.json" ]] ||
+  eidetic_die \
+    "release verification failed: AirPlay integration artifact is incomplete"
 
 if [[ "${EUID}" -eq 0 ]]; then
   chown -R root:root "$release_stage"
@@ -787,6 +926,37 @@ NODE_ENV=production
 PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin
 EOF
 eidetic_install_managed "$conf" /etc/eidetic-player/install.conf 0644
+airplay_store_dir="$(eidetic_target "$EIDETIC_RUNTIME_HOME/.config/eidetic-player")"
+airplay_store="$airplay_store_dir/airplay.json"
+install -d -m 0700 -o "$runtime_user" -g "$EIDETIC_RUNTIME_GID" "$airplay_store_dir"
+[[ ! -L "$airplay_store" ]] ||
+  eidetic_die "AirPlay settings path must not be a symbolic link"
+if [[ ! -e "$airplay_store" ]]; then
+  python3 - "$tmp/airplay.json" "$airplay_integration_version" <<'PY'
+import datetime
+import json
+import secrets
+import sys
+
+alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+suffix = "".join(secrets.choice(alphabet) for _ in range(2))
+document = {
+    "schemaVersion": 1,
+    "revision": 0,
+    "enabled": True,
+    "receiverName": f"Eidetic Player - {suffix}",
+    "receiverNameOrigin": "generated",
+    "generatedSuffix": suffix,
+    "integrationVersion": sys.argv[2],
+    "updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+}
+with open(sys.argv[1], "x", encoding="utf-8") as target:
+    json.dump(document, target, indent=2)
+    target.write("\n")
+PY
+  install -m 0600 -o "$runtime_user" -g "$EIDETIC_RUNTIME_GID" \
+    "$tmp/airplay.json" "$airplay_store"
+fi
 installed_update_conf="$(eidetic_target /etc/eidetic-player/update.conf)"
 if [[ -f "$installed_update_conf" && ! -L "$installed_update_conf" ]] &&
   grep -Eq '^EIDETIC_UPDATE_BRANCH=[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' \
@@ -815,6 +985,9 @@ fi
 mv -Tf "$update_conf_stage" "$installed_update_conf"
 update_conf_stage=
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.service" /etc/systemd/user/eidetic-player.service 0644
+eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-airplay.service" /etc/systemd/user/eidetic-player-airplay.service 0644
+eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-nqptp.service" /etc/systemd/system/eidetic-player-nqptp.service 0644
+eidetic_install_managed "$SCRIPT_DIR/airplay/eidetic-player-airplay-hook" /usr/libexec/eidetic-player-airplay-hook 0755
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.desktop" /usr/share/applications/eidetic-player.desktop 0644
 eidetic_install_managed "$SCRIPT_DIR/templates/return-to-eidetic-player.desktop" /usr/share/applications/return-to-eidetic-player.desktop 0644
 for command in eidetic-player eidetic-player-maintenance eidetic-player-resume; do
@@ -934,6 +1107,18 @@ if [[ "${choice[splash]}" == yes ]]; then
 fi
 
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  if systemctl is-active --quiet shairport-sync.service 2>/dev/null; then
+    eidetic_die "AirPlay activation conflict: an unmanaged system Shairport service is active"
+  fi
+  if /usr/sbin/runuser -u "$runtime_user" -- systemctl --user is-active \
+    --quiet shairport-sync.service 2>/dev/null; then
+    eidetic_die "AirPlay activation conflict: an unmanaged user Shairport service is active"
+  fi
+  if command -v ss >/dev/null &&
+    ss -H -lun 'sport = :319 or sport = :320' 2>/dev/null | grep -q . &&
+    ! systemctl is-active --quiet eidetic-player-nqptp.service 2>/dev/null; then
+    eidetic_die "AirPlay activation conflict: UDP timing ports 319/320 are already in use"
+  fi
   getent group eidetic-player-network >/dev/null || groupadd --system eidetic-player-network
   usermod -a -G eidetic-player-network "$runtime_user"
   "$SCRIPT_DIR/network/install-network-integration.sh" \
@@ -982,6 +1167,12 @@ if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
 fi
 eidetic_activate_release "$release_stage" "$releases" "$release_id" "$opt"
 release_stage=
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  if ! systemctl enable --now eidetic-player-nqptp.service; then
+    eidetic_console_warning \
+      "AirPlay timing did not start after activation; Eidetic Player remains installed and AirPlay will report Error."
+  fi
+fi
 if [[ "$gpio_dac_changed" == 1 ]]; then
   python3 "$gpio_dac_helper" commit --root "$EIDETIC_ROOT" \
     --session "$gpio_dac_session" >/dev/null ||
@@ -1001,6 +1192,7 @@ eidetic_console_info "  Runtime user         $runtime_user"
 eidetic_console_info "  Install path         /opt/eidetic-player"
 eidetic_console_info "  Service              ${choice[autostart]^}"
 eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
+eidetic_console_info "  AirPlay receiver     $airplay_plan"
 eidetic_console_info "  Application data     Preserved"
 if [[ -n "${EIDETIC_RUNTIME_ELAPSED_MS:-}" ]]; then
   eidetic_console_info "  Runtime preparation  $(eidetic_console_duration "$EIDETIC_RUNTIME_ELAPSED_MS")"

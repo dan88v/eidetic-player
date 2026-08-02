@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   access,
   lstat,
@@ -137,6 +138,63 @@ async function validBuildInfo(path: string): Promise<boolean> {
       ["ci", "git", "explicit"].includes(value.source) &&
       (value.dirty === undefined || typeof value.dirty === "boolean")
     );
+  } catch {
+    return false;
+  }
+}
+
+async function validAirPlayArtifact(
+  root: string,
+  architecture: LinuxReleaseArchitecture,
+  requireRealArtifact: boolean,
+): Promise<boolean> {
+  try {
+    const artifact = JSON.parse(
+      await readFile(resolve(root, "airplay/artifact.json"), "utf8"),
+    ) as {
+      schemaVersion?: unknown;
+      integrationVersion?: unknown;
+      architecture?: unknown;
+      binaries?: unknown;
+    };
+    if (
+      artifact.schemaVersion !== 1 ||
+      typeof artifact.integrationVersion !== "string" ||
+      !/^[A-Za-z0-9.+_-]{1,128}$/u.test(artifact.integrationVersion) ||
+      !artifact.binaries ||
+      typeof artifact.binaries !== "object" ||
+      Array.isArray(artifact.binaries)
+    )
+      return false;
+    const shairport = resolve(root, "airplay/bin/shairport-sync");
+    const nqptp = resolve(root, "airplay/bin/nqptp");
+    const manifest = resolve(
+      root,
+      "airplay/share/eidetic-player-airplay/sources.json",
+    );
+    if (!(await exists(manifest))) return false;
+    const binaries = artifact.binaries as Record<string, unknown>;
+    if (!requireRealArtifact)
+      return (await exists(shairport)) && (await exists(nqptp));
+    const expectedArchitecture =
+      architecture === "arm64" ? "aarch64" : "x86_64";
+    if (artifact.architecture !== expectedArchitecture) return false;
+    for (const [name, path] of [
+      ["shairport-sync", shairport],
+      ["nqptp", nqptp],
+    ] as const) {
+      const expectedHash = binaries[name];
+      if (
+        typeof expectedHash !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(expectedHash) ||
+        createHash("sha256")
+          .update(await readFile(path))
+          .digest("hex") !== expectedHash ||
+        !(await verifyElf(path, architecture))
+      )
+        return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -281,6 +339,16 @@ export async function verifyLinuxRelease(
       ["Remote UI entrypoint", "remote-ui/index.html"],
     ] as const)
       await requireFile(label, resolve(root, path));
+    addCheck(
+      passed,
+      failed,
+      "verified staged AirPlay integration artifact",
+      await validAirPlayArtifact(
+        root,
+        options.architecture,
+        options.expectedOwner !== undefined,
+      ),
+    );
     const remoteAssets = entries.filter(
       (entry) =>
         entry.relative.startsWith("remote-ui/assets/") &&

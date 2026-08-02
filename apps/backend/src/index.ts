@@ -154,6 +154,12 @@ import { ActivePlaybackController } from "./playback-source/active-playback-cont
 import { FixtureExternalPlaybackProvider } from "./playback-source/fixture-external-playback-provider.js";
 import { PlaybackSourceError } from "./playback-source/playback-source-error.js";
 import type { PlaybackSourceKind } from "../../../packages/shared/src/playback-source.js";
+import type { ExternalPlaybackProvider } from "./playback-source/external-playback-provider.js";
+import type { AirPlaySettingsPatch } from "../../../packages/shared/src/airplay.js";
+import { AirPlayProvider } from "./airplay/airplay-provider.js";
+import { LinuxAirPlayPlatformAdapter } from "./airplay/airplay-platform-adapter.js";
+import { AirPlayService } from "./airplay/airplay-service.js";
+import { AirPlayStoreError } from "./airplay/airplay-store.js";
 
 const applianceFixture =
   process.env.NODE_ENV !== "production" &&
@@ -368,20 +374,38 @@ const playerSession = new PlayerSessionService(
 const externalPlaybackFixture =
   process.env.NODE_ENV !== "production" &&
   process.env.EIDETIC_EXTERNAL_PLAYBACK_FIXTURE === "1";
-const fixtureAirPlay = externalPlaybackFixture
-  ? new FixtureExternalPlaybackProvider("airplay")
-  : null;
+const managedAirPlayFixture =
+  process.env.NODE_ENV !== "production" &&
+  process.env.EIDETIC_AIRPLAY_FIXTURE === "1";
+const managedAirPlayAvailable =
+  process.platform === "linux" || managedAirPlayFixture;
+const airPlayPlatform = new LinuxAirPlayPlatformAdapter();
+const airPlayProvider = new AirPlayProvider(airPlayPlatform);
+const fixtureAirPlay =
+  externalPlaybackFixture && !managedAirPlayAvailable
+    ? new FixtureExternalPlaybackProvider("airplay")
+    : null;
 const fixtureSpotify = externalPlaybackFixture
   ? new FixtureExternalPlaybackProvider("spotify")
   : null;
+const localPlaybackAdapter = new LocalPlaybackAdapter(
+  player,
+  playerSession,
+  audioOutput,
+  audioProcessing,
+);
+const externalPlaybackProviders: ExternalPlaybackProvider[] = [];
+if (managedAirPlayAvailable) externalPlaybackProviders.push(airPlayProvider);
+else if (fixtureAirPlay) externalPlaybackProviders.push(fixtureAirPlay);
+if (fixtureSpotify) externalPlaybackProviders.push(fixtureSpotify);
 const playbackSourceArbiter = new PlaybackSourceArbiter(
-  new LocalPlaybackAdapter(player, playerSession, audioOutput, audioProcessing),
-  [fixtureAirPlay, fixtureSpotify].filter(
-    (provider): provider is FixtureExternalPlaybackProvider =>
-      provider !== null,
-  ),
+  localPlaybackAdapter,
+  externalPlaybackProviders,
   new PlaybackArbitrationStore(),
   preferences,
+);
+const airPlay = new AirPlayService(airPlayProvider, airPlayPlatform, () =>
+  playbackSourceArbiter.requestLocalOwnership(false),
 );
 const activePlayback = new ActivePlaybackController(
   player,
@@ -647,6 +671,13 @@ const bootstrapPromise = Promise.all([
     throw error;
   });
 void bootstrapPromise.catch(() => undefined);
+const airPlayBootstrapPromise = bootstrapPromise
+  .then(() =>
+    airPlay.initialize(() => localPlaybackAdapter.routeForExternalPlayback()),
+  )
+  .catch((error: unknown) => {
+    console.error("[airplay] bounded initialization failed", error);
+  });
 void coreBootstrapPromise
   .then(async () => {
     await (await indexedLibraryPromise).startAutomaticScans();
@@ -1196,13 +1227,15 @@ const remoteGateway = new RemoteGateway(
     artwork: async (kind, id) => {
       if (kind === "player") return player.getArtworkResource(id);
       if (kind === "external") {
+        const managedResource = airPlayProvider.artworkResource(id);
         const resource =
+          managedResource ??
           fixtureAirPlay?.artworkResource(id) ??
           fixtureSpotify?.artworkResource(id);
         return resource
           ? {
               bytes: resource.bytes,
-              mimeType: "image/png",
+              mimeType: managedResource?.mimeType ?? "image/png",
               etag: resource.etag,
             }
           : null;
@@ -1287,6 +1320,33 @@ function preferencesPatchBody(value: unknown): PreferencesPatch {
       ? { expectedRevision: body.expectedRevision }
       : {}),
     changes: body.changes,
+  };
+}
+
+function airPlayPatchBody(value: unknown): AirPlaySettingsPatch {
+  const body = objectBody(value);
+  if (
+    !hasOnlyKeys(body, ["enabled", "receiverName", "expectedRevision"]) ||
+    (body.enabled !== undefined && typeof body.enabled !== "boolean") ||
+    (body.receiverName !== undefined &&
+      typeof body.receiverName !== "string") ||
+    (body.expectedRevision !== undefined &&
+      (!Number.isSafeInteger(body.expectedRevision) ||
+        Number(body.expectedRevision) < 0))
+  )
+    throw new AirPlayStoreError(
+      "INVALID_AIRPLAY_SETTINGS",
+      "AirPlay settings are invalid.",
+      400,
+    );
+  return {
+    ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+    ...(typeof body.receiverName === "string"
+      ? { receiverName: body.receiverName }
+      : {}),
+    ...(typeof body.expectedRevision === "number"
+      ? { expectedRevision: body.expectedRevision }
+      : {}),
   };
 }
 
@@ -2079,6 +2139,24 @@ async function handleRequest(
       });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/airplay/state") {
+      await airPlayBootstrapPromise;
+      sendJson(response, 200, { ok: true, data: airPlay.snapshot() });
+      return;
+    }
+    if (
+      request.method === "PATCH" &&
+      url.pathname === "/api/airplay/settings"
+    ) {
+      requireJson(request);
+      await airPlayBootstrapPromise;
+      const state = await airPlay.patch(
+        airPlayPatchBody(await readBody(request, 4 * 1024)),
+        () => localPlaybackAdapter.routeForExternalPlayback(),
+      );
+      sendJson(response, 200, { ok: true, data: state });
+      return;
+    }
     if (
       request.method === "POST" &&
       url.pathname === "/api/playback-source/resume-local"
@@ -2106,7 +2184,9 @@ async function handleRequest(
       (request.method === "GET" || request.method === "HEAD")
     ) {
       const id = externalArtworkMatch[1] ?? "";
+      const managedResource = airPlayProvider.artworkResource(id);
       const resource =
+        managedResource ??
         fixtureAirPlay?.artworkResource(id) ??
         fixtureSpotify?.artworkResource(id);
       if (!resource) {
@@ -2124,7 +2204,10 @@ async function handleRequest(
         response.end();
         return;
       }
-      response.setHeader("content-type", "image/png");
+      response.setHeader(
+        "content-type",
+        managedResource?.mimeType ?? "image/png",
+      );
       response.setHeader("content-length", resource.bytes.length);
       response.setHeader("etag", resource.etag);
       response.setHeader("cache-control", "private, max-age=3600");
@@ -2286,11 +2369,21 @@ async function handleRequest(
     ) {
       requireJson(request);
       await bootstrapPromise;
+      const patch = audioProcessingPatchBody(
+        await readBody(request, 32 * 1024),
+      );
+      if (
+        "outputLevelMode" in patch.changes ||
+        "maximumSoftwareVolume" in patch.changes
+      )
+        airPlay.assertRouteMutable();
+      const result = await audioProcessing.patch(patch);
+      await airPlay.refreshRoute(
+        localPlaybackAdapter.routeForExternalPlayback(),
+      );
       sendJson(response, 200, {
         ok: true,
-        data: await audioProcessing.patch(
-          audioProcessingPatchBody(await readBody(request, 32 * 1024)),
-        ),
+        data: result,
       });
       return;
     }
@@ -2309,9 +2402,14 @@ async function handleRequest(
           "INVALID_AUDIO_OUTPUT",
           "Select a valid audio output.",
         );
+      airPlay.assertRouteMutable();
+      const result = await audioOutput.select(body.deviceId);
+      await airPlay.refreshRoute(
+        localPlaybackAdapter.routeForExternalPlayback(),
+      );
       sendJson(response, 200, {
         ok: true,
-        data: await audioOutput.select(body.deviceId),
+        data: result,
       });
       return;
     }
@@ -4193,6 +4291,13 @@ async function handleRequest(
       error: { code: "NOT_FOUND", message: "Endpoint not found." },
     });
   } catch (error) {
+    if (error instanceof AirPlayStoreError) {
+      sendJson(response, error.statusCode, {
+        ok: false,
+        error: { code: error.code, message: error.message },
+      });
+      return;
+    }
     if (error instanceof PlaybackSourceError) {
       sendJson(response, error.statusCode, {
         ok: false,
@@ -4302,6 +4407,7 @@ function shutdown(signal: NodeJS.Signals): void {
   smbEvents.close();
   updateEvents.close();
   softwareUpdate.close();
+  airPlay.close();
   playerRecovery.close();
   unsubscribeAudioDisplay();
   unsubscribePlayerRecovery();
@@ -4316,6 +4422,7 @@ function shutdown(signal: NodeJS.Signals): void {
   server.close();
   void bootstrapPromise
     .catch(() => undefined)
+    .then(() => airPlayBootstrapPromise)
     .then(() => playbackSourceArbiter.shutdown())
     .then(() => playerSession.flush())
     .then(() => {

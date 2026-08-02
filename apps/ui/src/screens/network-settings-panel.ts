@@ -102,17 +102,19 @@ export function createNetworkSettingsPanel(options: {
     tone?: "error" | "success" | "neutral",
   ) => void;
   readonly openSystemSettings: () => Promise<void>;
+  readonly initialView?: View;
 }): NetworkSettingsPanel {
   const element = document.createElement("div");
   element.className = "network-settings";
   let snapshot = options.initialSnapshot;
   let view: View =
-    snapshot.activeRouteType === "wifi" &&
+    options.initialView ??
+    (snapshot.activeRouteType === "wifi" &&
     !snapshot.wiredAdapters.some((item) => item.connected)
       ? "wifi"
       : snapshot.wiredAdapters.length === 0
         ? "wifi"
-        : "wired";
+        : "wired");
   let selectedWiredId = snapshot.wiredAdapters[0]?.id ?? "";
   let selectedWifiId = snapshot.wifiAdapters[0]?.id ?? "";
   let initialScanRequested = false;
