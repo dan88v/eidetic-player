@@ -820,10 +820,21 @@ else
   chmod 0755 \
     "$release_stage/airplay/bin/shairport-sync" \
     "$release_stage/airplay/bin/nqptp"
+  airplay_fixture_shairport_sha="$(sha256sum \
+    "$release_stage/airplay/bin/shairport-sync" | cut -d' ' -f1)"
+  airplay_fixture_nqptp_sha="$(sha256sum \
+    "$release_stage/airplay/bin/nqptp" | cut -d' ' -f1)"
+  for fixture_sha in \
+    "$airplay_fixture_shairport_sha" "$airplay_fixture_nqptp_sha"; do
+    [[ "$fixture_sha" =~ ^[0-9a-f]{64}$ ]] ||
+      eidetic_die "test AirPlay fixture hash generation failed"
+  done
   install -m 0644 "$SCRIPT_DIR/airplay/sources.json" \
     "$release_stage/airplay/share/eidetic-player-airplay/sources.json"
-  printf '%s\n' \
-    "{\"schemaVersion\":1,\"integrationVersion\":\"$airplay_integration_version\",\"architecture\":\"fixture\",\"compiler\":\"fixture\",\"binaries\":{}}" \
+  printf \
+    '{"schemaVersion":1,"integrationVersion":"%s","architecture":"fixture","compiler":"fixture","binaries":{"shairport-sync":"%s","nqptp":"%s"}}\n' \
+    "$airplay_integration_version" \
+    "$airplay_fixture_shairport_sha" "$airplay_fixture_nqptp_sha" \
     >"$release_stage/airplay/artifact.json"
 fi
 

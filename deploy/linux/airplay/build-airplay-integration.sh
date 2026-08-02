@@ -28,7 +28,7 @@ done
   printf 'AirPlay source manifest is unavailable\n' >&2
   exit 1
 }
-for tool in python3 curl sha256sum tar autoreconf patch make install file; do
+for tool in python3 curl sha256sum tar autoreconf patch make install file plistutil; do
   command -v "$tool" >/dev/null || {
     printf 'required AirPlay build tool is unavailable: %s\n' "$tool" >&2
     exit 1

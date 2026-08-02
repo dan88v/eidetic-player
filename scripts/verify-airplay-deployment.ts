@@ -33,6 +33,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     receiverUnit: resolve(root, "templates/eidetic-player-airplay.service"),
     timingUnit: resolve(root, "templates/eidetic-player-nqptp.service"),
     notices: resolve(root, "THIRD_PARTY_NOTICES.md"),
+    ciWorkflow: resolve(".github/workflows/ci.yml"),
   };
   const [
     manifestText,
@@ -44,6 +45,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     notices,
     installer,
     uninstaller,
+    ciWorkflow,
   ] = await Promise.all([
     readFile(paths.manifest, "utf8"),
     readFile(paths.patch, "utf8"),
@@ -54,12 +56,14 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     readFile(paths.notices, "utf8"),
     readFile(resolve("deploy/linux/install-eidetic-player.sh"), "utf8"),
     readFile(resolve("deploy/linux/uninstall-eidetic-player.sh"), "utf8"),
+    readFile(paths.ciWorkflow, "utf8"),
   ]);
   const manifest = JSON.parse(manifestText) as {
     schemaVersion?: unknown;
     integrationVersion?: unknown;
     shairportSync?: Record<string, unknown>;
     nqptp?: Record<string, unknown>;
+    buildDependencies?: unknown;
   };
   const passed: string[] = [];
   const failed: string[] = [];
@@ -112,7 +116,20 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
       builder.includes("sha256sum --check --strict") &&
       builder.includes("extract_checked") &&
       builder.includes("make -j2") &&
+      builder.includes("plistutil") &&
       !builder.includes("chmod 777"),
+  );
+  check(
+    passed,
+    failed,
+    "AirPlay 2 plist utility build dependency",
+    Array.isArray(manifest.buildDependencies) &&
+      manifest.buildDependencies.includes("libplist-dev") &&
+      manifest.buildDependencies.includes("libplist-utils") &&
+      installer.includes("libplist-dev") &&
+      installer.includes("libplist-utils") &&
+      ciWorkflow.includes("libplist-dev") &&
+      ciWorkflow.includes("libplist-utils"),
   );
   check(
     passed,
@@ -172,6 +189,10 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
       installer.includes("airplay.json") &&
       installer.includes('"enabled": True') &&
       installer.includes('airplay_plan="Preserved (Off)"') &&
+      installer.includes('airplay_fixture_shairport_sha="$(sha256sum') &&
+      installer.includes('airplay_fixture_nqptp_sha="$(sha256sum') &&
+      installer.includes('"shairport-sync":"%s","nqptp":"%s"') &&
+      !installer.includes('"binaries":{}}') &&
       installer.includes("AirPlay timing did not start after activation") &&
       !installer.includes(
         "systemctl enable --now eidetic-player-nqptp.service ||\n    eidetic_die",

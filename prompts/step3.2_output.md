@@ -82,6 +82,19 @@ development libraries. The distribution Shairport package is not used as the
 binary authority. Shairport links FFmpeg libraries; no Eidetic FFmpeg analyzer
 process is created for AirPlay.
 
+The first Linux source-build CI run exposed that the AirPlay 2 configure step
+requires the `plistutil` executable in addition to the plist development
+headers. The package contract and dedicated CI job now install
+`libplist-utils`, and the source builder checks for `plistutil` before any
+download or compilation work begins.
+
+The following Linux staging run exposed a separate fixture-only inconsistency:
+its generated AirPlay binaries were not represented in the fixture artifact's
+hash map, so the installation doctor correctly rejected their integrity. The
+staging installer now records the actual SHA-256 digest for both generated
+fixture binaries, preserving the production-strength doctor check instead of
+weakening it for tests.
+
 The root-owned cache is keyed by integration version and architecture. A cache
 entry is accepted only when it is root-owned, contains no symlink or
 group/world-writable object, has the expected architecture and artifact hashes,
