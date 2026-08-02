@@ -519,6 +519,75 @@ void test("one persistent MPV reconciles Context and duplicate Explicit Queue wi
   }
 });
 
+void test("implicit Context EOF keeps public metadata and progress aligned with audible MPV", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-mpv-context-eof-"));
+  const player = new PlayerService();
+  const controller = new MpvController();
+  const harness = player as unknown as {
+    state: PlayerState;
+    controller: MpvController | null;
+    unsubscribeMpv: (() => void) | null;
+    handleMpvMessage(message: MpvResponse): void;
+  };
+  try {
+    const first = join(folder, "Implicit first.wav");
+    const second = join(folder, "Implicit second.wav");
+    await Promise.all([
+      writeFile(first, silentWav(1)),
+      writeFile(second, silentWav(8)),
+    ]);
+    await controller.start({
+      executable: discovery.executable,
+      extraArguments: ["--ao=null"],
+    });
+    harness.state = {
+      ...player.getState(),
+      status: "idle",
+      mpvAvailable: true,
+      mpvVersion: discovery.version,
+    };
+    harness.controller = controller;
+    harness.unsubscribeMpv = controller.subscribe((message) => {
+      harness.handleMpvMessage(message);
+    });
+
+    await player.openResolvedQueue([first, second], 0, undefined, undefined, {
+      kind: "album",
+      title: "Implicit Context fixture",
+      source: { label: "Integration fixture" },
+    });
+    await waitFor(
+      () => Promise.resolve(player.getPublicState()),
+      (state) => state.currentTrack?.title === "Implicit first",
+      5_000,
+    );
+    const advanced = await waitFor(
+      () => Promise.resolve(player.getPublicState()),
+      (state) =>
+        state.currentPlayback?.item.displayTitle === "Implicit second" &&
+        state.currentTrack?.title === "Implicit second" &&
+        state.positionSeconds > 0.1,
+      8_000,
+    );
+    assert.equal(advanced.status, "playing");
+    assert.ok(advanced.currentTrack);
+    assert.equal(
+      advanced.currentPlayback?.item.displayTitle,
+      "Implicit second",
+    );
+    assert.ok(advanced.positionSeconds > 0.1);
+  } finally {
+    await controller.stop().catch(() => undefined);
+    await player.shutdown();
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 void test("MPV replaces every item from an existing Queue", async (context) => {
   const discovery = await discoverMpv();
   if (!discovery) {

@@ -495,3 +495,72 @@ This follow-up's completed final gates PASS:
 - focused Audio/preference/Settings/visualizer regressions — 41 passed,
   1 expected platform skip
 - `git diff --check`
+
+## Follow-up — implicit Context transition state recovery
+
+The Raspberry Pi failure was reproduced and isolated without changing the
+installed release. During audible implicit-Context playback, direct MPV IPC
+reported the correct next file, a progressing `time-pos`, and the expected
+remaining playlist. At the same instant `/api/player/state` reported
+`status: playing`, a valid duration and the correct planner
+`currentPlayback`, but `currentTrack: null` and `positionSeconds: 0`. This is
+the exact backend state that made both the hardware UI and Remote show stale
+or empty Now Playing content while audio continued.
+
+The consumed MPV playlist prefix had already disappeared, while
+`playlistItemIds` still described the previous technical playlist. The public
+Current integrity guard correctly rejected that stale execution ID, but no
+recovery path realigned it. `PlayerService` now repairs the complete observed
+playlist suffix from the planner's Current plus future projection before
+building public state. The repair is deliberately conditional: the observed
+current path and every remaining MPV path must match the planned suffix in
+order. A mismatching observation remains rejected, so stale metadata or
+artwork cannot be attached to a different track.
+
+Regression coverage now includes:
+
+- a deterministic stale-ID reproduction proving Current metadata and the
+  12-second position are published again and the complete execution-ID suffix
+  is unique and aligned;
+- a negative path-mismatch case proving the recovery does not accept an
+  unrelated observed track;
+- a real one-process MPV Context fixture whose first track reaches natural EOF
+  and whose second track must expose matching public title and progressing
+  position.
+
+Focused backend validation passed: 30/30 playback-plan integration tests and
+the real-MPV implicit Context EOF regression. Final static, full-suite, native
+Windows, Remote, MPV/FFmpeg, and shutdown results are recorded below after the
+completed final pass.
+
+Real Windows Neutralino/WebView2 QA used the exact mandatory
+`npm.cmd run dev` command at a 1280×800 client viewport. A generated three-
+second first WAV and sixty-second second WAV were opened as one direct-folder
+Context. After natural EOF, the authoritative state and visible Now Playing
+both showed `02 Second`; the observed position progressed from 0.23 to 14.25
+seconds while the duration remained 60 seconds. The waveform seekbar,
+transport, Mono Spectrum and stable dark artwork placeholder remained visible
+without `Nothing Playing`, a blank transition, layout shift or scroll. The
+temporary media and capture were removed. Neutralino, backend, Vite, MPV and
+ports 4310/5173 shut down cleanly; the only matching Node process was the Codex
+tool runtime, not an application child.
+
+This follow-up's completed final gates PASS:
+
+- `npm.cmd run format:check`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build`, including local UI, Remote UI and backend
+- `npm.cmd test` — 793 total, 780 passed, 13 expected skips, 0 failed
+- `npm.cmd run test:remote` — 30 total, 29 passed, 1 expected Windows skip
+- `npm.cmd run mpv:doctor`
+- `npm.cmd run test:mpv` — 13/13
+- `npm.cmd run ffmpeg:doctor`
+- `npm.cmd run test:ffmpeg` — 3/3
+- focused playback-plan integration — 30/30
+- `git diff --check`
+
+The first complete MPV run exposed one timing-sensitive USB-disconnect fixture
+assertion. That unchanged case passed immediately in isolation, and the final
+complete MPV pass succeeded 13/13 with clean process teardown. No commit, push,
+Raspberry deployment, installer or remote update was performed.

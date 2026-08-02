@@ -2803,11 +2803,9 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const playlistIndex = Math.trunc(
       this.asNumber(this.properties.get("playlist-pos"), -1),
     );
-    const queue = this.createQueue(
-      this.properties.get("playlist"),
-      playlistIndex,
-      duration,
-    );
+    const playlist = this.properties.get("playlist");
+    this.repairObservedExecutionIdentities(path, playlistIndex, playlist);
+    const queue = this.createQueue(playlist, playlistIndex, duration);
     const queueStructureChanged =
       queue.length !== this.state.queue.length ||
       queue.some((item, index) => item.id !== this.state.queue[index]?.id);
@@ -2890,6 +2888,55 @@ export class PlayerService implements AudioOutputMpvAdapter {
       const previousPath = queue[playlistIndex - 1]?.path ?? null;
       this.scheduleCurrentEnrichment(path, nextPath, previousPath);
     }
+  }
+
+  private repairObservedExecutionIdentities(
+    path: string | null,
+    playlistIndex: number,
+    playlist: unknown,
+  ): void {
+    const planned = this.playbackPlanSnapshot.current;
+    if (
+      !path ||
+      !planned ||
+      !Array.isArray(playlist) ||
+      playlistIndex < 0 ||
+      playlistIndex >= playlist.length ||
+      this.pathKey(path) !== this.pathKey(planned.item.nativePath)
+    )
+      return;
+    if (this.playlistItemIds[playlistIndex] === planned.executionEntryId)
+      return;
+
+    const projection = this.playbackPlanner.projectExecutionPlan();
+    const plannedSuffix = projection.current
+      ? [projection.current, ...projection.future]
+      : [];
+    const observedPaths = playlist.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const observedPath = this.asString((entry as MpvPlaylistEntry).filename);
+      return observedPath ? [observedPath] : [];
+    });
+    if (
+      observedPaths.length !== playlist.length ||
+      observedPaths.length - playlistIndex !== plannedSuffix.length ||
+      !plannedSuffix.every(
+        (entry, index) =>
+          this.pathKey(observedPaths[playlistIndex + index] ?? "") ===
+          this.pathKey(entry.item.nativePath),
+      )
+    )
+      return;
+
+    this.playlistItemIds = [
+      ...this.playlistItemIds.slice(0, playlistIndex),
+      ...plannedSuffix.map((entry) => entry.executionEntryId),
+    ];
+    for (const entry of plannedSuffix)
+      this.executionOrigins.set(
+        entry.executionEntryId,
+        this.persistedOrigin(entry),
+      );
   }
 
   private createQueue(

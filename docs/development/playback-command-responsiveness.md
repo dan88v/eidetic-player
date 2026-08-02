@@ -47,6 +47,15 @@ received a newer observed value. Interactive IPC is sent immediately on the
 single MPV connection. Read-only background refresh has a bounded two-request
 lane, and queued reads cannot hold up an interactive command.
 
+After an implicit Context transition, an MPV playlist observation may already
+have discarded the consumed prefix while the local execution-ID array still
+describes the previous playlist shape. Before publishing Current, the backend
+may realign that observed playlist suffix to the planner execution projection,
+but only when the observed current path and every remaining path match the
+planned Current and future in order. A path mismatch is never repaired from
+stale metadata: public Current remains withheld until an authoritative
+transition resolves it.
+
 `beforePlayback` audio preparation is started without blocking Play or
 navigation. Play and Pause use explicit `set_property pause` targets; they
 never depend on `cycle pause`.

@@ -131,6 +131,7 @@ interface PlayerHarness {
   state: PlayerState;
   controller: FakeMpvController;
   executable: string | null;
+  readonly properties: Map<string, unknown>;
   readonly playbackPlanner: PlaybackPlanner;
   playbackPlanSnapshot: PlaybackPlanSnapshot;
   readonly queueOrigins: Map<string, PersistedQueueOrigin>;
@@ -141,6 +142,9 @@ interface PlayerHarness {
   pendingTrackTargetId: string | null;
   plannerTransitionChain: Promise<void>;
   executionMutationChain: Promise<void>;
+  transitionPending: boolean;
+  enrichmentPathKey: string | null;
+  deriveStateFromProperties(): void;
   refreshProperties(): Promise<void>;
   handleMpvMessage(message: MpvResponse): void;
   handleUnexpectedExit(): Promise<void>;
@@ -436,6 +440,71 @@ void test("natural EOF preserves the matching technical future and removes only 
   assert.deepEqual(controller.appends, []);
   assert.deepEqual(controller.loads, []);
   assert.deepEqual(controller.paths, expectedRemainingPaths);
+});
+
+void test("implicit Context recovery realigns a stale technical ID before publishing Current", async () => {
+  const { player, harness, controller } = createHarness();
+  const originalIds = [...harness.playlistItemIds];
+
+  await player.next();
+  const planned = player.getPlaybackPlanSnapshot().current;
+  assert.equal(planned?.item.title, "B");
+  assert.ok(planned);
+
+  controller.paths = controller.paths.slice(1);
+  controller.playlistPosition = 0;
+  harness.playlistItemIds = originalIds;
+  harness.transitionPending = false;
+  harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 12);
+  harness.properties.set("path", planned.item.nativePath);
+  harness.properties.set("playlist-pos", 0);
+  harness.properties.set("playlist", await controller.getProperty("playlist"));
+  harness.deriveStateFromProperties();
+
+  const published = player.getPublicState();
+  const projected = harness.playbackPlanner.projectExecutionPlan();
+  const projectedIds = projected.current
+    ? [projected.current, ...projected.future].map(
+        (entry) => entry.executionEntryId,
+      )
+    : [];
+  assert.deepEqual(harness.playlistItemIds, projectedIds);
+  assert.equal(new Set(harness.playlistItemIds).size, projectedIds.length);
+  assert.equal(published.currentTrack?.title, "B");
+  assert.equal(published.currentPlayback?.item.displayTitle, "B");
+  assert.equal(published.positionSeconds, 12);
+});
+
+void test("implicit Context recovery rejects an observed track outside planned Current", async () => {
+  const { player, harness, controller } = createHarness();
+  const originalIds = [...harness.playlistItemIds];
+
+  await player.next();
+  const planned = player.getPlaybackPlanSnapshot().current;
+  assert.equal(planned?.item.title, "B");
+
+  controller.paths = ["C:/music/c.flac"];
+  controller.playlistPosition = 0;
+  const observedPath = controller.paths[0];
+  assert.ok(observedPath);
+  harness.playlistItemIds = originalIds;
+  harness.transitionPending = false;
+  harness.enrichmentPathKey = harness.pathKey(observedPath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 12);
+  harness.properties.set("path", observedPath);
+  harness.properties.set("playlist-pos", 0);
+  harness.properties.set("playlist", await controller.getProperty("playlist"));
+  harness.deriveStateFromProperties();
+
+  assert.deepEqual(harness.playlistItemIds, originalIds);
+  assert.equal(player.getPublicState().currentTrack, null);
 });
 
 void test("manual Next at the terminal Current is a no-op while natural EOF still stops", async () => {
