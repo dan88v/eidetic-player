@@ -11,6 +11,55 @@ import { MetadataService } from "../src/metadata/metadata-service.js";
 import { FixtureRemovableStorageProvider } from "../src/removable-storage/fixture-removable-storage-provider.js";
 import { RemovableStorageService } from "../src/removable-storage/removable-storage-service.js";
 
+class WatchingFixtureRemovableStorageProvider extends FixtureRemovableStorageProvider {
+  private listener: (() => void) | null = null;
+
+  watch(listener: () => void): () => void {
+    this.listener = listener;
+    return () => {
+      this.listener = null;
+    };
+  }
+
+  notify(): void {
+    this.listener?.();
+  }
+}
+
+void test("event-driven removable storage does not run the fallback polling loop", async () => {
+  const provider = new WatchingFixtureRemovableStorageProvider();
+  const filesystem = new LocalFilesystemProvider();
+  const paths = PathService.forCurrentPlatform(filesystem);
+  const storage = new RemovableStorageService(provider, filesystem, paths, 5);
+  try {
+    await storage.start();
+    assert.equal(provider.enumerateCount, 1);
+    assert.equal(storage.diagnostics().timerActive, false);
+    assert.equal(storage.diagnostics().eventMonitorActive, true);
+    const refreshed = new Promise<void>((resolve) => {
+      const unsubscribe = storage.subscribe(() => {
+        unsubscribe();
+        resolve();
+      });
+    });
+    provider.setVolumes([
+      {
+        stableIdentity: "event-volume",
+        nativeRoot: tmpdir(),
+        displayName: "Event USB",
+        readable: true,
+        readOnly: true,
+      },
+    ]);
+    provider.notify();
+    await refreshed;
+    assert.equal(provider.enumerateCount, 2);
+  } finally {
+    await storage.close();
+  }
+  assert.equal(storage.diagnostics().eventMonitorActive, false);
+});
+
 void test("removable monitor deduplicates snapshots and preserves opaque identity across root changes", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "eidetic-usb-provider-"));
   const firstRoot = join(temporary, "E");

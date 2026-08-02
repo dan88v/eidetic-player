@@ -73,6 +73,20 @@ function decodeAvahiField(value: string): string {
   );
 }
 
+const AIRPLAY_SERVICE = "eidetic-player-airplay.service";
+
+export function airPlayServiceCommandPlan(
+  enabled: boolean,
+): readonly (readonly string[])[] {
+  return enabled
+    ? [
+        ["--user", "disable", AIRPLAY_SERVICE],
+        ["--user", "reset-failed", AIRPLAY_SERVICE],
+        ["--user", "start", AIRPLAY_SERVICE],
+      ]
+    : [["--user", "disable", "--now", AIRPLAY_SERVICE]];
+}
+
 export class LinuxAirPlayPlatformAdapter implements AirPlayPlatformAdapter {
   readonly controlSocket: string;
   readonly metadataPipe: string;
@@ -221,14 +235,11 @@ export class LinuxAirPlayPlatformAdapter implements AirPlayPlatformAdapter {
       return;
     }
     if (process.platform !== "linux") return;
-    const result = await run("/usr/bin/systemctl", [
-      "--user",
-      enabled ? "enable" : "disable",
-      "--now",
-      "eidetic-player-airplay.service",
-    ]);
-    if (result.code !== 0)
-      throw new Error("AirPlay service state could not be changed.");
+    for (const command of airPlayServiceCommandPlan(enabled)) {
+      const result = await run("/usr/bin/systemctl", command);
+      if (result.code !== 0)
+        throw new Error("AirPlay service state could not be changed.");
+    }
   }
 
   async restart(): Promise<void> {
@@ -237,10 +248,17 @@ export class LinuxAirPlayPlatformAdapter implements AirPlayPlatformAdapter {
       return;
     }
     if (process.platform !== "linux") return;
+    const reset = await run("/usr/bin/systemctl", [
+      "--user",
+      "reset-failed",
+      AIRPLAY_SERVICE,
+    ]);
+    if (reset.code !== 0)
+      throw new Error("AirPlay service could not be restarted.");
     const result = await run("/usr/bin/systemctl", [
       "--user",
       "restart",
-      "eidetic-player-airplay.service",
+      AIRPLAY_SERVICE,
     ]);
     if (result.code !== 0)
       throw new Error("AirPlay service could not be restarted.");

@@ -33,6 +33,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     receiverUnit: resolve(root, "templates/eidetic-player-airplay.service"),
     timingUnit: resolve(root, "templates/eidetic-player-nqptp.service"),
     notices: resolve(root, "THIRD_PARTY_NOTICES.md"),
+    doctor: resolve("deploy/linux/doctor-installation.sh"),
     ciWorkflow: resolve(".github/workflows/ci.yml"),
   };
   const [
@@ -43,6 +44,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     receiverUnit,
     timingUnit,
     notices,
+    doctor,
     installer,
     uninstaller,
     ciWorkflow,
@@ -54,6 +56,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     readFile(paths.receiverUnit, "utf8"),
     readFile(paths.timingUnit, "utf8"),
     readFile(paths.notices, "utf8"),
+    readFile(paths.doctor, "utf8"),
     readFile(resolve("deploy/linux/install-eidetic-player.sh"), "utf8"),
     readFile(resolve("deploy/linux/uninstall-eidetic-player.sh"), "utf8"),
     readFile(paths.ciWorkflow, "utf8"),
@@ -172,7 +175,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     failed,
     "non-root receiver user unit",
     receiverUnit.includes(
-      "ExecStart=/opt/eidetic-player/current/airplay/bin/shairport-sync",
+      "ExecStart=/opt/eidetic-player/current/airplay/bin/shairport-sync -v -c",
     ) &&
       receiverUnit.includes(
         "ConditionPathExists=/opt/eidetic-player/current/airplay/bin/shairport-sync",
@@ -215,6 +218,16 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
       !installer.includes(
         "systemctl enable --now eidetic-player-nqptp.service ||\n    eidetic_die",
       ),
+  );
+  check(
+    passed,
+    failed,
+    "read-only AirPlay config doctor",
+    doctor.includes("check airplay-config") &&
+      doctor.includes("stat -c '%a' \"$airplay_config\"") &&
+      doctor.includes("stat -c '%u' \"$airplay_config\"") &&
+      doctor.includes("airplay-runtime") &&
+      !/shairport-sync[^\n]*-c[^\n]*airplay_config/u.test(doctor),
   );
   check(
     passed,

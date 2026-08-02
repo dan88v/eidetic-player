@@ -1,9 +1,13 @@
 import type { WaveformResponse } from "../../../../packages/shared/src/visualizer";
 import { config } from "../config";
+import { alternateLoopbackUrl } from "../api/loopback-origin";
 
+// Waveform generation can be slow on uncached network media. Keep it off the
+// primary origin so it cannot occupy the one HTTP/1.1 connection left after
+// the five app-lifetime state streams and stall Library or player commands.
 const baseUrl = config.development
   ? ""
-  : `http://${config.backendHost}:${String(config.backendPort)}`;
+  : alternateLoopbackUrl(config.backendHost, config.backendPort);
 const cache = new Map<string, readonly number[]>();
 
 async function requestWaveform(

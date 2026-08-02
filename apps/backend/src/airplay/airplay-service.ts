@@ -279,8 +279,12 @@ export class AirPlayService {
   ): Promise<"verified" | "collision" | "unavailable"> {
     await this.applyRoute(route, false);
     const before = await this.platform.status();
+    // The setting store, not a systemd boot symlink, is authoritative. Always
+    // remove legacy enablement before starting the receiver after the backend
+    // control socket exists. An already-running receiver still needs a restart
+    // to consume the freshly rendered route.
+    await this.platform.setEnabled(true);
     if (before.active) await this.platform.restart();
-    else await this.platform.setEnabled(true);
     const status = await this.platform.status();
     if (!status.active) return "unavailable";
     return this.platform.verifyAdvertisement(

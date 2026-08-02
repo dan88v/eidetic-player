@@ -60,12 +60,19 @@ export class WaveformService {
     await previous;
     try {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-      points = await this.generate(canonical, signal);
-      this.cache.set(fingerprint, { fingerprint, points });
-      while (this.cache.size > 64) {
-        const oldest = this.cache.keys().next().value;
-        if (!oldest) break;
-        this.cache.delete(oldest);
+      const completed = this.cache.get(fingerprint);
+      if (completed) {
+        this.cache.delete(fingerprint);
+        this.cache.set(fingerprint, completed);
+        points = completed.points;
+      } else {
+        points = await this.generate(canonical, signal);
+        this.cache.set(fingerprint, { fingerprint, points });
+        while (this.cache.size > 64) {
+          const oldest = this.cache.keys().next().value;
+          if (!oldest) break;
+          this.cache.delete(oldest);
+        }
       }
     } finally {
       release();
@@ -112,7 +119,7 @@ export class WaveformService {
         "-ac",
         "1",
         "-ar",
-        "8000",
+        "2000",
         "-f",
         "s16le",
         "pipe:1",

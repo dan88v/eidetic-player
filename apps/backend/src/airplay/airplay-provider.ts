@@ -33,6 +33,7 @@ const CAPABILITIES: PlaybackSourceCapabilities = Object.freeze({
 });
 const CONTROL_LIMIT = 256;
 const CONTROL_TIMEOUT_MILLISECONDS = 4_000;
+export const AIRPLAY_PLAYBACK_START_TIMEOUT_MILLISECONDS = 12_000;
 
 interface PendingGrant {
   readonly sessionId: string;
@@ -61,11 +62,13 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   private metadataStream: ReturnType<typeof createReadStream> | null = null;
   private metadataHandle: Awaited<ReturnType<typeof open>> | null = null;
   private pending: PendingGrant | null = null;
+  private playbackStartTimer: NodeJS.Timeout | null = null;
   private volumeTimer: NodeJS.Timeout | null = null;
   private lastEmittedVolume = 100;
   private lastEmittedMuted = false;
   private pendingMetadata: ExternalProviderSnapshot["metadata"] | null = null;
   private metadataSequenceArtworkRevision: string | null = null;
+  private terminalEvent: "ended" | "disconnected" | null = null;
   private preparedRoute: ExternalPlaybackRoute | null = null;
   private artwork: {
     readonly id: string;
@@ -89,6 +92,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   constructor(
     private readonly platform: AirPlayPlatformAdapter,
     sampleRate = 48_000,
+    private readonly playbackStartTimeoutMilliseconds = AIRPLAY_PLAYBACK_START_TIMEOUT_MILLISECONDS,
   ) {
     this.parser = new AirPlayMetadataParser(sampleRate);
   }
@@ -159,6 +163,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     this.current = { ...this.current, generation, state: "buffering" };
     pending.socket.end("GRANT\n");
     this.emit("buffering");
+    this.armPlaybackStartTimeout(sessionId);
     return Promise.resolve();
   }
 
@@ -172,11 +177,15 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       sessionId: null,
       artwork: null,
     };
+    this.terminalEvent = null;
     return Promise.resolve();
   }
 
   async stop(generation: number): Promise<void> {
-    const hadActiveSession = this.current.sessionId !== null && !this.pending;
+    const hadActiveSession =
+      this.current.sessionId !== null &&
+      !this.pending &&
+      this.terminalEvent === null;
     this.denyPending();
     if (hadActiveSession) await this.platform.restart();
     this.clearSessionResources();
@@ -187,6 +196,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       sessionId: null,
       artwork: null,
     };
+    this.terminalEvent = null;
   }
 
   play(): Promise<void> {
@@ -326,6 +336,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     this.parser.reset();
     this.pendingMetadata = null;
     this.metadataSequenceArtworkRevision = null;
+    this.terminalEvent = null;
     this.lastEmittedVolume =
       this.preparedRoute?.levelMode === "fixed" ? 100 : this.current.volume;
     this.lastEmittedMuted = false;
@@ -459,8 +470,10 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
         this.emit(this.current.muted ? "mute" : "volume");
       }, 80);
       this.volumeTimer.unref();
-    } else if (event.kind === "playing") this.patch("playing", "playing");
-    else if (event.kind === "buffering" || event.kind === "flush")
+    } else if (event.kind === "playing") {
+      this.clearPlaybackStartTimeout();
+      this.patch("playing", "playing");
+    } else if (event.kind === "buffering" || event.kind === "flush")
       this.patch("buffering", "buffering");
     else if (event.kind === "ended") this.patch("stopped", "ended");
     else this.patch("stopped", "disconnected");
@@ -470,6 +483,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     state: ExternalProviderSnapshot["state"],
     kind: ExternalProviderEventKind,
   ): void {
+    if (kind === "ended" || kind === "disconnected") this.terminalEvent = kind;
     if (kind === "ended" || kind === "disconnected" || kind === "error") {
       this.clearSessionResources();
     }
@@ -484,11 +498,30 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   }
 
   private clearSessionResources(): void {
+    this.clearPlaybackStartTimeout();
     this.artwork = null;
     this.pendingMetadata = null;
     this.metadataSequenceArtworkRevision = null;
     if (this.volumeTimer) clearTimeout(this.volumeTimer);
     this.volumeTimer = null;
+  }
+
+  private armPlaybackStartTimeout(sessionId: string): void {
+    this.clearPlaybackStartTimeout();
+    this.playbackStartTimer = setTimeout(() => {
+      this.playbackStartTimer = null;
+      if (
+        this.current.sessionId === sessionId &&
+        this.current.state === "buffering"
+      )
+        this.patch("error", "error");
+    }, this.playbackStartTimeoutMilliseconds);
+    this.playbackStartTimer.unref();
+  }
+
+  private clearPlaybackStartTimeout(): void {
+    if (this.playbackStartTimer) clearTimeout(this.playbackStartTimer);
+    this.playbackStartTimer = null;
   }
 
   private emit(kind: ExternalProviderEventKind): void {

@@ -399,12 +399,16 @@ PY
       "$airplay_enabled" != invalid ]] && printf pass || printf fail
   })"
   check airplay-config "$({
+    # Shairport Sync's --displayConfig is diagnostic output, not a parse-only
+    # mode: it continues into receiver startup and collides with the managed
+    # instance on port 7000. The backend atomically rewrites this generated
+    # file before every enable/restart; when enabled, airplay-runtime below
+    # proves that the managed receiver accepted it. Keep this read-only check
+    # limited to the persistent file's security contract.
     [[ -f "$airplay_config" && ! -L "$airplay_config" &&
       "$(stat -c '%a' "$airplay_config" 2>/dev/null || true)" == 600 &&
       "$(stat -c '%u' "$airplay_config" 2>/dev/null || true)" == "$runtime_uid" ]] &&
-      /usr/sbin/runuser -u "$runtime_user" -- timeout 5 \
-        "$airplay_root/bin/shairport-sync" -c "$airplay_config" --displayConfig \
-        >/dev/null 2>&1 && printf pass || printf fail
+      printf pass || printf fail
   })"
   if [[ "$airplay_enabled" == true ]]; then
     check airplay-runtime "$({

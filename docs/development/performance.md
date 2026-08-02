@@ -133,12 +133,14 @@ work and artwork resolution each have independent limits of two. Navigation
 starts no recursive traversal, watcher, poll, worker, or EventSource.
 
 USB Quick Browse shares that one-level browser and its bounds. One global
-removable-storage monitor performs an immediate bootstrap enumeration and a
-single conservative 2.5-second fallback poll; there is no frontend polling,
-per-device watcher, recursive scan, worker, or extra metadata/artwork
-pipeline. Unchanged public snapshots are deduplicated. Root changes invalidate
-only the affected browser cache, and shutdown clears the sole timer and any
-active provider process.
+removable-storage monitor performs an immediate bootstrap enumeration. Linux
+then listens to the single `udevadm` block-device event stream; platforms
+without an event provider retain the single conservative 2.5-second fallback
+poll. There is no frontend polling, per-device watcher, recursive scan, worker,
+or extra metadata/artwork pipeline. Unchanged public snapshots are
+deduplicated. Root changes invalidate only the affected browser cache, and
+shutdown clears the sole timer or provider monitor and any active provider
+process.
 
 The indexed Library is the sole intentional recursive path. It has one
 scheduler, one scanner, one SQLite connection, serialized metadata parsing,

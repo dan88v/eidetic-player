@@ -624,6 +624,7 @@ void test("rapid waveform cleanup aborts current and preload requests", async ()
   );
   assert.match(source, /this\.controller\?\.abort\(\)/);
   assert.match(source, /this\.preloadController\?\.abort\(\)/);
+  assert.match(source, /alternateLoopbackUrl\(config\.backendHost/);
 });
 
 void test("metadata enrichment within one generation keeps stable identity", () => {

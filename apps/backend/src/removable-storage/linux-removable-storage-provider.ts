@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import type {
   RemovableStorageProvider,
@@ -30,6 +30,9 @@ function numberValue(value: unknown): number | undefined {
 
 export class LinuxRemovableStorageProvider implements RemovableStorageProvider {
   readonly platform = "linux" as const;
+  private readonly listeners = new Set<() => void>();
+  private monitor: ChildProcess | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
 
   async enumerate(): Promise<readonly RemovableVolumeCandidate[]> {
     const { stdout } = await runFile(
@@ -121,7 +124,44 @@ export class LinuxRemovableStorageProvider implements RemovableStorageProvider {
     return result;
   }
 
+  watch(listener: () => void): () => void {
+    this.listeners.add(listener);
+    this.ensureMonitor();
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   close(): Promise<void> {
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = null;
+    this.monitor?.kill();
+    this.monitor = null;
+    this.listeners.clear();
     return Promise.resolve();
+  }
+
+  private ensureMonitor(): void {
+    if (this.monitor) return;
+    const monitor = spawn(
+      "udevadm",
+      ["monitor", "--udev", "--subsystem-match=block", "--property"],
+      { windowsHide: true, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    this.monitor = monitor;
+    monitor.stdout.setEncoding("utf8");
+    monitor.stdout.on("data", () => {
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = null;
+        for (const listener of this.listeners) listener();
+      }, 200);
+      this.debounceTimer.unref();
+    });
+    const clear = (): void => {
+      if (this.monitor === monitor) this.monitor = null;
+    };
+    monitor.once("error", clear);
+    monitor.once("exit", clear);
   }
 }

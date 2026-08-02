@@ -123,6 +123,7 @@ export class RemovableStorageService implements DirectorySourceCatalog {
     devices: [],
   };
   private timer: NodeJS.Timeout | null = null;
+  private stopProviderWatch: (() => void) | null = null;
   private refreshPromise: Promise<void> | null = null;
   private closed = false;
   private refreshCount = 0;
@@ -151,14 +152,20 @@ export class RemovableStorageService implements DirectorySourceCatalog {
   ) {}
 
   async start(): Promise<void> {
-    if (this.closed || this.timer) return;
+    if (this.closed || this.timer || this.stopProviderWatch) return;
     await this.mediaAdapter.start();
     await this.refresh();
     if (this.isClosed()) return;
-    this.timer = setInterval(() => {
-      void this.refresh();
-    }, this.pollIntervalMilliseconds);
-    this.timer.unref();
+    if (this.provider.watch)
+      this.stopProviderWatch = this.provider.watch(() => {
+        void this.refresh();
+      });
+    else {
+      this.timer = setInterval(() => {
+        void this.refresh();
+      }, this.pollIntervalMilliseconds);
+      this.timer.unref();
+    }
   }
 
   snapshot(): RemovableDeviceListResponse {
@@ -414,6 +421,7 @@ export class RemovableStorageService implements DirectorySourceCatalog {
       refreshCount: this.refreshCount,
       pollIntervalMilliseconds: this.pollIntervalMilliseconds,
       timerActive: this.timer !== null,
+      eventMonitorActive: this.stopProviderWatch !== null,
       activeOperations: this.activeOperations.size,
       initialEnumerationMilliseconds: this.initialEnumerationMilliseconds,
       maximumEnumerationMilliseconds: this.maximumEnumerationMilliseconds,
@@ -424,6 +432,8 @@ export class RemovableStorageService implements DirectorySourceCatalog {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.stopProviderWatch?.();
+    this.stopProviderWatch = null;
     await this.refreshPromise?.catch(() => undefined);
     this.listeners.clear();
     for (const operation of this.activeOperations.values())

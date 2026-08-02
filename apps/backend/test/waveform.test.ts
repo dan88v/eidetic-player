@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { normalizeAndResample } from "../src/analysis/waveform-service.js";
+import { waveformPreloadIds } from "../src/analysis/waveform-preload-plan.js";
 
 void test("waveform silence returns exactly 512 finite zero buckets", () => {
   const points = normalizeAndResample(Array(1_000).fill(0) as number[], 512);
@@ -27,5 +29,38 @@ void test("waveform handles a long simulated stream deterministically", () => {
   assert.deepEqual(
     normalizeAndResample(input, 512),
     normalizeAndResample(input, 512),
+  );
+});
+
+void test("waveform preload follows the playback plan instead of the empty legacy queue", () => {
+  assert.deepEqual(
+    waveformPreloadIds({
+      currentPlayback: { playbackInstanceId: "context-current" },
+      explicitQueue: [{ playbackInstanceId: "explicit-next" }],
+      queue: [],
+      currentQueueIndex: -1,
+    }),
+    { currentId: "context-current", nextId: "explicit-next" },
+  );
+  assert.deepEqual(
+    waveformPreloadIds({
+      currentPlayback: null,
+      explicitQueue: [],
+      queue: [{ id: "legacy-current" }, { id: "legacy-next" }],
+      currentQueueIndex: 0,
+    }),
+    { currentId: "legacy-current", nextId: "legacy-next" },
+  );
+});
+
+void test("waveform extraction uses the bounded Raspberry decode rate and reuses queued work", async () => {
+  const source = await readFile(
+    "apps/backend/src/analysis/waveform-service.ts",
+    "utf8",
+  );
+  assert.match(source, /"-ar",\s*"2000"/u);
+  assert.match(
+    source,
+    /await previous;[\s\S]*this\.cache\.get\(fingerprint\)/u,
   );
 });

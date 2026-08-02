@@ -20,6 +20,7 @@ import type {
   AirPlayPlatformAdapter,
   AirPlayPlatformStatus,
 } from "../src/airplay/airplay-platform-adapter.js";
+import { airPlayServiceCommandPlan } from "../src/airplay/airplay-platform-adapter.js";
 
 function metadataItem(type: string, code: string, bytes: Buffer): string {
   const hexadecimal = (value: string): string =>
@@ -39,6 +40,7 @@ class FixturePlatform implements AirPlayPlatformAdapter {
   active = false;
   advertisementChecks = 0;
   restartCount = 0;
+  setEnabledCount = 0;
 
   constructor(
     private readonly advertisements: (
@@ -69,6 +71,7 @@ class FixturePlatform implements AirPlayPlatformAdapter {
     return Promise.resolve();
   }
   setEnabled(enabled: boolean): Promise<void> {
+    this.setEnabledCount += 1;
     this.active = enabled;
     return Promise.resolve();
   }
@@ -362,6 +365,48 @@ void test("AirPlay fixture never opens the native metadata FIFO on Linux", () =>
   assert.equal(shouldStartAirPlayMetadataReader(false, "linux", "1"), false);
 });
 
+void test("enabled AirPlay starts only after the backend runtime and clears a stale systemd failure", () => {
+  assert.deepEqual(airPlayServiceCommandPlan(true), [
+    ["--user", "disable", "eidetic-player-airplay.service"],
+    ["--user", "reset-failed", "eidetic-player-airplay.service"],
+    ["--user", "start", "eidetic-player-airplay.service"],
+  ]);
+  assert.deepEqual(airPlayServiceCommandPlan(false), [
+    ["--user", "disable", "--now", "eidetic-player-airplay.service"],
+  ]);
+});
+
+void test("an already-running receiver is detached from boot before its generated config is reloaded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-running-"));
+  const platform = new FixturePlatform();
+  platform.active = true;
+  const provider = new AirPlayProvider(platform);
+  const service = new AirPlayService(
+    provider,
+    platform,
+    () => Promise.resolve(),
+    new AirPlayStore(root),
+  );
+  try {
+    await service.initialize(() => ({
+      physicalOutputId: "usb-dac",
+      description: "USB DAC",
+      routeKind: "alsa",
+      providerTarget: "alsa/hw:2,0",
+      levelMode: "variable",
+      maximumSoftwareVolume: 100,
+      availabilityRevision: 1,
+    }));
+    assert.equal(platform.setEnabledCount, 1);
+    assert.equal(platform.restartCount, 1);
+    assert.equal(service.snapshot().serviceStatus, "ready");
+  } finally {
+    service.close();
+    await provider.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 void test("blocking AirPlay hook grants only after provider acquisition and releases on shutdown", async () => {
   const platform = new FixturePlatform();
   const provider = new AirPlayProvider(platform);
@@ -402,4 +447,80 @@ void test("blocking AirPlay hook grants only after provider acquisition and rele
     await provider.shutdown();
   }
   assert.equal(platform.stopped, true);
+});
+
+void test("natural AirPlay end releases without restarting the idle receiver", async () => {
+  const platform = new FixturePlatform();
+  const provider = new AirPlayProvider(platform);
+  try {
+    await provider.initialize();
+    provider.setPreparedRoute({
+      physicalOutputId: "usb-dac",
+      description: "USB DAC",
+      routeKind: "alsa",
+      providerTarget: "alsa/hw:2,0",
+      levelMode: "variable",
+      maximumSoftwareVolume: 100,
+      availabilityRevision: 1,
+    });
+    const starting = new Promise<{ sessionId: string; generation: number }>(
+      (resolve) => {
+        provider.subscribe((event) => {
+          if (event.kind === "session-starting")
+            resolve({
+              sessionId: event.sessionId,
+              generation: event.generation,
+            });
+        });
+      },
+    );
+    const grant = control(platform.controlSocket, "BEFORE 1");
+    const session = await starting;
+    await provider.acquire(session.sessionId, session.generation + 1);
+    assert.equal(await grant, "GRANT\n");
+    assert.equal(await control(platform.controlSocket, "AFTER 1"), "OK\n");
+    await provider.stop(provider.snapshot().generation + 1);
+    assert.equal(platform.restartCount, 0);
+  } finally {
+    await provider.shutdown();
+  }
+});
+
+void test("AirPlay buffering is bounded and recovers instead of holding MPV indefinitely", async () => {
+  const platform = new FixturePlatform();
+  const provider = new AirPlayProvider(platform, 48_000, 20);
+  try {
+    await provider.initialize();
+    provider.setPreparedRoute({
+      physicalOutputId: "usb-dac",
+      description: "USB DAC",
+      routeKind: "alsa",
+      providerTarget: "alsa/hw:2,0",
+      levelMode: "variable",
+      maximumSoftwareVolume: 100,
+      availabilityRevision: 1,
+    });
+    const events: string[] = [];
+    const starting = new Promise<{ sessionId: string; generation: number }>(
+      (resolve) => {
+        provider.subscribe((event) => {
+          events.push(event.kind);
+          if (event.kind === "session-starting")
+            resolve({
+              sessionId: event.sessionId,
+              generation: event.generation,
+            });
+        });
+      },
+    );
+    const grant = control(platform.controlSocket, "BEFORE 1");
+    const session = await starting;
+    await provider.acquire(session.sessionId, session.generation + 1);
+    assert.equal(await grant, "GRANT\n");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(provider.snapshot().state, "error");
+    assert.ok(events.includes("error"));
+  } finally {
+    await provider.shutdown();
+  }
 });

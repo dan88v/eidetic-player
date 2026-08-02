@@ -10,7 +10,7 @@ StartLimitBurst=3
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/test -S %t/eidetic-player/airplay-control.sock
-ExecStart=/opt/eidetic-player/current/airplay/bin/shairport-sync -c %h/.config/eidetic-player/airplay/shairport-sync.conf
+ExecStart=/opt/eidetic-player/current/airplay/bin/shairport-sync -v -c %h/.config/eidetic-player/airplay/shairport-sync.conf
 Restart=on-failure
 RestartSec=3
 TimeoutStartSec=15

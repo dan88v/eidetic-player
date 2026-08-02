@@ -30,6 +30,7 @@ import {
 } from "./readiness.js";
 import { VisualizerHub } from "./analysis/visualizer-hub.js";
 import { WaveformService } from "./analysis/waveform-service.js";
+import { waveformPreloadIds } from "./analysis/waveform-preload-plan.js";
 import { analysisConfig } from "./analysis/analysis-config.js";
 import { LocalFilesystemProvider } from "./filesystem/local-filesystem-provider.js";
 import { PathService } from "./filesystem/path-service.js";
@@ -549,24 +550,26 @@ const waveform = new WaveformService(() => analyzer.getDiscovery());
 let waveformPreloadSignature = "";
 function preloadWaveforms(force = false): void {
   const state = player.getState();
-  const current = state.queue[state.currentQueueIndex];
-  const next = state.queue[state.currentQueueIndex + 1];
-  const signature = `${current?.id ?? ""}:${next?.id ?? ""}`;
+  const { currentId, nextId } = waveformPreloadIds(state);
+  const currentPath = currentId ? player.getQueueItemPath(currentId) : null;
+  const nextPath = nextId ? player.getQueueItemPath(nextId) : null;
+  const signature = `${currentId ?? ""}:${nextId ?? ""}`;
   if (!force && signature === waveformPreloadSignature) return;
   waveformPreloadSignature = signature;
-  if (!current) {
+  if (!currentId || !currentPath) {
     waveform.cancel();
     return;
   }
   void waveform
-    .get(current.id, current.path)
+    .get(currentId, currentPath)
     .then(async () => {
       if (
         analysisConfig.waveformNextPreloadEnabled &&
-        next &&
+        nextId &&
+        nextPath &&
         waveformPreloadSignature === signature
       )
-        await waveform.get(next.id, next.path);
+        await waveform.get(nextId, nextPath);
     })
     .catch(() => {
       // The frontend keeps its deterministic fallback.

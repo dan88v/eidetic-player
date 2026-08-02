@@ -20,5 +20,6 @@ export interface RemovableVolumeCandidate {
 export interface RemovableStorageProvider {
   readonly platform: "win32" | "linux" | "fixture";
   enumerate(): Promise<readonly RemovableVolumeCandidate[]>;
+  watch?(listener: () => void): () => void;
   close(): Promise<void>;
 }
