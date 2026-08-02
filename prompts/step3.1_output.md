@@ -564,3 +564,16 @@ The first complete MPV run exposed one timing-sensitive USB-disconnect fixture
 assertion. That unchanged case passed immediately in isolation, and the final
 complete MPV pass succeeded 13/13 with clean process teardown. No commit, push,
 Raspberry deployment, installer or remote update was performed.
+
+### Linux CI assertion correction
+
+The first Linux CI run exposed a platform-specific assertion in the new
+deterministic recovery test. Its synthetic native path uses Windows separators;
+therefore Node's POSIX path implementation intentionally derived
+`C:\fixture\B` as the fallback technical title instead of Windows' `B`. The
+runtime recovery remained correct. The assertion now checks the actual public
+contract — a non-null Current, canonical planner display title `B`, aligned
+execution IDs and position 12 — without inspecting an OS-dependent fallback
+title or leaking/comparing a native path. The focused recovery pair and the
+complete local suite pass after this correction; the Linux CI rerun remains
+the authoritative POSIX confirmation.
