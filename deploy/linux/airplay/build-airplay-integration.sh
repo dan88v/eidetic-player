@@ -41,6 +41,9 @@ import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as source:
     manifest = json.load(source)
+smi_version = manifest["nqptp"]["expectedSharedMemoryVersion"]
+if isinstance(smi_version, bool) or not isinstance(smi_version, int) or not 1 <= smi_version <= 999:
+    raise SystemExit("invalid AirPlay shared-memory interface version")
 values = [
     manifest["integrationVersion"],
     manifest["shairportSync"]["release"],
@@ -49,6 +52,7 @@ values = [
     manifest["nqptp"]["release"],
     manifest["nqptp"]["archiveUrl"],
     manifest["nqptp"]["sha256"],
+    str(smi_version),
 ]
 for value in values:
     if not isinstance(value, str) or "\x00" in value or "\n" in value:
@@ -56,7 +60,7 @@ for value in values:
     sys.stdout.buffer.write(value.encode("utf-8") + b"\x00")
 PY
 )
-(( ${#fields[@]} == 7 )) || { printf 'invalid AirPlay source manifest\n' >&2; exit 1; }
+(( ${#fields[@]} == 8 )) || { printf 'invalid AirPlay source manifest\n' >&2; exit 1; }
 integration_version="${fields[0]}"
 shairport_version="${fields[1]}"
 shairport_url="${fields[2]}"
@@ -64,6 +68,7 @@ shairport_sha="${fields[3]}"
 nqptp_version="${fields[4]}"
 nqptp_url="${fields[5]}"
 nqptp_sha="${fields[6]}"
+nqptp_smi_version="${fields[7]}"
 
 case "$integration_version" in
   *[!A-Za-z0-9.+_-]*) printf 'unsafe integration version\n' >&2; exit 1 ;;
@@ -130,6 +135,17 @@ extract_checked "$shairport_archive" "$workspace/shairport" "shairport-sync-$sha
 extract_checked "$nqptp_archive" "$workspace/nqptp" "nqptp-$nqptp_version"
 shairport_source="$workspace/shairport/shairport-sync-$shairport_version"
 nqptp_source="$workspace/nqptp/nqptp-$nqptp_version"
+for header in \
+  "$shairport_source/nqptp-shm-structures.h" \
+  "$nqptp_source/nqptp-shm-structures.h"; do
+  grep -Eq \
+    "^#define[[:space:]]+NQPTP_SHM_STRUCTURES_VERSION[[:space:]]+$nqptp_smi_version([[:space:]]|$)" \
+    "$header" || {
+    printf 'AirPlay shared-memory interface mismatch: expected %s in %s\n' \
+      "$nqptp_smi_version" "$(basename -- "$(dirname -- "$header")")" >&2
+    exit 1
+  }
+done
 
 (
   cd "$shairport_source"
@@ -193,7 +209,7 @@ PY
 chmod 0644 "$stage/artifact.json"
 file "$stage/bin/shairport-sync" "$stage/bin/nqptp"
 shairport_features="$("$stage/bin/shairport-sync" -V 2>&1)"
-for feature in 5.2.1 AirPlay2 smi5 OpenSSL Avahi ALSA PipeWire soxr metadata; do
+for feature in 5.2.1 AirPlay2 "smi$nqptp_smi_version" OpenSSL Avahi ALSA PipeWire soxr metadata; do
   grep -Fq "$feature" <<<"$shairport_features" || {
     printf 'Shairport Sync feature missing from version string: %s\n' "$feature" >&2
     exit 1
@@ -201,7 +217,8 @@ for feature in 5.2.1 AirPlay2 smi5 OpenSSL Avahi ALSA PipeWire soxr metadata; do
 done
 nqptp_features="$("$stage/bin/nqptp" -V 2>&1)"
 grep -Fq '1.2.8' <<<"$nqptp_features"
-grep -Eq 'Shared Memory Interface Version:[[:space:]]*5' <<<"$nqptp_features"
+grep -Fq "Shared Memory Interface Version: smi$nqptp_smi_version." \
+  <<<"$nqptp_features"
 printf '%s\n%s\n' "$shairport_features" "$nqptp_features"
 mv -- "$stage" "$OUTPUT"
 printf 'AirPlay integration built: %s\n' "$integration_version"

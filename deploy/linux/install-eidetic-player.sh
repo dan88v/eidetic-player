@@ -479,6 +479,11 @@ airplay_integration_version="$(python3 -c \
   "$SCRIPT_DIR/airplay/sources.json")"
 [[ "$airplay_integration_version" =~ ^[A-Za-z0-9.+_-]{1,128}$ ]] ||
   eidetic_die "AirPlay integration manifest has an invalid version"
+airplay_smi_version="$(python3 -c \
+  'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["nqptp"]["expectedSharedMemoryVersion"])' \
+  "$SCRIPT_DIR/airplay/sources.json")"
+[[ "$airplay_smi_version" =~ ^[1-9][0-9]{0,2}$ ]] ||
+  eidetic_die "AirPlay integration manifest has an invalid shared-memory interface version"
 airplay_cache_root="$(eidetic_target /var/cache/eidetic-player/airplay)"
 airplay_cache="$airplay_cache_root/${airplay_integration_version}-${EIDETIC_ARCH}"
 airplay_cache_hit=0
@@ -523,12 +528,13 @@ PY
     amd64) grep -Eq 'x86-64|x86_64' <<<"$binary_details" || return 1 ;;
   esac
   shairport_version="$("$root/bin/shairport-sync" -V 2>&1)" || return 1
-  for feature in 5.2.1 AirPlay2 smi5 OpenSSL Avahi ALSA PipeWire soxr metadata; do
+  for feature in 5.2.1 AirPlay2 "smi$airplay_smi_version" OpenSSL Avahi ALSA PipeWire soxr metadata; do
     grep -Fq "$feature" <<<"$shairport_version" || return 1
   done
   nqptp_version="$("$root/bin/nqptp" -V 2>&1)" || return 1
   grep -Fq '1.2.8' <<<"$nqptp_version" || return 1
-  grep -Eq 'Shared Memory Interface Version:[[:space:]]*5' <<<"$nqptp_version" || return 1
+  grep -Fq "Shared Memory Interface Version: smi$airplay_smi_version." \
+    <<<"$nqptp_version" || return 1
   linkage="$(ldd "$root/bin/shairport-sync"; ldd "$root/bin/nqptp")" || return 1
   ! grep -Fq 'not found' <<<"$linkage" || return 1
 }

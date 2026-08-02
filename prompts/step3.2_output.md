@@ -32,10 +32,10 @@ were used.
 | Shairport Sync | `5.2.1`            | `08af668a5d17b4714da38981dea4c9039263a4cc` | `8f97d1a6e045bc3765b10d0cd64abe467eba343af89fa1e158f7fa28b73c4ab6` | MIT with bundled component notices |
 | NQPTP          | `1.2.8`            | `c925f27c1fd12e4033ac477e5a405969b0b0260b` | `3a2882a299c21605f53bb215ce537f9cc7a1e894476f639ab28562c68fd183a9` | GPL-2.0-or-later                   |
 
-The audited Shairport release exposes AirPlay 2 with SMI version 5, Classic
+The audited Shairport release exposes AirPlay 2 with SMI version 10, Classic
 fallback through one receiver, OpenSSL, Avahi, ALSA, PipeWire, soxr, metadata,
 metadata pipe, session interruption, and a 15-second session timeout. The
-NQPTP release reports shared-memory interface version 5 and owns the AirPlay 2
+NQPTP release reports shared-memory interface version 10 and owns the AirPlay 2
 timing role on UDP 319/320.
 
 The authoritative manifest is `deploy/linux/airplay/sources.json`. It records
@@ -94,6 +94,26 @@ hash map, so the installation doctor correctly rejected their integrity. The
 staging installer now records the actual SHA-256 digest for both generated
 fixture binaries, preserving the production-strength doctor check instead of
 weakening it for tests.
+
+The subsequent real source-build run compiled both receivers successfully and
+then exposed an incorrect post-build expectation: the pinned Shairport Sync
+5.2.1 and NQPTP 1.2.8 sources both declare SMI version 10, while the original
+manifest expected version 5. The manifest now records version 10, and both the
+builder and installed-cache validator derive their `smi` checks from that
+single value. The builder also compares the authenticated source headers before
+compilation, so mismatched Shairport and NQPTP shared-memory contracts fail
+before an artifact can be published. The managed integration identity advances
+to `shairport-sync-5.2.1-eidetic.2+nqptp-1.2.8`, preventing reuse of a cache
+created under the superseded SMI declaration. Existing AirPlay stores migrate
+that internal integration identity atomically on startup while preserving the
+receiver name and enabled state.
+
+The Linux full-suite run then exposed a fixture lifecycle defect: the AirPlay
+provider opened its native metadata FIFO based only on the host OS, despite the
+platform adapter being an explicit fixture. Fixtures now always skip native
+FIFO work, and the blocking-hook regression owns shutdown even when provider
+initialization rejects, preventing failed tests from leaving a control server
+that stalls the entire Node test process.
 
 The root-owned cache is keyed by integration version and architecture. A cache
 entry is accepted only when it is root-owned, contains no symlink or

@@ -21,7 +21,7 @@ const SCHEMA_VERSION = 1 as const;
 const FILE_NAME = "airplay.json";
 const SUFFIX_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 export const AIRPLAY_INTEGRATION_VERSION =
-  "shairport-sync-5.2.1-eidetic.1+nqptp-1.2.8";
+  "shairport-sync-5.2.1-eidetic.2+nqptp-1.2.8";
 
 export interface AirPlayDocument extends Record<string, unknown> {
   readonly schemaVersion: 1;
@@ -167,6 +167,18 @@ export class AirPlayStore {
       this.document = parseDocument(
         JSON.parse(await readFile(this.path, "utf8")) as unknown,
       );
+      if (this.document.integrationVersion !== AIRPLAY_INTEGRATION_VERSION) {
+        const migrated: AirPlayDocument = {
+          ...this.document,
+          revision: this.document.revision + 1,
+          integrationVersion: AIRPLAY_INTEGRATION_VERSION,
+          updatedAt: new Date().toISOString(),
+        };
+        await this.write(migrated);
+        this.document = parseDocument(
+          JSON.parse(await readFile(this.path, "utf8")) as unknown,
+        );
+      }
     } catch (error) {
       this.readOnly = true;
       throw error;

@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { AirPlayStore } from "../src/airplay/airplay-store.js";
+import {
+  AIRPLAY_INTEGRATION_VERSION,
+  AirPlayStore,
+} from "../src/airplay/airplay-store.js";
 import { renderAirPlayConfig } from "../src/airplay/airplay-config-renderer.js";
 import { AirPlayMetadataParser } from "../src/airplay/airplay-metadata-parser.js";
-import { AirPlayProvider } from "../src/airplay/airplay-provider.js";
+import {
+  AirPlayProvider,
+  shouldStartAirPlayMetadataReader,
+} from "../src/airplay/airplay-provider.js";
 import { AirPlayService } from "../src/airplay/airplay-service.js";
 import type {
   AirPlayPlatformAdapter,
@@ -125,6 +131,42 @@ void test("AirPlay store defaults On with an anonymous persistent receiver name"
     const disabled = await store.save({ enabled: false });
     assert.equal(disabled.enabled, false);
     assert.equal((await new AirPlayStore(root).initialize()).enabled, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("AirPlay store migrates its integration identity without changing user settings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-store-version-"));
+  const path = join(root, "airplay.json");
+  try {
+    const store = new AirPlayStore(root);
+    const initial = await store.initialize();
+    const legacy = {
+      ...initial,
+      revision: 7,
+      enabled: false,
+      receiverName: "Listening Room",
+      receiverNameOrigin: "user",
+      integrationVersion: "shairport-sync-5.2.1-eidetic.1+nqptp-1.2.8",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    await writeFile(path, `${JSON.stringify(legacy)}\n`, "utf8");
+
+    const migrated = await new AirPlayStore(root).initialize();
+    assert.equal(migrated.integrationVersion, AIRPLAY_INTEGRATION_VERSION);
+    assert.equal(migrated.revision, 8);
+    assert.equal(migrated.enabled, false);
+    assert.equal(migrated.receiverName, "Listening Room");
+    assert.equal(migrated.receiverNameOrigin, "user");
+    assert.notEqual(migrated.updatedAt, legacy.updatedAt);
+
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      integrationVersion: string;
+      revision: number;
+    };
+    assert.equal(persisted.integrationVersion, AIRPLAY_INTEGRATION_VERSION);
+    assert.equal(persisted.revision, 8);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -313,20 +355,27 @@ void test("AirPlay metadata parser handles fragmented text, progress, volume, an
   assert.deepEqual(parser.push(malformed), []);
 });
 
+void test("AirPlay fixture never opens the native metadata FIFO on Linux", () => {
+  assert.equal(shouldStartAirPlayMetadataReader(true, "linux", ""), false);
+  assert.equal(shouldStartAirPlayMetadataReader(false, "linux", ""), true);
+  assert.equal(shouldStartAirPlayMetadataReader(false, "win32", ""), false);
+  assert.equal(shouldStartAirPlayMetadataReader(false, "linux", "1"), false);
+});
+
 void test("blocking AirPlay hook grants only after provider acquisition and releases on shutdown", async () => {
   const platform = new FixturePlatform();
   const provider = new AirPlayProvider(platform);
-  await provider.initialize();
-  provider.setPreparedRoute({
-    physicalOutputId: "usb-dac",
-    description: "USB DAC",
-    routeKind: "alsa",
-    providerTarget: "alsa/hw:2,0",
-    levelMode: "variable",
-    maximumSoftwareVolume: 100,
-    availabilityRevision: 1,
-  });
   try {
+    await provider.initialize();
+    provider.setPreparedRoute({
+      physicalOutputId: "usb-dac",
+      description: "USB DAC",
+      routeKind: "alsa",
+      providerTarget: "alsa/hw:2,0",
+      levelMode: "variable",
+      maximumSoftwareVolume: 100,
+      availabilityRevision: 1,
+    });
     const starting = new Promise<{ sessionId: string; generation: number }>(
       (resolve) => {
         provider.subscribe((event) => {

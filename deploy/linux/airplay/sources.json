@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "integrationVersion": "shairport-sync-5.2.1-eidetic.1+nqptp-1.2.8",
+  "integrationVersion": "shairport-sync-5.2.1-eidetic.2+nqptp-1.2.8",
   "shairportSync": {
     "project": "mikebrady/shairport-sync",
     "release": "5.2.1",
@@ -36,7 +36,7 @@
     "archiveUrl": "https://codeload.github.com/mikebrady/nqptp/tar.gz/refs/tags/1.2.8",
     "sha256": "3a2882a299c21605f53bb215ce537f9cc7a1e894476f639ab28562c68fd183a9",
     "license": "GPL-2.0-or-later",
-    "expectedSharedMemoryVersion": 5
+    "expectedSharedMemoryVersion": 10
   },
   "buildDependencies": [
     "autoconf",

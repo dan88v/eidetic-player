@@ -40,6 +40,14 @@ interface PendingGrant {
   readonly timeout: NodeJS.Timeout;
 }
 
+export function shouldStartAirPlayMetadataReader(
+  fixture: boolean,
+  runtimePlatform: NodeJS.Platform = process.platform,
+  fixtureOverride = process.env.EIDETIC_AIRPLAY_FIXTURE,
+): boolean {
+  return !fixture && runtimePlatform !== "win32" && fixtureOverride !== "1";
+}
+
 export class AirPlayProvider implements ExternalPlaybackProvider {
   readonly kind = "airplay" as const;
   readonly capabilities = CAPABILITIES;
@@ -88,10 +96,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   async initialize(): Promise<void> {
     await this.platform.prepareRuntime();
     await this.startControlServer();
-    if (
-      process.platform !== "win32" &&
-      process.env.EIDETIC_AIRPLAY_FIXTURE !== "1"
-    )
+    if (shouldStartAirPlayMetadataReader(this.platform.fixture))
       await this.startMetadataReader();
   }
 

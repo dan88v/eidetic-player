@@ -76,7 +76,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     "versioned integration manifest",
     manifest.schemaVersion === 1 &&
       manifest.integrationVersion ===
-        "shairport-sync-5.2.1-eidetic.1+nqptp-1.2.8",
+        "shairport-sync-5.2.1-eidetic.2+nqptp-1.2.8",
   );
   for (const [label, source] of [
     ["Shairport Sync", manifest.shairportSync],
@@ -98,6 +98,24 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
         sha256.test(source.sha256),
     );
   }
+  check(
+    passed,
+    failed,
+    "matching Shairport and NQPTP SMI 10 contract",
+    manifest.nqptp?.expectedSharedMemoryVersion === 10 &&
+      builder.includes("NQPTP_SHM_STRUCTURES_VERSION") &&
+      builder.includes('"smi$nqptp_smi_version"') &&
+      builder.includes(
+        "Shared Memory Interface Version: smi$nqptp_smi_version.",
+      ) &&
+      installer.includes('airplay_smi_version="$(python3') &&
+      installer.includes('"smi$airplay_smi_version"') &&
+      installer.includes(
+        "Shared Memory Interface Version: smi$airplay_smi_version.",
+      ) &&
+      !builder.includes("smi5") &&
+      !installer.includes("smi5"),
+  );
   check(
     passed,
     failed,
