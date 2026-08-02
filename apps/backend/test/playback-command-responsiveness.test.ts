@@ -37,8 +37,10 @@ interface PlayerHarness {
   originalQueue: string[];
   playlistItemIds: string[];
   transitionPending: boolean;
+  enrichmentPathKey: string | null;
   handleMpvMessage(message: MpvResponse): void;
   refreshProperties(): Promise<void>;
+  pathKey(path: string): string;
   playbackPlanSnapshot: ReturnType<PlaybackPlanner["snapshot"]>;
 }
 
@@ -337,6 +339,133 @@ void test("refresh from an older transition generation cannot clear the newer tr
       .getCommandDiagnostics()
       .some((entry) => entry.stage === "stale-discarded"),
   );
+});
+
+void test("property changes within one active transition do not strand its settling refresh", async () => {
+  const { harness, controller } = createHarness();
+  const resolvers: ((value: unknown) => void)[] = [];
+  controller.getProperty = () =>
+    new Promise((resolve) => {
+      resolvers.push(resolve);
+    });
+  harness.handleMpvMessage({ event: "start-file" });
+  const refresh = harness.refreshProperties();
+  harness.handleMpvMessage({
+    event: "property-change",
+    name: "playlist-pos",
+    data: -1,
+  });
+  for (const resolve of resolvers) resolve(undefined);
+  await refresh;
+  assert.equal(harness.transitionPending, false);
+});
+
+void test("128 randomized property races always settle one Current transition", async () => {
+  const { harness, controller } = createHarness();
+  const current = queue[0];
+  assert.ok(current);
+  harness.enrichmentPathKey = harness.pathKey(current.path);
+  let randomState = 0x5eeda11;
+  const random = (): number => {
+    randomState = (Math.imul(randomState, 1_664_525) + 1_013_904_223) >>> 0;
+    return randomState;
+  };
+  const shuffle = <T>(values: readonly T[]): T[] => {
+    const shuffled = [...values];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = random() % (index + 1);
+      [shuffled[index], shuffled[swapIndex]] = [
+        shuffled[swapIndex] as T,
+        shuffled[index] as T,
+      ];
+    }
+    return shuffled;
+  };
+
+  for (let iteration = 0; iteration < 128; iteration += 1) {
+    const playlist = [
+      {
+        filename: current.path,
+        current: true,
+        playing: true,
+      },
+    ];
+    const propertyValues = new Map<string, unknown>([
+      ["pause", false],
+      ["time-pos", iteration + 1],
+      ["duration", 180],
+      ["playlist", playlist],
+      ["playlist-pos", 0],
+      ["media-title", current.displayTitle],
+      ["metadata", { title: current.displayTitle }],
+      ["path", current.path],
+      ["audio-params", { samplerate: 44_100 }],
+      ["audio-codec-name", "flac"],
+      ["audio-buffer", 0.2],
+      ["idle-active", false],
+    ]);
+    const pendingReads: {
+      readonly name: string;
+      readonly resolve: (value: unknown) => void;
+    }[] = [];
+    controller.getProperty = (name) =>
+      new Promise((resolve) => {
+        pendingReads.push({ name, resolve });
+      });
+    const noise = shuffle<MpvResponse>([
+      { event: "property-change", name: "playlist-pos", data: -1 },
+      { event: "property-change", name: "path", data: null },
+      { event: "property-change", name: "playlist", data: [] },
+    ]);
+
+    harness.handleMpvMessage({ event: "start-file" });
+    harness.enrichmentPathKey = harness.pathKey(current.path);
+    if ((random() & 1) === 0) {
+      const firstNoise = noise.shift();
+      if (firstNoise) harness.handleMpvMessage(firstNoise);
+    }
+    const refresh = harness.refreshProperties();
+    for (const message of noise) harness.handleMpvMessage(message);
+    harness.handleMpvMessage({
+      event: "property-change",
+      name: "path",
+      data: current.path,
+    });
+    harness.handleMpvMessage({
+      event: "property-change",
+      name: "playlist",
+      data: playlist,
+    });
+    harness.handleMpvMessage({
+      event: "property-change",
+      name: "playlist-pos",
+      data: iteration % 3 === 0 ? 0 : -1,
+    });
+    for (const pending of pendingReads)
+      pending.resolve(propertyValues.get(pending.name));
+    await refresh;
+
+    assert.equal(
+      harness.transitionPending,
+      false,
+      `iteration ${String(iteration)}`,
+    );
+    assert.equal(
+      harness.state.currentQueueIndex,
+      0,
+      `iteration ${String(iteration)}`,
+    );
+    assert.equal(
+      harness.state.currentTrack?.path,
+      current.path,
+      `iteration ${String(iteration)}`,
+    );
+    assert.equal(
+      harness.state.positionSeconds,
+      iteration + 1,
+      `iteration ${String(iteration)}`,
+    );
+  }
 });
 
 void test("Play/Pause sends explicit latest targets during start-file", async () => {

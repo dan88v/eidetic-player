@@ -588,6 +588,100 @@ void test("implicit Context EOF keeps public metadata and progress aligned with 
   }
 });
 
+void test("24 automatic implicit Context transitions never strand public Current", async (context) => {
+  const discovery = await discoverMpv();
+  if (!discovery) {
+    context.skip("MPV is not installed; integration test skipped.");
+    return;
+  }
+  const folder = await mkdtemp(join(tmpdir(), "eidetic-mpv-context-stress-"));
+  const player = new PlayerService();
+  const controller = new MpvController();
+  const harness = player as unknown as {
+    state: PlayerState;
+    controller: MpvController | null;
+    unsubscribeMpv: (() => void) | null;
+    handleMpvMessage(message: MpvResponse): void;
+  };
+  try {
+    const paths = await Promise.all(
+      Array.from({ length: 24 }, async (_, index) => {
+        const number = String(index + 1).padStart(2, "0");
+        const path = join(folder, `Stress ${number}.wav`);
+        await writeFile(path, silentWav(index === 23 ? 5 : 0.75));
+        return path;
+      }),
+    );
+    await controller.start({
+      executable: discovery.executable,
+      extraArguments: ["--ao=null"],
+    });
+    harness.state = {
+      ...player.getState(),
+      status: "idle",
+      mpvAvailable: true,
+      mpvVersion: discovery.version,
+    };
+    harness.controller = controller;
+    harness.unsubscribeMpv = controller.subscribe((message) => {
+      harness.handleMpvMessage(message);
+    });
+
+    await player.openResolvedQueue(paths, 0, undefined, undefined, {
+      kind: "album",
+      title: "Implicit Context stress fixture",
+      source: { label: "Integration fixture" },
+    });
+    const seenTitles = new Set<string>();
+    const deadline = Date.now() + 30_000;
+    let missingCurrentSince: number | null = null;
+    let maximumMissingCurrentMilliseconds = 0;
+    let finalState = player.getPublicState();
+    while (Date.now() < deadline) {
+      finalState = player.getPublicState();
+      if (finalState.currentTrack)
+        seenTitles.add(finalState.currentTrack.title);
+      if (
+        finalState.status === "playing" &&
+        finalState.currentPlayback &&
+        !finalState.currentTrack
+      ) {
+        missingCurrentSince ??= Date.now();
+      } else if (missingCurrentSince !== null) {
+        maximumMissingCurrentMilliseconds = Math.max(
+          maximumMissingCurrentMilliseconds,
+          Date.now() - missingCurrentSince,
+        );
+        missingCurrentSince = null;
+      }
+      if (
+        finalState.currentTrack?.title === "Stress 24" &&
+        finalState.positionSeconds > 0.1
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (missingCurrentSince !== null)
+      maximumMissingCurrentMilliseconds = Math.max(
+        maximumMissingCurrentMilliseconds,
+        Date.now() - missingCurrentSince,
+      );
+
+    assert.equal(seenTitles.size, 24);
+    assert.equal(finalState.currentTrack?.title, "Stress 24");
+    assert.equal(finalState.currentPlayback?.item.displayTitle, "Stress 24");
+    assert.ok(finalState.positionSeconds > 0.1);
+    assert.ok(
+      maximumMissingCurrentMilliseconds < 1_000,
+      `public Current was absent for ${String(maximumMissingCurrentMilliseconds)} ms`,
+    );
+  } finally {
+    await controller.stop().catch(() => undefined);
+    await player.shutdown();
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 void test("MPV replaces every item from an existing Queue", async (context) => {
   const discovery = await discoverMpv();
   if (!discovery) {

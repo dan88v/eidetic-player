@@ -47,14 +47,23 @@ received a newer observed value. Interactive IPC is sent immediately on the
 single MPV connection. Read-only background refresh has a bounded two-request
 lane, and queued reads cannot hold up an interactive command.
 
+One MPV `start-file` owns one transition generation. The related `path` and
+`playlist-pos` property changes join that active generation instead of
+invalidating its settling refresh; a genuinely newer `start-file` still
+invalidates an older refresh. This prevents a transient `playlist-pos = -1`
+event from leaving the transition permanently pending after MPV has loaded and
+started the new file.
+
 After an implicit Context transition, an MPV playlist observation may already
 have discarded the consumed prefix while the local execution-ID array still
 describes the previous playlist shape. Before publishing Current, the backend
 may realign that observed playlist suffix to the planner execution projection,
 but only when the observed current path and every remaining path match the
-planned Current and future in order. A path mismatch is never repaired from
-stale metadata: public Current remains withheld until an authoritative
-transition resolves it.
+planned Current and future in order. If the scalar `playlist-pos` observation
+is transiently stale, exactly one playlist entry explicitly marked `current`
+and matching the observed path supplies the effective index. A missing,
+ambiguous, or path-mismatched marker is never trusted; public Current remains
+withheld until an authoritative transition resolves it.
 
 `beforePlayback` audio preparation is started without blocking Play or
 navigation. Play and Pause use explicit `set_property pause` targets; they

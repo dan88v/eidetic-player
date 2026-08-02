@@ -511,6 +511,40 @@ void test("implicit Context recovery rejects an observed track outside planned C
   assert.equal(player.getPublicState().currentTrack, null);
 });
 
+void test("implicit Context recovery uses the authoritative MPV playlist marker when playlist-pos is stale", async () => {
+  const context = ["A", "B", "C"].map((title) => ({
+    ...item(title),
+    nativePath: `C:/fixture/${title}.flac`,
+  }));
+  const { player, harness, controller } = createHarness({ context });
+  const originalIds = [...harness.playlistItemIds];
+
+  await player.next();
+  const planned = player.getPlaybackPlanSnapshot().current;
+  assert.equal(planned?.item.title, "B");
+  assert.ok(planned);
+
+  controller.paths = controller.paths.slice(1);
+  controller.playlistPosition = 0;
+  harness.playlistItemIds = originalIds;
+  harness.transitionPending = false;
+  harness.enrichmentPathKey = harness.pathKey(planned.item.nativePath);
+  harness.properties.set("pause", false);
+  harness.properties.set("idle-active", false);
+  harness.properties.set("duration", 60);
+  harness.properties.set("time-pos", 12);
+  harness.properties.set("path", planned.item.nativePath);
+  harness.properties.set("playlist-pos", -1);
+  harness.properties.set("playlist", await controller.getProperty("playlist"));
+  harness.deriveStateFromProperties();
+
+  const published = player.getPublicState();
+  assert.equal(harness.state.currentQueueIndex, 0);
+  assert.equal(published.currentTrack?.title, "B");
+  assert.equal(published.currentPlayback?.item.displayTitle, "B");
+  assert.equal(published.positionSeconds, 12);
+});
+
 void test("manual Next at the terminal Current is a no-op while natural EOF still stops", async () => {
   const artistId = `artist-${"7".repeat(32)}`;
   const currentTrackId = `track-${"8".repeat(32)}`;

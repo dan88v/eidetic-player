@@ -580,3 +580,77 @@ presentation resolve to `B`, together with aligned execution IDs and position
 12, without changing production behavior. The focused recovery pair and the
 complete local suite pass after this correction; the Linux CI rerun remains
 the authoritative POSIX confirmation.
+
+## Follow-up — definitive implicit-transition settling
+
+The defect recurred on Raspberry Pi release `ef6c449` and was inspected live
+without restarting or mutating playback. MPV was playing the expected SMB
+track at approximately 130/152 seconds, exposed complete title/artist/album
+metadata, and marked playlist entry zero as both `current` and `playing`.
+Meanwhile the public backend state remained `playing` with the correct planner
+Current and duration, but `currentTrack: null`, `positionSeconds: 0`, and the
+technical current index stuck at `-1`.
+
+This exposed a second transition race beyond the already-fixed stale execution
+IDs. Multiple `path`/`playlist-pos` property events belonging to one
+`start-file` transition could increment the transition generation while its
+settling refresh was in flight. That refresh was then discarded and no later
+event was guaranteed to clear `transitionPending`; the transient
+`playlist-pos = -1` could therefore become permanent even though MPV had
+settled at index zero.
+
+The transition state machine now gives each `start-file` one generation.
+Related property changes join the active generation and retain their existing
+per-property version protection, while a genuinely newer `start-file` still
+invalidates an older refresh. During state derivation, a unique MPV playlist
+entry explicitly marked `current` and matching the observed path supplies the
+effective index when the scalar position is stale. Missing, ambiguous, or
+path-mismatched markers are rejected. The existing full-suffix planner/path
+validation then realigns execution IDs before Current is published.
+
+New deterministic coverage reproduces the exact Raspberry state with an
+observed current playlist entry at index zero and stale scalar position `-1`.
+It verifies index recovery, title, planner presentation, and position 12. A
+second regression proves property changes inside one transition no longer
+strand its refresh, while a newer `start-file` still invalidates an older one.
+Focused playback-plan and command-responsiveness suites pass 31/31 and 14/14.
+
+Real Windows QA used the exact mandatory `npm.cmd run dev` Neutralino path and
+five generated Context tracks at a 1280×800 client viewport. All five distinct
+Current titles were observed through automatic EOF transitions across 277
+samples. The longest transient public interval without Current was 61.2 ms;
+none persisted or froze position. The final 60-second track visibly retained
+`05 Transition`, an advancing waveform seekbar at 30/60 seconds, active Mono
+Spectrum, stable artwork placeholder, and responsive transport without blank
+content, scroll, or layout shift. Temporary media and captures were removed,
+and Neutralino, backend, Vite, MPV, FFmpeg, and ports 4310/5173 shut down
+cleanly.
+
+Because the device failure was intermittent and had also appeared after more
+than five tracks, the final stress coverage is intentionally longer than the
+visual smoke. A deterministic seeded test executes 128 transition refreshes
+with shuffled transient `path`, empty playlist, and `playlist-pos = -1` events,
+varying whether they arrive before or during the in-flight refresh. Every run
+settles Current, index, path, and position. A real one-process MPV integration
+then advances automatically through 24 implicit Context tracks and observes
+all 24 public titles; the final Current and progress remain valid and no
+missing-Current interval reaches one second.
+
+Final validation after the extended stress coverage PASS:
+
+- `npm.cmd run format:check`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build`, including local UI, Remote UI, and backend
+- `npm.cmd test` — 796 total, 783 passed, 13 expected Windows skips, 0 failed
+- `npm.cmd run test:remote` — 30 total, 29 passed, 1 expected Windows skip
+- playback-plan integration — 31/31
+- command responsiveness — 15/15, including 128 seeded transition races
+- `npm.cmd run mpv:doctor`
+- `npm.cmd run test:mpv` — 14/14, including 24 automatic Context transitions
+- `npm.cmd run ffmpeg:doctor`
+- `npm.cmd run test:ffmpeg` — 3/3
+- `git diff --check`
+
+No commit, push, Raspberry deployment, service restart, installer, or remote
+update was performed.

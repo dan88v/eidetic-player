@@ -2620,7 +2620,7 @@ export class PlayerService implements AudioOutputMpvAdapter {
       case "start-file":
         if (this.preparingPlaylist) break;
         this.commandIntents.record("navigation", "start-file");
-        this.beginTrackTransition();
+        this.beginTrackTransition(true);
         break;
       case "file-loaded":
         if (this.preparingPlaylist) break;
@@ -2777,7 +2777,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
     this.deriveStateFromProperties();
   }
 
-  private beginTrackTransition(): void {
+  private beginTrackTransition(forceNewGeneration = false): void {
+    if (this.transitionPending && !forceNewGeneration) return;
     this.transitionGeneration += 1;
     this.commandIntents.record("navigation", "transition-start");
     if (this.transitionPending) return;
@@ -2800,10 +2801,15 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const idle = this.asBoolean(this.properties.get("idle-active"), false);
     const duration = this.asNumber(this.properties.get("duration"));
     const path = this.asString(this.properties.get("path"));
-    const playlistIndex = Math.trunc(
+    const reportedPlaylistIndex = Math.trunc(
       this.asNumber(this.properties.get("playlist-pos"), -1),
     );
     const playlist = this.properties.get("playlist");
+    const playlistIndex = this.resolveObservedPlaylistIndex(
+      path,
+      reportedPlaylistIndex,
+      playlist,
+    );
     this.repairObservedExecutionIdentities(path, playlistIndex, playlist);
     const queue = this.createQueue(playlist, playlistIndex, duration);
     const queueStructureChanged =
@@ -2888,6 +2894,27 @@ export class PlayerService implements AudioOutputMpvAdapter {
       const previousPath = queue[playlistIndex - 1]?.path ?? null;
       this.scheduleCurrentEnrichment(path, nextPath, previousPath);
     }
+  }
+
+  private resolveObservedPlaylistIndex(
+    path: string | null,
+    reportedIndex: number,
+    playlist: unknown,
+  ): number {
+    if (!path || !Array.isArray(playlist)) return reportedIndex;
+    const pathKey = this.pathKey(path);
+    const markedMatches = playlist.flatMap((entry, index) => {
+      if (!entry || typeof entry !== "object") return [];
+      const playlistEntry = entry as MpvPlaylistEntry;
+      const entryPath = this.asString(playlistEntry.filename);
+      return playlistEntry.current === true &&
+        entryPath &&
+        this.pathKey(entryPath) === pathKey
+        ? [index]
+        : [];
+    });
+    if (markedMatches.length === 1) return markedMatches[0] ?? reportedIndex;
+    return reportedIndex;
   }
 
   private repairObservedExecutionIdentities(
