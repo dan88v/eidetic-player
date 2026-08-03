@@ -136,9 +136,9 @@ import `apps/ui`, use local storage, register a service worker, or include a
 visualizer. Its mobile shell provides Player, Queue, Library, and Browse with a
 persistent mini-player and bottom navigation.
 
-The local Settings root contains the Remote access entry. Its dedicated page
-manages the listener preference, pairing-code lifetime, and paired-device
-revocation through loopback-only management routes.
+The local Settings Network page contains the Remote access entry after
+AirPlay. Its dedicated page manages the listener preference, pairing-code
+lifetime, and paired-device revocation through loopback-only management routes.
 
 The separate Vite build emits `dist/remote-ui`. Linux release verification
 requires that directory, and the installer copies it into the application

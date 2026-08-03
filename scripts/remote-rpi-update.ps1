@@ -3,7 +3,9 @@ param(
   [string]$HostAddress = "10.0.0.112",
   [string]$RemoteUser = "daniele",
   [string]$RepositoryUrl = "https://github.com/dan88v/eidetic-player.git",
-  [string]$Branch = "main"
+  [string]$Branch = "main",
+  [ValidateRange(30, 600)]
+  [int]$ReadinessTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +27,7 @@ if ($Branch -notmatch "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$") {
 }
 
 $target = "/home/$RemoteUser/eidetic-player"
+$readinessAttempts = [Math]::Ceiling($ReadinessTimeoutSeconds / 5)
 $remoteTemplate = @'
 set -eu
 case "$0" in
@@ -41,6 +44,32 @@ read_build_id() {
       "$manifest" | head -n 1
   else
     printf 'legacy/unknown'
+  fi
+}
+
+wait_for_stable_runtime() {
+  stable=0
+  attempt=1
+  while [ "$attempt" -le __READINESS_ATTEMPTS__ ]; do
+    readiness=$(curl --silent --show-error --max-time 2 \
+      http://127.0.0.1:4310/api/readiness 2>&1 || true)
+    airplay=$(curl --silent --show-error --max-time 2 \
+      http://127.0.0.1:4310/api/airplay/state 2>&1 || true)
+    printf '[%s/__READINESS_ATTEMPTS__] readiness=%s\n' "$attempt" "$readiness"
+    printf '[%s/__READINESS_ATTEMPTS__] airplay=%s\n' "$attempt" "$airplay"
+    if printf '%s' "$readiness" |
+        grep -Eq '"status":"(ready|degraded)"' &&
+      printf '%s' "$airplay" |
+        grep -Eq '"serviceStatus":"(ready|off|active|error|unavailable)"'; then
+      stable=1
+      break
+    fi
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+  if [ "$stable" != 1 ]; then
+    printf 'ERROR: backend and AirPlay did not reach stable states within __READINESS_TIMEOUT__ seconds.\n' >&2
+    exit 69
   fi
 }
 
@@ -114,6 +143,9 @@ if [ "$installed_after" != "$(printf '%.7s' "$checkout_target")" ]; then
   exit 69
 fi
 
+printf '\nWaiting for stable backend and AirPlay initialization:\n'
+wait_for_stable_runtime
+
 printf '\n=== 5/6 Read-only installation doctor ===\n'
 sudo ./deploy/linux/doctor-installation.sh
 
@@ -129,7 +161,9 @@ printf 'No reboot was requested or performed.\n'
 $remoteScript = $remoteTemplate.
   Replace("__TARGET__", $target).
   Replace("__REPOSITORY__", $RepositoryUrl).
-  Replace("__BRANCH__", $Branch)
+  Replace("__BRANCH__", $Branch).
+  Replace("__READINESS_ATTEMPTS__", [string]$readinessAttempts).
+  Replace("__READINESS_TIMEOUT__", [string]$ReadinessTimeoutSeconds)
 $encodedScript = [Convert]::ToBase64String(
   [Text.Encoding]::UTF8.GetBytes($remoteScript)
 )

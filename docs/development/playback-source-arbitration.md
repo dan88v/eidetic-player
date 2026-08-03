@@ -70,8 +70,11 @@ paused, and the state records `MULTIPLE_EXTERNAL_SOURCES`.
 
 All providers must accept the explicitly selected physical output; there is no
 silent System-default fallback. Global volume is clamped to the configured
-maximum and confirmed by the active provider. Fixed output is always 100% with
-mute disabled.
+maximum and confirmed by the active provider. Fixed output keeps the physical
+route at unity and rejects app-side volume/mute commands. A provider may
+explicitly support sender-side attenuation on that fixed route: the reported
+external level then remains session-local, never boosts above unity, and never
+overwrites the suspended Local level or its persisted preferences.
 
 EQ and DSP remain local to MPV. External sources do not start FFmpeg and cannot
 show the local analyzer or visualizer. Their Now Playing surface shows provider
@@ -102,16 +105,30 @@ The matching `AFTER 1` message ends the provider session.
 The private metadata FIFO carries only audited Shairport metadata codes. The
 bounded parser assembles fragmented items, ignores malformed or unknown items,
 validates UTF-8 and artwork signatures, and publishes title, artist, album,
-progress, artwork, and effective volume against the active session. Artwork is
-temporary and exposed only through an opaque resource ID. Fixed output ignores
-sender gain and stays at 100%; variable output maps the effective Shairport
-decibel range into the existing global level with hysteresis and bounded
-debounce.
+progress, artwork, and sender volume against the active session. Artwork is
+temporary, exposed only through an opaque resource ID, and remains absent when
+the sender does not supply a valid `PICT` item.
+
+AirPlay progress is conditional rather than advertised optimistically. A valid
+sender `prgr` item enables a non-seekable Line timeline; one session-scoped
+250 ms timer advances it only while the provider is playing and freezes it on
+buffering or flush. A metadata generation without valid progress hides the
+timeline on both the local and Remote surfaces. No waveform or FFmpeg work is
+started for AirPlay.
+
+Shairport always accepts sender volume for AirPlay. Its maximum is capped at
+0 dB, so an iPhone can attenuate a fixed-unity DAC but can never boost beyond
+the player's 100% fixed level. This AirPlay-only level does not mutate Local
+MPV volume. The generated Raspberry configuration uses the lightweight
+`vernier` interpolator and a 0.5-second backend buffer to provide headroom
+against ALSA underruns on the Pi 3B.
 
 `airplay.json` stores the enabled preference and receiver name atomically. The
-first install defaults to On and creates `Eidetic Player - XY` using a
-cryptographically random non-ambiguous suffix. Settings exposes the receiver
-under Network without adding another SSE connection.
+first install defaults to On and creates `Eidetic Player - 1A2B` using four
+cryptographically random uppercase hexadecimal characters. Existing generated
+two-character names migrate once; user-defined names are never replaced.
+Settings exposes the current name in the AirPlay row and edits it on a
+dedicated canonical subpage without adding another SSE connection.
 
 ## Shutdown and deployment
 

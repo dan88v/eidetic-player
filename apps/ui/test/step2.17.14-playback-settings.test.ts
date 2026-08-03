@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-void test("Playback is ordered between Audio and Network without moving Remote access", async () => {
+void test("Playback is ordered between Audio and Network while Remote access stays inside Network", async () => {
   const settings = await readFile("apps/ui/src/screens/settings.ts", "utf8");
   assert.match(
     settings,
-    /panel\.append\(\s*interfaceButton,\s*audioButton,\s*playbackButton,\s*networkButton,\s*remoteAccessButton,\s*\)/u,
+    /panel\.append\(interfaceButton, audioButton, playbackButton, networkButton\);/u,
+  );
+  assert.match(
+    settings,
+    /const remoteAccessRow = createRemoteAccessNavigation\(\);[\s\S]*airPlayRow,[\s\S]*remoteAccessRow,/u,
   );
   assert.match(settings, /panel\.append\(systemButton\);/u);
   assert.match(

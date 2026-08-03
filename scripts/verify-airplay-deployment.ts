@@ -209,6 +209,8 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
       installer.includes("eidetic-player-airplay-hook") &&
       installer.includes("airplay.json") &&
       installer.includes('"enabled": True') &&
+      installer.includes("secrets.token_hex(2).upper()") &&
+      !installer.includes("range(2)") &&
       installer.includes('airplay_plan="Preserved (Off)"') &&
       installer.includes('airplay_fixture_shairport_sha="$(sha256sum') &&
       installer.includes('airplay_fixture_nqptp_sha="$(sha256sum') &&

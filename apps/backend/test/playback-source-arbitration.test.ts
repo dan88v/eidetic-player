@@ -141,7 +141,7 @@ class AirPlayLocalAdapter extends FixtureLocalAdapter {
       description: "USB DAC",
       routeKind: "alsa" as const,
       providerTarget: "alsa/hw:2,0",
-      levelMode: "variable" as const,
+      levelMode: "fixed" as const,
       maximumSoftwareVolume: 80,
       availabilityRevision: 3,
     };
@@ -307,19 +307,22 @@ void test("production AirPlay provider grants only after Arbiter releases MPV an
   );
   try {
     await arbiter.initialize();
+    const localPreferenceVolume = preferences.snapshot().preferences.volume;
     const grant = airPlayControl(platform.controlSocket, "BEFORE 1");
     await waitFor(() => arbiter.snapshot().activeSource === "airplay");
     assert.equal(await grant, "GRANT\n");
     assert.equal(local.releaseCount, 1);
     assert.equal(arbiter.snapshot().providerState, "buffering");
     assert.equal(arbiter.snapshot().capabilities.next, false);
+    assert.equal(arbiter.snapshot().output.levelMode, "fixed");
 
     airplay.ingestFixtureMetadata(
       airPlayMetadataItem("ssnc", "mdst", "") +
         airPlayMetadataItem("core", "minm", "Current AirPlay Track") +
         airPlayMetadataItem("core", "asar", "Sender Artist") +
         airPlayMetadataItem("ssnc", "mden", "") +
-        airPlayMetadataItem("ssnc", "pbeg", ""),
+        airPlayMetadataItem("ssnc", "pbeg", "") +
+        airPlayMetadataItem("ssnc", "pvol", "-15.0,-15.0,-30.0,0.0"),
     );
     await waitFor(
       () =>
@@ -327,11 +330,20 @@ void test("production AirPlay provider grants only after Arbiter releases MPV an
         arbiter.snapshot().providerState === "playing",
     );
     assert.equal(arbiter.snapshot().metadata?.artist, "Sender Artist");
+    await waitFor(() => arbiter.snapshot().volume === 50);
+    assert.equal(
+      preferences.snapshot().preferences.volume,
+      localPreferenceVolume,
+    );
     assert.equal(
       await airPlayControl(platform.controlSocket, "AFTER 1"),
       "OK\n",
     );
     await waitFor(() => arbiter.snapshot().activeSource === "local");
+    assert.deepEqual(local.restoredLevels.at(-1), {
+      volume: 64,
+      muted: false,
+    });
   } finally {
     await arbiter.shutdown();
     await rm(root, { recursive: true, force: true });

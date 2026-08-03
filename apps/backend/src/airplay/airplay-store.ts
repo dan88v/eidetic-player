@@ -19,7 +19,9 @@ import { resolveAppDirectories } from "../platform/app-directories.js";
 
 const SCHEMA_VERSION = 1 as const;
 const FILE_NAME = "airplay.json";
-const SUFFIX_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const GENERATED_SUFFIX_PATTERN = /^[0-9A-F]{4}$/u;
+const LEGACY_GENERATED_SUFFIX_PATTERN =
+  /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{2}$/u;
 export const AIRPLAY_INTEGRATION_VERSION =
   "shairport-sync-5.2.1-eidetic.2+nqptp-1.2.8";
 
@@ -50,8 +52,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function generatedSuffix(): string {
-  const bytes = randomBytes(2);
-  return `${SUFFIX_ALPHABET.charAt(bytes.readUInt8(0) % SUFFIX_ALPHABET.length)}${SUFFIX_ALPHABET.charAt(bytes.readUInt8(1) % SUFFIX_ALPHABET.length)}`;
+  return randomBytes(2).toString("hex").toUpperCase();
 }
 
 function createDefault(): AirPlayDocument {
@@ -93,7 +94,8 @@ function parseDocument(value: unknown): AirPlayDocument {
     (value.receiverNameOrigin !== "generated" &&
       value.receiverNameOrigin !== "user") ||
     typeof value.generatedSuffix !== "string" ||
-    !/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{2}$/u.test(value.generatedSuffix) ||
+    (!GENERATED_SUFFIX_PATTERN.test(value.generatedSuffix) &&
+      !LEGACY_GENERATED_SUFFIX_PATTERN.test(value.generatedSuffix)) ||
     typeof value.integrationVersion !== "string" ||
     typeof value.updatedAt !== "string"
   )
@@ -167,10 +169,24 @@ export class AirPlayStore {
       this.document = parseDocument(
         JSON.parse(await readFile(this.path, "utf8")) as unknown,
       );
-      if (this.document.integrationVersion !== AIRPLAY_INTEGRATION_VERSION) {
+      const generatedSuffixIsLegacy = !GENERATED_SUFFIX_PATTERN.test(
+        this.document.generatedSuffix,
+      );
+      if (
+        this.document.integrationVersion !== AIRPLAY_INTEGRATION_VERSION ||
+        generatedSuffixIsLegacy
+      ) {
+        const suffix = generatedSuffixIsLegacy
+          ? generatedSuffix()
+          : this.document.generatedSuffix;
         const migrated: AirPlayDocument = {
           ...this.document,
           revision: this.document.revision + 1,
+          generatedSuffix: suffix,
+          ...(generatedSuffixIsLegacy &&
+          this.document.receiverNameOrigin === "generated"
+            ? { receiverName: `Eidetic Player - ${suffix}` }
+            : {}),
           integrationVersion: AIRPLAY_INTEGRATION_VERSION,
           updatedAt: new Date().toISOString(),
         };

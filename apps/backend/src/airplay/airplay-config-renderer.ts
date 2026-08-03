@@ -27,14 +27,16 @@ export function renderAirPlayConfig(
     throw new Error("The selected output route is not supported by AirPlay.");
   const backend = route.routeKind === "pipewire" ? "pw" : "alsa";
   const hook = paths.hookExecutable;
-  const fixed = route.levelMode === "fixed";
   return [
     "general =",
     "{",
     `  name = ${quoted(document.receiverName)};`,
     '  service_type = "auto";',
     `  output_backend = ${quoted(backend)};`,
-    `  ignore_volume_control = ${quoted(fixed ? "yes" : "no")};`,
+    '  interpolation = "vernier";',
+    '  ignore_volume_control = "no";',
+    "  volume_max_db = 0.0;",
+    "  audio_backend_buffer_desired_length_in_seconds = 0.5;",
     "};",
     "sessioncontrol =",
     "{",

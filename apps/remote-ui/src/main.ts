@@ -634,6 +634,8 @@ function renderPlayer(content: HTMLElement): void {
       ),
     );
   const timeline = element("div", "remote-timeline");
+  timeline.hidden =
+    source.activeSource === "airplay" && !source.capabilities.progress;
   const time = element("div", "remote-timeline__time");
   const activePosition = external
     ? (source.positionSeconds ?? 0)
@@ -817,14 +819,28 @@ function renderPlayer(content: HTMLElement): void {
     volumeSection.append(label, mute);
   } else if (external) {
     volumeSection = element("section", "remote-volume remote-volume--fixed");
-    volumeSection.append(
-      element("strong", "", "Fixed output · 100%"),
-      element(
-        "small",
-        "",
-        "Volume and mute are controlled by the external source or amplifier.",
-      ),
-    );
+    if (source.activeSource === "airplay")
+      volumeSection.append(
+        element(
+          "strong",
+          "",
+          `AirPlay volume · ${String(Math.round(activeVolume))}%`,
+        ),
+        element(
+          "small",
+          "",
+          "Controlled by the sender; 100% matches the player fixed level.",
+        ),
+      );
+    else
+      volumeSection.append(
+        element("strong", "", "Fixed output · 100%"),
+        element(
+          "small",
+          "",
+          "Volume and mute are controlled by the external source or amplifier.",
+        ),
+      );
   }
   if (!state.mpvAvailable)
     page.append(
@@ -855,6 +871,10 @@ function updatePlayerProgress(state: RemotePlayerState): void {
   if (!seek) return;
   const source = bootstrap?.playbackSource;
   const external = source?.activeSource !== "local";
+  const timeline = seek.closest<HTMLElement>(".remote-timeline");
+  if (timeline)
+    timeline.hidden =
+      source?.activeSource === "airplay" && !source.capabilities.progress;
   const position = external
     ? (source?.positionSeconds ?? 0)
     : state.positionSeconds;

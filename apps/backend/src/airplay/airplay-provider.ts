@@ -31,6 +31,9 @@ const CAPABILITIES: PlaybackSourceCapabilities = Object.freeze({
   artwork: true,
   progress: true,
 });
+const CAPABILITIES_WITHOUT_PROGRESS: PlaybackSourceCapabilities = Object.freeze(
+  { ...CAPABILITIES, progress: false },
+);
 const CONTROL_LIMIT = 256;
 const CONTROL_TIMEOUT_MILLISECONDS = 4_000;
 export const AIRPLAY_PLAYBACK_START_TIMEOUT_MILLISECONDS = 12_000;
@@ -52,6 +55,7 @@ export function shouldStartAirPlayMetadataReader(
 export class AirPlayProvider implements ExternalPlaybackProvider {
   readonly kind = "airplay" as const;
   readonly capabilities = CAPABILITIES;
+  readonly senderAttenuationOnFixedOutput = true;
   readonly automaticAcquisition = true;
   readonly seamlessSessionReplacement = true;
   private readonly listeners = new Set<
@@ -63,6 +67,12 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   private metadataHandle: Awaited<ReturnType<typeof open>> | null = null;
   private pending: PendingGrant | null = null;
   private playbackStartTimer: NodeJS.Timeout | null = null;
+  private progressTimer: NodeJS.Timeout | null = null;
+  private progressAnchor: {
+    readonly positionSeconds: number;
+    readonly durationSeconds: number;
+    readonly monotonicMilliseconds: number;
+  } | null = null;
   private volumeTimer: NodeJS.Timeout | null = null;
   private lastEmittedVolume = 100;
   private lastEmittedMuted = false;
@@ -86,13 +96,14 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     durationSeconds: null,
     volume: 100,
     muted: false,
-    capabilities: CAPABILITIES,
+    capabilities: CAPABILITIES_WITHOUT_PROGRESS,
   };
 
   constructor(
     private readonly platform: AirPlayPlatformAdapter,
     sampleRate = 48_000,
     private readonly playbackStartTimeoutMilliseconds = AIRPLAY_PLAYBACK_START_TIMEOUT_MILLISECONDS,
+    private readonly progressTickMilliseconds = 250,
   ) {
     this.parser = new AirPlayMetadataParser(sampleRate);
   }
@@ -226,7 +237,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       ...this.current,
       metadata: this.current.metadata ? { ...this.current.metadata } : null,
       artwork: this.current.artwork ? { ...this.current.artwork } : null,
-      capabilities: { ...CAPABILITIES },
+      capabilities: { ...this.current.capabilities },
     };
   }
 
@@ -337,8 +348,8 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     this.pendingMetadata = null;
     this.metadataSequenceArtworkRevision = null;
     this.terminalEvent = null;
-    this.lastEmittedVolume =
-      this.preparedRoute?.levelMode === "fixed" ? 100 : this.current.volume;
+    this.clearProgress();
+    this.lastEmittedVolume = 100;
     this.lastEmittedMuted = false;
     this.current = {
       sessionId,
@@ -353,10 +364,9 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       artwork: null,
       positionSeconds: null,
       durationSeconds: null,
-      volume:
-        this.preparedRoute?.levelMode === "fixed" ? 100 : this.current.volume,
+      volume: 100,
       muted: false,
-      capabilities: CAPABILITIES,
+      capabilities: CAPABILITIES_WITHOUT_PROGRESS,
     };
     this.emit("session-starting");
   }
@@ -388,6 +398,14 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   private receiveMetadata(event: AirPlayMetadataEvent): void {
     if (!this.current.sessionId) return;
     if (event.kind === "metadata-start") {
+      this.clearProgress();
+      this.current = {
+        ...this.current,
+        positionSeconds: null,
+        durationSeconds: null,
+        capabilities: CAPABILITIES_WITHOUT_PROGRESS,
+      };
+      this.emit("progress");
       this.metadataSequenceArtworkRevision =
         this.current.artwork?.revision ?? null;
       this.pendingMetadata = {
@@ -441,6 +459,11 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       };
       this.emit("artwork");
     } else if (event.kind === "progress") {
+      this.progressAnchor = {
+        positionSeconds: event.positionSeconds,
+        durationSeconds: event.durationSeconds,
+        monotonicMilliseconds: performance.now(),
+      };
       this.current = {
         ...this.current,
         positionSeconds: event.positionSeconds,
@@ -448,14 +471,15 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
         metadata: this.current.metadata
           ? { ...this.current.metadata, durationSeconds: event.durationSeconds }
           : null,
+        capabilities: CAPABILITIES,
       };
       this.emit("progress");
+      this.armProgressTicker();
     } else if (event.kind === "volume") {
-      const fixed = this.preparedRoute?.levelMode === "fixed";
       this.current = {
         ...this.current,
-        volume: fixed ? 100 : event.volume,
-        muted: fixed ? false : event.muted,
+        volume: event.volume,
+        muted: event.muted,
       };
       if (
         Math.abs(this.current.volume - this.lastEmittedVolume) < 0.5 &&
@@ -473,9 +497,13 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     } else if (event.kind === "playing") {
       this.clearPlaybackStartTimeout();
       this.patch("playing", "playing");
-    } else if (event.kind === "buffering" || event.kind === "flush")
+      this.rebaseProgressAnchor();
+      this.armProgressTicker();
+    } else if (event.kind === "buffering" || event.kind === "flush") {
+      this.rebaseProgressAnchor();
+      this.clearProgressTimer();
       this.patch("buffering", "buffering");
-    else if (event.kind === "ended") this.patch("stopped", "ended");
+    } else if (event.kind === "ended") this.patch("stopped", "ended");
     else this.patch("stopped", "disconnected");
   }
 
@@ -499,6 +527,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
 
   private clearSessionResources(): void {
     this.clearPlaybackStartTimeout();
+    this.clearProgress();
     this.artwork = null;
     this.pendingMetadata = null;
     this.metadataSequenceArtworkRevision = null;
@@ -522,6 +551,44 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   private clearPlaybackStartTimeout(): void {
     if (this.playbackStartTimer) clearTimeout(this.playbackStartTimer);
     this.playbackStartTimer = null;
+  }
+
+  private armProgressTicker(): void {
+    this.clearProgressTimer();
+    if (!this.progressAnchor || this.current.state !== "playing") return;
+    this.progressTimer = setTimeout(() => {
+      this.progressTimer = null;
+      const anchor = this.progressAnchor;
+      if (!anchor || this.current.state !== "playing") return;
+      const positionSeconds = Math.min(
+        anchor.durationSeconds,
+        anchor.positionSeconds +
+          (performance.now() - anchor.monotonicMilliseconds) / 1_000,
+      );
+      this.current = { ...this.current, positionSeconds };
+      this.emit("progress");
+      if (positionSeconds < anchor.durationSeconds) this.armProgressTicker();
+    }, this.progressTickMilliseconds);
+    this.progressTimer.unref();
+  }
+
+  private rebaseProgressAnchor(): void {
+    if (!this.progressAnchor || this.current.positionSeconds === null) return;
+    this.progressAnchor = {
+      positionSeconds: this.current.positionSeconds,
+      durationSeconds: this.progressAnchor.durationSeconds,
+      monotonicMilliseconds: performance.now(),
+    };
+  }
+
+  private clearProgressTimer(): void {
+    if (this.progressTimer) clearTimeout(this.progressTimer);
+    this.progressTimer = null;
+  }
+
+  private clearProgress(): void {
+    this.clearProgressTimer();
+    this.progressAnchor = null;
   }
 
   private emit(kind: ExternalProviderEventKind): void {

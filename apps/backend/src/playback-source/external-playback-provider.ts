@@ -54,6 +54,8 @@ export interface ExternalProviderEvent {
 export interface ExternalPlaybackProvider {
   readonly kind: Exclude<PlaybackSourceKind, "local">;
   readonly capabilities: PlaybackSourceCapabilities;
+  /** Sender-side attenuation is allowed while the physical route stays fixed at unity. */
+  readonly senderAttenuationOnFixedOutput?: boolean;
   readonly automaticAcquisition?: boolean;
   readonly seamlessSessionReplacement?: boolean;
   probeActiveSession(): Promise<ExternalProviderSnapshot | null>;

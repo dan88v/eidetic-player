@@ -20,7 +20,11 @@ import type { NetworkSnapshot } from "../../../../packages/shared/src/network";
 import type { NetworkApiClient } from "../api/network-api-client";
 import type { RemoteAccessApiClient } from "../api/remote-access-api-client";
 import type { AirPlayApiClient } from "../api/airplay-api-client";
-import type { AirPlayState } from "../../../../packages/shared/src/airplay";
+import {
+  AIRPLAY_RECEIVER_NAME_MAX_LENGTH,
+  normalizeAirPlayReceiverName,
+  type AirPlayState,
+} from "../../../../packages/shared/src/airplay";
 import type { SystemCapabilities } from "../../../../packages/shared/src/system";
 import type {
   AudioOutputDevice,
@@ -129,6 +133,7 @@ type SettingsPage =
   | "network-wired"
   | "network-wifi"
   | "airplay"
+  | "airplay-name"
   | "remote-access"
   | "audio"
   | "audio-output"
@@ -274,6 +279,7 @@ export function createSettingsScreen(
   let externalPlaybackEndPolicy = options.externalPlaybackEndPolicy;
   let networkSnapshot = options.networkSnapshot;
   let airPlayState: AirPlayState | null = null;
+  let airPlayNameDraft: string | null = null;
   let playbackSource = options.playbackSource;
   let airPlayLoading = false;
   let airPlayBusy = false;
@@ -337,7 +343,8 @@ export function createSettingsScreen(
     else if (page === "display") page = "system";
     else if (page === "playback-continue" || page === "playback-external-end")
       page = "playback";
-    else if (page === "remote-access") page = "root";
+    else if (page === "remote-access") page = "network";
+    else if (page === "airplay-name") page = "airplay";
     else if (
       page === "network-wired" ||
       page === "network-wifi" ||
@@ -543,6 +550,39 @@ export function createSettingsScreen(
           "settings-state-pill settings-state-pill--muted";
       });
     return remoteRow;
+  };
+
+  const updateAirPlay = (
+    changes: { readonly enabled?: boolean; readonly receiverName?: string },
+    successMessage: string,
+    returnPage?: SettingsPage,
+  ): void => {
+    if (!airPlayState || airPlayBusy) return;
+    airPlayBusy = true;
+    render();
+    void options.airPlayApi
+      .patch({ ...changes, expectedRevision: airPlayState.revision })
+      .then((state) => {
+        airPlayState = state;
+        if (returnPage) {
+          page = returnPage;
+          airPlayNameDraft = null;
+          resetSettingsScroll();
+        }
+        options.showToast(successMessage, "success");
+      })
+      .catch((error: unknown) => {
+        options.showToast(
+          error instanceof Error
+            ? error.message
+            : "AirPlay settings could not be updated.",
+          "error",
+        );
+      })
+      .finally(() => {
+        airPlayBusy = false;
+        if (page === "airplay" || page === "airplay-name") render();
+      });
   };
 
   const selectAudioRoute = (
@@ -814,6 +854,10 @@ export function createSettingsScreen(
         title: "AirPlay",
         description: "Receive audio from Apple devices on this network.",
       },
+      "airplay-name": {
+        title: "Receiver Name",
+        description: "Choose how this player appears to AirPlay devices.",
+      },
       audio: {
         title: "Audio",
         description: "Manage audio playback, output, and sound processing.",
@@ -1021,14 +1065,7 @@ export function createSettingsScreen(
         render();
         resetSettingsScroll();
       });
-      const remoteAccessButton = createRemoteAccessNavigation();
-      panel.append(
-        interfaceButton,
-        audioButton,
-        playbackButton,
-        networkButton,
-        remoteAccessButton,
-      );
+      panel.append(interfaceButton, audioButton, playbackButton, networkButton);
       const systemButton = document.createElement("button");
       systemButton.className = "settings-row-base setting-navigation";
       systemButton.type = "button";
@@ -1070,10 +1107,12 @@ export function createSettingsScreen(
           : "Checking availability…",
         "airplay",
       );
+      const remoteAccessRow = createRemoteAccessNavigation();
       panel.append(
         navigationRow("Wired", wiredSummary, "network-wired"),
         navigationRow("Wi-Fi", wifiSummary, "network-wifi"),
         airPlayRow,
+        remoteAccessRow,
       );
       if (!airPlayState && !airPlayLoading) {
         airPlayLoading = true;
@@ -1120,32 +1159,6 @@ export function createSettingsScreen(
         return;
       }
 
-      const updateAirPlay = (
-        changes: { readonly enabled?: boolean; readonly receiverName?: string },
-        successMessage: string,
-      ): void => {
-        if (!airPlayState || airPlayBusy) return;
-        airPlayBusy = true;
-        render();
-        void options.airPlayApi
-          .patch({ ...changes, expectedRevision: airPlayState.revision })
-          .then((state) => {
-            airPlayState = state;
-            options.showToast(successMessage, "success");
-          })
-          .catch((error: unknown) => {
-            options.showToast(
-              error instanceof Error
-                ? error.message
-                : "AirPlay settings could not be updated.",
-              "error",
-            );
-          })
-          .finally(() => {
-            airPlayBusy = false;
-            if (page === "airplay") render();
-          });
-      };
       const airPlayActive = playbackSource.activeSource === "airplay";
       const airPlaySessionStatus = airPlayActive
         ? playbackSource.providerState === "playing"
@@ -1201,37 +1214,28 @@ export function createSettingsScreen(
       enabledCopy.append(enabledLabel, enabledDescription);
       enabledRow.append(enabledCopy, enabledControl.element);
 
-      const nameRow = document.createElement("div");
-      nameRow.className = "settings-row-base setting-row airplay-name-row";
-      const nameCopy = document.createElement("label");
-      nameCopy.className = "setting-row__copy";
-      const nameLabel = document.createElement("span");
-      nameLabel.className = "setting-row__label";
-      nameLabel.textContent = "Receiver name";
-      const nameDescription = document.createElement("span");
-      nameDescription.className = "setting-row__description";
-      nameDescription.textContent = "Shown in the AirPlay device list.";
-      const nameInput = document.createElement("input");
-      nameInput.className = "airplay-name-input";
-      nameInput.type = "text";
-      nameInput.maxLength = 40;
-      nameInput.value = airPlayState.receiverName;
-      nameInput.disabled =
-        airPlayBusy || !airPlayState.available || airPlayActive;
-      nameCopy.append(nameLabel, nameDescription, nameInput);
-      const saveName = document.createElement("button");
-      saveName.className = "button button--secondary airplay-save-name";
-      saveName.type = "button";
-      saveName.textContent = "Save";
-      saveName.disabled =
-        airPlayBusy || !airPlayState.available || airPlayActive;
-      saveName.addEventListener("click", () => {
-        updateAirPlay(
-          { receiverName: nameInput.value },
-          "Receiver name saved.",
-        );
+      const nameRow = document.createElement("button");
+      nameRow.className =
+        "settings-row-base setting-navigation airplay-name-navigation";
+      nameRow.type = "button";
+      const nameCopy = document.createElement("span");
+      const nameLabel = document.createElement("strong");
+      nameLabel.textContent = "Receiver Name";
+      nameCopy.append(nameLabel);
+      const nameIndicators = document.createElement("span");
+      nameIndicators.className = "airplay-name-navigation__indicators";
+      const nameValue = document.createElement("span");
+      nameValue.className = "airplay-name-navigation__value";
+      nameValue.textContent = airPlayState.receiverName;
+      nameIndicators.append(nameValue);
+      nameIndicators.insertAdjacentHTML("beforeend", chevron());
+      nameRow.append(nameCopy, nameIndicators);
+      nameRow.addEventListener("click", () => {
+        airPlayNameDraft = airPlayState?.receiverName ?? null;
+        page = "airplay-name";
+        render();
+        resetSettingsScroll();
       });
-      nameRow.append(nameCopy, saveName);
 
       const statusRow = document.createElement("div");
       statusRow.className = "settings-row-base setting-row airplay-status-row";
@@ -1304,6 +1308,73 @@ export function createSettingsScreen(
       ))
         button.disabled = airPlayBusy || !airPlayState.available;
       panel.append(enabledRow, nameRow, statusRow, outputRow, lanNotice);
+      return;
+    }
+
+    if (page === "airplay-name") {
+      if (!airPlayState) {
+        const loading = document.createElement("p");
+        loading.className = "airplay-loading";
+        loading.textContent = "Loading AirPlay settings...";
+        panel.append(loading);
+        return;
+      }
+      const receiverState = airPlayState;
+      const airPlayActive = playbackSource.activeSource === "airplay";
+      const editor = document.createElement("div");
+      editor.className = "settings-row-base setting-row airplay-name-editor";
+      const field = document.createElement("label");
+      field.className = "setting-row__copy";
+      const label = document.createElement("span");
+      label.className = "setting-row__label";
+      label.textContent = "Receiver Name";
+      const description = document.createElement("span");
+      description.className = "setting-row__description";
+      description.textContent = airPlayActive
+        ? "Stop the current AirPlay stream before changing this name."
+        : "Shown in the AirPlay device list. Use 1 to 40 visible characters.";
+      const input = document.createElement("input");
+      input.className = "airplay-name-input";
+      input.type = "text";
+      input.maxLength = AIRPLAY_RECEIVER_NAME_MAX_LENGTH;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.dataset.onscreenKeyboard = "text";
+      input.value = airPlayNameDraft ?? receiverState.receiverName;
+      input.disabled = airPlayBusy || !receiverState.available || airPlayActive;
+      field.append(label, description, input);
+      editor.append(field);
+      panel.append(editor);
+
+      const actions = document.createElement("div");
+      actions.className = "settings-page-actions settings-page-actions--single";
+      const save = document.createElement("button");
+      save.className = "settings-page-action settings-page-action--primary";
+      save.type = "button";
+      save.innerHTML =
+        "<span><strong>Save</strong><small>Update the name advertised to AirPlay devices.</small></span>";
+      const updateSaveState = (): void => {
+        const normalized = normalizeAirPlayReceiverName(input.value);
+        save.disabled =
+          airPlayBusy ||
+          !receiverState.available ||
+          airPlayActive ||
+          !normalized ||
+          normalized === receiverState.receiverName;
+        input.setAttribute("aria-invalid", String(!normalized));
+      };
+      input.addEventListener("input", () => {
+        airPlayNameDraft = input.value;
+        updateSaveState();
+      });
+      save.addEventListener("click", () => {
+        const receiverName = normalizeAirPlayReceiverName(input.value);
+        if (!receiverName) return;
+        updateAirPlay({ receiverName }, "Receiver name saved.", "airplay");
+      });
+      updateSaveState();
+      actions.append(save);
+      section.append(actions);
       return;
     }
 
@@ -2675,7 +2746,11 @@ export function createSettingsScreen(
         snapshot.providerState !== playbackSource.providerState ||
         snapshot.sessionId !== playbackSource.sessionId;
       playbackSource = snapshot;
-      if (changed && (page === "airplay" || page === "network")) render();
+      if (
+        changed &&
+        (page === "airplay" || page === "airplay-name" || page === "network")
+      )
+        render();
     },
     updateSoftwareUpdateState(snapshot) {
       updateState = snapshot;

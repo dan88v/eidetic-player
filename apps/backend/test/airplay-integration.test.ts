@@ -114,10 +114,8 @@ void test("AirPlay store defaults On with an anonymous persistent receiver name"
     const store = new AirPlayStore(root);
     const initial = await store.initialize();
     assert.equal(initial.enabled, true);
-    assert.match(
-      initial.receiverName,
-      /^Eidetic Player - [23456789A-HJ-NP-Z]{2}$/u,
-    );
+    assert.match(initial.receiverName, /^Eidetic Player - [0-9A-F]{4}$/u);
+    assert.match(initial.generatedSuffix, /^[0-9A-F]{4}$/u);
     assert.doesNotMatch(initial.receiverName, /[0-9a-f]{6,}/iu);
     const saved = await store.save({ receiverName: "Living Room" });
     assert.equal(saved.receiverName, "Living Room");
@@ -170,6 +168,50 @@ void test("AirPlay store migrates its integration identity without changing user
     };
     assert.equal(persisted.integrationVersion, AIRPLAY_INTEGRATION_VERSION);
     assert.equal(persisted.revision, 8);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("legacy generated receiver suffixes migrate to four hex characters without renaming custom receivers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-suffix-"));
+  const path = join(root, "airplay.json");
+  try {
+    const initial = await new AirPlayStore(root).initialize();
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        ...initial,
+        revision: 4,
+        receiverName: "Eidetic Player - XY",
+        receiverNameOrigin: "generated",
+        generatedSuffix: "XY",
+      })}\n`,
+      "utf8",
+    );
+    const migratedGenerated = await new AirPlayStore(root).initialize();
+    assert.equal(migratedGenerated.revision, 5);
+    assert.match(migratedGenerated.generatedSuffix, /^[0-9A-F]{4}$/u);
+    assert.equal(
+      migratedGenerated.receiverName,
+      `Eidetic Player - ${migratedGenerated.generatedSuffix}`,
+    );
+
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        ...migratedGenerated,
+        revision: 8,
+        receiverName: "Listening Room",
+        receiverNameOrigin: "user",
+        generatedSuffix: "YZ",
+      })}\n`,
+      "utf8",
+    );
+    const migratedCustom = await new AirPlayStore(root).initialize();
+    assert.equal(migratedCustom.revision, 9);
+    assert.equal(migratedCustom.receiverName, "Listening Room");
+    assert.match(migratedCustom.generatedSuffix, /^[0-9A-F]{4}$/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -303,7 +345,13 @@ void test("AirPlay config is deterministic, escaped, and tied to the canonical r
     assert.match(config, /name = "Room \\"A\\"";/u);
     assert.match(config, /output_backend = "alsa";/u);
     assert.match(config, /output_device = "hw:2,0";/u);
-    assert.match(config, /ignore_volume_control = "yes";/u);
+    assert.match(config, /interpolation = "vernier";/u);
+    assert.match(config, /ignore_volume_control = "no";/u);
+    assert.match(config, /volume_max_db = 0\.0;/u);
+    assert.match(
+      config,
+      /audio_backend_buffer_desired_length_in_seconds = 0\.5;/u,
+    );
     assert.match(config, /eidetic-player-airplay-hook before/u);
     assert.doesNotMatch(config, /airplay-control\.sock before/u);
     assert.throws(() =>
@@ -350,6 +398,25 @@ void test("AirPlay metadata parser handles fragmented text, progress, volume, an
       metadataItem("ssnc", "pvol", Buffer.from("-144.0,-144.0,-30.0,0.0")),
     ),
     [{ kind: "volume", volume: 0, muted: true }],
+  );
+  assert.deepEqual(
+    parser.push(
+      metadataItem("ssnc", "pvol", Buffer.from("-15.0,-15.0,-30.0,0.0")),
+    ),
+    [{ kind: "volume", volume: 50, muted: false }],
+  );
+  const jpegWithTrailingBytes = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x01, 0xff, 0xd9, 0x00,
+  ]);
+  assert.deepEqual(
+    parser.push(metadataItem("ssnc", "PICT", jpegWithTrailingBytes)),
+    [
+      {
+        kind: "artwork",
+        bytes: jpegWithTrailingBytes,
+        mimeType: "image/jpeg",
+      },
+    ],
   );
   const malformed = metadataItem("core", "minm", Buffer.from("unsafe")).replace(
     /dW5zYWZl/u,
@@ -447,6 +514,72 @@ void test("blocking AirPlay hook grants only after provider acquisition and rele
     await provider.shutdown();
   }
   assert.equal(platform.stopped, true);
+});
+
+void test("AirPlay progress is conditional, advances only while playing, and fixed output accepts sender attenuation", async () => {
+  const platform = new FixturePlatform();
+  const provider = new AirPlayProvider(platform, 48_000, 1_000, 10);
+  try {
+    await provider.initialize();
+    provider.setPreparedRoute({
+      physicalOutputId: "gpio-dac",
+      description: "GPIO I2S DAC",
+      routeKind: "alsa",
+      providerTarget: "alsa/hw:2,0",
+      levelMode: "fixed",
+      maximumSoftwareVolume: 100,
+      availabilityRevision: 1,
+    });
+    const starting = new Promise<{ sessionId: string; generation: number }>(
+      (resolve) => {
+        provider.subscribe((event) => {
+          if (event.kind === "session-starting")
+            resolve({
+              sessionId: event.sessionId,
+              generation: event.generation,
+            });
+        });
+      },
+    );
+    const grant = control(platform.controlSocket, "BEFORE 1");
+    const session = await starting;
+    await provider.acquire(session.sessionId, session.generation + 1);
+    assert.equal(await grant, "GRANT\n");
+    assert.equal(provider.snapshot().capabilities.progress, false);
+
+    provider.ingestFixtureMetadata(
+      metadataItem("ssnc", "prgr", Buffer.from("100/48100/96100")) +
+        metadataItem("ssnc", "pbeg", Buffer.alloc(0)),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    const moving = provider.snapshot();
+    assert.equal(moving.capabilities.progress, true);
+    assert.equal(moving.durationSeconds, 2);
+    assert.ok((moving.positionSeconds ?? 0) > 1);
+
+    provider.ingestFixtureMetadata(
+      metadataItem("ssnc", "pfls", Buffer.alloc(0)),
+    );
+    const frozenPosition = provider.snapshot().positionSeconds;
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    assert.equal(provider.snapshot().positionSeconds, frozenPosition);
+
+    provider.ingestFixtureMetadata(
+      metadataItem("ssnc", "pvol", Buffer.from("-15.0,-15.0,-30.0,0.0")),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(provider.snapshot().volume, 50);
+    assert.equal(provider.snapshot().muted, false);
+
+    provider.ingestFixtureMetadata(
+      metadataItem("ssnc", "mdst", Buffer.alloc(0)),
+    );
+    assert.equal(provider.snapshot().capabilities.progress, false);
+    assert.equal(provider.snapshot().positionSeconds, null);
+    assert.equal(provider.snapshot().durationSeconds, null);
+  } finally {
+    await provider.shutdown();
+  }
 });
 
 void test("natural AirPlay end releases without restarting the idle receiver", async () => {

@@ -59,8 +59,9 @@ The updater:
 3. records the installed and target Build IDs;
 4. starts the production updater with visible SSH and `sudo`, explicitly pinned
    to the exact checkout SHA and unattended after privilege authorization;
-5. verifies the installed Build ID, user service, readiness API and read-only
-   installation doctor;
+5. verifies the installed Build ID and user service, then waits up to 180
+   seconds for both backend and AirPlay initialization to leave their transient
+   `starting` states before running the read-only installation doctor;
 6. reruns the updater unattended on the same exact SHA to prove
    `Already up to date.`;
 7. performs no reboot.
@@ -131,11 +132,13 @@ The verifier shows:
 
 - cloned commit;
 - complete user-service status;
-- every backend readiness response for up to 120 seconds;
+- every backend readiness and AirPlay state response for up to 180 seconds;
 - Eidetic Player and MPV processes;
 - the read-only installation doctor.
 
-The readiness wait is intentional. The first 2026-07-27 check ran only 36
+The stability wait is intentional. It prevents the read-only doctor from
+sampling an enabled receiver before the backend has created its control socket
+and completed AirPlay initialization. The first 2026-07-27 check ran only 36
 seconds after boot and observed a transient degraded player state. The backend
 PID subsequently changed, all installed paths and doctor checks passed, and a
 physical playback test confirmed MPV and the preserved PCM5102A DAC worked.

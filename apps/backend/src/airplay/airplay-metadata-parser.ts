@@ -90,12 +90,7 @@ function artworkType(bytes: Buffer): "image/jpeg" | "image/png" | null {
       .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   )
     return "image/png";
-  if (
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[bytes.length - 2] === 0xff &&
-    bytes[bytes.length - 1] === 0xd9
-  )
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
     return "image/jpeg";
   return null;
 }
@@ -144,15 +139,9 @@ function parseVolume(bytes: Buffer): AirPlayMetadataEvent | null {
   if (parts.length !== 4 || parts.some((item) => !Number.isFinite(item)))
     return null;
   const airplayVolume = parts[0] ?? Number.NaN;
-  const effective = parts[1] ?? Number.NaN;
-  const lowest = parts[2] ?? Number.NaN;
-  const highest = parts[3] ?? Number.NaN;
   if (airplayVolume <= -144) return { kind: "volume", volume: 0, muted: true };
-  if (highest <= lowest) return null;
-  const volume = Math.max(
-    0,
-    Math.min(100, ((effective - lowest) / (highest - lowest)) * 100),
-  );
+  if (airplayVolume < -30 || airplayVolume > 0) return null;
+  const volume = Math.max(0, Math.min(100, ((airplayVolume + 30) / 30) * 100));
   return { kind: "volume", volume, muted: false };
 }
 

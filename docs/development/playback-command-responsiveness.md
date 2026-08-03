@@ -33,6 +33,14 @@ Navigation is acknowledged when MPV accepts `playlist-pos`; media loading is a
 separate transition. A slow SMB `file-loaded` therefore does not turn an
 accepted navigation command into a false failure.
 
+Browser-History Previous stages only the selected prior occurrence at the
+front of MPV's bounded technical playlist and then selects it with
+`playlist-pos`. It must not replace and rebuild the entire Current-plus-future
+playlist just to move one step backwards. Forward History remains in place and
+continues to win over Explicit Queue and Context. While any available forward
+History remains, the public Context summary is hidden because its nominal next
+item is not the next item navigation will actually select.
+
 Property confirmation is bounded to two seconds. Failure or timeout rolls
 volume, mute, and transport back to the last confirmed value and increments
 one failure revision. There is no retry loop. Pending level commands are

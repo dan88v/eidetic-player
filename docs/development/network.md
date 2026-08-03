@@ -99,10 +99,11 @@ boot helper mutates the network.
 ## UI contract
 
 Settings root has separate Interface and Network rows. Network is a canonical
-navigation list containing Wired, Wi-Fi, and AirPlay in that order. Wired and
-Wi-Fi open their existing detail surfaces; AirPlay opens the managed receiver
-settings. Remote access remains a separate Settings-root item. Root, Interface,
-and Network share the same content width and vertical rhythm. Current
+navigation list containing Wired, Wi-Fi, AirPlay, and Remote access in that
+order. Wired and Wi-Fi open their existing detail surfaces; AirPlay opens the
+managed receiver settings, and Remote access opens its existing listener and
+pairing page. Root, Interface, and Network share the same content width and
+vertical rhythm. Current
 network/adapter details retain
 the actual DHCP values, so the IPv4 section shows only its DHCP/Manual selector
 until Manual is selected. Manual reveals five fields using the existing IPv4
@@ -129,5 +130,7 @@ example ranges.
 
 On supported Linux appliances, AirPlay displays only its On/Off preference,
 receiver name, public status, selected canonical output, and the local-network
-access notice. Technical component versions, ports, paths, and raw receiver
-configuration remain confined to protected logs and the read-only doctor.
+access notice. Receiver Name is a navigation row with the current value at the
+right; its dedicated page owns the validated text field and Save action.
+Technical component versions, ports, paths, and raw receiver configuration
+remain confined to protected logs and the read-only doctor.

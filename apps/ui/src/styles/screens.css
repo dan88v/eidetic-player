@@ -1746,12 +1746,37 @@
     color: var(--color-text-secondary);
   }
 
-  .airplay-name-row {
-    align-items: end;
+  .airplay-name-navigation > span:first-child {
+    min-width: 0;
+  }
+
+  .airplay-name-navigation__indicators {
+    display: flex;
+    min-width: 0;
+    max-width: min(62%, 32rem);
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .airplay-name-navigation__value {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: var(--settings-row-description-size);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .airplay-name-editor {
+    align-items: stretch;
+  }
+
+  .airplay-name-editor .setting-row__copy {
+    width: 100%;
   }
 
   .airplay-name-input {
-    width: min(28rem, 62vw);
+    width: 100%;
     min-height: var(--touch-min);
     margin-top: var(--space-2);
     padding-inline: var(--space-3);
@@ -1764,11 +1789,6 @@
   .airplay-name-input:focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
-  }
-
-  .airplay-save-name {
-    min-width: 7rem;
-    min-height: var(--touch-min);
   }
 
   .airplay-lan-notice {

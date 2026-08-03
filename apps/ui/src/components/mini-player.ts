@@ -196,6 +196,9 @@ export function createMiniPlayer(
       );
       duration = presentation.durationSeconds;
       seekEnabled = presentation.capabilities.seek;
+      timeline.hidden =
+        presentation.source === "airplay" &&
+        !presentation.capabilities.progress;
       timeline.tabIndex = duration > 0 && !surfaceDisabled ? 0 : -1;
       timeline.setAttribute(
         "aria-disabled",

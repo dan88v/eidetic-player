@@ -65,7 +65,7 @@ void test("unavailable Remote access is explicit and exposes no active-looking c
   );
 });
 
-void test("Remote access uses the Settings root and canonical action hierarchy", async () => {
+void test("Remote access lives under Network and keeps its canonical action hierarchy", async () => {
   const panel = await readFile(
     resolve(repository, "apps/ui/src/screens/remote-access-settings-panel.ts"),
     "utf8",
@@ -74,15 +74,17 @@ void test("Remote access uses the Settings root and canonical action hierarchy",
     resolve(repository, "apps/ui/src/screens/settings.ts"),
     "utf8",
   );
-  assert.match(
-    settings,
-    /if \(page === "root"\)[\s\S]*createRemoteAccessNavigation\(\)/u,
+  const rootBlock = settings.slice(
+    settings.indexOf('if (page === "root")'),
+    settings.indexOf('if (page === "network")'),
   );
-  assert.doesNotMatch(
-    settings,
-    /if \(page === "network"\)[\s\S]*remote-access-navigation-panel/u,
+  const networkBlock = settings.slice(
+    settings.indexOf('if (page === "network")'),
+    settings.indexOf('if (page === "airplay")'),
   );
-  assert.match(settings, /page === "remote-access"\) page = "root"/u);
+  assert.doesNotMatch(rootBlock, /createRemoteAccessNavigation\(\)/u);
+  assert.match(networkBlock, /createRemoteAccessNavigation\(\)/u);
+  assert.match(settings, /page === "remote-access"\) page = "network"/u);
   assert.match(panel, /remote-access-primary-actions/u);
   assert.match(panel, /Pair new device/u);
   assert.match(panel, /remote-access-devices-panel/u);

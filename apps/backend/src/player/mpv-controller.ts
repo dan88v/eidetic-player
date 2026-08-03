@@ -168,6 +168,14 @@ export class MpvController {
     for (const path of paths) await this.command(["loadfile", path, "append"]);
   }
 
+  async insertIntoPlaylist(path: string, index: number): Promise<void> {
+    if (!Number.isInteger(index) || index < 0)
+      throw new Error(
+        "Playlist insertion index must be a non-negative integer",
+      );
+    await this.command(["loadfile", path, "insert-at", index]);
+  }
+
   async clearPlaylist(): Promise<void> {
     await this.command(["stop"]).catch(() => undefined);
     await this.command(["playlist-clear"]).catch(() => undefined);

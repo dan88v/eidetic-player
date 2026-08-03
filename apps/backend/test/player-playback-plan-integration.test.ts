@@ -38,6 +38,7 @@ class FakeMpvController {
   readonly sets: { readonly name: string; readonly value: unknown }[] = [];
   readonly commands: unknown[][] = [];
   readonly appends: string[][] = [];
+  readonly inserts: { readonly path: string; readonly index: number }[] = [];
   readonly loads: {
     readonly paths: string[];
     readonly selectedIndex: number;
@@ -105,6 +106,14 @@ class FakeMpvController {
     return Promise.resolve();
   }
 
+  insertIntoPlaylist(path: string, index: number): Promise<void> {
+    this.inserts.push({ path, index });
+    this.paths.splice(index, 0, path);
+    this.playlistEntryIds.splice(index, 0, -1);
+    if (index <= this.playlistPosition) this.playlistPosition += 1;
+    return Promise.resolve();
+  }
+
   async loadPlaylist(
     paths: readonly string[],
     selectedIndex = 0,
@@ -126,6 +135,7 @@ class FakeMpvController {
     this.sets.length = 0;
     this.commands.length = 0;
     this.appends.length = 0;
+    this.inserts.length = 0;
     this.loads.length = 0;
   }
 
@@ -1262,7 +1272,14 @@ void test("Previous keeps browser History and natural forward navigation reuses 
   let plan = player.getPlaybackPlanSnapshot();
   assert.equal(plan.current?.item.title, "B");
   assert.equal(plan.history.cursor, 1);
-  assert.equal(controller.loads.length, 1);
+  assert.equal(controller.loads.length, 0);
+  assert.deepEqual(controller.inserts, [
+    { path: "C:\\fixture\\B.flac", index: 0 },
+  ]);
+  assert.deepEqual(
+    controller.sets.filter(({ name }) => name === "playlist-pos"),
+    [{ name: "playlist-pos", value: 0 }],
+  );
   const forwardExecutionId = plan.history.entries[2]?.executionEntryId;
   assert.equal(harness.playlistItemIds[1], forwardExecutionId);
   assert.deepEqual(
@@ -1282,6 +1299,90 @@ void test("Previous keeps browser History and natural forward navigation reuses 
   assert.equal(plan.history.cursor, 2);
   assert.equal(plan.history.entries.length, 3);
   assert.equal(controller.loads.length, 0);
+});
+
+void test("Then continues from stays hidden until forward browser History is exhausted", async () => {
+  const { player, harness } = createHarness({
+    context: [item("Voices"), item("Wake Up"), item("X-Ray Mind")],
+  });
+
+  await player.next();
+  harness.handleMpvMessage({ event: "file-loaded" });
+  await flushTransitions(harness);
+  await player.next();
+  harness.handleMpvMessage({ event: "file-loaded" });
+  await flushTransitions(harness);
+
+  const river = harness.playbackPlanner.startContext({
+    kind: "album",
+    title: "River context",
+    entityId: "river-context",
+    source: { label: "Test" },
+    items: [item("03 River of Deceit"), item("Artificial Red")],
+    selectedIndex: 0,
+  });
+  assert.equal(river.kind, "start");
+  const previous = harness.playbackPlanner.previous(0);
+  assert.equal(previous.kind, "start");
+  harness.syncPlaybackPlan();
+  harness.transitionPublicPlaybackSnapshot = null;
+  harness.transitionPending = false;
+
+  let plan = player.getPlaybackPlanSnapshot();
+  assert.deepEqual(
+    plan.history.entries.map((entry) => entry.item.title),
+    ["Voices", "Wake Up", "X-Ray Mind", "03 River of Deceit"],
+  );
+  assert.equal(plan.current?.item.title, "X-Ray Mind");
+  assert.equal(player.getPublicState().playbackHistory?.canGoForward, true);
+  assert.equal(player.getPublicState().playbackContext, null);
+
+  const forward = harness.playbackPlanner.next();
+  assert.equal(forward.kind, "start");
+  harness.syncPlaybackPlan();
+  harness.transitionPublicPlaybackSnapshot = null;
+  harness.transitionPending = false;
+  plan = player.getPlaybackPlanSnapshot();
+  assert.equal(plan.current?.item.title, "03 River of Deceit");
+  assert.equal(player.getPublicState().playbackHistory?.canGoForward, false);
+  assert.equal(
+    player.getPublicState().playbackContext?.nextItem?.displayTitle,
+    "Artificial Red",
+  );
+});
+
+void test("a failed targeted History Previous restores planner and technical Current", async () => {
+  const { player, harness, controller } = createHarness();
+
+  await player.next();
+  harness.handleMpvMessage({ event: "file-loaded" });
+  await flushTransitions(harness);
+  await player.next();
+  harness.handleMpvMessage({ event: "file-loaded" });
+  await flushTransitions(harness);
+  const before = player.getPlaybackPlanSnapshot();
+  assert.equal(before.current?.item.title, "C");
+  controller.clearCalls();
+  controller.setPropertyHook = (name) =>
+    name === "playlist-pos"
+      ? Promise.reject(new Error("fixture Previous selection failure"))
+      : Promise.resolve(undefined);
+
+  await assert.rejects(
+    player.previous(),
+    /fixture Previous selection failure/u,
+  );
+  await harness.executionMutationChain;
+
+  const restored = player.getPlaybackPlanSnapshot();
+  assert.equal(restored.current?.item.title, "C");
+  assert.equal(restored.history.cursor, before.history.cursor);
+  assert.deepEqual(harness.playlistItemIds, [before.current.executionEntryId]);
+  assert.deepEqual(controller.paths, ["C:\\fixture\\C.flac"]);
+  assert.equal(controller.loads.length, 0);
+  assert.deepEqual(controller.inserts, [
+    { path: "C:\\fixture\\B.flac", index: 0 },
+  ]);
 });
 
 void test("folder source loss and reconnect update every matching History occurrence", async () => {

@@ -125,3 +125,30 @@ void test("local and Remote surfaces use source-aware state without another SSE"
   assert.match(remoteContract, /\| "playback-source"/u);
   assert.equal((remote.match(/new EventSource\(/gu) ?? []).length, 1);
 });
+
+void test("AirPlay uses a truthful conditional Line timeline on both player surfaces", async () => {
+  const [nowPlaying, miniPlayer, timeline, remote] = await Promise.all([
+    readFile("apps/ui/src/screens/now-playing.ts", "utf8"),
+    readFile("apps/ui/src/components/mini-player.ts", "utf8"),
+    readFile("apps/ui/src/components/timeline.ts", "utf8"),
+    readFile("apps/remote-ui/src/main.ts", "utf8"),
+  ]);
+  assert.match(
+    nowPlaying,
+    /active\.source === "airplay"[\s\S]*setStyle\([\s\S]*"line"/u,
+  );
+  assert.match(
+    nowPlaying,
+    /active\.source === "airplay" && !active\.capabilities\.progress/u,
+  );
+  assert.match(
+    miniPlayer,
+    /presentation\.source === "airplay" &&[\s\S]*!presentation\.capabilities\.progress/u,
+  );
+  assert.match(timeline, /setStyle\(nextStyle\)/u);
+  assert.match(
+    remote,
+    /source\.activeSource === "airplay" && !source\.capabilities\.progress/u,
+  );
+  assert.match(remote, /Controlled by the sender/u);
+});

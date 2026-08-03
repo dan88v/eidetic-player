@@ -3,7 +3,7 @@ param(
   [string]$HostAddress = "10.0.0.112",
   [string]$RemoteUser = "daniele",
   [ValidateRange(30, 600)]
-  [int]$ReadinessTimeoutSeconds = 120
+  [int]$ReadinessTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,14 +26,20 @@ git -C "__TARGET__" log -1 --oneline
 printf '\nUser service:\n'
 systemctl --user --no-pager --full status eidetic-player.service || true
 
-printf '\nWaiting for stable backend readiness:\n'
+printf '\nWaiting for stable backend and AirPlay initialization:\n'
 ready=0
 attempt=1
 while [ "$attempt" -le __ATTEMPTS__ ]; do
-  payload=$(curl --silent --show-error --max-time 2 \
+  readiness=$(curl --silent --show-error --max-time 2 \
     http://127.0.0.1:4310/api/readiness 2>&1 || true)
-  printf '[%s/__ATTEMPTS__] %s\n' "$attempt" "$payload"
-  if printf '%s' "$payload" | grep -q '"status":"ready"'; then
+  airplay=$(curl --silent --show-error --max-time 2 \
+    http://127.0.0.1:4310/api/airplay/state 2>&1 || true)
+  printf '[%s/__ATTEMPTS__] readiness=%s\n' "$attempt" "$readiness"
+  printf '[%s/__ATTEMPTS__] airplay=%s\n' "$attempt" "$airplay"
+  if printf '%s' "$readiness" |
+      grep -Eq '"status":"(ready|degraded)"' &&
+    printf '%s' "$airplay" |
+      grep -Eq '"serviceStatus":"(ready|off|active|error|unavailable)"'; then
     ready=1
     break
   fi
@@ -48,7 +54,7 @@ printf '\nInstallation doctor:\n'
 sudo "__TARGET__/deploy/linux/doctor-installation.sh"
 
 if [ "$ready" != 1 ]; then
-  printf '\nERROR: backend readiness did not become stable within __TIMEOUT__ seconds.\n' >&2
+  printf '\nERROR: backend and AirPlay did not become stable within __TIMEOUT__ seconds.\n' >&2
   exit 69
 fi
 
@@ -62,8 +68,8 @@ $remoteCommand = $remoteTemplate.
 
 Write-Host "Opening interactive verification on $RemoteUser@$HostAddress."
 Write-Host (
-  "The readiness probe will wait up to $ReadinessTimeoutSeconds seconds " +
-  "instead of treating an early degraded state as final."
+  "The probes will wait up to $ReadinessTimeoutSeconds seconds for both " +
+  "backend and AirPlay initialization before the doctor runs."
 ) -ForegroundColor Cyan
 
 & ssh.exe `

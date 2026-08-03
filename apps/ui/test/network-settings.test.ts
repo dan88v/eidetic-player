@@ -140,7 +140,7 @@ void test("top-bar audio copy identifies physical output and effective interface
   assert.equal(copy.detail, "ALSA · snd_rpi_rpi_dac");
 });
 
-void test("Network uses canonical navigation rows for Wired, Wi-Fi, and AirPlay", () => {
+void test("Network uses canonical navigation rows for Wired, Wi-Fi, AirPlay, and Remote access", () => {
   const settings = readFileSync(
     new URL("../src/screens/settings.ts", import.meta.url),
     "utf8",
@@ -156,6 +156,10 @@ void test("Network uses canonical navigation rows for Wired, Wi-Fi, and AirPlay"
     /navigationRow\("Wi-Fi", wifiSummary, "network-wifi"\)/,
   );
   assert.match(settings, /"AirPlay",[\s\S]*"airplay"/u);
+  assert.match(
+    settings,
+    /const remoteAccessRow = createRemoteAccessNavigation\(\);[\s\S]*panel\.append\([\s\S]*airPlayRow,[\s\S]*remoteAccessRow,/u,
+  );
   assert.doesNotMatch(
     settings,
     /header\.append\(networkPanel\.selectorElement\)/,
@@ -174,7 +178,20 @@ void test("AirPlay settings stay minimal and use the dedicated revisioned API", 
     "utf8",
   );
   assert.match(settings, /label: "AirPlay receiver"/);
-  assert.match(settings, /nameLabel\.textContent = "Receiver name"/);
+  assert.match(settings, /nameLabel\.textContent = "Receiver Name"/);
+  assert.match(
+    settings,
+    /nameValue\.textContent = airPlayState\.receiverName/u,
+  );
+  assert.match(
+    settings,
+    /nameIndicators\.append\(nameValue\);[\s\S]*nameIndicators\.insertAdjacentHTML\("beforeend", chevron\(\)\)/u,
+  );
+  assert.match(settings, /page = "airplay-name"/u);
+  assert.match(settings, /title: "Receiver Name"/u);
+  assert.match(settings, /normalizeAirPlayReceiverName\(input\.value\)/u);
+  assert.match(settings, /input\.dataset\.onscreenKeyboard = "text"/u);
+  assert.match(settings, /"Receiver name saved\."/u);
   assert.match(settings, /statusLabel\.textContent = "Status"/);
   assert.match(settings, /outputLabel\.textContent = "Output"/);
   assert.match(

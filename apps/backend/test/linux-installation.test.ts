@@ -517,13 +517,15 @@ void test("restore, update, uninstall and doctor expose the required safe modes"
 });
 
 void test("guided updater pins Build IDs and separates hard health from soft MPV readiness", async () => {
-  const [update, installer, doctor, common, remoteUpdate] = await Promise.all([
-    read("deploy/linux/update-eidetic-player.sh"),
-    read("deploy/linux/install-eidetic-player.sh"),
-    read("deploy/linux/doctor-installation.sh"),
-    read("deploy/linux/lib/common.sh"),
-    read("scripts/remote-rpi-update.ps1"),
-  ]);
+  const [update, installer, doctor, common, remoteUpdate, remoteVerify] =
+    await Promise.all([
+      read("deploy/linux/update-eidetic-player.sh"),
+      read("deploy/linux/install-eidetic-player.sh"),
+      read("deploy/linux/doctor-installation.sh"),
+      read("deploy/linux/lib/common.sh"),
+      read("scripts/remote-rpi-update.ps1"),
+      read("scripts/remote-rpi-verify.ps1"),
+    ]);
   assert.match(update, /Already up to date\./);
   assert.match(update, /exit 64/);
   assert.match(update, /--unattended/);
@@ -567,6 +569,19 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
     /sudo \.\/deploy\/linux\/update-eidetic-player\.sh \\\s*\n\s*--ref "\$checkout_target" --unattended/,
   );
   assert.match(remoteUpdate, /doctor-installation\.sh/);
+  assert.match(remoteUpdate, /wait_for_stable_runtime/);
+  assert.match(remoteUpdate, /api\/airplay\/state/);
+  assert.match(remoteUpdate, /"status":"\(ready\|degraded\)"/);
+  assert.match(
+    remoteUpdate,
+    /"serviceStatus":"\(ready\|off\|active\|error\|unavailable\)"/,
+  );
+  assert.ok(
+    remoteUpdate.indexOf("wait_for_stable_runtime") <
+      remoteUpdate.indexOf("sudo ./deploy/linux/doctor-installation.sh"),
+  );
+  assert.match(remoteVerify, /api\/airplay\/state/);
+  assert.match(remoteVerify, /backend and AirPlay did not become stable/);
   assert.match(remoteUpdate, /installed Build ID does not match/);
   assert.doesNotMatch(remoteUpdate, /--ref "\$branch" --unattended/);
   assert.equal(

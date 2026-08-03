@@ -436,6 +436,24 @@ export class PlayerService implements AudioOutputMpvAdapter {
     const nextContextItem = nextContextId
       ? this.publicContextItems.get(nextContextId)
       : undefined;
+    let availableHistoryBefore = false;
+    for (let index = plan.history.cursor - 1; index >= 0; index -= 1) {
+      if (plan.history.entries[index]?.item.availability === "unavailable")
+        continue;
+      availableHistoryBefore = true;
+      break;
+    }
+    let availableHistoryAfter = false;
+    for (
+      let index = plan.history.cursor + 1;
+      index < plan.history.entries.length;
+      index += 1
+    ) {
+      if (plan.history.entries[index]?.item.availability === "unavailable")
+        continue;
+      availableHistoryAfter = true;
+      break;
+    }
     const current = plan.current;
     const technicalCurrentId =
       this.state.queue[this.state.currentQueueIndex]?.id ?? null;
@@ -489,34 +507,36 @@ export class PlayerService implements AudioOutputMpvAdapter {
             }
           : null,
       explicitQueue,
-      playbackContext: context
-        ? {
-            contextId: context.contextId,
-            kind: context.kind,
-            entityId: context.entityId,
-            title: context.title,
-            sourceLabel: context.source.label,
-            nextItem: nextContextItem
-              ? publicItem(
-                  nextContextItem.item,
-                  nextContextItem.executionEntryId,
-                )
-              : null,
-            remainingCount: Math.max(
-              0,
-              context.playOrder.length - context.resumeCursor,
-            ),
-            totalCount: context.originalItems.length,
-            cycle: context.repeatCycle,
-          }
-        : null,
+      // Forward browser History always wins over the active Context. Hiding
+      // the Context summary while browsing backwards prevents Queue from
+      // promising a context item that is not actually the next track.
+      playbackContext:
+        context && !availableHistoryAfter
+          ? {
+              contextId: context.contextId,
+              kind: context.kind,
+              entityId: context.entityId,
+              title: context.title,
+              sourceLabel: context.source.label,
+              nextItem: nextContextItem
+                ? publicItem(
+                    nextContextItem.item,
+                    nextContextItem.executionEntryId,
+                  )
+                : null,
+              remainingCount: Math.max(
+                0,
+                context.playOrder.length - context.resumeCursor,
+              ),
+              totalCount: context.originalItems.length,
+              cycle: context.repeatCycle,
+            }
+          : null,
       playbackHistory: {
         entryCount: plan.history.entries.length,
         cursor: plan.history.cursor,
-        canGoBack: plan.history.cursor > 0,
-        canGoForward:
-          plan.history.cursor >= 0 &&
-          plan.history.cursor < plan.history.entries.length - 1,
+        canGoBack: availableHistoryBefore,
+        canGoForward: availableHistoryAfter,
       },
       playbackContinuation: {
         mode: plan.continuePlayback,
@@ -1131,6 +1151,8 @@ export class PlayerService implements AudioOutputMpvAdapter {
       this.playbackPlanSnapshot.repeatMode === "one" ? "inf" : "no",
     );
     await controller.setProperty("loop-playlist", "no");
+    if (decision.reason === "history-previous")
+      await this.stageHistoryPreviousTarget(decision.current);
     const technicalCurrentId =
       this.state.queue[this.state.currentQueueIndex]?.id ?? null;
     const existingTargetIndex = this.playlistItemIds.indexOf(
@@ -1157,6 +1179,31 @@ export class PlayerService implements AudioOutputMpvAdapter {
       await this.queueExecutionReconciliation();
       await controller.setProperty("pause", !options.autoplay);
     }
+  }
+
+  private stageHistoryPreviousTarget(
+    entry: PlaybackExecutionPlanEntry,
+  ): Promise<void> {
+    if (this.playlistItemIds.includes(entry.executionEntryId))
+      return Promise.resolve();
+    const operation = this.executionMutationChain.then(async () => {
+      if (this.playlistItemIds.includes(entry.executionEntryId)) return;
+      const controller = this.requireController();
+      this.preparingPlaylist = true;
+      try {
+        await controller.insertIntoPlaylist(entry.item.nativePath, 0);
+        this.playlistItemIds.unshift(entry.executionEntryId);
+        this.originalQueue.unshift(entry.item.nativePath);
+        this.executionOrigins.set(
+          entry.executionEntryId,
+          this.persistedOrigin(entry),
+        );
+      } finally {
+        this.preparingPlaylist = false;
+      }
+    });
+    this.executionMutationChain = operation.catch(() => undefined);
+    return operation;
   }
 
   private async loadPlannerExecutionPlan(autoplay: boolean): Promise<void> {

@@ -955,8 +955,7 @@ import json
 import secrets
 import sys
 
-alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-suffix = "".join(secrets.choice(alphabet) for _ in range(2))
+suffix = secrets.token_hex(2).upper()
 document = {
     "schemaVersion": 1,
     "revision": 0,

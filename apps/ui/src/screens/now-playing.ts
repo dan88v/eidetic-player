@@ -452,6 +452,12 @@ export function createNowPlayingScreen(
             : "nowPlaying.repeatOff",
       ),
     );
+    const airPlayProgressUnavailable =
+      active.source === "airplay" && !active.capabilities.progress;
+    timeline.element.hidden = airPlayProgressUnavailable;
+    timeline.setStyle(
+      active.source === "airplay" ? "line" : options.timelineStyle,
+    );
     timeline.setPlayback(active.positionSeconds, active.durationSeconds);
     timeline.setEnabled(usable && (!external || active.capabilities.seek));
     const queueItemId =

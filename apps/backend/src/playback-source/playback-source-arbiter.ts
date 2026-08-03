@@ -661,6 +661,11 @@ export class PlaybackSourceArbiter {
   ): Promise<void> {
     const output = this.source.output;
     if (output.levelMode === "fixed") {
+      if (provider.senderAttenuationOnFixedOutput === true) {
+        const volume = Math.max(0, Math.min(100, event.snapshot.volume));
+        this.publish({ volume, muted: event.snapshot.muted });
+        return;
+      }
       this.applyingProviderLevel = true;
       try {
         if (provider.capabilities.volume)

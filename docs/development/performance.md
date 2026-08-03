@@ -99,6 +99,10 @@ zero complete Queue rebuilds.
   completed seek, resume, meaningful drift, subscriber return, or recovery.
 - Normal position ticks, artwork, Queue opening, volume, and repaint must not
   restart analysis.
+- AirPlay may own one session-scoped 250 ms progress timer only after the
+  sender supplies a valid progress anchor. Buffering, flush, metadata change,
+  end, release, and shutdown must stop it; it never starts FFmpeg or adds an
+  EventSource.
 - Apply restart cooldown and prevent restart loops.
 - Missing or failed FFmpeg must not interrupt MPV.
 
