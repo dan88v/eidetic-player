@@ -139,6 +139,11 @@ request publishes `starting` only while work is in flight and must terminate
 in either `ready` or an explicit `error`, never an indefinite enabled/Starting
 state.
 
+The receiver unit retains Shairport's upstream `LimitRTPRIO=5` allowance. The
+ALSA buffer monitor must be able to request realtime scheduling; a zero limit
+produces explicit startup warnings and periodic DAC XRUN recovery even when the
+receiver, network session, and source arbitration remain continuously active.
+
 ## Shutdown and deployment
 
 Quit, restart, maintenance, power, and update preparation flush arbitration,

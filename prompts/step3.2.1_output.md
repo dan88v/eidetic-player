@@ -160,6 +160,30 @@ or Starting. A controlled live start followed by the normal revisioned API
 verification restored the installed Pi to `serviceStatus=ready`, receiver
 `active/running`, zero restarts, and a successful advertisement response.
 
+### Live AirPlay XRUN diagnosis
+
+Monitoring a real active AirPlay session separated the audible drops from
+source arbitration and discovery. AirPlay remained the active source, MPV
+remained suspended, Shairport stayed active with zero restarts, and artwork and
+metadata remained coherent. Every reported drop aligned with an ALSA `DAC in
+unexpected state XRUN prior to writing` entry followed immediately by
+`recovering from a previous underrun`; nine pairs occurred between 12:55:11 and
+12:59:04. Turning on the case fan lowered the Pi from 77.4 C to 65.5 C, but new
+XRUNs still occurred, proving that temperature was an aggravating factor rather
+than the sole cause. They continued every 18-to-60 seconds after the fan had
+reduced the Pi to 52.1 C, while the session remained active and the receiver
+still reported zero restarts.
+
+The receiver startup log exposed the missing scheduling contract: `Can not set
+realtime properties of thread "alsa_buf_mon"`, while systemd reported
+`LimitRTPRIO=0`. The official Shairport Sync 5.2.1 unit specifies
+`LimitRTPRIO=5`; Eidetic's NQPTP unit already had its own realtime allowance,
+but the Shairport user unit had omitted it. The receiver template now restores
+the exact upstream limit, and deployment verification makes that requirement
+non-regressible. The live receiver was not restarted during the active session,
+so the scheduling correction still requires an installed-build Raspberry
+acceptance test.
+
 ## Regression coverage
 
 Focused coverage proves:
@@ -182,6 +206,8 @@ Focused coverage proves:
   behavior without replacing a custom receiver name.
 - inactive/unloaded systemd reset handling and terminal Error publication when
   receiver activation fails, preventing persistent enabled/Starting state.
+- the upstream Shairport `LimitRTPRIO=5` receiver-unit contract, tied to the
+  measured ALSA XRUN and failed realtime-thread warning on the Pi.
 
 Final validation after all deliverables:
 

@@ -180,6 +180,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
       receiverUnit.includes(
         "ConditionPathExists=/opt/eidetic-player/current/airplay/bin/shairport-sync",
       ) &&
+      receiverUnit.includes("LimitRTPRIO=5") &&
       receiverUnit.includes("NoNewPrivileges=yes") &&
       receiverUnit.includes("ProtectSystem=strict") &&
       !/^User=root$/mu.test(receiverUnit) &&

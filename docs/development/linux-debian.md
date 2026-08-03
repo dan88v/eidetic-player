@@ -178,10 +178,11 @@ single staged release artifact. A verified root-owned cache keyed by integration
 version and architecture avoids rebuilding unchanged pins on normal updates.
 
 Shairport runs in `eidetic-player-airplay.service`, a systemd user service with
-no capabilities. Its fixed config and private FIFO/socket live in the runtime
-user's mode-0700 directories. NQPTP runs separately as a system service with a
-dynamic identity and only `CAP_NET_BIND_SERVICE`; UDP 319/320 conflicts abort
-activation rather than replacing an existing timing service. The installer
+no capabilities and the upstream Shairport `LimitRTPRIO=5` scheduling ceiling.
+Its fixed config and private FIFO/socket live in the runtime user's mode-0700
+directories. NQPTP runs separately as a system service with a dynamic identity
+and only `CAP_NET_BIND_SERVICE`; UDP 319/320 conflicts abort activation rather
+than replacing an existing timing service. The installer
 also refuses unmanaged Shairport services. AirPlay defaults to On only when its
 store does not yet exist; subsequent Off and custom-name choices survive
 updates and normal uninstall. Purge removes the store and build cache.
