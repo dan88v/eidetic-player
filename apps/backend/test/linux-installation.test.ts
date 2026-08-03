@@ -210,7 +210,10 @@ void test("Linux build synchronizes and selects the correct Neutralino binary", 
     assert.doesNotMatch(installer, /release_stage\/backend\/index\.js/);
   });
 
-  assert.match(packageJson, /"neutralino:sync":\s*"neu update"/);
+  assert.match(
+    packageJson,
+    /"neutralino:sync":\s*"node scripts\/sync-neutralino\.mjs"/,
+  );
   assert.match(
     packageJson,
     /"build:linux":\s*"node scripts\/build-orchestrator\.mjs linux"/,

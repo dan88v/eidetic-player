@@ -184,6 +184,32 @@ non-regressible. The live receiver was not restarted during the active session,
 so the scheduling correction still requires an installed-build Raspberry
 acceptance test.
 
+### Deterministic Neutralino synchronization for Linux CI
+
+The Linux release workflow failed after the UI and backend builds because
+`neu update` began ZIP extraction from its response-end callback without first
+waiting for the destination file to finish writing. It also did not reject a
+non-success HTTP response or verify the declared/downloaded length before
+opening the archive. All three orchestrator retries therefore remained exposed
+to the same truncated-file race and `yauzl` reported a missing end-of-central-
+directory signature.
+
+The release build now uses a repository-owned synchronizer pinned to the exact
+`binaryVersion` and `clientVersion` in `neutralino.config.json`. It receives the
+complete response before writing, verifies HTTP success, Content-Length when
+present, a 64 MiB bound, the ZIP local header, and a complete terminal ZIP
+directory record. Extraction starts only after the exclusive archive write has
+completed, uses a fresh OS temporary directory for every orchestrator attempt,
+and always removes it. Only the seven expected non-empty regular Neutralino
+binaries are copied to `bin`; non-Windows executable modes are restored to
+`0755`. The configured Neutralino client must also match the installed pinned
+package before synchronization can proceed.
+
+Regression coverage feeds a deliberately truncated first response into the
+synchronizer, proves it is rejected before extraction, and then proves a clean
+second attempt succeeds without reusing corrupt state. A real download of the
+pinned 6.8.0 release and a real `neu build --release` both complete locally.
+
 ## Regression coverage
 
 Focused coverage proves:
@@ -208,10 +234,15 @@ Focused coverage proves:
   receiver activation fails, preventing persistent enabled/Starting state.
 - the upstream Shairport `LimitRTPRIO=5` receiver-unit contract, tied to the
   measured ALSA XRUN and failed realtime-thread warning on the Pi.
+- deterministic Neutralino archive URL/version coherence, structural and
+  length validation, clean retry isolation, and expected binary staging.
 
 Final validation after all deliverables:
 
 - focused AirPlay/arbitration/UI/Settings tests — PASS, 35 tests, 0 failed;
+- focused build protocol and Neutralino synchronization tests — PASS, 8 tests,
+  0 failed;
+- real pinned Neutralino 6.8.0 download and `neu build --release` — PASS;
 - `npm.cmd run format:check` — PASS;
 - `npm.cmd run typecheck` — PASS;
 - `npm.cmd run lint` — PASS;
@@ -227,8 +258,8 @@ Final validation after all deliverables:
   one-process realtime analysis;
 - `npm.cmd run verify:airplay:deployment` — PASS;
 - `npm.cmd run verify:linux:executables` — PASS, 55 tracked deployment files;
-- `npm.cmd run verify:linux:installer` — PASS, including 74 install-safe tests
-  (63 passed, 11 platform skips), Network deployment, and AirPlay deployment;
+- `npm.cmd run verify:linux:installer` — PASS, including 76 install-safe tests
+  (65 passed, 11 platform skips), Network deployment, and AirPlay deployment;
 - final `git diff --check` — PASS.
 
 ## Real-system and visual scope

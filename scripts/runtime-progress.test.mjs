@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   applicationBuildSteps,
@@ -7,6 +11,38 @@ import {
   protocolLine,
   runBuildOrchestrator,
 } from "./build-orchestrator.mjs";
+import {
+  neutralinoArchiveUrl,
+  neutralinoBinaryNames,
+  syncNeutralino,
+  validateNeutralinoArchive,
+} from "./sync-neutralino.mjs";
+
+function structuralZipFixture() {
+  const archive = Buffer.alloc(30);
+  archive.writeUInt32LE(0x04034b50, 0);
+  archive.writeUInt32LE(0x06054b50, 8);
+  archive.writeUInt16LE(0, 28);
+  return archive;
+}
+
+function archiveResponse(archive, declaredLength = archive.length) {
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name) =>
+        name.toLowerCase() === "content-length" ? String(declaredLength) : null,
+    },
+    arrayBuffer: () =>
+      Promise.resolve(
+        archive.buffer.slice(
+          archive.byteOffset,
+          archive.byteOffset + archive.byteLength,
+        ),
+      ),
+  };
+}
 
 void test("build protocol configuration is closed, numeric and open-FD validated", () => {
   let validated;
@@ -137,4 +173,80 @@ void test("orchestrator stops at the exact failed command and preserves status",
   });
   assert.equal(status, 37);
   assert.equal(commands.length, 3);
+});
+
+void test("Neutralino archive validation rejects incomplete and inconsistent downloads", () => {
+  const archive = structuralZipFixture();
+  assert.equal(
+    neutralinoArchiveUrl("6.8.0"),
+    "https://github.com/neutralinojs/neutralinojs/releases/download/v6.8.0/neutralinojs-v6.8.0.zip",
+  );
+  assert.doesNotThrow(() => validateNeutralinoArchive(archive, archive.length));
+  assert.throws(() => validateNeutralinoArchive(archive.subarray(0, -1)));
+  assert.throws(() => validateNeutralinoArchive(archive, archive.length + 1));
+  assert.throws(() => validateNeutralinoArchive(Buffer.alloc(30)));
+  assert.throws(() => neutralinoArchiveUrl("latest"));
+});
+
+void test("Neutralino synchronization discards a truncated attempt before a clean retry", async () => {
+  const repositoryRoot = await mkdtemp(
+    join(tmpdir(), "eidetic-neutralino-test-"),
+  );
+  const completeArchive = structuralZipFixture();
+  let fetchAttempts = 0;
+  let extractionCalls = 0;
+  try {
+    await writeFile(
+      join(repositoryRoot, "neutralino.config.json"),
+      JSON.stringify({
+        cli: { binaryVersion: "6.8.0", clientVersion: "6.8.0" },
+      }),
+    );
+    const clientRoot = join(
+      repositoryRoot,
+      "node_modules",
+      "@neutralinojs",
+      "lib",
+    );
+    await mkdir(clientRoot, { recursive: true });
+    await writeFile(
+      join(clientRoot, "package.json"),
+      JSON.stringify({ version: "6.8.0" }),
+    );
+
+    const fetchImplementation = () => {
+      fetchAttempts += 1;
+      const archive =
+        fetchAttempts === 1 ? completeArchive.subarray(0, -1) : completeArchive;
+      return Promise.resolve(archiveResponse(archive));
+    };
+    const extractArchive = async (_archivePath, extractionRoot) => {
+      extractionCalls += 1;
+      await Promise.all(
+        neutralinoBinaryNames.map((binaryName) =>
+          writeFile(join(extractionRoot, binaryName), `binary:${binaryName}`),
+        ),
+      );
+    };
+
+    await assert.rejects(() =>
+      syncNeutralino({ repositoryRoot, fetchImplementation, extractArchive }),
+    );
+    assert.equal(extractionCalls, 0);
+    await syncNeutralino({
+      repositoryRoot,
+      fetchImplementation,
+      extractArchive,
+    });
+    assert.equal(fetchAttempts, 2);
+    assert.equal(extractionCalls, 1);
+    for (const binaryName of neutralinoBinaryNames) {
+      assert.equal(
+        await readFile(join(repositoryRoot, "bin", binaryName), "utf8"),
+        `binary:${binaryName}`,
+      );
+    }
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
 });
