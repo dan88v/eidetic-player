@@ -143,11 +143,16 @@ Audio Buffer follows the same navigation and single-choice pattern. Its row
 shows the current value and opens a dedicated 1, 2, or 4 second page. New and
 migrated installations default to 2 seconds; the choice is stored atomically,
 validated at the API and store boundaries, and rendered into the Shairport
-configuration. Both UI and backend reject a change during an active AirPlay
-session because applying it requires a receiver restart. The Linux installer
-now seeds schema 2 with the same default; the read-only doctor accepts both
-legacy schema 1 and schema 2 while validating that the effective choice is
-exactly 1, 2, or 4 seconds.
+configuration. The first implementation incorrectly disabled the row during an
+active stream and exposed its explanation through a native desktop tooltip.
+The active-session row and choices now remain available and use the existing dark
+confirmation surface, never a native `title` tooltip. Confirming persists the
+choice without touching the current stream and labels it `Next session`; the
+provider's release event rewrites the config and restarts the now-idle receiver
+before the following connection. Receiver-name editing remains protected. The
+Linux installer seeds schema 2 with the same default; the read-only doctor
+accepts both legacy schema 1 and schema 2 while validating that the effective
+choice is exactly 1, 2, or 4 seconds.
 
 New installations generate `Eidetic Player - 1A2B`-style identities with four
 cryptographically random uppercase hexadecimal characters. Existing generated
@@ -297,12 +302,15 @@ as a drag and suppress the click belonging to a short tap.
 
 The appliance pointer now starts hidden and uses bounded modality evidence.
 Touch, pen, touch-derived compatibility input, and an unconfirmed absolute
-relocation keep it hidden. Two nearby movement samples with at least 8 px of
-cumulative distance confirm deliberate mouse movement and reveal it for the
-existing 2.5-second interval. A real mouse remains a native mouse with ordinary
-click and keyboard semantics; no synthetic click or duplicate event path was
-introduced. The app surface also suppresses the browser context menu so a long
-touch cannot leave native chrome intercepting the following input.
+relocation keep it hidden. The first implementation reset its own touch guard
+when hiding the cursor, allowing a burst of synthesized mouse events to reveal
+it again. Touch or context-menu input now starts a persistent 2.5-second
+quarantine. Only three hover-only mouse samples with at least 12 px cumulative
+distance can confirm deliberate mouse use; button-held motion cannot establish
+mouse identity. A real mouse remains native with ordinary click and keyboard
+semantics, while a touch-emulated drag stays hidden. The app surface still
+suppresses the browser context menu so a long touch cannot leave native chrome
+intercepting the following input.
 
 The local direct-manipulation fallback now requires 16 px before a tap becomes
 a drag. Sub-threshold motion leaves the native semantic click untouched; only
@@ -331,7 +339,8 @@ Focused coverage proves:
   without another SSE.
 - Settings-root/Network placement, Remote access Back navigation, dedicated
   receiver-name and audio-buffer pages, revisioned Save/PATCH paths, schema-1
-  2-second migration, active-session guard, and four-hex identity migration
+  2-second migration, deferred active-session buffer apply, and four-hex
+  identity migration
   without replacing a custom receiver name.
 - inactive/unloaded systemd reset handling and terminal Error publication when
   receiver activation fails, preventing persistent enabled/Starting state.
@@ -346,16 +355,16 @@ Focused coverage proves:
 Final validation after all deliverables:
 
 - focused AirPlay/arbitration tests — PASS, 27 tests, 0 failed;
-- focused AirPlay/Network Settings tests — PASS, 27 tests, 0 failed;
+- focused active-buffer, Network Settings, and pointer-modality tests — PASS,
+  33 tests, 0 failed;
 - focused build protocol and Neutralino synchronization tests — PASS, 8 tests,
   0 failed;
-- focused touch, pointer, and scrolling tests — PASS, 20 tests, 0 failed;
 - real pinned Neutralino 6.8.0 download and `neu build --release` — PASS;
 - `npm.cmd run format:check` — PASS;
 - `npm.cmd run typecheck` — PASS;
 - `npm.cmd run lint` — PASS;
 - `npm.cmd run build` — PASS for local UI, Remote UI, and backend;
-- `npm.cmd test` — PASS, 843 tests: 830 passed, 13 platform skips,
+- `npm.cmd test` — PASS, 845 tests: 832 passed, 13 platform skips,
   0 failed;
 - `npm.cmd run mpv:doctor` — PASS with MPV v0.41.0 and JSON IPC;
 - `npm.cmd run test:mpv` — PASS, 14 tests, including one persistent MPV,
@@ -365,7 +374,7 @@ Final validation after all deliverables:
 - `npm.cmd run test:ffmpeg` — PASS, 3 tests, including real waveform and
   one-process realtime analysis;
 - `npm.cmd run verify:airplay:deployment` — PASS;
-- `npm.cmd run verify:linux:executables` — PASS, 55 tracked deployment files;
+- `npm.cmd run verify:linux:executables` — PASS, 56 tracked deployment files;
 - `npm.cmd run verify:linux:installer` — PASS, including 76 install-safe tests
   (65 passed, 11 platform skips), Network deployment, and AirPlay deployment;
 - final `git diff --check` — PASS.
@@ -403,7 +412,11 @@ AirPlay, and Remote access without scrolling; AirPlay shows the four-hex name
 at the right before its chevron and the 2-second buffer on its own canonical
 row. The dedicated Receiver Name page keeps its field and Save action fully
 visible. The Audio Buffer page fits all three full-width touch choices, their
-descriptions, and the selected checkmark without scrolling. A real fixture
+descriptions, and the selected checkmark without scrolling. Its navigation row
+remains enabled and exposes no native HelpText or `title` tooltip. The active
+session path is covered by the real provider/service fixture: confirmation
+leaves the current stream unchanged, persists the requested value, publishes
+`Next session`, and applies it after the provider release event. A real fixture
 change from 2 to 4 and back to 2 passed through the WebView2 UI, revisioned API,
 atomic store, receiver restart, and generated config; the config was observed
 at `4.0` and restored to `2.0`. Remote access opens from Network and Back
@@ -412,6 +425,6 @@ sender connection, artwork, metadata, audio, and Local preservation.
 
 All development runs closed through the real window. Final teardown found
 zero listeners on ports 4310/5173, zero Neutralino, MPV, or FFmpeg processes,
-and no retained QA image.
+and no generated QA file in the worktree.
 
 No commit or push was performed.

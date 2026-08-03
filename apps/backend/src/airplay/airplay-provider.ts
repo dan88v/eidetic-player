@@ -61,6 +61,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
   private readonly listeners = new Set<
     (event: ExternalProviderEvent) => void
   >();
+  private readonly releaseListeners = new Set<() => void>();
   private readonly parser: AirPlayMetadataParser;
   private server: Server | null = null;
   private metadataStream: ReturnType<typeof createReadStream> | null = null;
@@ -149,6 +150,11 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     return () => this.listeners.delete(listener);
   }
 
+  subscribeReleased(listener: () => void): () => void {
+    this.releaseListeners.add(listener);
+    return () => this.releaseListeners.delete(listener);
+  }
+
   configureOutput(route: ExternalPlaybackRoute): Promise<void> {
     if (
       this.preparedRoute?.physicalOutputId !== route.physicalOutputId ||
@@ -189,6 +195,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       artwork: null,
     };
     this.terminalEvent = null;
+    for (const listener of this.releaseListeners) listener();
     return Promise.resolve();
   }
 
@@ -208,6 +215,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
       artwork: null,
     };
     this.terminalEvent = null;
+    for (const listener of this.releaseListeners) listener();
   }
 
   play(): Promise<void> {
@@ -246,6 +254,7 @@ export class AirPlayProvider implements ExternalPlaybackProvider {
     this.clearSessionResources();
     await this.platform.stopRuntime().catch(() => undefined);
     this.listeners.clear();
+    this.releaseListeners.clear();
     this.metadataStream?.destroy();
     this.metadataStream = null;
     await this.metadataHandle?.close().catch(() => undefined);

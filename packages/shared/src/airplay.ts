@@ -23,6 +23,7 @@ export interface AirPlayState extends AirPlaySettings {
   readonly protocol: AirPlayProtocol;
   readonly serviceStatus: AirPlayServiceStatus;
   readonly integrationVersion: string;
+  readonly audioBufferPendingRestart: boolean;
   readonly message: string | null;
 }
 

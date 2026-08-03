@@ -1,11 +1,14 @@
 const POINTER_HIDE_MILLISECONDS = 2_500;
 const MOUSE_CONFIRMATION_MILLISECONDS = 1_200;
-const MOUSE_CONFIRMATION_DISTANCE = 8;
+const MOUSE_CONFIRMATION_DISTANCE = 12;
+const MOUSE_CONFIRMATION_SAMPLES = 3;
+const TOUCH_COMPATIBILITY_SUPPRESSION_MILLISECONDS = 2_500;
 
 interface PointerInput {
   readonly pointerType: string;
   readonly movementX: number;
   readonly movementY: number;
+  readonly buttons?: number;
   readonly sourceCapabilities?: {
     readonly firesTouchEvents?: boolean;
   } | null;
@@ -26,37 +29,48 @@ export class PointerModalityTracker {
   private mouseMoveSamples = 0;
   private mouseMoveDistance = 0;
   private mouseConfirmed = false;
+  private suppressMouseUntil = Number.NEGATIVE_INFINITY;
 
   moved(event: PointerInput, now: number): PointerVisibilityDecision {
-    if (isTouchInput(event)) {
-      this.reset();
+    if (isTouchInput(event)) return this.touched(now);
+    if (event.pointerType === "mouse" && now < this.suppressMouseUntil)
       return "hide";
-    }
     if (
       event.pointerType !== "mouse" ||
       (event.movementX === 0 && event.movementY === 0)
     )
       return "unchanged";
+    if ((event.buttons ?? 0) !== 0) {
+      const decision = this.mouseConfirmed ? "show" : "hide";
+      if (!this.mouseConfirmed) this.reset();
+      return decision;
+    }
     if (now - this.lastMouseMoveAt > MOUSE_CONFIRMATION_MILLISECONDS)
       this.reset();
     this.lastMouseMoveAt = now;
     this.mouseMoveSamples += 1;
     this.mouseMoveDistance += Math.hypot(event.movementX, event.movementY);
     if (
-      this.mouseMoveSamples >= 2 &&
+      this.mouseMoveSamples >= MOUSE_CONFIRMATION_SAMPLES &&
       this.mouseMoveDistance >= MOUSE_CONFIRMATION_DISTANCE
     )
       this.mouseConfirmed = true;
     return this.mouseConfirmed ? "show" : "unchanged";
   }
 
-  pressed(event: PointerInput): PointerVisibilityDecision {
-    if (isTouchInput(event)) {
-      this.reset();
+  pressed(event: PointerInput, now: number): PointerVisibilityDecision {
+    if (isTouchInput(event)) return this.touched(now);
+    if (event.pointerType === "mouse" && now < this.suppressMouseUntil)
       return "hide";
-    }
     if (event.pointerType === "mouse" && this.mouseConfirmed) return "show";
     this.reset();
+    return "hide";
+  }
+
+  touched(now: number): PointerVisibilityDecision {
+    this.reset();
+    this.suppressMouseUntil =
+      now + TOUCH_COMPATIBILITY_SUPPRESSION_MILLISECONDS;
     return "hide";
   }
 
@@ -99,13 +113,14 @@ export function createPointerVisibilityController(
     apply(tracker.moved(event, performance.now()));
   };
   const onPointerDown = (event: PointerEvent): void => {
-    apply(tracker.pressed(event));
+    apply(tracker.pressed(event, performance.now()));
   };
   const onTouchStart = (): void => {
-    hide();
+    apply(tracker.touched(performance.now()));
   };
   const suppressContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
+    apply(tracker.touched(performance.now()));
   };
 
   if (hidePointerWhenInactive) {

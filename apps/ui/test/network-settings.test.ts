@@ -194,10 +194,14 @@ void test("AirPlay settings stay minimal and use the dedicated revisioned API", 
   assert.match(settings, /airPlayAudioBufferSecondsChoices/u);
   assert.match(settings, /audioBufferSeconds: value/u);
   assert.match(settings, /2: "Balanced delay and resilience\. Recommended\."/u);
+  assert.match(settings, /title: "Apply next AirPlay session\?"/u);
+  assert.match(settings, /confirmLabel: "Apply next session"/u);
   assert.match(
     settings,
-    /Stop the current AirPlay stream before changing the audio buffer\./u,
+    /The current stream will continue unchanged\. The new buffer will be used after it ends\./u,
   );
+  assert.match(settings, /audioBufferPendingRestart \? " · Next session"/u);
+  assert.doesNotMatch(settings, /bufferRow\.title/u);
   assert.match(settings, /title: "Receiver Name"/u);
   assert.match(settings, /normalizeAirPlayReceiverName\(input\.value\)/u);
   assert.match(settings, /input\.dataset\.onscreenKeyboard = "text"/u);

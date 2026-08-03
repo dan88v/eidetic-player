@@ -45,6 +45,7 @@ class FixturePlatform implements AirPlayPlatformAdapter {
   advertisementChecks = 0;
   restartCount = 0;
   setEnabledCount = 0;
+  readonly configurations: string[] = [];
 
   constructor(
     private readonly advertisements: (
@@ -71,7 +72,8 @@ class FixturePlatform implements AirPlayPlatformAdapter {
   prepareRuntime(): Promise<void> {
     return Promise.resolve();
   }
-  writeConfiguration(): Promise<void> {
+  writeConfiguration(configuration: string): Promise<void> {
+    this.configurations.push(configuration);
     return Promise.resolve();
   }
   setEnabled(enabled: boolean): Promise<void> {
@@ -310,12 +312,11 @@ void test("renaming an idle enabled receiver restarts it before advertisement ve
       });
     });
     const pendingReply = control(platform.controlSocket, "BEFORE 1");
-    void pendingReply.catch(() => undefined);
     await sessionStarting;
     await assert.rejects(
       service.patch(
         {
-          audioBufferSeconds: 1,
+          receiverName: "Bedroom",
           expectedRevision: service.snapshot().revision,
         },
         () => route,
@@ -325,7 +326,46 @@ void test("renaming an idle enabled receiver restarts it before advertisement ve
         error.code === "AIRPLAY_SESSION_ACTIVE" &&
         error.statusCode === 409,
     );
-    assert.equal(service.snapshot().audioBufferSeconds, 4);
+    const restartCountBeforeDeferredChange = platform.restartCount;
+    const advertisementChecksBeforeDeferredChange =
+      platform.advertisementChecks;
+    const deferred = await service.patch(
+      {
+        audioBufferSeconds: 1,
+        expectedRevision: service.snapshot().revision,
+      },
+      () => route,
+    );
+    assert.equal(deferred.audioBufferSeconds, 1);
+    assert.equal(deferred.audioBufferPendingRestart, true);
+    assert.equal(deferred.serviceStatus, "active");
+    assert.equal(platform.restartCount, restartCountBeforeDeferredChange);
+    assert.equal(
+      platform.advertisementChecks,
+      advertisementChecksBeforeDeferredChange,
+    );
+    assert.match(
+      platform.configurations.at(-1) ?? "",
+      /audio_backend_buffer_desired_length_in_seconds = 4\.0;/u,
+    );
+
+    await provider.release(provider.snapshot().generation + 1);
+    assert.equal(await pendingReply, "DENY\n");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(service.snapshot().audioBufferPendingRestart, false);
+    assert.equal(service.snapshot().serviceStatus, "ready");
+    assert.equal(
+      platform.restartCount,
+      Number(restartCountBeforeDeferredChange) + 1,
+    );
+    assert.equal(
+      platform.advertisementChecks,
+      Number(advertisementChecksBeforeDeferredChange) + 1,
+    );
+    assert.match(
+      platform.configurations.at(-1) ?? "",
+      /audio_backend_buffer_desired_length_in_seconds = 1\.0;/u,
+    );
   } finally {
     service.close();
     await provider.shutdown();

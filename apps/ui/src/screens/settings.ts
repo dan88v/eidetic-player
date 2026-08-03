@@ -1258,12 +1258,8 @@ export function createSettingsScreen(
       const bufferRow = document.createElement("button");
       bufferRow.className = "settings-row-base setting-navigation";
       bufferRow.type = "button";
-      bufferRow.innerHTML = `<span><strong>Audio Buffer</strong><small>${String(airPlayState.audioBufferSeconds)} ${airPlayState.audioBufferSeconds === 1 ? "second" : "seconds"}</small></span>${chevron()}`;
-      bufferRow.disabled =
-        airPlayBusy || !airPlayState.available || airPlayActive;
-      if (airPlayActive)
-        bufferRow.title =
-          "Stop the current AirPlay stream before changing the audio buffer.";
+      bufferRow.innerHTML = `<span><strong>Audio Buffer</strong><small>${String(airPlayState.audioBufferSeconds)} ${airPlayState.audioBufferSeconds === 1 ? "second" : "seconds"}${airPlayState.audioBufferPendingRestart ? " · Next session" : ""}</small></span>${chevron()}`;
+      bufferRow.disabled = airPlayBusy || !airPlayState.available;
       bufferRow.addEventListener("click", () => {
         page = "airplay-buffer";
         render();
@@ -1433,26 +1429,35 @@ export function createSettingsScreen(
           `${String(value)} ${value === 1 ? "second" : "seconds"}`,
           receiverState.audioBufferSeconds === value,
           () => {
-            if (
-              airPlayBusy ||
-              airPlayActive ||
-              receiverState.audioBufferSeconds === value
-            )
+            if (airPlayBusy || receiverState.audioBufferSeconds === value)
               return false;
-            updateAirPlay(
-              { audioBufferSeconds: value },
-              `AirPlay buffer set to ${String(value)} ${value === 1 ? "second" : "seconds"}.`,
-              "airplay",
-            );
+            const apply = (): void => {
+              updateAirPlay(
+                { audioBufferSeconds: value },
+                airPlayActive
+                  ? "AirPlay buffer will apply next session."
+                  : `AirPlay buffer set to ${String(value)} ${value === 1 ? "second" : "seconds"}.`,
+                "airplay",
+              );
+            };
+            if (airPlayActive) {
+              confirmationDialog.open({
+                title: "Apply next AirPlay session?",
+                description:
+                  "The current stream will continue unchanged. The new buffer will be used after it ends.",
+                confirmLabel: "Apply next session",
+                returnFocus: row,
+                onConfirm: apply,
+              });
+              return false;
+            }
+            apply();
             return true;
           },
           "airplay",
           descriptions[value],
         );
-        row.disabled = airPlayBusy || !receiverState.available || airPlayActive;
-        if (airPlayActive)
-          row.title =
-            "Stop the current AirPlay stream before changing the audio buffer.";
+        row.disabled = airPlayBusy || !receiverState.available;
         panel.append(row);
       }
       return;

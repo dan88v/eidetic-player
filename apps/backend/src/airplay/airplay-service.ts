@@ -27,10 +27,15 @@ export class AirPlayService {
     protocol: "unavailable",
     serviceStatus: "unavailable",
     integrationVersion: AIRPLAY_INTEGRATION_VERSION,
+    audioBufferPendingRestart: false,
     message: null,
   };
   private initialized = false;
   private readonly unsubscribeProvider: () => void;
+  private readonly unsubscribeProviderReleased: () => void;
+  private pendingConfigurationResolver: (() => ExternalPlaybackRoute) | null =
+    null;
+  private applyingPendingConfiguration = false;
 
   constructor(
     private readonly provider: AirPlayProvider,
@@ -60,6 +65,9 @@ export class AirPlayService {
               ? "The AirPlay session ended unexpectedly."
               : null,
         });
+    });
+    this.unsubscribeProviderReleased = this.provider.subscribeReleased(() => {
+      void this.applyPendingConfiguration();
     });
   }
 
@@ -102,6 +110,7 @@ export class AirPlayService {
           ? "starting"
           : "off",
       integrationVersion: AIRPLAY_INTEGRATION_VERSION,
+      audioBufferPendingRestart: false,
       message: status.message,
     };
     if (!status.available) {
@@ -177,18 +186,27 @@ export class AirPlayService {
         "AirPlay settings changed in another request.",
         409,
       );
+    if (patch.enabled === false) {
+      this.pendingConfigurationResolver = null;
+      this.publish({ audioBufferPendingRestart: false });
+    }
     if (patch.enabled === false && this.state.enabled)
       await this.requestLocalOwnership();
     if (
-      (patch.receiverName !== undefined ||
-        patch.audioBufferSeconds !== undefined) &&
+      patch.receiverName !== undefined &&
       this.provider.snapshot().sessionId !== null
     )
       throw new AirPlayStoreError(
         "AIRPLAY_SESSION_ACTIVE",
-        "Stop AirPlay playback before changing receiver settings.",
+        "Stop AirPlay playback before changing the receiver name.",
         409,
       );
+    const deferBufferChange =
+      patch.audioBufferSeconds !== undefined &&
+      patch.enabled !== false &&
+      this.provider.snapshot().sessionId !== null;
+    if (patch.audioBufferSeconds !== undefined && !deferBufferChange)
+      this.pendingConfigurationResolver = null;
     const document = await this.store.save({
       ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
       ...(patch.receiverName === undefined
@@ -204,12 +222,25 @@ export class AirPlayService {
       receiverName: document.receiverName,
       receiverNameOrigin: document.receiverNameOrigin,
       audioBufferSeconds: document.audioBufferSeconds,
-      serviceStatus: document.enabled ? "starting" : "off",
+      audioBufferPendingRestart: deferBufferChange
+        ? true
+        : patch.audioBufferSeconds !== undefined || patch.enabled === false
+          ? false
+          : this.state.audioBufferPendingRestart,
+      serviceStatus: deferBufferChange
+        ? this.state.serviceStatus
+        : document.enabled
+          ? "starting"
+          : "off",
       message: null,
     });
     if (!document.enabled) {
       await this.platform.setEnabled(false);
       this.publish({ serviceStatus: "off", message: null });
+      return this.state;
+    }
+    if (deferBufferChange) {
+      this.pendingConfigurationResolver = resolveRoute;
       return this.state;
     }
     try {
@@ -264,7 +295,44 @@ export class AirPlayService {
 
   close(): void {
     this.unsubscribeProvider();
+    this.unsubscribeProviderReleased();
+    this.pendingConfigurationResolver = null;
     this.listeners.clear();
+  }
+
+  private async applyPendingConfiguration(): Promise<void> {
+    if (
+      this.applyingPendingConfiguration ||
+      !this.pendingConfigurationResolver ||
+      !this.state.enabled
+    )
+      return;
+    const resolveRoute = this.pendingConfigurationResolver;
+    this.pendingConfigurationResolver = null;
+    this.applyingPendingConfiguration = true;
+    this.publish({ serviceStatus: "starting", message: null });
+    try {
+      const advertisement = await this.startVerifiedReceiver(resolveRoute());
+      if (advertisement !== "verified")
+        throw this.advertisementError(advertisement);
+      const active = await this.platform.status();
+      this.publish({
+        protocol: active.protocol,
+        serviceStatus: "ready",
+        audioBufferPendingRestart: false,
+        message: null,
+      });
+    } catch (error) {
+      await this.platform.setEnabled(false).catch(() => undefined);
+      const activationError = this.activationError(error);
+      this.publish({
+        serviceStatus: "error",
+        audioBufferPendingRestart: false,
+        message: activationError.message,
+      });
+    } finally {
+      this.applyingPendingConfiguration = false;
+    }
   }
 
   private async applyRoute(

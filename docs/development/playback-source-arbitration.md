@@ -123,9 +123,12 @@ MPV volume. The generated Raspberry configuration uses the lightweight
 `vernier` interpolator and a persisted backend buffer. Settings offers 1, 2,
 or 4 seconds and defaults new and migrated installations to 2 seconds. One
 second reduces transport delay, while four seconds provides more tolerance for
-short network interruptions. Changing this value is rejected while an AirPlay
-session is active because applying it restarts the receiver; both the UI and
-the revisioned backend boundary enforce that rule.
+short network interruptions. During an active stream, the canonical Settings
+confirmation explains that the current session is unchanged, persists the new
+choice, and marks it for the next session. The provider's existing release
+event then rewrites the config and restarts the idle receiver before another
+sender connects. No polling or stream interruption is introduced. Receiver
+name and physical-output changes remain blocked while AirPlay owns playback.
 
 `airplay.json` stores the enabled preference, receiver name, and selected audio
 buffer atomically. The first install defaults to On and creates

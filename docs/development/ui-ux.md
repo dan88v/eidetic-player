@@ -41,12 +41,14 @@ or a second scroll loop.
 
 On appliance installations the pointer starts hidden. One absolute relocation
 is not enough to reveal it because mouse-emulating touchscreens produce that
-sequence before a tap. Two nearby movement samples with meaningful cumulative
-distance confirm real mouse use and reveal the pointer temporarily; touch,
-pen, touch-derived compatibility input, or an unconfirmed press hides it.
-Application surfaces suppress the browser context menu so a touchscreen long
-press cannot leave native chrome above the player. This does not replace native
-single-click, keyboard, or confirmed mouse activation.
+sequence before a tap. Three nearby hover-only movement samples with meaningful
+cumulative distance confirm real mouse use and reveal the pointer temporarily;
+button-held motion can never establish mouse identity. Touch, pen,
+touch-derived compatibility input, context-menu suppression, or an unconfirmed
+press starts a 2.5-second quarantine in which synthesized mouse events remain
+hidden. Application surfaces suppress the browser context menu so a touchscreen
+long press cannot leave native chrome above the player. This does not replace
+native single-click, keyboard, or confirmed mouse activation.
 
 Timeline, volume, editable fields, dedicated reorder handles, and the
 Parametric EQ response Canvas opt out of the scroll fallback because they own
