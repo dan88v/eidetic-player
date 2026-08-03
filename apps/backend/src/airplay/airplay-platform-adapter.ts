@@ -87,6 +87,15 @@ export function airPlayServiceCommandPlan(
     : [["--user", "disable", "--now", AIRPLAY_SERVICE]];
 }
 
+export function isRequiredAirPlayServiceCommand(
+  command: readonly string[],
+): boolean {
+  // reset-failed reports a non-zero exit status when an inactive unit is not
+  // loaded. In that state there is no failure to clear, and the following
+  // start/restart command remains the authoritative operation.
+  return command[1] !== "reset-failed";
+}
+
 export class LinuxAirPlayPlatformAdapter implements AirPlayPlatformAdapter {
   readonly controlSocket: string;
   readonly metadataPipe: string;
@@ -237,7 +246,7 @@ export class LinuxAirPlayPlatformAdapter implements AirPlayPlatformAdapter {
     if (process.platform !== "linux") return;
     for (const command of airPlayServiceCommandPlan(enabled)) {
       const result = await run("/usr/bin/systemctl", command);
-      if (result.code !== 0)
+      if (result.code !== 0 && isRequiredAirPlayServiceCommand(command))
         throw new Error("AirPlay service state could not be changed.");
     }
   }
@@ -248,13 +257,11 @@ export class LinuxAirPlayPlatformAdapter implements AirPlayPlatformAdapter {
       return;
     }
     if (process.platform !== "linux") return;
-    const reset = await run("/usr/bin/systemctl", [
+    await run("/usr/bin/systemctl", [
       "--user",
       "reset-failed",
       AIRPLAY_SERVICE,
-    ]);
-    if (reset.code !== 0)
-      throw new Error("AirPlay service could not be restarted.");
+    ]).catch(() => undefined);
     const result = await run("/usr/bin/systemctl", [
       "--user",
       "restart",

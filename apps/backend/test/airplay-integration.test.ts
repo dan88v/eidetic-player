@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   AIRPLAY_INTEGRATION_VERSION,
   AirPlayStore,
+  AirPlayStoreError,
 } from "../src/airplay/airplay-store.js";
 import { renderAirPlayConfig } from "../src/airplay/airplay-config-renderer.js";
 import { AirPlayMetadataParser } from "../src/airplay/airplay-metadata-parser.js";
@@ -20,7 +21,10 @@ import type {
   AirPlayPlatformAdapter,
   AirPlayPlatformStatus,
 } from "../src/airplay/airplay-platform-adapter.js";
-import { airPlayServiceCommandPlan } from "../src/airplay/airplay-platform-adapter.js";
+import {
+  airPlayServiceCommandPlan,
+  isRequiredAirPlayServiceCommand,
+} from "../src/airplay/airplay-platform-adapter.js";
 
 function metadataItem(type: string, code: string, bytes: Buffer): string {
   const hexadecimal = (value: string): string =>
@@ -433,14 +437,83 @@ void test("AirPlay fixture never opens the native metadata FIFO on Linux", () =>
 });
 
 void test("enabled AirPlay starts only after the backend runtime and clears a stale systemd failure", () => {
-  assert.deepEqual(airPlayServiceCommandPlan(true), [
+  const enabledPlan = airPlayServiceCommandPlan(true);
+  assert.deepEqual(enabledPlan, [
     ["--user", "disable", "eidetic-player-airplay.service"],
     ["--user", "reset-failed", "eidetic-player-airplay.service"],
     ["--user", "start", "eidetic-player-airplay.service"],
   ]);
+  assert.deepEqual(enabledPlan.map(isRequiredAirPlayServiceCommand), [
+    true,
+    false,
+    true,
+  ]);
   assert.deepEqual(airPlayServiceCommandPlan(false), [
     ["--user", "disable", "--now", "eidetic-player-airplay.service"],
   ]);
+});
+
+void test("failed receiver activation terminates in Error instead of enabled Starting", async () => {
+  class FailingEnablePlatform extends FixturePlatform {
+    override setEnabled(enabled: boolean): Promise<void> {
+      this.setEnabledCount += 1;
+      this.active = false;
+      return enabled
+        ? Promise.reject(
+            new Error("AirPlay service state could not be changed."),
+          )
+        : Promise.resolve();
+    }
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-start-failure-"));
+  const store = new AirPlayStore(root);
+  await store.initialize();
+  await store.save({ enabled: false });
+  const platform = new FailingEnablePlatform();
+  const provider = new AirPlayProvider(platform);
+  const service = new AirPlayService(
+    provider,
+    platform,
+    () => Promise.resolve(),
+    store,
+  );
+  const route = {
+    physicalOutputId: "usb-dac",
+    description: "USB DAC",
+    routeKind: "alsa" as const,
+    providerTarget: "alsa/hw:2,0",
+    levelMode: "variable" as const,
+    maximumSoftwareVolume: 100,
+    availabilityRevision: 1,
+  };
+  try {
+    await service.initialize(() => route);
+    assert.equal(service.snapshot().serviceStatus, "off");
+    await assert.rejects(
+      service.patch(
+        {
+          enabled: true,
+          expectedRevision: service.snapshot().revision,
+        },
+        () => route,
+      ),
+      (error: unknown) =>
+        error instanceof AirPlayStoreError &&
+        error.code === "AIRPLAY_START_FAILED" &&
+        error.statusCode === 409,
+    );
+    assert.equal(service.snapshot().enabled, true);
+    assert.equal(service.snapshot().serviceStatus, "error");
+    assert.equal(
+      service.snapshot().message,
+      "AirPlay service state could not be changed.",
+    );
+  } finally {
+    service.close();
+    await provider.shutdown();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 void test("an already-running receiver is detached from boot before its generated config is reloaded", async () => {

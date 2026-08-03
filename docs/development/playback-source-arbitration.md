@@ -130,6 +130,15 @@ two-character names migrate once; user-defined names are never replaced.
 Settings exposes the current name in the AirPlay row and edits it on a
 dedicated canonical subpage without adding another SSE connection.
 
+The persistent preference, rather than systemd enablement, is authoritative.
+The backend starts the disabled receiver unit only after its private runtime
+and output route are ready. `systemctl reset-failed` is best-effort because it
+returns non-zero when an inactive unit is not loaded and has no failure to
+clear; the following `start` or `restart` remains mandatory. An activation
+request publishes `starting` only while work is in flight and must terminate
+in either `ready` or an explicit `error`, never an indefinite enabled/Starting
+state.
+
 ## Shutdown and deployment
 
 Quit, restart, maintenance, power, and update preparation flush arbitration,

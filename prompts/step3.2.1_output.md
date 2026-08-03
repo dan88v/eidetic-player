@@ -134,6 +134,32 @@ two-character identities migrate once to the new form. A user-defined receiver
 name is preserved during the suffix migration. The Linux installer and its
 deployment contract use the same four-hex rule.
 
+### Post-update AirPlay Starting recovery
+
+The remote update SSH session reset during Neutralino synchronization, but
+read-only inspection proved that build `8913746` had continued to activation:
+`current` pointed at the exact target, backend readiness was `ready`, MPV was
+playing, and the user service was active with zero restarts. The transport
+disconnect therefore did not roll back or partially activate the release.
+
+AirPlay exposed a separate reproducible inconsistency. Its persistent state was
+On while the receiver unit was inactive and the API remained `off`, which the
+UI presented as Starting. A same-state On request returned HTTP 500 before any
+receiver start appeared in systemd. Directly starting the managed unit worked
+immediately, opened port 7000, and produced a clean Shairport log. The failing
+preparatory command was `systemctl --user reset-failed`: systemd returns
+non-zero when this inactive unit is not loaded, even though there is no failure
+to clear. The backend treated that harmless result as fatal and never reached
+the mandatory `start` command.
+
+Failure reset is now best-effort while `start`, `restart`, disable, and stop
+remain mandatory. The Settings PATCH publishes Starting only during the
+operation and catches every route/service/advertisement failure, terminating in
+an explicit sanitized Error instead of leaving `enabled=true` paired with Off
+or Starting. A controlled live start followed by the normal revisioned API
+verification restored the installed Pi to `serviceStatus=ready`, receiver
+`active/running`, zero restarts, and a successful advertisement response.
+
 ## Regression coverage
 
 Focused coverage proves:
@@ -154,15 +180,17 @@ Focused coverage proves:
 - Settings-root/Network placement, Remote access Back navigation, the dedicated
   receiver-name editor, revisioned Save path, and four-hex default/migration
   behavior without replacing a custom receiver name.
+- inactive/unloaded systemd reset handling and terminal Error publication when
+  receiver activation fails, preventing persistent enabled/Starting state.
 
 Final validation after all deliverables:
 
-- focused AirPlay/arbitration/UI/Settings tests — PASS, 34 tests, 0 failed;
+- focused AirPlay/arbitration/UI/Settings tests — PASS, 35 tests, 0 failed;
 - `npm.cmd run format:check` — PASS;
 - `npm.cmd run typecheck` — PASS;
 - `npm.cmd run lint` — PASS;
 - `npm.cmd run build` — PASS for local UI, Remote UI, and backend;
-- `npm.cmd test` — PASS, 837 tests: 824 passed, 13 platform skips,
+- `npm.cmd test` — PASS, 838 tests: 825 passed, 13 platform skips,
   0 failed;
 - `npm.cmd run mpv:doctor` — PASS with MPV v0.41.0 and JSON IPC;
 - `npm.cmd run test:mpv` — PASS, 14 tests, including one persistent MPV,

@@ -197,26 +197,34 @@ export class AirPlayService {
       enabled: document.enabled,
       receiverName: document.receiverName,
       receiverNameOrigin: document.receiverNameOrigin,
+      serviceStatus: document.enabled ? "starting" : "off",
+      message: null,
     });
     if (!document.enabled) {
       await this.platform.setEnabled(false);
       this.publish({ serviceStatus: "off", message: null });
       return this.state;
     }
-    const advertisement = await this.startVerifiedReceiver(resolveRoute());
-    if (advertisement !== "verified") {
+    try {
+      const advertisement = await this.startVerifiedReceiver(resolveRoute());
+      if (advertisement !== "verified")
+        throw this.advertisementError(advertisement);
+      const active = await this.platform.status();
+      this.publish({
+        protocol: active.protocol,
+        serviceStatus: "ready",
+        message: null,
+      });
+      return this.state;
+    } catch (error) {
       await this.platform.setEnabled(false).catch(() => undefined);
-      const error = this.advertisementError(advertisement);
-      this.publish({ serviceStatus: "error", message: error.message });
-      throw error;
+      const activationError = this.activationError(error);
+      this.publish({
+        serviceStatus: "error",
+        message: activationError.message,
+      });
+      throw activationError;
     }
-    const active = await this.platform.status();
-    this.publish({
-      protocol: active.protocol,
-      serviceStatus: "ready",
-      message: null,
-    });
-    return this.state;
   }
 
   async refreshRoute(route: ExternalPlaybackRoute): Promise<void> {
@@ -302,6 +310,17 @@ export class AirPlayService {
       status === "collision"
         ? "The receiver name is already in use on this network. Choose another name."
         : "AirPlay could not be advertised on this network.",
+      409,
+    );
+  }
+
+  private activationError(error: unknown): AirPlayStoreError {
+    if (error instanceof AirPlayStoreError) return error;
+    return new AirPlayStoreError(
+      "AIRPLAY_START_FAILED",
+      error instanceof Error && error.message
+        ? error.message
+        : "AirPlay could not be started.",
       409,
     );
   }
