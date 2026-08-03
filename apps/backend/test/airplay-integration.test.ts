@@ -118,6 +118,7 @@ void test("AirPlay store defaults On with an anonymous persistent receiver name"
     const store = new AirPlayStore(root);
     const initial = await store.initialize();
     assert.equal(initial.enabled, true);
+    assert.equal(initial.audioBufferSeconds, 2);
     assert.match(initial.receiverName, /^Eidetic Player - [0-9A-F]{4}$/u);
     assert.match(initial.generatedSuffix, /^[0-9A-F]{4}$/u);
     assert.doesNotMatch(initial.receiverName, /[0-9a-f]{6,}/iu);
@@ -136,6 +137,44 @@ void test("AirPlay store defaults On with an anonymous persistent receiver name"
     const disabled = await store.save({ enabled: false });
     assert.equal(disabled.enabled, false);
     assert.equal((await new AirPlayStore(root).initialize()).enabled, false);
+    await assert.rejects(
+      store.save({ audioBufferSeconds: 3 as 1 }),
+      (error: unknown) =>
+        error instanceof AirPlayStoreError &&
+        error.code === "INVALID_AIRPLAY_BUFFER" &&
+        error.statusCode === 400,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("AirPlay store migrates schema 1 settings to the two-second default buffer", async () => {
+  const root = await mkdtemp(join(tmpdir(), "eidetic-airplay-buffer-schema-"));
+  const path = join(root, "airplay.json");
+  try {
+    const initial = await new AirPlayStore(root).initialize();
+    const { audioBufferSeconds: _buffer, ...withoutBuffer } = initial;
+    void _buffer;
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        ...withoutBuffer,
+        schemaVersion: 1,
+        revision: 6,
+        receiverName: "Listening Room",
+        receiverNameOrigin: "user",
+        enabled: false,
+      })}\n`,
+      "utf8",
+    );
+
+    const migrated = await new AirPlayStore(root).initialize();
+    assert.equal(migrated.schemaVersion, 2);
+    assert.equal(migrated.revision, 7);
+    assert.equal(migrated.audioBufferSeconds, 2);
+    assert.equal(migrated.receiverName, "Listening Room");
+    assert.equal(migrated.enabled, false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -254,6 +293,39 @@ void test("renaming an idle enabled receiver restarts it before advertisement ve
     assert.equal(renamed.serviceStatus, "ready");
     assert.equal(platform.restartCount, 1);
     assert.equal(platform.advertisementChecks, 2);
+    const buffered = await service.patch(
+      {
+        audioBufferSeconds: 4,
+        expectedRevision: service.snapshot().revision,
+      },
+      () => route,
+    );
+    assert.equal(buffered.audioBufferSeconds, 4);
+    assert.equal(platform.restartCount, 2);
+    assert.equal(platform.advertisementChecks, 3);
+
+    const sessionStarting = new Promise<void>((resolve) => {
+      provider.subscribe((event) => {
+        if (event.kind === "session-starting") resolve();
+      });
+    });
+    const pendingReply = control(platform.controlSocket, "BEFORE 1");
+    void pendingReply.catch(() => undefined);
+    await sessionStarting;
+    await assert.rejects(
+      service.patch(
+        {
+          audioBufferSeconds: 1,
+          expectedRevision: service.snapshot().revision,
+        },
+        () => route,
+      ),
+      (error: unknown) =>
+        error instanceof AirPlayStoreError &&
+        error.code === "AIRPLAY_SESSION_ACTIVE" &&
+        error.statusCode === 409,
+    );
+    assert.equal(service.snapshot().audioBufferSeconds, 4);
   } finally {
     service.close();
     await provider.shutdown();
@@ -354,7 +426,7 @@ void test("AirPlay config is deterministic, escaped, and tied to the canonical r
     assert.match(config, /volume_max_db = 0\.0;/u);
     assert.match(
       config,
-      /audio_backend_buffer_desired_length_in_seconds = 0\.5;/u,
+      /audio_backend_buffer_desired_length_in_seconds = 2\.0;/u,
     );
     assert.match(config, /eidetic-player-airplay-hook before/u);
     assert.doesNotMatch(config, /airplay-control\.sock before/u);

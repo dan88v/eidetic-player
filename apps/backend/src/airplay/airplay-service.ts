@@ -23,6 +23,7 @@ export class AirPlayService {
     enabled: true,
     receiverName: "Eidetic Player",
     receiverNameOrigin: "generated",
+    audioBufferSeconds: 2,
     protocol: "unavailable",
     serviceStatus: "unavailable",
     integrationVersion: AIRPLAY_INTEGRATION_VERSION,
@@ -93,6 +94,7 @@ export class AirPlayService {
       enabled: document.enabled,
       receiverName: document.receiverName,
       receiverNameOrigin: document.receiverNameOrigin,
+      audioBufferSeconds: document.audioBufferSeconds,
       protocol: status.protocol,
       serviceStatus: !status.available
         ? "unavailable"
@@ -178,12 +180,13 @@ export class AirPlayService {
     if (patch.enabled === false && this.state.enabled)
       await this.requestLocalOwnership();
     if (
-      patch.receiverName !== undefined &&
+      (patch.receiverName !== undefined ||
+        patch.audioBufferSeconds !== undefined) &&
       this.provider.snapshot().sessionId !== null
     )
       throw new AirPlayStoreError(
         "AIRPLAY_SESSION_ACTIVE",
-        "Stop AirPlay playback before changing the receiver name.",
+        "Stop AirPlay playback before changing receiver settings.",
         409,
       );
     const document = await this.store.save({
@@ -191,12 +194,16 @@ export class AirPlayService {
       ...(patch.receiverName === undefined
         ? {}
         : { receiverName: patch.receiverName }),
+      ...(patch.audioBufferSeconds === undefined
+        ? {}
+        : { audioBufferSeconds: patch.audioBufferSeconds }),
     });
     this.publish({
       revision: document.revision,
       enabled: document.enabled,
       receiverName: document.receiverName,
       receiverNameOrigin: document.receiverNameOrigin,
+      audioBufferSeconds: document.audioBufferSeconds,
       serviceStatus: document.enabled ? "starting" : "off",
       message: null,
     });

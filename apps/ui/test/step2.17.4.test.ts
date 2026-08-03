@@ -3,6 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  RELIABLE_TOUCH_SCROLL_DRAG_THRESHOLD,
+  touchScrollDragStarted,
   touchScrollTarget,
   touchScrollVelocity,
 } from "../src/utils/reliable-touch-scroll";
@@ -171,7 +173,7 @@ void test("Raspberry fallback remains local and adds no document touch blocker",
   assert.doesNotMatch(sources, /document\.addEventListener\("touchmove"/);
   assert.match(
     read("apps/ui/src/components/app-shell.ts"),
-    /document\.addEventListener\("pointermove", revealPointer, \{ passive: true \}\)/,
+    /createPointerVisibilityController\([\s\S]*systemCapabilities\.hidePointerWhenInactive/,
   );
 });
 
@@ -189,6 +191,10 @@ void test("fallback click suppression is local and cover click remains intact", 
 });
 
 void test("Raspberry fallback maps finger motion to direct-manipulation scroll", () => {
+  assert.equal(RELIABLE_TOUCH_SCROLL_DRAG_THRESHOLD, 16);
+  assert.equal(touchScrollDragStarted(7, 7), false);
+  assert.equal(touchScrollDragStarted(12, 8), false);
+  assert.equal(touchScrollDragStarted(16, 0), true);
   assert.equal(touchScrollTarget(100, 300, 240), 160);
   assert.equal(touchScrollTarget(100, 300, 360), 40);
   assert.ok(touchScrollVelocity(300, 240, 30) > 0);

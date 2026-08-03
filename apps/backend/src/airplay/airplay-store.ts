@@ -12,12 +12,14 @@ import {
 import { randomBytes, randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import {
+  isAirPlayAudioBufferSeconds,
   normalizeAirPlayReceiverName,
+  type AirPlayAudioBufferSeconds,
   type AirPlayReceiverNameOrigin,
 } from "../../../../packages/shared/src/airplay.js";
 import { resolveAppDirectories } from "../platform/app-directories.js";
 
-const SCHEMA_VERSION = 1 as const;
+const SCHEMA_VERSION = 2 as const;
 const FILE_NAME = "airplay.json";
 const GENERATED_SUFFIX_PATTERN = /^[0-9A-F]{4}$/u;
 const LEGACY_GENERATED_SUFFIX_PATTERN =
@@ -26,11 +28,12 @@ export const AIRPLAY_INTEGRATION_VERSION =
   "shairport-sync-5.2.1-eidetic.2+nqptp-1.2.8";
 
 export interface AirPlayDocument extends Record<string, unknown> {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly revision: number;
   readonly enabled: boolean;
   readonly receiverName: string;
   readonly receiverNameOrigin: AirPlayReceiverNameOrigin;
+  readonly audioBufferSeconds: AirPlayAudioBufferSeconds;
   readonly generatedSuffix: string;
   readonly integrationVersion: string;
   readonly updatedAt: string;
@@ -55,6 +58,18 @@ function generatedSuffix(): string {
   return randomBytes(2).toString("hex").toUpperCase();
 }
 
+function parseAudioBufferSeconds(
+  value: Record<string, unknown>,
+): AirPlayAudioBufferSeconds {
+  if (value.schemaVersion === 1) return 2;
+  if (isAirPlayAudioBufferSeconds(value.audioBufferSeconds))
+    return value.audioBufferSeconds;
+  throw new AirPlayStoreError(
+    "AIRPLAY_STORE_CORRUPT",
+    "AirPlay settings are invalid.",
+  );
+}
+
 function createDefault(): AirPlayDocument {
   const suffix = generatedSuffix();
   return {
@@ -63,6 +78,7 @@ function createDefault(): AirPlayDocument {
     enabled: true,
     receiverName: `Eidetic Player - ${suffix}`,
     receiverNameOrigin: "generated",
+    audioBufferSeconds: 2,
     generatedSuffix: suffix,
     integrationVersion: AIRPLAY_INTEGRATION_VERSION,
     updatedAt: new Date().toISOString(),
@@ -86,7 +102,7 @@ function parseDocument(value: unknown): AirPlayDocument {
     );
   const receiverName = normalizeAirPlayReceiverName(value.receiverName);
   if (
-    value.schemaVersion !== SCHEMA_VERSION ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== SCHEMA_VERSION) ||
     !Number.isSafeInteger(value.revision) ||
     Number(value.revision) < 0 ||
     typeof value.enabled !== "boolean" ||
@@ -110,6 +126,7 @@ function parseDocument(value: unknown): AirPlayDocument {
     enabled: value.enabled,
     receiverName,
     receiverNameOrigin: value.receiverNameOrigin,
+    audioBufferSeconds: parseAudioBufferSeconds(value),
     generatedSuffix: value.generatedSuffix,
     integrationVersion: value.integrationVersion,
     updatedAt: value.updatedAt,
@@ -166,13 +183,16 @@ export class AirPlayStore {
       if ((stats.mode & 0o077) !== 0) await chmod(this.path, 0o600);
     }
     try {
-      this.document = parseDocument(
-        JSON.parse(await readFile(this.path, "utf8")) as unknown,
-      );
+      const stored = JSON.parse(await readFile(this.path, "utf8")) as unknown;
+      const storedSchemaVersion = isRecord(stored)
+        ? stored.schemaVersion
+        : undefined;
+      this.document = parseDocument(stored);
       const generatedSuffixIsLegacy = !GENERATED_SUFFIX_PATTERN.test(
         this.document.generatedSuffix,
       );
       if (
+        storedSchemaVersion !== SCHEMA_VERSION ||
         this.document.integrationVersion !== AIRPLAY_INTEGRATION_VERSION ||
         generatedSuffixIsLegacy
       ) {
@@ -209,6 +229,7 @@ export class AirPlayStore {
   save(changes: {
     readonly enabled?: boolean;
     readonly receiverName?: string;
+    readonly audioBufferSeconds?: AirPlayAudioBufferSeconds;
   }): Promise<AirPlayDocument> {
     const result = this.operation.then(() => this.saveNow(changes));
     this.operation = result.then(
@@ -255,6 +276,7 @@ export class AirPlayStore {
   private async saveNow(changes: {
     readonly enabled?: boolean;
     readonly receiverName?: string;
+    readonly audioBufferSeconds?: AirPlayAudioBufferSeconds;
   }): Promise<AirPlayDocument> {
     if (this.readOnly)
       throw new AirPlayStoreError(
@@ -272,6 +294,14 @@ export class AirPlayStore {
         "Enter a receiver name from 1 to 40 visible characters.",
         400,
       );
+    const audioBufferSeconds =
+      changes.audioBufferSeconds ?? this.document.audioBufferSeconds;
+    if (!isAirPlayAudioBufferSeconds(audioBufferSeconds))
+      throw new AirPlayStoreError(
+        "INVALID_AIRPLAY_BUFFER",
+        "Choose an AirPlay audio buffer of 1, 2, or 4 seconds.",
+        400,
+      );
     const next: AirPlayDocument = {
       ...this.document,
       revision: this.document.revision + 1,
@@ -281,6 +311,7 @@ export class AirPlayStore {
         changes.receiverName === undefined
           ? this.document.receiverNameOrigin
           : "user",
+      audioBufferSeconds,
       integrationVersion: AIRPLAY_INTEGRATION_VERSION,
       updatedAt: new Date().toISOString(),
     };

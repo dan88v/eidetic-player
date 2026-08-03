@@ -1,4 +1,8 @@
 export const AIRPLAY_RECEIVER_NAME_MAX_LENGTH = 40;
+export const airPlayAudioBufferSecondsChoices = [1, 2, 4] as const;
+
+export type AirPlayAudioBufferSeconds =
+  (typeof airPlayAudioBufferSecondsChoices)[number];
 
 export type AirPlayReceiverNameOrigin = "generated" | "user";
 export type AirPlayProtocol = "airplay2" | "classic" | "unavailable";
@@ -9,6 +13,7 @@ export interface AirPlaySettings {
   readonly enabled: boolean;
   readonly receiverName: string;
   readonly receiverNameOrigin: AirPlayReceiverNameOrigin;
+  readonly audioBufferSeconds: AirPlayAudioBufferSeconds;
 }
 
 export interface AirPlayState extends AirPlaySettings {
@@ -24,7 +29,14 @@ export interface AirPlayState extends AirPlaySettings {
 export interface AirPlaySettingsPatch {
   readonly enabled?: boolean;
   readonly receiverName?: string;
+  readonly audioBufferSeconds?: AirPlayAudioBufferSeconds;
   readonly expectedRevision?: number;
+}
+
+export function isAirPlayAudioBufferSeconds(
+  value: unknown,
+): value is AirPlayAudioBufferSeconds {
+  return airPlayAudioBufferSecondsChoices.some((choice) => choice === value);
 }
 
 export function normalizeAirPlayReceiverName(value: unknown): string | null {

@@ -22,7 +22,9 @@ import type { RemoteAccessApiClient } from "../api/remote-access-api-client";
 import type { AirPlayApiClient } from "../api/airplay-api-client";
 import {
   AIRPLAY_RECEIVER_NAME_MAX_LENGTH,
+  airPlayAudioBufferSecondsChoices,
   normalizeAirPlayReceiverName,
+  type AirPlayAudioBufferSeconds,
   type AirPlayState,
 } from "../../../../packages/shared/src/airplay";
 import type { SystemCapabilities } from "../../../../packages/shared/src/system";
@@ -134,6 +136,7 @@ type SettingsPage =
   | "network-wifi"
   | "airplay"
   | "airplay-name"
+  | "airplay-buffer"
   | "remote-access"
   | "audio"
   | "audio-output"
@@ -344,7 +347,8 @@ export function createSettingsScreen(
     else if (page === "playback-continue" || page === "playback-external-end")
       page = "playback";
     else if (page === "remote-access") page = "network";
-    else if (page === "airplay-name") page = "airplay";
+    else if (page === "airplay-name" || page === "airplay-buffer")
+      page = "airplay";
     else if (
       page === "network-wired" ||
       page === "network-wifi" ||
@@ -553,7 +557,11 @@ export function createSettingsScreen(
   };
 
   const updateAirPlay = (
-    changes: { readonly enabled?: boolean; readonly receiverName?: string },
+    changes: {
+      readonly enabled?: boolean;
+      readonly receiverName?: string;
+      readonly audioBufferSeconds?: AirPlayAudioBufferSeconds;
+    },
     successMessage: string,
     returnPage?: SettingsPage,
   ): void => {
@@ -581,7 +589,12 @@ export function createSettingsScreen(
       })
       .finally(() => {
         airPlayBusy = false;
-        if (page === "airplay" || page === "airplay-name") render();
+        if (
+          page === "airplay" ||
+          page === "airplay-name" ||
+          page === "airplay-buffer"
+        )
+          render();
       });
   };
 
@@ -857,6 +870,11 @@ export function createSettingsScreen(
       "airplay-name": {
         title: "Receiver Name",
         description: "Choose how this player appears to AirPlay devices.",
+      },
+      "airplay-buffer": {
+        title: "Audio Buffer",
+        description:
+          "Choose how much AirPlay audio is kept ready for network interruptions.",
       },
       audio: {
         title: "Audio",
@@ -1237,6 +1255,21 @@ export function createSettingsScreen(
         resetSettingsScroll();
       });
 
+      const bufferRow = document.createElement("button");
+      bufferRow.className = "settings-row-base setting-navigation";
+      bufferRow.type = "button";
+      bufferRow.innerHTML = `<span><strong>Audio Buffer</strong><small>${String(airPlayState.audioBufferSeconds)} ${airPlayState.audioBufferSeconds === 1 ? "second" : "seconds"}</small></span>${chevron()}`;
+      bufferRow.disabled =
+        airPlayBusy || !airPlayState.available || airPlayActive;
+      if (airPlayActive)
+        bufferRow.title =
+          "Stop the current AirPlay stream before changing the audio buffer.";
+      bufferRow.addEventListener("click", () => {
+        page = "airplay-buffer";
+        render();
+        resetSettingsScroll();
+      });
+
       const statusRow = document.createElement("div");
       statusRow.className = "settings-row-base setting-row airplay-status-row";
       const statusCopy = document.createElement("span");
@@ -1307,7 +1340,14 @@ export function createSettingsScreen(
         "button",
       ))
         button.disabled = airPlayBusy || !airPlayState.available;
-      panel.append(enabledRow, nameRow, statusRow, outputRow, lanNotice);
+      panel.append(
+        enabledRow,
+        nameRow,
+        bufferRow,
+        statusRow,
+        outputRow,
+        lanNotice,
+      );
       return;
     }
 
@@ -1375,6 +1415,46 @@ export function createSettingsScreen(
       updateSaveState();
       actions.append(save);
       section.append(actions);
+      return;
+    }
+
+    if (page === "airplay-buffer") {
+      if (!airPlayState) return;
+      const receiverState = airPlayState;
+      const airPlayActive = playbackSource.activeSource === "airplay";
+      const descriptions: Readonly<Record<AirPlayAudioBufferSeconds, string>> =
+        {
+          1: "Lower delay with less protection from network interruptions.",
+          2: "Balanced delay and resilience. Recommended.",
+          4: "More resilience with a longer play and pause delay.",
+        };
+      for (const value of airPlayAudioBufferSecondsChoices) {
+        const row = selectionRow(
+          `${String(value)} ${value === 1 ? "second" : "seconds"}`,
+          receiverState.audioBufferSeconds === value,
+          () => {
+            if (
+              airPlayBusy ||
+              airPlayActive ||
+              receiverState.audioBufferSeconds === value
+            )
+              return false;
+            updateAirPlay(
+              { audioBufferSeconds: value },
+              `AirPlay buffer set to ${String(value)} ${value === 1 ? "second" : "seconds"}.`,
+              "airplay",
+            );
+            return true;
+          },
+          "airplay",
+          descriptions[value],
+        );
+        row.disabled = airPlayBusy || !receiverState.available || airPlayActive;
+        if (airPlayActive)
+          row.title =
+            "Stop the current AirPlay stream before changing the audio buffer.";
+        panel.append(row);
+      }
       return;
     }
 
@@ -2748,7 +2828,10 @@ export function createSettingsScreen(
       playbackSource = snapshot;
       if (
         changed &&
-        (page === "airplay" || page === "airplay-name" || page === "network")
+        (page === "airplay" ||
+          page === "airplay-name" ||
+          page === "airplay-buffer" ||
+          page === "network")
       )
         render();
     },

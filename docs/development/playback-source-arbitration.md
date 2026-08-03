@@ -120,15 +120,21 @@ Shairport always accepts sender volume for AirPlay. Its maximum is capped at
 0 dB, so an iPhone can attenuate a fixed-unity DAC but can never boost beyond
 the player's 100% fixed level. This AirPlay-only level does not mutate Local
 MPV volume. The generated Raspberry configuration uses the lightweight
-`vernier` interpolator and a 0.5-second backend buffer to provide headroom
-against ALSA underruns on the Pi 3B.
+`vernier` interpolator and a persisted backend buffer. Settings offers 1, 2,
+or 4 seconds and defaults new and migrated installations to 2 seconds. One
+second reduces transport delay, while four seconds provides more tolerance for
+short network interruptions. Changing this value is rejected while an AirPlay
+session is active because applying it restarts the receiver; both the UI and
+the revisioned backend boundary enforce that rule.
 
-`airplay.json` stores the enabled preference and receiver name atomically. The
-first install defaults to On and creates `Eidetic Player - 1A2B` using four
-cryptographically random uppercase hexadecimal characters. Existing generated
-two-character names migrate once; user-defined names are never replaced.
-Settings exposes the current name in the AirPlay row and edits it on a
-dedicated canonical subpage without adding another SSE connection.
+`airplay.json` stores the enabled preference, receiver name, and selected audio
+buffer atomically. The first install defaults to On and creates
+`Eidetic Player - 1A2B` using four cryptographically random uppercase
+hexadecimal characters. Existing generated two-character names migrate once;
+user-defined names are never replaced. Existing schema-1 files migrate once to
+the 2-second default without changing their enabled state or receiver name.
+Settings exposes both current values as canonical navigation rows and edits
+them on dedicated subpages without adding another SSE connection.
 
 The persistent preference, rather than systemd enablement, is authoritative.
 The backend starts the disabled receiver unit only after its private runtime
@@ -139,7 +145,12 @@ request publishes `starting` only while work is in flight and must terminate
 in either `ready` or an explicit `error`, never an indefinite enabled/Starting
 state.
 
-The receiver unit retains Shairport's upstream `LimitRTPRIO=5` allowance. The
+The receiver unit retains Shairport's upstream `LimitRTPRIO=5` allowance. A
+runtime-user-specific `user@UID.service` drop-in gives the non-root user manager
+the same narrow ceiling; the installer also applies that rlimit to an already
+running manager with `prlimit`, so a normal update does not need to restart the
+desktop session. The installation doctor verifies both the manager and active
+receiver process limits. The
 ALSA buffer monitor must be able to request realtime scheduling; a zero limit
 produces explicit startup warnings and periodic DAC XRUN recovery even when the
 receiver, network session, and source arbitration remain continuously active.

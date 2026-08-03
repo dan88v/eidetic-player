@@ -49,6 +49,7 @@ import type { AppStore } from "../state/store";
 import type { ScreenId } from "../state/types";
 import { TrackTransitionCoordinator } from "../state/track-transition-coordinator";
 import { createReliableTouchScroller } from "../utils/reliable-touch-scroll";
+import { createPointerVisibilityController } from "../utils/pointer-visibility-controller";
 import { foldersSession } from "../state/folders-session";
 import { usbStorageSession } from "../state/folders-session";
 import {
@@ -975,17 +976,10 @@ export function mountApp(
   };
   for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
     document.addEventListener(eventName, noteActivity, { passive: true });
-  let pointerTimer = 0;
-  const revealPointer = (): void => {
-    if (!systemCapabilities.hidePointerWhenInactive) return;
-    root.classList.remove("app-root--pointer-hidden");
-    window.clearTimeout(pointerTimer);
-    pointerTimer = window.setTimeout(() => {
-      root.classList.add("app-root--pointer-hidden");
-    }, 2_500);
-  };
-  document.addEventListener("pointermove", revealPointer, { passive: true });
-  revealPointer();
+  const pointerVisibility = createPointerVisibilityController(
+    root,
+    systemCapabilities.hidePointerWhenInactive,
+  );
   scheduleInactivity();
 
   let recoveryNoticeHandled = false;
@@ -1487,11 +1481,10 @@ export function mountApp(
       displayController.destroy();
       window.removeEventListener("eidetic-audio-processing", onAudioProcessing);
       window.clearTimeout(inactivityTimer);
-      window.clearTimeout(pointerTimer);
+      pointerVisibility.destroy();
       for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"])
         document.removeEventListener(eventName, noteActivity);
       document.removeEventListener("keydown", handleKeydown);
-      document.removeEventListener("pointermove", revealPointer);
       window.removeEventListener("dragenter", showDrop);
       window.removeEventListener("dragover", showDrop);
       window.removeEventListener("dragleave", hideDrop);

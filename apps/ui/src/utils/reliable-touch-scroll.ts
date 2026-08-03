@@ -1,4 +1,4 @@
-const DRAG_THRESHOLD = 8;
+export const RELIABLE_TOUCH_SCROLL_DRAG_THRESHOLD = 16;
 const MAX_VELOCITY = 2.5;
 const STOP_VELOCITY = 0.02;
 const CLICK_SUPPRESSION_MS = 100;
@@ -46,6 +46,13 @@ export function touchScrollVelocity(
   if (!Number.isFinite(elapsedMilliseconds) || elapsedMilliseconds <= 0)
     return 0;
   return (previousPointerY - currentPointerY) / elapsedMilliseconds;
+}
+
+export function touchScrollDragStarted(
+  deltaX: number,
+  deltaY: number,
+): boolean {
+  return Math.hypot(deltaX, deltaY) >= RELIABLE_TOUCH_SCROLL_DRAG_THRESHOLD;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -136,7 +143,7 @@ export function createReliableTouchScroller(
     const deltaX = event.clientX - pointer.startX;
     const deltaY = event.clientY - pointer.startY;
     if (!pointer.dragging) {
-      if (Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD) return;
+      if (!touchScrollDragStarted(deltaX, deltaY)) return;
       if (Math.abs(deltaX) > Math.abs(deltaY)) {
         active = null;
         return;

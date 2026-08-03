@@ -188,6 +188,16 @@ void test("AirPlay settings stay minimal and use the dedicated revisioned API", 
     /nameIndicators\.append\(nameValue\);[\s\S]*nameIndicators\.insertAdjacentHTML\("beforeend", chevron\(\)\)/u,
   );
   assert.match(settings, /page = "airplay-name"/u);
+  assert.match(settings, /bufferRow\.innerHTML = `[\s\S]*Audio Buffer/u);
+  assert.match(settings, /page = "airplay-buffer"/u);
+  assert.match(settings, /title: "Audio Buffer"/u);
+  assert.match(settings, /airPlayAudioBufferSecondsChoices/u);
+  assert.match(settings, /audioBufferSeconds: value/u);
+  assert.match(settings, /2: "Balanced delay and resilience\. Recommended\."/u);
+  assert.match(
+    settings,
+    /Stop the current AirPlay stream before changing the audio buffer\./u,
+  );
   assert.match(settings, /title: "Receiver Name"/u);
   assert.match(settings, /normalizeAirPlayReceiverName\(input\.value\)/u);
   assert.match(settings, /input\.dataset\.onscreenKeyboard = "text"/u);

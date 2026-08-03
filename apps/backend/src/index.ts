@@ -156,7 +156,10 @@ import { FixtureExternalPlaybackProvider } from "./playback-source/fixture-exter
 import { PlaybackSourceError } from "./playback-source/playback-source-error.js";
 import type { PlaybackSourceKind } from "../../../packages/shared/src/playback-source.js";
 import type { ExternalPlaybackProvider } from "./playback-source/external-playback-provider.js";
-import type { AirPlaySettingsPatch } from "../../../packages/shared/src/airplay.js";
+import {
+  isAirPlayAudioBufferSeconds,
+  type AirPlaySettingsPatch,
+} from "../../../packages/shared/src/airplay.js";
 import { AirPlayProvider } from "./airplay/airplay-provider.js";
 import { LinuxAirPlayPlatformAdapter } from "./airplay/airplay-platform-adapter.js";
 import { AirPlayService } from "./airplay/airplay-service.js";
@@ -1329,10 +1332,17 @@ function preferencesPatchBody(value: unknown): PreferencesPatch {
 function airPlayPatchBody(value: unknown): AirPlaySettingsPatch {
   const body = objectBody(value);
   if (
-    !hasOnlyKeys(body, ["enabled", "receiverName", "expectedRevision"]) ||
+    !hasOnlyKeys(body, [
+      "enabled",
+      "receiverName",
+      "audioBufferSeconds",
+      "expectedRevision",
+    ]) ||
     (body.enabled !== undefined && typeof body.enabled !== "boolean") ||
     (body.receiverName !== undefined &&
       typeof body.receiverName !== "string") ||
+    (body.audioBufferSeconds !== undefined &&
+      !isAirPlayAudioBufferSeconds(body.audioBufferSeconds)) ||
     (body.expectedRevision !== undefined &&
       (!Number.isSafeInteger(body.expectedRevision) ||
         Number(body.expectedRevision) < 0))
@@ -1346,6 +1356,9 @@ function airPlayPatchBody(value: unknown): AirPlaySettingsPatch {
     ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
     ...(typeof body.receiverName === "string"
       ? { receiverName: body.receiverName }
+      : {}),
+    ...(isAirPlayAudioBufferSeconds(body.audioBufferSeconds)
+      ? { audioBufferSeconds: body.audioBufferSeconds }
       : {}),
     ...(typeof body.expectedRevision === "number"
       ? { expectedRevision: body.expectedRevision }

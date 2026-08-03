@@ -5,13 +5,16 @@ Date: 2026-08-03
 ## Status
 
 Steps 3.2.1, 3.2.2, 3.2.3, and 3.2.4 are consolidated in this single report.
-The corrections are present in the working tree, uncommitted, and not installed
-on the Raspberry Pi. No commit, push, update, service restart, or reboot was
-performed.
+The source corrections are present in the working tree and remain uncommitted;
+no application update, commit, or push was performed. Live diagnosis did apply
+the persistent realtime user-manager drop-in, update the Pi from kernel
+`6.18.34` to `6.18.39`, restart the AirPlay receiver during controlled tests,
+and leave its temporary acceptance buffer at 4.0 seconds. The new Settings
+buffer control and touch corrections are not installed on the Raspberry Pi.
 
 `LOCAL CORRECTIONS — NOT DEPLOYED`
 
-`AIRPLAY AUDIO CHANGES — REQUIRE PHYSICAL RETEST`
+`AIRPLAY BUFFER SETTINGS — LOCALLY VALIDATED, RPI UPDATE PENDING`
 
 ## Consolidated diagnosis and corrections
 
@@ -80,6 +83,14 @@ priority over Context, so `Then continues from` is hidden until forward History
 is exhausted and can no longer promise a later Context Track before the Tracks
 that Next will actually visit.
 
+The final real-MPV gate exposed one related stopped-state edge case: when the
+currently playing removable, removable-Library, or SMB item became unavailable,
+MPV's `stop keep-playlist` event briefly reset the technical playlist index to
+`-1` even though the planner correctly retained Current. Availability
+reconciliation now restores the preserved occurrence index after stopping, so
+Queue state, Current, and the playback plan stay aligned without autoplay or
+advancement.
+
 ### Live AirPlay follow-up
 
 The physical test confirmed the core arbitration path: AirPlay preempted MPV,
@@ -128,6 +139,16 @@ page. That page uses the established Settings header, panel, validated
 action. Saving still uses the existing revisioned AirPlay API and is disabled
 while an AirPlay session owns playback.
 
+Audio Buffer follows the same navigation and single-choice pattern. Its row
+shows the current value and opens a dedicated 1, 2, or 4 second page. New and
+migrated installations default to 2 seconds; the choice is stored atomically,
+validated at the API and store boundaries, and rendered into the Shairport
+configuration. Both UI and backend reject a change during an active AirPlay
+session because applying it requires a receiver restart. The Linux installer
+now seeds schema 2 with the same default; the read-only doctor accepts both
+legacy schema 1 and schema 2 while validating that the effective choice is
+exactly 1, 2, or 4 seconds.
+
 New installations generate `Eidetic Player - 1A2B`-style identities with four
 cryptographically random uppercase hexadecimal characters. Existing generated
 two-character identities migrate once to the new form. A user-defined receiver
@@ -174,15 +195,67 @@ than the sole cause. They continued every 18-to-60 seconds after the fan had
 reduced the Pi to 52.1 C, while the session remained active and the receiver
 still reported zero restarts.
 
-The receiver startup log exposed the missing scheduling contract: `Can not set
-realtime properties of thread "alsa_buf_mon"`, while systemd reported
-`LimitRTPRIO=0`. The official Shairport Sync 5.2.1 unit specifies
-`LimitRTPRIO=5`; Eidetic's NQPTP unit already had its own realtime allowance,
-but the Shairport user unit had omitted it. The receiver template now restores
-the exact upstream limit, and deployment verification makes that requirement
-non-regressible. The live receiver was not restarted during the active session,
-so the scheduling correction still requires an installed-build Raspberry
-acceptance test.
+The receiver startup log exposed a deeper scheduling contract failure: `Can not
+set realtime properties of thread "alsa_buf_mon"`. The receiver unit already
+requested Shairport's upstream `LimitRTPRIO=5`, but both the running receiver
+and its containing `user@1000.service` had an effective `/proc` hard limit of
+zero. A user service cannot raise its child limit above that parent ceiling, so
+the receiver-unit setting alone could never become effective.
+
+Installation now adds a runtime-UID-specific `user@UID.service` drop-in with
+the same narrow limit. The updater applies it immediately to an already-running
+user manager with `prlimit`; the drop-in makes it persistent across the next
+manager start. The receiver remains non-root and receives no capability. The
+read-only installation doctor checks the effective manager limit and, while
+the receiver is active, its actual process limit instead of accepting only the
+unit text.
+
+The same physical session also exposed an independent and more fundamental
+network fault. With AirPlay traffic active, 7 of 20 ICMP packets were lost and
+the kernel repeatedly logged `Controller never released inhibit bit(s)`,
+`CMD53 ... failed -5`, `brcmf_sdio_rxglom ... failed -5`, and receive recovery
+failures from the onboard `brcmfmac` SDIO adapter. After AirPlay was disabled,
+two control runs had zero packet loss; the latest 20-packet run stayed between
+4 and 21 ms with zero new SDIO errors, zero XRUNs, and a 46 C CPU. This proves
+that source arbitration and receiver restarts are not the cause of every
+audible interruption: sustained AirPlay traffic is exposing a Raspberry
+Wi-Fi/kernel/hardware path failure. Realtime scheduling still needs correction
+for the measured ALSA underruns, but it cannot recover packets that never reach
+Shairport.
+
+The controlled live retest made that separation conclusive. Raising the
+running user manager to `5/5` gave the new receiver process the same effective
+limit and moved `alsa_buf_mon` from normal timesharing to `FIFO/4`. Across both
+loaded samples it produced zero realtime warnings, zero ALSA XRUNs, and zero
+service restarts. The first 33-second AirPlay sample nevertheless lost 2 of 25
+packets and produced nine new SDIO errors. Disabling NetworkManager Wi-Fi power
+saving and reconnecting did not fix it: the next 31-second sample lost 1 of 25
+packets and produced 20 new SDIO errors; the following SSH attempt timed out and
+a ten-packet recovery sample lost two packets with latency up to 91 ms. The
+profile was restored to `default` rather than persisting a disproven workaround.
+
+A temporary receiver-only fixture then increased the buffer from 0.5 to 2.0
+seconds. Its first three samples delivered 85 of 85 ping replies with no
+audible drop, XRUN, or service restart, but later listening reproduced the
+silence. The buffer therefore mitigated burst loss without resolving the SDIO
+fault; the earlier clean interval is not treated as a permanent fix.
+
+The Pi was then moved from Raspberry kernel `6.18.34+rpt-rpi-v8` to the current
+archive kernel `6.18.39+rpt-rpi-v8`, with the old kernel and initramfs retained
+for rollback. A 0.5-second run on the new kernel still dropped and was not a
+valid comparison with the prior 2-second run. Repeating at 2 seconds produced
+60 of 60 ping replies, only two initial SDIO errors followed by a clean window,
+zero XRUNs, and zero receiver restarts; the user reported it was substantially
+better. A subsequent 4-second run produced 25 of 25 replies with zero new SDIO
+errors, XRUNs, or restarts, and its longer play/pause delay was considered
+acceptable. These are bounded acceptance windows, not proof that the onboard
+Wi-Fi kernel fault is gone.
+
+The product now exposes that measured tradeoff instead of baking one test
+value into every installation: 2 seconds is the balanced default, with 1 and
+4 seconds available from the canonical Settings choice page. The underlying
+SDIO fault remains separately documented and must not be misreported as an
+arbitration or ALSA scheduling regression.
 
 ### Deterministic Neutralino synchronization for Linux CI
 
@@ -210,6 +283,35 @@ synchronizer, proves it is rejected before extraction, and then proves a clean
 second attempt succeeds without reusing corrupt state. A real download of the
 pinned 6.8.0 release and a real `neu build --release` both complete locally.
 
+### Raspberry touch, pointer, and single-tap recovery
+
+Read-only inspection of the affected Raspberry excluded the prior display-wake
+and update-overlay failures: Display was `active`, the update job was terminal
+`succeeded`, backend readiness was `ready`, and MPV was available. The physical
+controller instead identifies as `TSTP MTouch` but udev/libinput exposes it as
+an absolute mouse (`ID_INPUT_MOUSE=1`, pointer capability) beside the real
+Logitech K400 mouse. A long press can therefore open WebKit's native context
+menu, every absolute relocation was treated as mouse activity, and the shared
+scroll fallback's former 8 px threshold could classify normal controller noise
+as a drag and suppress the click belonging to a short tap.
+
+The appliance pointer now starts hidden and uses bounded modality evidence.
+Touch, pen, touch-derived compatibility input, and an unconfirmed absolute
+relocation keep it hidden. Two nearby movement samples with at least 8 px of
+cumulative distance confirm deliberate mouse movement and reveal it for the
+existing 2.5-second interval. A real mouse remains a native mouse with ordinary
+click and keyboard semantics; no synthetic click or duplicate event path was
+introduced. The app surface also suppresses the browser context menu so a long
+touch cannot leave native chrome intercepting the following input.
+
+The local direct-manipulation fallback now requires 16 px before a tap becomes
+a drag. Sub-threshold motion leaves the native semantic click untouched; only
+a real drag suppresses its generated click. Focused regression coverage proves
+one absolute relocation does not reveal the pointer, confirmed mouse movement
+does, touch and compatibility input hide it, the context-menu listener is
+removed on teardown, and 7/7 or 12/8 px tap jitter remains below the drag
+threshold while a 16 px gesture begins scrolling.
+
 ## Regression coverage
 
 Focused coverage proves:
@@ -220,34 +322,40 @@ Focused coverage proves:
 - event-driven removable storage and waveform identity/cache/origin behavior;
 - paired backend/AirPlay remote stability gates;
 - one-entry targeted History Previous and truthful Context continuation;
-- low-power AirPlay config (`vernier`, 0.5-second buffer, no sender-volume
-  ignore, 0 dB maximum);
+- low-power AirPlay config (`vernier`, persisted and validated 1/2/4-second
+  buffer with a 2-second default, no sender-volume ignore, 0 dB maximum);
 - fragmented metadata, conditional/moving/frozen progress, sender attenuation
   on a fixed route without Local preference mutation, and JPEG data with
   trailing bytes;
 - conditional AirPlay Line timeline on hardware, mini-player, and Remote UI
   without another SSE.
-- Settings-root/Network placement, Remote access Back navigation, the dedicated
-  receiver-name editor, revisioned Save path, and four-hex default/migration
-  behavior without replacing a custom receiver name.
+- Settings-root/Network placement, Remote access Back navigation, dedicated
+  receiver-name and audio-buffer pages, revisioned Save/PATCH paths, schema-1
+  2-second migration, active-session guard, and four-hex identity migration
+  without replacing a custom receiver name.
 - inactive/unloaded systemd reset handling and terminal Error publication when
   receiver activation fails, preventing persistent enabled/Starting state.
-- the upstream Shairport `LimitRTPRIO=5` receiver-unit contract, tied to the
-  measured ALSA XRUN and failed realtime-thread warning on the Pi.
+- the upstream Shairport `LimitRTPRIO=5` receiver contract, its matching
+  runtime-user manager ceiling, live-update `prlimit`, and effective doctor
+  checks tied to the measured ALSA XRUN and failed realtime-thread warning.
 - deterministic Neutralino archive URL/version coherence, structural and
   length validation, clean retry isolation, and expected binary staging.
+- touch/mouse modality separation, initial pointer hiding, context-menu
+  suppression, teardown, and tap-versus-drag slop on noisy absolute input.
 
 Final validation after all deliverables:
 
-- focused AirPlay/arbitration/UI/Settings tests — PASS, 35 tests, 0 failed;
+- focused AirPlay/arbitration tests — PASS, 27 tests, 0 failed;
+- focused AirPlay/Network Settings tests — PASS, 27 tests, 0 failed;
 - focused build protocol and Neutralino synchronization tests — PASS, 8 tests,
   0 failed;
+- focused touch, pointer, and scrolling tests — PASS, 20 tests, 0 failed;
 - real pinned Neutralino 6.8.0 download and `neu build --release` — PASS;
 - `npm.cmd run format:check` — PASS;
 - `npm.cmd run typecheck` — PASS;
 - `npm.cmd run lint` — PASS;
 - `npm.cmd run build` — PASS for local UI, Remote UI, and backend;
-- `npm.cmd test` — PASS, 838 tests: 825 passed, 13 platform skips,
+- `npm.cmd test` — PASS, 843 tests: 830 passed, 13 platform skips,
   0 failed;
 - `npm.cmd run mpv:doctor` — PASS with MPV v0.41.0 and JSON IPC;
 - `npm.cmd run test:mpv` — PASS, 14 tests, including one persistent MPV,
@@ -264,10 +372,18 @@ Final validation after all deliverables:
 
 ## Real-system and visual scope
 
-The diagnosis used read-only inspection of the real Raspberry build and its
-managed journals. The new config/provider/UI behavior has not been installed,
-so the Pi must be retested for uninterrupted audio, phone attenuation,
-sender-dependent artwork/progress, and exact Local restoration.
+The diagnosis used the real Raspberry build and its managed journals, a
+revisioned AirPlay disable/enable cycle, a transient `prlimit`, and one
+controlled NetworkManager reconnect. The Wi-Fi profile was restored to its
+original `default` power-saving setting after the workaround failed. AirPlay is
+enabled and physically Playing; Local remains preserved in its prior paused
+state. The Pi runs kernel `6.18.39+rpt-rpi-v8`; `6.18.34` remains installed for
+rollback. The active receiver has the temporary 4.0-second acceptance value,
+effective `5/5` realtime limit, `FIFO/4` ALSA monitor, and zero XRUNs or service
+restarts in the latest measured window. The realtime user-manager drop-in is
+already persistent on the Pi, while the Settings-buffer and touch changes have
+not been installed. The onboard Wi-Fi SDIO fault remains an explicit residual
+risk despite the improved bounded samples.
 
 The UI change is deliberately conditional and geometry-preserving: it switches
 only AirPlay from the configured waveform style to Line, or hides the timeline
@@ -284,12 +400,15 @@ The same real 1280 x 800 content surface was inspected for the Settings
 follow-up. Settings root contains Interface, Audio, Playback, Network, and
 System without a separate Remote access row. Network fits Wired, Wi-Fi,
 AirPlay, and Remote access without scrolling; AirPlay shows the four-hex name
-at the right before its chevron; the dedicated Receiver Name page keeps its
-field and Save action fully visible. Remote access opens from Network and Back
-returns there. The isolated Windows fixture has no selected physical audio
-output, so applying a name while its receiver preference was On correctly
-surfaced the existing route warning after the revisioned API persisted the
-edit; physical advertisement remains part of the Raspberry retest.
+at the right before its chevron and the 2-second buffer on its own canonical
+row. The dedicated Receiver Name page keeps its field and Save action fully
+visible. The Audio Buffer page fits all three full-width touch choices, their
+descriptions, and the selected checkmark without scrolling. A real fixture
+change from 2 to 4 and back to 2 passed through the WebView2 UI, revisioned API,
+atomic store, receiver restart, and generated config; the config was observed
+at `4.0` and restored to `2.0`. Remote access opens from Network and Back
+returns there. The subsequent Raspberry test verified physical advertisement,
+sender connection, artwork, metadata, audio, and Local preservation.
 
 All development runs closed through the real window. Final teardown found
 zero listeners on ports 4310/5173, zero Neutralino, MPV, or FFmpeg processes,

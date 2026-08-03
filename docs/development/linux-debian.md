@@ -179,6 +179,11 @@ version and architecture avoids rebuilding unchanged pins on normal updates.
 
 Shairport runs in `eidetic-player-airplay.service`, a systemd user service with
 no capabilities and the upstream Shairport `LimitRTPRIO=5` scheduling ceiling.
+Because a user service cannot raise its limit above the containing user
+manager, installation adds an exact `user@UID.service` drop-in with the same
+ceiling and applies it to an already-running manager through `prlimit`. This
+permits only explicitly requesting user services to use priorities up to 5;
+Shairport remains the unprivileged runtime user and receives no capability.
 Its fixed config and private FIFO/socket live in the runtime user's mode-0700
 directories. NQPTP runs separately as a system service with a dynamic identity
 and only `CAP_NET_BIND_SERVICE`; UDP 319/320 conflicts abort activation rather

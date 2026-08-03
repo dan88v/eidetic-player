@@ -36,7 +36,7 @@ export function renderAirPlayConfig(
     '  interpolation = "vernier";',
     '  ignore_volume_control = "no";',
     "  volume_max_db = 0.0;",
-    "  audio_backend_buffer_desired_length_in_seconds = 0.5;",
+    `  audio_backend_buffer_desired_length_in_seconds = ${document.audioBufferSeconds.toFixed(1)};`,
     "};",
     "sessioncontrol =",
     "{",

@@ -2321,6 +2321,16 @@ export class PlayerService implements AudioOutputMpvAdapter {
       });
     if (this.playbackPlanSnapshot.current)
       await this.queueExecutionReconciliation();
+    if (
+      stoppedCurrent &&
+      currentIndex >= 0 &&
+      currentIndex < this.state.queue.length
+    )
+      this.update({
+        status: "stopped",
+        paused: true,
+        currentQueueIndex: currentIndex,
+      });
     return stoppedCurrent;
   }
 
@@ -2376,6 +2386,16 @@ export class PlayerService implements AudioOutputMpvAdapter {
       });
     if (this.playbackPlanSnapshot.current)
       await this.queueExecutionReconciliation();
+    if (
+      stoppedCurrent &&
+      currentIndex >= 0 &&
+      currentIndex < this.state.queue.length
+    )
+      this.update({
+        status: "stopped",
+        paused: true,
+        currentQueueIndex: currentIndex,
+      });
     return stoppedCurrent;
   }
 
@@ -2427,6 +2447,16 @@ export class PlayerService implements AudioOutputMpvAdapter {
       });
     if (this.playbackPlanSnapshot.current)
       await this.queueExecutionReconciliation();
+    if (
+      stoppedCurrent &&
+      currentIndex >= 0 &&
+      currentIndex < this.state.queue.length
+    )
+      this.update({
+        status: "stopped",
+        paused: true,
+        currentQueueIndex: currentIndex,
+      });
     return stoppedCurrent;
   }
 

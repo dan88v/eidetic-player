@@ -121,7 +121,7 @@ void test("touch ownership stays local and global listeners remain passive", () 
   const shell = read("apps/ui/src/components/app-shell.ts");
   assert.match(
     shell,
-    /document\.addEventListener\("pointermove", revealPointer, \{ passive: true \}\)/,
+    /createPointerVisibilityController\([\s\S]*systemCapabilities\.hidePointerWhenInactive/,
   );
   assert.match(
     shell,

@@ -292,7 +292,7 @@ if ((gpio_i2s_dac)); then
   esac
 fi
 
-packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg
+packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg util-linux
   network-manager dbus polkitd pkexec udisks2 cifs-utils xterm
   autoconf automake libtool patch libpopt-dev libconfig-dev libasound2-dev
   avahi-daemon avahi-utils libavahi-client-dev libssl-dev libsoxr-dev libplist-dev
@@ -957,11 +957,12 @@ import sys
 
 suffix = secrets.token_hex(2).upper()
 document = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "revision": 0,
     "enabled": True,
     "receiverName": f"Eidetic Player - {suffix}",
     "receiverNameOrigin": "generated",
+    "audioBufferSeconds": 2,
     "generatedSuffix": suffix,
     "integrationVersion": sys.argv[2],
     "updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -1003,6 +1004,8 @@ update_conf_stage=
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.service" /etc/systemd/user/eidetic-player.service 0644
 eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-airplay.service" /etc/systemd/user/eidetic-player-airplay.service 0644
 eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-nqptp.service" /etc/systemd/system/eidetic-player-nqptp.service 0644
+airplay_user_manager_drop_in="/etc/systemd/system/user@${EIDETIC_RUNTIME_UID}.service.d/50-eidetic-player-airplay-realtime.conf"
+eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-airplay-user-manager.conf" "$airplay_user_manager_drop_in" 0644
 eidetic_install_managed "$SCRIPT_DIR/airplay/eidetic-player-airplay-hook" /usr/libexec/eidetic-player-airplay-hook 0755
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.desktop" /usr/share/applications/eidetic-player.desktop 0644
 eidetic_install_managed "$SCRIPT_DIR/templates/return-to-eidetic-player.desktop" /usr/share/applications/return-to-eidetic-player.desktop 0644
@@ -1142,6 +1145,18 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
     --install-dir /opt/eidetic-player/current
   systemctl daemon-reload
   loginctl enable-linger "$runtime_user" >/dev/null
+  airplay_user_manager_pid="$(systemctl show "user@${EIDETIC_RUNTIME_UID}.service" \
+    --property MainPID --value 2>/dev/null || true)"
+  if [[ "$airplay_user_manager_pid" =~ ^[1-9][0-9]*$ ]] &&
+    command -v prlimit >/dev/null 2>&1; then
+    if ! prlimit --pid "$airplay_user_manager_pid" --rtprio=5:5; then
+      eidetic_console_warning \
+        "AirPlay realtime scheduling will become available after the next reboot."
+    fi
+  else
+    eidetic_console_warning \
+      "AirPlay realtime scheduling will become available after the next reboot."
+  fi
 fi
 if [[ "$rpi_keyboard" == disable ]]; then
   keyboard_attempt_state="$(eidetic_get_rpi_keyboard_state)"

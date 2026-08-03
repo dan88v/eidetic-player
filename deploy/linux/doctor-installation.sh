@@ -303,6 +303,9 @@ airplay_root="$(eidetic_target /opt/eidetic-player/current/airplay)"
 airplay_hook="$(eidetic_target /usr/libexec/eidetic-player-airplay-hook)"
 airplay_user_unit="$(eidetic_target /etc/systemd/user/eidetic-player-airplay.service)"
 airplay_nqptp_unit="$(eidetic_target /etc/systemd/system/eidetic-player-nqptp.service)"
+runtime_uid="$(id -u "$runtime_user" 2>/dev/null || true)"
+airplay_user_manager_drop_in="$(eidetic_target \
+  "/etc/systemd/system/user@${runtime_uid:-invalid}.service.d/50-eidetic-player-airplay-realtime.conf")"
 airplay_version=unavailable
 airplay_receiver_state=unavailable
 airplay_timing_state=unavailable
@@ -318,14 +321,19 @@ check airplay-hook "$({
 })"
 check airplay-units "$({
   [[ -r "$airplay_user_unit" && ! -L "$airplay_user_unit" &&
-    -r "$airplay_nqptp_unit" && ! -L "$airplay_nqptp_unit" ]] && printf pass || printf fail
+    -r "$airplay_nqptp_unit" && ! -L "$airplay_nqptp_unit" &&
+    -r "$airplay_user_manager_drop_in" && ! -L "$airplay_user_manager_drop_in" &&
+    "$(stat -c '%a' "$airplay_user_manager_drop_in" 2>/dev/null || true)" == 644 ]] &&
+    grep -Fxq 'LimitRTPRIO=5' "$airplay_user_manager_drop_in" &&
+    printf pass || printf fail
 })"
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   check airplay-ownership "$({
     [[ -z "$(find "$airplay_root" ! -user root -print -quit 2>/dev/null)" &&
       "$(stat -c '%u:%g' "$airplay_hook" 2>/dev/null || true)" == 0:0 &&
       "$(stat -c '%u:%g' "$airplay_user_unit" 2>/dev/null || true)" == 0:0 &&
-      "$(stat -c '%u:%g' "$airplay_nqptp_unit" 2>/dev/null || true)" == 0:0 ]] &&
+      "$(stat -c '%u:%g' "$airplay_nqptp_unit" 2>/dev/null || true)" == 0:0 &&
+      "$(stat -c '%u:%g' "$airplay_user_manager_drop_in" 2>/dev/null || true)" == 0:0 ]] &&
       printf pass || printf fail
   })"
 else
@@ -340,7 +348,6 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   airplay_timing_state="$(systemctl is-active eidetic-player-nqptp.service 2>/dev/null || true)"
   [[ -n "$airplay_timing_state" ]] || airplay_timing_state=inactive
   if [[ -n "$runtime_user" ]]; then
-    runtime_uid="$(id -u "$runtime_user" 2>/dev/null || true)"
     if [[ -n "$runtime_uid" ]]; then
       airplay_receiver_state="$(/usr/sbin/runuser -u "$runtime_user" -- env \
         XDG_RUNTIME_DIR="/run/user/$runtime_uid" systemctl --user is-active \
@@ -348,6 +355,26 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
       [[ -n "$airplay_receiver_state" ]] || airplay_receiver_state=inactive
     fi
   fi
+fi
+if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_uid" ]]; then
+  airplay_user_manager_pid="$(systemctl show "user@${runtime_uid}.service" \
+    --property MainPID --value 2>/dev/null || true)"
+  airplay_user_manager_rtprio="$(awk \
+    '$1 == "Max" && $2 == "realtime" && $3 == "priority" { print $4 }' \
+    "/proc/${airplay_user_manager_pid:-invalid}/limits" 2>/dev/null || true)"
+  airplay_receiver_pid="$(/usr/sbin/runuser -u "$runtime_user" -- env \
+    XDG_RUNTIME_DIR="/run/user/$runtime_uid" systemctl --user show \
+    eidetic-player-airplay.service --property MainPID --value 2>/dev/null || true)"
+  airplay_receiver_rtprio="$(awk \
+    '$1 == "Max" && $2 == "realtime" && $3 == "priority" { print $4 }' \
+    "/proc/${airplay_receiver_pid:-invalid}/limits" 2>/dev/null || true)"
+  check airplay-realtime "$({
+    [[ "$airplay_user_manager_rtprio" == 5 &&
+      ( "$airplay_receiver_state" != active || "$airplay_receiver_rtprio" == 5 ) ]] &&
+      printf pass || printf fail
+  })"
+else
+  check airplay-realtime pass
 fi
 check airplay-artifact-integrity "$({
   python3 - "$airplay_root" <<'PY' >/dev/null 2>&1 && printf pass || printf fail
@@ -388,8 +415,11 @@ if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_user" ]]; then
 import json
 import sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
-print("true" if value.get("schemaVersion") == 1 and value.get("enabled") is True else
-      "false" if value.get("schemaVersion") == 1 and value.get("enabled") is False else "invalid")
+schema = value.get("schemaVersion")
+buffer = value.get("audioBufferSeconds", 2 if schema == 1 else None)
+valid = schema in (1, 2) and buffer in (1, 2, 4)
+print("true" if valid and value.get("enabled") is True else
+      "false" if valid and value.get("enabled") is False else "invalid")
 PY
   })"
   check airplay-store "$({

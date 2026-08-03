@@ -32,6 +32,10 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     hook: resolve(root, "eidetic-player-airplay-hook"),
     receiverUnit: resolve(root, "templates/eidetic-player-airplay.service"),
     timingUnit: resolve(root, "templates/eidetic-player-nqptp.service"),
+    userManagerDropIn: resolve(
+      root,
+      "templates/eidetic-player-airplay-user-manager.conf",
+    ),
     notices: resolve(root, "THIRD_PARTY_NOTICES.md"),
     doctor: resolve("deploy/linux/doctor-installation.sh"),
     ciWorkflow: resolve(".github/workflows/ci.yml"),
@@ -43,6 +47,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     hook,
     receiverUnit,
     timingUnit,
+    userManagerDropIn,
     notices,
     doctor,
     installer,
@@ -55,6 +60,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     readFile(paths.hook, "utf8"),
     readFile(paths.receiverUnit, "utf8"),
     readFile(paths.timingUnit, "utf8"),
+    readFile(paths.userManagerDropIn, "utf8"),
     readFile(paths.notices, "utf8"),
     readFile(paths.doctor, "utf8"),
     readFile(resolve("deploy/linux/install-eidetic-player.sh"), "utf8"),
@@ -202,6 +208,20 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
   check(
     passed,
     failed,
+    "effective non-root receiver realtime budget",
+    userManagerDropIn === "[Service]\nLimitRTPRIO=5\n" &&
+      installer.includes(
+        "/etc/systemd/system/user@${EIDETIC_RUNTIME_UID}.service.d/50-eidetic-player-airplay-realtime.conf",
+      ) &&
+      installer.includes("prlimit --pid") &&
+      installer.includes("--rtprio=5:5") &&
+      doctor.includes("check airplay-realtime") &&
+      doctor.includes("airplay_user_manager_rtprio") &&
+      doctor.includes("airplay_receiver_rtprio"),
+  );
+  check(
+    passed,
+    failed,
     "installer stages cache, units, hook, and default store",
     installer.includes("airplay_cache_valid") &&
       installer.includes("dist/airplay") &&
@@ -209,7 +229,9 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
       installer.includes("eidetic-player-nqptp.service") &&
       installer.includes("eidetic-player-airplay-hook") &&
       installer.includes("airplay.json") &&
+      installer.includes('"schemaVersion": 2') &&
       installer.includes('"enabled": True') &&
+      installer.includes('"audioBufferSeconds": 2') &&
       installer.includes("secrets.token_hex(2).upper()") &&
       !installer.includes("range(2)") &&
       installer.includes('airplay_plan="Preserved (Off)"') &&
@@ -227,6 +249,8 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     failed,
     "read-only AirPlay config doctor",
     doctor.includes("check airplay-config") &&
+      doctor.includes("schema in (1, 2)") &&
+      doctor.includes("buffer in (1, 2, 4)") &&
       doctor.includes("stat -c '%a' \"$airplay_config\"") &&
       doctor.includes("stat -c '%u' \"$airplay_config\"") &&
       doctor.includes("airplay-runtime") &&
