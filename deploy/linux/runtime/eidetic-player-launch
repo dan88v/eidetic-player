@@ -13,6 +13,10 @@ readiness_poll_ms=250
 max_readiness_attempts=$((readiness_timeout_ms / readiness_poll_ms))
 readiness_json="$runtime/readiness.json"
 readiness_endpoint="http://${backend_host}:${backend_port}/api/readiness"
+ui_watchdog_failure="$runtime/ui-watchdog-failure"
+ui_renderer_memory_limit_kib="${EIDETIC_UI_RENDERER_MEMORY_LIMIT_KIB:-524288}"
+ui_renderer_check_seconds="${EIDETIC_UI_RENDERER_CHECK_SECONDS:-5}"
+ui_renderer_over_limit_samples="${EIDETIC_UI_RENDERER_OVER_LIMIT_SAMPLES:-3}"
 
 if [[ ! -f "$backend_entry" ]]; then
   printf 'Eidetic Player backend entrypoint not found: %s\n' \
@@ -38,14 +42,114 @@ if ! [[ "$readiness_timeout_ms" =~ ^[0-9]+$ ]] || ((readiness_timeout_ms < 1)); 
   exit 1
 fi
 
+if ! [[ "$ui_renderer_memory_limit_kib" =~ ^[0-9]+$ ]] ||
+  ((ui_renderer_memory_limit_kib < 131072)); then
+  printf 'Invalid UI renderer memory limit=%s; must be at least 131072 KiB.\n' \
+    "$ui_renderer_memory_limit_kib" >&2
+  exit 1
+fi
+
+if ! [[ "$ui_renderer_check_seconds" =~ ^[0-9]+$ ]] ||
+  ((ui_renderer_check_seconds < 1)); then
+  printf 'Invalid UI renderer check interval=%s; must be a positive integer.\n' \
+    "$ui_renderer_check_seconds" >&2
+  exit 1
+fi
+
+if ! [[ "$ui_renderer_over_limit_samples" =~ ^[0-9]+$ ]] ||
+  ((ui_renderer_over_limit_samples < 1)); then
+  printf 'Invalid UI renderer sample count=%s; must be a positive integer.\n' \
+    "$ui_renderer_over_limit_samples" >&2
+  exit 1
+fi
+
+find_web_renderer_pid() {
+  local parent_pid="$1"
+  local child_pid executable
+  [[ -r "/proc/$parent_pid/task/$parent_pid/children" ]] || return 1
+  for child_pid in $(<"/proc/$parent_pid/task/$parent_pid/children"); do
+    [[ -r "/proc/$child_pid/cmdline" ]] || continue
+    IFS= read -r -d '' executable <"/proc/$child_pid/cmdline" || true
+    if [[ "${executable##*/}" == "WebKitWebProcess" ]]; then
+      printf '%s\n' "$child_pid"
+      return 0
+    fi
+  done
+  return 1
+}
+
+renderer_memory_kib() {
+  local renderer_pid="$1"
+  local key value _unit total=0
+  [[ -r "/proc/$renderer_pid/status" ]] || return 1
+  while read -r key value _unit; do
+    case "$key" in
+      VmRSS:|VmSwap:) total=$((total + value)) ;;
+    esac
+  done <"/proc/$renderer_pid/status"
+  printf '%s\n' "$total"
+}
+
+watch_ui_renderer() {
+  local parent_pid="$1"
+  local renderer_pid="" replacement_pid="" memory_kib=""
+  local missing_samples=0 over_limit_count=0
+
+  while kill -0 "$parent_pid" 2>/dev/null; do
+    if [[ -z "$renderer_pid" ]]; then
+      renderer_pid="$(find_web_renderer_pid "$parent_pid" || true)"
+      sleep 1
+      continue
+    fi
+
+    if [[ ! -r "/proc/$renderer_pid/status" ]]; then
+      replacement_pid="$(find_web_renderer_pid "$parent_pid" || true)"
+      if [[ -n "$replacement_pid" ]]; then
+        renderer_pid="$replacement_pid"
+        missing_samples=0
+        over_limit_count=0
+      else
+        missing_samples=$((missing_samples + 1))
+        if ((missing_samples >= 3)); then
+          printf 'WebKit renderer exited while the UI shell remained alive; restarting Eidetic Player.\n' >&2
+          printf 'renderer-exited\n' >"$ui_watchdog_failure"
+          kill -TERM "$parent_pid" 2>/dev/null || true
+          return 1
+        fi
+      fi
+      sleep 1
+      continue
+    fi
+
+    missing_samples=0
+    memory_kib="$(renderer_memory_kib "$renderer_pid" || true)"
+    if [[ "$memory_kib" =~ ^[0-9]+$ ]] &&
+      ((memory_kib >= ui_renderer_memory_limit_kib)); then
+      over_limit_count=$((over_limit_count + 1))
+      if ((over_limit_count >= ui_renderer_over_limit_samples)); then
+        printf 'WebKit renderer memory remained above the safe limit (%s KiB >= %s KiB); restarting Eidetic Player before system OOM.\n' \
+          "$memory_kib" "$ui_renderer_memory_limit_kib" >&2
+        printf 'renderer-memory-limit\n' >"$ui_watchdog_failure"
+        kill -TERM "$parent_pid" 2>/dev/null || true
+        return 1
+      fi
+    else
+      over_limit_count=0
+    fi
+    sleep "$ui_renderer_check_seconds"
+  done
+}
+
 "$node_bin" "$backend_entry" &
 backend_pid=$!
 gui_pid=
+watchdog_pid=
 cleanup() {
+  [[ -z "${watchdog_pid:-}" ]] || kill "$watchdog_pid" 2>/dev/null || true
   [[ -z "${gui_pid:-}" ]] || kill "$gui_pid" 2>/dev/null || true
   kill "$backend_pid" 2>/dev/null || true
   wait "$backend_pid" 2>/dev/null || true
-  rm -f "$readiness_json"
+  rm -f "$readiness_json" "$ui_watchdog_failure"
 }
 trap cleanup EXIT INT TERM
 
@@ -75,7 +179,18 @@ if [[ "$readiness_code" != "200" ]]; then
   exit 1
 fi
 rm -f "$runtime/readiness.json"
+rm -f "$ui_watchdog_failure"
 
 "$release/eidetic-player" &
 gui_pid=$!
-wait "$gui_pid"
+watch_ui_renderer "$gui_pid" &
+watchdog_pid=$!
+gui_status=0
+wait "$gui_pid" || gui_status=$?
+kill "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+watchdog_pid=
+if [[ -s "$ui_watchdog_failure" ]]; then
+  gui_status=1
+fi
+exit "$gui_status"

@@ -666,6 +666,22 @@ void test("launcher waits on backend readiness endpoint with bounded attempts", 
   assert.match(launcher, /backend process ended during readiness check/);
 });
 
+void test("launcher recovers a dead or runaway WebKit renderer before system OOM", async () => {
+  const launcher = await read("deploy/linux/runtime/eidetic-player-launch");
+  assert.match(launcher, /find_web_renderer_pid\(\)/);
+  assert.match(launcher, /renderer_memory_kib\(\)/);
+  assert.match(launcher, /watch_ui_renderer\(\)/);
+  assert.match(launcher, /EIDETIC_UI_RENDERER_MEMORY_LIMIT_KIB:-524288/);
+  assert.match(launcher, /VmRSS:\|VmSwap:/);
+  assert.match(launcher, /missing_samples >= 3/);
+  assert.match(launcher, /over_limit_count >= ui_renderer_over_limit_samples/);
+  assert.match(launcher, /kill -TERM "\$parent_pid"/);
+  assert.match(launcher, /watch_ui_renderer "\$gui_pid" &/);
+  assert.match(launcher, /renderer-memory-limit/);
+  assert.match(launcher, /if \[\[ -s "\$ui_watchdog_failure" \]\]/);
+  assert.match(launcher, /gui_status=1/);
+});
+
 void test("system service and desktop path flow through launcher and single backend entrypoint", async () => {
   const [service, launcher, desktop] = await Promise.all([
     read("deploy/linux/templates/eidetic-player.service"),
