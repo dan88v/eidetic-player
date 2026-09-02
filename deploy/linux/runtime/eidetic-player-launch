@@ -144,6 +144,8 @@ watch_ui_renderer() {
 backend_pid=$!
 gui_pid=
 watchdog_pid=
+# Invoked indirectly by the EXIT, INT and TERM traps below.
+# shellcheck disable=SC2317
 cleanup() {
   [[ -z "${watchdog_pid:-}" ]] || kill "$watchdog_pid" 2>/dev/null || true
   [[ -z "${gui_pid:-}" ]] || kill "$gui_pid" 2>/dev/null || true

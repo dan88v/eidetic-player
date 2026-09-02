@@ -680,6 +680,7 @@ void test("launcher recovers a dead or runaway WebKit renderer before system OOM
   assert.match(launcher, /renderer-memory-limit/);
   assert.match(launcher, /if \[\[ -s "\$ui_watchdog_failure" \]\]/);
   assert.match(launcher, /gui_status=1/);
+  assert.match(launcher, /# shellcheck disable=SC2317\ncleanup\(\) \{/);
 });
 
 void test("system service and desktop path flow through launcher and single backend entrypoint", async () => {
