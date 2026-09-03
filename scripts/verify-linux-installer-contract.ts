@@ -288,7 +288,7 @@ export async function verifyLinuxInstallerContract(
   const read = (path: string) => readFile(resolve(root, path), "utf8");
   const [installer, uninstall, update, common, consoleUi, launcher] =
     await Promise.all([
-      read("deploy/linux/install-eidetic-player.sh"),
+      read("deploy/linux/install-eidetic-player-desktop.sh"),
       read("deploy/linux/uninstall-eidetic-player.sh"),
       read("deploy/linux/update-eidetic-player.sh"),
       read("deploy/linux/lib/common.sh"),

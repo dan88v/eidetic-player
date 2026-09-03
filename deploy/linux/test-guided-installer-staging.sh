@@ -108,7 +108,7 @@ run_guided() {
 
 standard_root="$(make_root standard)"
 run_guided '\n\n' "$work/standard.out" \
-  "$SCRIPT_DIR/install-eidetic-player.sh" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$standard_root" --user "$runtime_user" --no-color
 grep -q 'Choose installation mode' "$work/standard.out" ||
   fail "mode selection was not shown"
@@ -144,7 +144,7 @@ grep -q 'Uninstallation completed successfully' \
 
 appliance_root="$(make_root appliance)"
 run_guided '2\ny\ny\ny\nn\nn\nn\nn\n\n' "$work/appliance.out" \
-  "$SCRIPT_DIR/install-eidetic-player.sh" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$appliance_root" --user "$runtime_user" --no-color
 grep -qx 'EIDETIC_INSTALLATION_MODE=appliance' \
   "$appliance_root/etc/eidetic-player/install.conf" ||
@@ -157,7 +157,7 @@ grep -qx 'EIDETIC_DISABLE_BLANKING=0' \
   fail "guided Appliance No choice was not preserved"
 
 delete_root="$(make_root delete)"
-"$SCRIPT_DIR/install-eidetic-player.sh" \
+"$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$delete_root" --user "$runtime_user" \
   --mode standard --unattended --rpi-onscreen-keyboard keep >/dev/null
 data_root="$delete_root$runtime_home/.config/eidetic-player"
@@ -175,7 +175,7 @@ grep -q 'Application data     Removed' "$work/delete.out" ||
   fail "DELETE response reached the log"
 
 preserve_root="$(make_root preserve)"
-"$SCRIPT_DIR/install-eidetic-player.sh" \
+"$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$preserve_root" --user "$runtime_user" \
   --mode standard --unattended --rpi-onscreen-keyboard keep >/dev/null
 preserve_data="$preserve_root$runtime_home/.config/eidetic-player"
@@ -190,7 +190,7 @@ grep -q 'DELETE was not confirmed exactly' "$work/preserve.out" ||
   fail "failed DELETE confirmation warning is missing"
 
 external_root="$(make_root external-change)"
-"$SCRIPT_DIR/install-eidetic-player.sh" \
+"$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$external_root" --user "$runtime_user" \
   --mode standard --unattended --rpi-onscreen-keyboard keep >/dev/null
 printf 'externally managed replacement\n' \
@@ -206,7 +206,7 @@ grep -q 'preserving externally changed /usr/local/bin/eidetic-player' \
 
 cancel_root="$(make_root cancel)"
 run_guided '9\n1\nn\n' "$work/cancel.out" \
-  "$SCRIPT_DIR/install-eidetic-player.sh" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$cancel_root" --user "$runtime_user" --no-color
 grep -q 'Choose a number from 1 to 2' "$work/cancel.out" ||
   fail "invalid mode choice was not rejected"
@@ -217,14 +217,14 @@ grep -q 'cancelled before any change' "$work/cancel.out" ||
 
 verbose_root="$(make_root verbose)"
 run_guided '\n\n' "$work/verbose.out" \
-  "$SCRIPT_DIR/install-eidetic-player.sh" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$verbose_root" --user "$runtime_user" --verbose --no-color
 grep -q '^\s*\$ apt-get update' "$work/verbose.out" ||
   fail "verbose sanitized command preview is missing"
 grep -q 'staging fixture' "$verbose_root/opt/eidetic-player/current/backend/apps/backend/src/index.js" ||
   fail "verbose mode changed installation semantics"
 
-if "$SCRIPT_DIR/install-eidetic-player.sh" >"$work/non-tty-install.out" 2>&1; then
+if "$SCRIPT_DIR/install-eidetic-player-desktop.sh" >"$work/non-tty-install.out" 2>&1; then
   fail "no-argument non-TTY installer unexpectedly succeeded"
 fi
 grep -q 'Guided installation requires an interactive terminal' \
@@ -237,8 +237,8 @@ grep -q 'Guided uninstall requires an interactive terminal' \
   "$work/non-tty-uninstall.out" ||
   fail "non-TTY uninstaller explanation is missing"
 
-"$SCRIPT_DIR/install-eidetic-player.sh" --help >/dev/null
-"$SCRIPT_DIR/install-eidetic-player.sh" --version |
+"$SCRIPT_DIR/install-eidetic-player-desktop.sh" --help >/dev/null
+"$SCRIPT_DIR/install-eidetic-player-desktop.sh" --version |
   grep -Eq '^eidetic-player-linux-installer [0-9]+\.[0-9]+\.[0-9]+$' ||
   fail "installer version output is invalid"
 "$SCRIPT_DIR/uninstall-eidetic-player.sh" --help >/dev/null

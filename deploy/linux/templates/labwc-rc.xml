@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<labwc_config>
+  <core>
+    <decoration>no</decoration>
+    <gap>0</gap>
+  </core>
+  <keyboard />
+  <mouse>
+    <context name="Root" />
+  </mouse>
+</labwc_config>

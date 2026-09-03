@@ -1,0 +1,39 @@
+#!/usr/bin/env sh
+set -eu
+
+runtime_user="${EIDETIC_RUNTIME_USER:?}"
+runtime_uid="$(id -u)"
+runtime_dir="/run/user/$runtime_uid"
+
+[ "$(id -un)" = "$runtime_user" ] || {
+  printf 'Eidetic graphical session user mismatch.\n' >&2
+  exit 1
+}
+[ "$(tty 2>/dev/null || true)" = /dev/tty1 ] || {
+  printf 'Eidetic graphical session requires local tty1.\n' >&2
+  exit 1
+}
+[ -z "${SSH_CONNECTION:-}" ] && [ -z "${SSH_TTY:-}" ] || {
+  printf 'Eidetic graphical session refuses an SSH or remote PTY.\n' >&2
+  exit 1
+}
+[ -d "$runtime_dir" ] && [ ! -L "$runtime_dir" ] || {
+  printf 'Eidetic graphical session runtime directory is unavailable.\n' >&2
+  exit 1
+}
+[ "$(stat -c %u "$runtime_dir")" = "$runtime_uid" ] &&
+  [ "$(stat -c %a "$runtime_dir")" = 700 ] || {
+  printf 'Eidetic graphical session runtime directory is unsafe.\n' >&2
+  exit 1
+}
+
+export XDG_RUNTIME_DIR="$runtime_dir"
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=labwc
+export XDG_SESSION_DESKTOP=labwc
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus"
+
+systemctl --user import-environment \
+  XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
+  XDG_SESSION_DESKTOP DBUS_SESSION_BUS_ADDRESS
+exec systemctl --user --wait start eidetic-graphical-session.target

@@ -118,12 +118,13 @@ eidetic_is_official_source_remote() {
 
 eidetic_preflight_checkout() {
   local user="$1" checkout="$2" enforce_world_write="${3:-yes}"
+  local installer="${4:-$checkout/deploy/linux/install-eidetic-player.sh}"
   local mode origin head root_owned=no path
   local -a bootstrap=(
     "$checkout/.nvmrc"
     "$checkout/.git/HEAD"
     "$checkout/.git/config"
-    "$checkout/deploy/linux/install-eidetic-player.sh"
+    "$installer"
     "$checkout/deploy/linux/lib/common.sh"
     "$checkout/deploy/linux/runtime/eidetic-player-launch"
     "$checkout/deploy/linux/network/install-network-integration.sh"
@@ -149,9 +150,9 @@ eidetic_preflight_checkout() {
     [[ "$(stat -c %u "$path")" -ne 0 ]] || root_owned=yes
   done
   eidetic_runtime_test_path \
-    "$user" -x "$checkout/deploy/linux/install-eidetic-player.sh" ||
+    "$user" -x "$installer" ||
     eidetic_checkout_permission_error \
-      "$user" "$checkout" "$checkout/deploy/linux/install-eidetic-player.sh"
+      "$user" "$checkout" "$installer"
   head="$(<"$checkout/.git/HEAD")"
   [[ "$head" =~ ^ref:\ refs/[A-Za-z0-9._/-]+$ ||
     "$head" =~ ^[0-9a-fA-F]{40,64}$ ]] ||
@@ -358,9 +359,99 @@ eidetic_record_managed_hash() {
   mv -f -- "$updated" "$EIDETIC_MANIFEST"
 }
 
+eidetic_managed_transaction_init() {
+  local directory="$1"
+  [[ -n "$directory" && ! -e "$directory" ]] ||
+    eidetic_die "managed transaction directory is unsafe"
+  install -d -m 0700 "$directory/files"
+  : >"$directory/records"
+  chmod 0600 "$directory/records"
+  EIDETIC_MANAGED_TRANSACTION_DIR="$directory"
+  export EIDETIC_MANAGED_TRANSACTION_DIR
+  EIDETIC_STATE="$(eidetic_target /var/lib/eidetic-player)"
+  EIDETIC_BACKUPS="${EIDETIC_STATE}/backups"
+  EIDETIC_MANIFEST="${EIDETIC_STATE}/system-ui-manifest-v1.tsv"
+  if [[ -e "$EIDETIC_MANIFEST" ]]; then
+    [[ -f "$EIDETIC_MANIFEST" && ! -L "$EIDETIC_MANIFEST" ]] ||
+      eidetic_die "managed manifest is unsafe"
+    cp --preserve=mode,ownership,timestamps -- "$EIDETIC_MANIFEST" \
+      "$directory/manifest"
+    : >"$directory/manifest-present"
+  fi
+  if [[ -e "$EIDETIC_BACKUPS" ]]; then
+    [[ -d "$EIDETIC_BACKUPS" && ! -L "$EIDETIC_BACKUPS" ]] ||
+      eidetic_die "managed backup directory is unsafe"
+    cp -a -- "$EIDETIC_BACKUPS" "$directory/backups"
+    : >"$directory/backups-present"
+  fi
+}
+
+eidetic_managed_transaction_capture() {
+  local logical="$1" target key
+  [[ -n "${EIDETIC_MANAGED_TRANSACTION_DIR:-}" ]] || return 0
+  [[ "$logical" == /* && "$logical" != *'/../'* && "$logical" != */.. ]] ||
+    eidetic_die "managed transaction path is unsafe"
+  grep -Fq $'\t'"$logical"$'\t' \
+    "$EIDETIC_MANAGED_TRANSACTION_DIR/records" && return 0
+  target="$(eidetic_target "$logical")"
+  [[ ! -L "$target" ]] || eidetic_die "refusing administrative symlink: $logical"
+  key="$(printf '%s' "$logical" | sha256sum | awk '{print $1}')"
+  if [[ -e "$target" ]]; then
+    [[ -f "$target" ]] || eidetic_die "managed target is not a regular file: $logical"
+    cp --preserve=mode,ownership,timestamps -- "$target" \
+      "$EIDETIC_MANAGED_TRANSACTION_DIR/files/$key"
+    printf 'file\t%s\t1\t%s\n' "$logical" "$key" \
+      >>"$EIDETIC_MANAGED_TRANSACTION_DIR/records"
+  else
+    printf 'file\t%s\t0\t%s\n' "$logical" "$key" \
+      >>"$EIDETIC_MANAGED_TRANSACTION_DIR/records"
+  fi
+}
+
+eidetic_managed_transaction_rollback() {
+  local directory="${EIDETIC_MANAGED_TRANSACTION_DIR:-}" record logical existed key target
+  [[ -n "$directory" && -d "$directory" && ! -L "$directory" ]] || return 0
+  mapfile -t transaction_records < <(tac "$directory/records")
+  for record in "${transaction_records[@]}"; do
+    IFS=$'\t' read -r _ logical existed key <<<"$record"
+    target="$(eidetic_target "$logical")"
+    [[ ! -L "$target" ]] || return 1
+    if [[ "$existed" == 1 ]]; then
+      [[ -f "$directory/files/$key" ]] || return 1
+      install -d -m 0755 "$(dirname "$target")"
+      cp --preserve=mode,ownership,timestamps -- "$directory/files/$key" \
+        "${target}.eidetic-rollback"
+      mv -f -- "${target}.eidetic-rollback" "$target"
+    elif [[ -e "$target" ]]; then
+      [[ -f "$target" ]] || return 1
+      rm -f -- "$target"
+    fi
+  done
+  EIDETIC_STATE="$(eidetic_target /var/lib/eidetic-player)"
+  EIDETIC_BACKUPS="${EIDETIC_STATE}/backups"
+  EIDETIC_MANIFEST="${EIDETIC_STATE}/system-ui-manifest-v1.tsv"
+  if [[ -e "$EIDETIC_BACKUPS" ]]; then
+    [[ -d "$EIDETIC_BACKUPS" && ! -L "$EIDETIC_BACKUPS" ]] || return 1
+    rm -rf -- "$EIDETIC_BACKUPS"
+  fi
+  if [[ -e "$directory/backups-present" ]]; then
+    cp -a -- "$directory/backups" "$EIDETIC_BACKUPS"
+  fi
+  if [[ -e "$directory/manifest-present" ]]; then
+    install -d -m 0750 "$(dirname "$EIDETIC_MANIFEST")"
+    cp --preserve=mode,ownership,timestamps -- "$directory/manifest" \
+      "${EIDETIC_MANIFEST}.eidetic-rollback"
+    mv -f -- "${EIDETIC_MANIFEST}.eidetic-rollback" "$EIDETIC_MANIFEST"
+  else
+    rm -f -- "$EIDETIC_MANIFEST"
+  fi
+  return 0
+}
+
 eidetic_install_managed() {
   local source="$1" logical="$2" mode="$3" target
   target="$(eidetic_target "$logical")"
+  eidetic_managed_transaction_capture "$logical"
   eidetic_manifest_init
   eidetic_record_original "$logical" "$target"
   if [[ "$EIDETIC_ROOT" == "/" ]]; then

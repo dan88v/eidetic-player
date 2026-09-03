@@ -52,7 +52,7 @@ dry_run() {
     args+=(--autostart no --fullscreen no --borderless no
       --disable-blanking no --hide-pointer no --splash no --autologin no)
   fi
-  "$SCRIPT_DIR/install-eidetic-player.sh" "${args[@]}"
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" "${args[@]}"
 }
 
 assert_managed() {
@@ -84,7 +84,7 @@ mode="$(stat -c %a "$config")"
 ownership="$(stat -c %u:%g "$config")"
 dry_run "$root" standard
 if ((full_installer)); then
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode standard --unattended --rpi-onscreen-keyboard keep --gpio-i2s-dac
   grep -qx 'EIDETIC_GPIO_I2S_DAC=1' "$root/etc/eidetic-player/install.conf" ||
     fail "Standard install.conf choice"
@@ -121,7 +121,7 @@ root="$(make_root appliance legacy $'# fixture\n[all]\ndtparam=audio=on')"
 config="$root/boot/config.txt"
 dry_run "$root" appliance
 if ((full_installer)); then
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart no --fullscreen no --borderless no \
     --disable-blanking no --hide-pointer no --splash no --autologin no \
     --rpi-onscreen-keyboard keep --gpio-i2s-dac

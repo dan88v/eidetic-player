@@ -20,7 +20,7 @@ const sectionBetween = (source: string, from: string, to: string): string => {
 void test("Neutralino generator reads explicit borderless environment", async () => {
   const [generator, installer] = await Promise.all([
     read("scripts/generate-neutralino-config.ts"),
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
   ]);
 
   assert.match(
@@ -40,7 +40,7 @@ void test("Neutralino generator reads explicit borderless environment", async ()
 
 void test("Installer propagates borderless through install runtime build environment", async () => {
   const [installer, common] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
     read("deploy/linux/lib/common.sh"),
   ]);
 
@@ -63,8 +63,18 @@ void test("Update delegates to installer with explicit borderless flag", async (
   );
   contains(
     update,
-    'bootstrap_installer="$bootstrap_workspace/source/deploy/linux/install-eidetic-player.sh"',
+    'bootstrap_installer="$bootstrap_workspace/source/deploy/linux/$installer_name"',
     "installed release bootstrap checkout",
+  );
+  contains(
+    update,
+    "raspios-lite) installer_name=install-eidetic-player.sh",
+    "Lite profile installer selection",
+  );
+  contains(
+    update,
+    "desktop) installer_name=install-eidetic-player-desktop.sh",
+    "Desktop profile installer selection",
   );
   contains(
     update,
@@ -152,7 +162,7 @@ void test("Update normalizes legacy and preserves appliance semantics", async ()
 
 void test("Installer keeps standard choices off and adds borderless appliance option", async () => {
   const source = normalize(
-    await read("deploy/linux/install-eidetic-player.sh"),
+    await read("deploy/linux/install-eidetic-player-desktop.sh"),
   );
 
   assert.match(
@@ -188,7 +198,7 @@ void test("Installer keeps standard choices off and adds borderless appliance op
 });
 
 void test("Installer no longer uses fragile borderless text replacement", async () => {
-  const source = await read("deploy/linux/install-eidetic-player.sh");
+  const source = await read("deploy/linux/install-eidetic-player-desktop.sh");
   assert.doesNotMatch(source, /sed -i\s+.*borderless: false,/);
   assert.doesNotMatch(source, /grep -q 'borderless: true,/);
 });

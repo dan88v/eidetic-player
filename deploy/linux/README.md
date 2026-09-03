@@ -1,21 +1,64 @@
 # Linux installation and trial guide
 
-Eidetic Player is in **active development**. The installer is designed to be
-inspectable, repeatable and reversible, but Raspberry Pi hardware and complete
-appliance boot validation are still pending. Test first on a system you can
-recover, keep normal OS backups, and read the scripts before granting root
-access.
+Eidetic Player has two deliberately separate installers. Both are inspectable,
+repeatable, preserve application data on normal reinstall, never enable SSH,
+and never reboot automatically.
+
+## Default: Raspberry Pi OS Lite appliance
+
+The recommended installer targets a fresh or safely configured Raspberry Pi OS
+Lite 64-bit image based on Debian 13/Trixie and arm64. It installs a minimal
+Wayland/labwc appliance without a complete desktop environment:
+
+```bash
+git clone --depth 1 https://github.com/dan88v/eidetic-player.git
+cd eidetic-player
+sudo ./deploy/linux/install-eidetic-player.sh
+```
+
+Complete first boot and create a normal user before running it. NetworkManager
+must already be authoritative; ambiguous or conflicting network ownership is
+rejected without migration. The only normal guided hardware choice is the
+optional GPIO/I²S DAC. When installation succeeds, reboot manually.
+
+The Lite installer refuses Raspberry Pi OS Desktop, Ubuntu, unsupported
+versions, unknown systems, and ambiguous Desktop/Lite states before mutation.
+Hardware acceptance for DRM, Wayland seat ownership, touch, display power and
+audio remains pending on a separate Lite SD image.
+
+The Lite path uses the versioned
+[`raspios-lite-trixie-arm64.packages`](manifests/raspios-lite-trixie-arm64.packages)
+manifest and installs only missing packages. It never runs a distribution
+upgrade or package autoremove. The intended session tree is the tty1 PAM/logind
+login, its user systemd manager, `eidetic-graphical-session.target`, foreground
+labwc, and the existing `eidetic-player.service`; no panel, file manager,
+wallpaper process, display manager, second browser, or second player is added.
+
+Owned machine integration is recorded atomically in
+`/var/lib/eidetic-player/machine-ownership-v1.json`. Reinstall preserves user
+data and receiver state. Routine updates skip APT and graphical bootstrap while
+the stored integration schema is current. Normal uninstall validates ownership,
+restores pre-existing getty/session files where integrity is proven, preserves
+APT packages and application data, and returns to the prior console behavior.
+
+## Desktop installer
+
+The historical Desktop behavior is preserved at:
+
+```bash
+sudo ./deploy/linux/install-eidetic-player-desktop.sh
+```
 
 ## Exact supported targets
 
-Production installation accepts only:
+Desktop installation accepts only:
 
 - Raspberry Pi OS 64-bit Trixie **Desktop**, arm64, for Raspberry Pi 3B and
   later;
 - Ubuntu 26.04 LTS **Desktop**, amd64 or arm64.
 
 Ubuntu Desktop is not declared supported or recommended on a Raspberry Pi 3B.
-The installer rejects 32-bit systems, Raspberry Pi OS Lite, generic Debian,
+The Desktop installer rejects 32-bit systems, Raspberry Pi OS Lite, generic Debian,
 Ubuntu Server, other Ubuntu releases and real installation under WSL.
 
 WSL is useful only for `--dry-run` and isolated `--root` staging. Those checks
@@ -107,14 +150,14 @@ hardware serial, MAC address, user home or credentials.
    ```bash
    git clone --depth 1 https://github.com/dan88v/eidetic-player.git
    cd eidetic-player
-   less deploy/linux/install-eidetic-player.sh
+   less deploy/linux/install-eidetic-player-desktop.sh
    less deploy/linux/restore-system-ui.sh
    ```
 
 6. Review the command and package plan without changing the host:
 
    ```bash
-   sudo ./deploy/linux/install-eidetic-player.sh \
+   sudo ./deploy/linux/install-eidetic-player-desktop.sh \
      --user "$(id -un)" \
      --mode standard \
      --dry-run
@@ -148,7 +191,7 @@ services, network, boot files or administrative paths:
 
 ```bash
 runtime_user="${SUDO_USER:-$(id -un)}"
-sudo ./deploy/linux/install-eidetic-player.sh \
+sudo ./deploy/linux/install-eidetic-player-desktop.sh \
   --user "$runtime_user" \
   --mode standard \
   --dry-run
@@ -164,14 +207,14 @@ The documented source path is:
 ```bash
 git clone --depth 1 https://github.com/dan88v/eidetic-player.git
 cd eidetic-player
-sudo ./deploy/linux/install-eidetic-player.sh
+sudo ./deploy/linux/install-eidetic-player-desktop.sh
 ```
 
 When `sudo` does not supply the intended desktop account through `SUDO_USER`,
 specify it:
 
 ```bash
-sudo ./deploy/linux/install-eidetic-player.sh --user "$(id -un)"
+sudo ./deploy/linux/install-eidetic-player-desktop.sh --user "$(id -un)"
 ```
 
 The runtime user must exist. Do not pass `root`.
@@ -236,7 +279,7 @@ No automatic reboot is performed.
 Normal human use needs no technical arguments:
 
 ```bash
-sudo ./deploy/linux/install-eidetic-player.sh
+sudo ./deploy/linux/install-eidetic-player-desktop.sh
 ```
 
 With an interactive terminal the installer displays a compact ASCII header,
@@ -270,10 +313,10 @@ code, rollback result, log, doctor command, and a bounded sanitized excerpt.
 Examples:
 
 ```bash
-sudo ./deploy/linux/install-eidetic-player.sh -v
-sudo ./deploy/linux/install-eidetic-player.sh --no-color
-sudo ./deploy/linux/install-eidetic-player.sh --help
-sudo ./deploy/linux/install-eidetic-player.sh --version
+sudo ./deploy/linux/install-eidetic-player-desktop.sh -v
+sudo ./deploy/linux/install-eidetic-player-desktop.sh --no-color
+sudo ./deploy/linux/install-eidetic-player-desktop.sh --help
+sudo ./deploy/linux/install-eidetic-player-desktop.sh --version
 ```
 
 The final reboot question remains a single explicit prompt with default No.
@@ -386,7 +429,7 @@ behavior independently:
 Interactive example:
 
 ```bash
-sudo ./deploy/linux/install-eidetic-player.sh \
+sudo ./deploy/linux/install-eidetic-player-desktop.sh \
   --user "$(id -un)" \
   --mode appliance
 ```
@@ -406,6 +449,13 @@ confirmation, playback and the player lifecycle stop, bounded automatic
 restart is suspended for that session, and a local terminal opens. The “Return
 to Eidetic Player” desktop launcher invokes `eidetic-player-resume` and starts
 one application instance.
+
+Outside Maintenance mode, the ordinary desktop launcher is also a deliberate
+recovery command: it clears a spent systemd start limit and restarts the whole
+Eidetic service rather than leaving a hidden or half-alive runtime untouched.
+Unexpected UI/backend exits and renderer recovery events are written to the
+bounded user-state file `runtime-recovery.log`, with one rotated predecessor,
+so the cause survives a system reboot even when the system journal is volatile.
 
 ## First-run checks
 

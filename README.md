@@ -75,24 +75,20 @@ Bell filters, all within ±3 dB.
 
 ## Compatibility
 
-| Platform                                                               | Status                                                                                                       |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Raspberry Pi 3B+ · Raspberry Pi OS 64-bit Trixie Desktop (Debian 13.6) | **Tested on real hardware.** The current player functions have been exercised on the target device.          |
-| Newer Raspberry Pi models · the same Raspberry Pi OS release           | Expected to work with the same 64-bit Trixie Desktop system, but not yet tested as completely as the Pi 3B+. |
-| Ubuntu 26.04 LTS Desktop · amd64 or arm64                              | Compatible with the installer, but **not yet tested on real Ubuntu hardware**.                               |
-| Windows 11 · x64                                                       | Used for development and interface testing. No installer is currently available.                             |
-
-The current installer requires a graphical Desktop system. Raspberry Pi OS
-Lite, Ubuntu Server, 32-bit systems, generic Debian, other Ubuntu versions, and
-WSL installation are not currently supported.
-
-A dedicated Raspberry Pi OS Lite installer is planned and should reduce system
-overhead further, but it is not available yet.
+| Platform                                                               | Status                                                                                                               |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Platform                                                               | Status                                                                                                               |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Raspberry Pi 3B+ · Raspberry Pi OS 64-bit Trixie Desktop (Debian 13.6) | **Tested on real hardware.** The current player functions have been exercised on the target device.                  |
+| Raspberry Pi 3B/3B+ · Raspberry Pi OS Lite 64-bit Trixie               | Installer ready for validation on a separate Lite image; full hardware acceptance is still pending.                  |
+| Newer Raspberry Pi models · the same Raspberry Pi OS release           | Expected to work with the same 64-bit Trixie system, but not yet tested as completely as the Pi 3B+.                 |
+| Ubuntu 26.04 LTS Desktop · amd64 or arm64                              | Supported by the Desktop installer, but **not yet tested on real Ubuntu hardware**.                                  |
+| Windows 11 · x64                                                       | Used for development and interface testing. No installer is currently available.                                     |
 
 ## Installation
 
-Start from a clean installation of one of the supported Desktop systems, then
-run:
+The default and recommended path is Raspberry Pi OS Lite 64-bit, Debian 13 /
+Trixie. Flash the image, complete first boot and create a normal user, then run:
 
 ```bash
 git clone --depth 1 https://github.com/dan88v/eidetic-player.git
@@ -100,16 +96,20 @@ cd eidetic-player
 sudo ./deploy/linux/install-eidetic-player.sh
 ```
 
-The guided installer checks the system, shows the planned changes, and asks
-which installation mode to use:
+The Lite installer creates the minimal appliance environment without adding a
+full desktop. It does not enable or change SSH and never reboots automatically;
+restart the Raspberry Pi manually when installation completes.
 
-- **Standard** installs Eidetic Player without changing the normal desktop
-  experience.
-- **Appliance** can start the player automatically and provide a dedicated
-  fullscreen music-player experience.
+For Raspberry Pi OS Desktop Trixie or Ubuntu 26.04 LTS Desktop, use the explicit
+Desktop installer:
 
-Standard mode is recommended for the first installation. The installer never
-reboots the system automatically.
+```bash
+sudo ./deploy/linux/install-eidetic-player-desktop.sh
+```
+
+The Desktop installer retains the existing Standard and Appliance choices. The
+two installers refuse cross-installation rather than converting the operating
+system.
 
 For advanced options, recovery, GPIO/I2S DAC setup, or removal, see the
 [complete Linux guide](deploy/linux/README.md).
@@ -128,7 +128,8 @@ sudo ./deploy/linux/update-eidetic-player.sh
 
 ## Current limitations
 
-- Raspberry Pi OS Lite installation is not available yet.
+- Raspberry Pi OS Lite still requires final validation on a separate physical
+  SD image before it can be declared hardware-tested.
 - Ubuntu 26.04 LTS Desktop has not been tested on real hardware.
 - Spotify Connect, Bluetooth input, radio services, multiroom, and cloud music
   services are not implemented.

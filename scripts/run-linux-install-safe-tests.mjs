@@ -64,8 +64,16 @@ const code = await run(process.execPath, [
 if (code !== 0) process.exit(code);
 
 if (process.platform === "linux") {
+  const launcherRecoveryCode = await run("bash", [
+    "deploy/linux/test-launcher-recovery.sh",
+  ]);
+  if (launcherRecoveryCode !== 0) process.exit(launcherRecoveryCode);
   const stagingCode = await run("bash", ["deploy/linux/test-staging.sh"]);
   if (stagingCode !== 0) process.exit(stagingCode);
+  const liteStagingCode = await run("bash", [
+    "deploy/linux/test-lite-installer-staging.sh",
+  ]);
+  if (liteStagingCode !== 0) process.exit(liteStagingCode);
 } else {
   console.log(
     "[test:install:linux] INFO isolated shell staging runs on Linux CI/device; cross-platform deployment contracts passed",

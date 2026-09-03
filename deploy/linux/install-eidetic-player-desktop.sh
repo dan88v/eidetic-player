@@ -2,36 +2,37 @@
 set -euo pipefail
 umask 022
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/lite-install.sh
 . "$SCRIPT_DIR/lib/lite-install.sh"
 
-original_args=("$@")
 runtime_user="${SUDO_USER:-}"
 git_ref=main
 resolved_commit=
-mode=appliance
+mode=standard
 dry_run=0
 unattended=0
 guided=1
 full_verify=0
-application_update=0
 EIDETIC_ROOT=/
+rpi_keyboard=keep
+rpi_keyboard_explicit=0
 gpio_i2s_dac=0
 gpio_i2s_dac_explicit=0
 gpio_i2s_dac_state=not-requested
-legacy_desktop_option=0
 SOURCE_REMOTE="$EIDETIC_SOURCE_REMOTE"
-declare -A choice=([autostart]=yes [fullscreen]=yes [borderless]=yes [blanking]=yes [pointer]=yes [splash]=no [autologin]=yes)
-borderless_value=1
-rpi_keyboard=keep
+declare -A choice=()
 
 usage() {
   cat <<'EOF'
-Usage: sudo ./deploy/linux/install-eidetic-player.sh [options]
+Usage: sudo ./deploy/linux/install-eidetic-player-desktop.sh [options]
 
-Installs the Raspberry Pi OS Lite 64-bit Debian 13/Trixie appliance.
-Raspberry Pi OS Desktop and Ubuntu Desktop must use
-install-eidetic-player-desktop.sh.
+Without technical options, the installer starts the guided procedure.
+
+Modes:
+  Standard                    Desktop application with manual launch
+  Appliance                   Fullscreen-capable player with optional autostart
 
 Common options:
   -v, --verbose               Show sanitized commands and live process output
@@ -40,82 +41,109 @@ Common options:
   --version                   Show installer provenance
 
 Automation and technical options:
-  --user USER                 Existing normal non-root runtime user
+  --user USER                 Existing non-root runtime user
   --ref REF                   Git ref to install (default: main)
-  --resolved-commit SHA       Pin the fetched ref to an exact commit
+  --resolved-commit SHA       Pin the fetched ref to an already resolved commit
+  --mode standard|appliance   Installation mode
   --dry-run                   Validate and print the plan only
   --unattended                Never prompt
   --full-verify               Also run the complete application verification suite
   --root PATH                 Use an isolated staging root
+  --autostart yes|no          Appliance choice
+  --fullscreen yes|no         Appliance choice
+  --borderless yes|no         Appliance choice
+  --disable-blanking yes|no   Appliance choice
+  --hide-pointer yes|no       Appliance choice
+  --splash yes|no             Appliance choice
+  --autologin yes|no          Appliance choice
+  --rpi-onscreen-keyboard keep|disable
   --gpio-i2s-dac              Configure a generic GPIO/I2S DAC (opt-in)
 
 Examples:
-  sudo ./deploy/linux/install-eidetic-player.sh
-  sudo ./deploy/linux/install-eidetic-player.sh -v
-  sudo ./deploy/linux/install-eidetic-player.sh --user player --unattended
+  sudo ./deploy/linux/install-eidetic-player-desktop.sh
+  sudo ./deploy/linux/install-eidetic-player-desktop.sh -v
+  sudo ./deploy/linux/install-eidetic-player-desktop.sh --no-color
+  sudo ./deploy/linux/install-eidetic-player-desktop.sh --user player --mode standard --unattended
 
-The Lite installer is Appliance-only, never enables or modifies SSH, and never
-reboots automatically. Uninstall preserves application data and APT packages.
+Uninstall preserves application data by default. Its guided data removal
+requires a separate DELETE confirmation.
 EOF
 }
 
+set_choice() {
+  [[ "$2" == "yes" || "$2" == "no" ]] || eidetic_die "$1 expects yes or no"
+  choice["$1"]="$2"
+}
 while (($#)); do
   case "$1" in
     -v | --verbose) EIDETIC_CONSOLE_VERBOSE=1; shift ;;
     --no-color) export EIDETIC_CONSOLE_NO_COLOR=1; shift ;;
-    --user) [[ $# -ge 2 ]] || eidetic_die "--user needs a value"; runtime_user="$2"; shift 2 ;;
-    --ref) [[ $# -ge 2 ]] || eidetic_die "--ref needs a value"; git_ref="$2"; shift 2 ;;
-    --resolved-commit) [[ $# -ge 2 ]] || eidetic_die "--resolved-commit needs a value"; resolved_commit="$2"; shift 2 ;;
-    --root) [[ $# -ge 2 ]] || eidetic_die "--root needs a value"; EIDETIC_ROOT="$2"; shift 2 ;;
-    --dry-run) guided=0; dry_run=1; shift ;;
-    --unattended) guided=0; unattended=1; shift ;;
-    --full-verify) full_verify=1; shift ;;
-    --application-update) application_update=1; guided=0; shift ;;
-    --gpio-i2s-dac) guided=0; gpio_i2s_dac=1; gpio_i2s_dac_explicit=1; shift ;;
-    --mode|--autostart|--fullscreen|--borderless|--disable-blanking|--hide-pointer|--splash|--autologin|--rpi-onscreen-keyboard)
-      legacy_desktop_option=1
-      [[ $# -ge 2 ]] || eidetic_die "$1 needs a value"
+    --user) [[ $# -ge 2 ]] || eidetic_die "--user needs a value"; runtime_user="$2"; shift 2;;
+    --ref) [[ $# -ge 2 ]] || eidetic_die "--ref needs a value"; git_ref="$2"; shift 2;;
+    --resolved-commit)
+      [[ $# -ge 2 ]] || eidetic_die "--resolved-commit needs a value"
+      resolved_commit="$2"
       shift 2
       ;;
-    -h | --help) usage; exit 0 ;;
-    --version) printf 'eidetic-player-linux-lite-installer %s\n' "$(eidetic_project_version)"; exit 0 ;;
-    *) eidetic_die "unknown option: $1" ;;
+    --mode) guided=0; [[ $# -ge 2 ]] || eidetic_die "--mode needs a value"; mode="$2"; shift 2;;
+    --root) [[ $# -ge 2 ]] || eidetic_die "--root needs a value"; EIDETIC_ROOT="$2"; shift 2;;
+    --dry-run) guided=0; dry_run=1; shift;;
+    --unattended) guided=0; unattended=1; shift;;
+    --full-verify) full_verify=1; shift;;
+    --autostart) guided=0; set_choice autostart "${2:-}"; shift 2;;
+    --fullscreen) guided=0; set_choice fullscreen "${2:-}"; shift 2;;
+    --borderless) guided=0; set_choice borderless "${2:-}"; shift 2;;
+    --disable-blanking) guided=0; set_choice blanking "${2:-}"; shift 2;;
+    --hide-pointer) guided=0; set_choice pointer "${2:-}"; shift 2;;
+    --splash) guided=0; set_choice splash "${2:-}"; shift 2;;
+    --autologin) guided=0; set_choice autologin "${2:-}"; shift 2;;
+    --rpi-onscreen-keyboard)
+      guided=0
+      [[ $# -ge 2 ]] || eidetic_die "--rpi-onscreen-keyboard needs a value"
+      rpi_keyboard="$2"
+      rpi_keyboard_explicit=1
+      shift 2
+      ;;
+    --gpio-i2s-dac)
+      guided=0
+      gpio_i2s_dac=1
+      gpio_i2s_dac_explicit=1
+      shift
+      ;;
+    -h | --help) usage; exit 0;;
+    --version)
+      printf 'eidetic-player-linux-installer %s\n' "$(eidetic_project_version)"
+      exit 0
+      ;;
+    *) eidetic_die "unknown option: $1";;
   esac
 done
 
-if [[ "$EIDETIC_ROOT" != "/" ]]; then eidetic_validate_root "$EIDETIC_ROOT"; fi
-export EIDETIC_ROOT
-eidetic_require_root
-legacy_conf="$(eidetic_target /etc/eidetic-player/install.conf)"
-if [[ -n "${EIDETIC_EMBEDDED_PARENT:-}" && -f "$legacy_conf" && ! -L "$legacy_conf" &&
-  $(grep -Ec '^EIDETIC_INSTALL_PROFILE=' "$legacy_conf") -eq 0 &&
-  $(grep -Ec '^EIDETIC_INSTALLATION_MODE=(standard|appliance)$' "$legacy_conf") -eq 1 ]]; then
-  if [[ "$EIDETIC_ROOT" != "/" || "$(stat -c %u "$legacy_conf")" == 0 ]]; then
-    printf 'Legacy Desktop updater compatibility: using install-eidetic-player-desktop.sh.\n' >&2
-    exec "$SCRIPT_DIR/install-eidetic-player-desktop.sh" "${original_args[@]}"
-  fi
-fi
-
-eidetic_classify_raspios_host
-case "$EIDETIC_HOST_CLASS" in
-  RPIOS_LITE) ;;
-  DESKTOP) eidetic_die "Raspberry Pi OS Desktop detected. Use install-eidetic-player-desktop.sh." ;;
-  AMBIGUOUS|UNKNOWN) eidetic_die "Raspberry Pi OS host classification is $EIDETIC_HOST_CLASS: $EIDETIC_HOST_CLASS_REASON. No changes were made." ;;
-  UNSUPPORTED) eidetic_die "Unsupported host: $EIDETIC_HOST_CLASS_REASON. No changes were made." ;;
-  *) eidetic_die "invalid host classification" ;;
-esac
-((legacy_desktop_option == 0)) || eidetic_die "Desktop installer options are unsupported on Lite; this installer is Appliance-only"
-if ((application_update)) && [[ "${EIDETIC_EMBEDDED_PARENT:-}" != update ]]; then
-  eidetic_die "--application-update is reserved for the installed profile-aware updater"
-fi
+install_question_prompt() {
+  case "$1" in
+    borderless)
+      printf '%s' 'Run Eidetic Player without window borders?'
+      ;;
+    *)
+      printf '%s?' "$1"
+      ;;
+  esac
+}
 
 if ((unattended)); then export EIDETIC_CONSOLE_FORCE_NON_TTY=1; fi
 installer_version="$(eidetic_project_version)"
 if [[ -n "${EIDETIC_EMBEDDED_PARENT:-}" ]]; then
-  ((unattended)) || { printf 'Error: embedded installer mode requires --unattended.\n' >&2; exit 64; }
-  eidetic_console_init_embedded "$EIDETIC_EMBEDDED_PARENT" || { printf 'Error: invalid embedded installer channel.\n' >&2; exit 64; }
+  ((unattended)) || {
+    printf 'Error: embedded installer mode requires --unattended.\n' >&2
+    exit 64
+  }
+  eidetic_console_init_embedded "$EIDETIC_EMBEDDED_PARENT" || {
+    printf 'Error: invalid embedded installer channel.\n' >&2
+    exit 64
+  }
 else
-  eidetic_console_init install "Raspberry Pi OS Lite Installer" "$EIDETIC_ROOT" "$installer_version" || exit 1
+  eidetic_console_init install "Linux Installer" "$EIDETIC_ROOT" "$installer_version" ||
+    exit 1
 fi
 installation_cancelled=0
 early_exit() {
@@ -127,7 +155,9 @@ early_exit() {
       eidetic_console_info "Rollback: not required"
       eidetic_console_info "Log: $EIDETIC_LOG_PATH"
     else
-      eidetic_console_failure_panel "INSTALLATION FAILED" "${EIDETIC_FAILURE_REASON:-The current operation did not complete.}" "$status" "not required"
+      eidetic_console_failure_panel "INSTALLATION FAILED" \
+        "${EIDETIC_FAILURE_REASON:-The current operation did not complete.}" \
+        "$status" "not required"
     fi
   fi
   eidetic_console_finalize
@@ -137,66 +167,120 @@ trap 'early_exit "$?"' EXIT
 trap 'installation_cancelled=1; exit 130' INT
 trap 'installation_cancelled=1; exit 143' TERM
 
-if ((guided)) && { [[ ! -t 0 || ! -t 1 ]] && [[ "${EIDETIC_CONSOLE_FORCE_TTY:-0}" != 1 ]]; }; then
-  EIDETIC_FAILURE_REASON="Guided installation requires an interactive terminal. Use --unattended with --user."
+if ((guided)) && { [[ ! -t 0 || ! -t 1 ]] &&
+  [[ "${EIDETIC_CONSOLE_FORCE_TTY:-0}" != 1 ]]; }; then
+  EIDETIC_FAILURE_REASON="Guided installation requires an interactive terminal. Use --unattended with explicit technical choices."
   usage >&3
   exit 64
 fi
-if [[ -z "$runtime_user" ]]; then
-  mapfile -t normal_users < <(getent passwd | awk -F: -v minimum="$(awk '$1 == "UID_MIN" { print $2; exit }' "$(eidetic_target /etc/login.defs)" 2>/dev/null || printf 1000)" '$3 >= minimum && $3 < 65534 && $7 !~ /(nologin|false)$/ { print $1 }')
-  if ((${#normal_users[@]} == 1)); then
-    runtime_user="${normal_users[0]}"
-  elif ((unattended || ${#normal_users[@]} == 0)); then
-    eidetic_die "--user is required when SUDO_USER does not identify one normal user"
-  else
-    eidetic_console_section "Runtime user"
-    for index in "${!normal_users[@]}"; do eidetic_console_info "  $((index + 1)). ${normal_users[$index]}"; done
-    eidetic_prompt_choice "Select runtime user" 1 "${#normal_users[@]}" 1 || eidetic_die "runtime user selection ended unexpectedly"
-    runtime_user="${normal_users[$((EIDETIC_PROMPT_RESULT - 1))]}"
-  fi
-fi
-eidetic_validate_lite_runtime_user "$runtime_user"
-lite_integration_schema=1
-machine_bootstrap_required=1
-if ((application_update)); then
-  [[ -f "$legacy_conf" && ! -L "$legacy_conf" ]] ||
-    eidetic_die "Lite application update requires a regular install profile"
-  grep -Fxq 'EIDETIC_INSTALL_PROFILE=raspios-lite' "$legacy_conf" ||
-    eidetic_die "Lite application update profile could not be proven"
-  grep -Fxq "EIDETIC_LITE_INTEGRATION_SCHEMA=$lite_integration_schema" "$legacy_conf" ||
-    eidetic_die "Lite machine integration schema requires an explicit installer migration"
-  python3 "$SCRIPT_DIR/lib/machine_ownership.py" validate --root "$EIDETIC_ROOT" >/dev/null ||
-    eidetic_die "Lite machine ownership manifest is invalid; update refused"
-  machine_bootstrap_required=0
-fi
+
+[[ "$mode" == "standard" || "$mode" == "appliance" ]] ||
+  eidetic_die "--mode must be standard or appliance"
+[[ "$rpi_keyboard" == keep || "$rpi_keyboard" == disable ]] ||
+  eidetic_die "--rpi-onscreen-keyboard must be keep or disable"
+[[ -n "$runtime_user" ]] || eidetic_die "--user is required when SUDO_USER is unavailable"
+eidetic_validate_user "$runtime_user"
+eidetic_load_runtime_identity "$runtime_user"
 eidetic_validate_ref "$git_ref"
-if [[ -n "$resolved_commit" && ! "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then eidetic_die "--resolved-commit must be an exact lowercase commit SHA"; fi
+if [[ -n "$resolved_commit" ]] &&
+  ! [[ "$resolved_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  eidetic_die "--resolved-commit must be an exact lowercase commit SHA"
+fi
+if [[ "$EIDETIC_ROOT" != "/" ]]; then eidetic_validate_root "$EIDETIC_ROOT"; fi
+export EIDETIC_ROOT
+eidetic_require_root
+eidetic_classify_raspios_host
+case "$EIDETIC_HOST_CLASS" in
+  RPIOS_LITE)
+    eidetic_die "Raspberry Pi OS Lite detected. Use install-eidetic-player.sh."
+    ;;
+  AMBIGUOUS | UNKNOWN)
+    if [[ "${ID:-}" == raspbian || "${ID:-}" == debian ]]; then
+      eidetic_die "Raspberry Pi OS host classification is $EIDETIC_HOST_CLASS; refusing Desktop installation before any change."
+    fi
+    ;;
+esac
 checkout="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 preflight_world_write=yes
 [[ "$EIDETIC_ROOT" == "/" ]] || preflight_world_write=no
-export EIDETIC_CONSOLE_PHASE_TOTAL=$((dry_run ? 2 : 10))
+export EIDETIC_CONSOLE_PHASE_TOTAL=$((dry_run ? 2 : 9))
 eidetic_console_phase_begin "Preflight"
-eidetic_preflight_checkout "$runtime_user" "$checkout" "$preflight_world_write"
+eidetic_preflight_checkout \
+  "$runtime_user" "$checkout" "$preflight_world_write" \
+  "$checkout/deploy/linux/install-eidetic-player-desktop.sh"
 eidetic_console_phase_done
-eidetic_console_phase_begin "Platform"
-EIDETIC_DISTRO=raspios
-EIDETIC_DESKTOP=none
-export EIDETIC_DISTRO EIDETIC_DESKTOP
+eidetic_console_phase_begin "System detection"
+eidetic_detect_platform
 backend_host="${BACKEND_HOST:-127.0.0.1}"
 backend_port="${BACKEND_PORT:-4310}"
-[[ "$backend_port" =~ ^[0-9]+$ ]] && ((backend_port >= 1 && backend_port <= 65535)) || eidetic_die "Invalid BACKEND_PORT=$backend_port; must be an integer 1-65535."
-[[ "$backend_host" == 127.0.0.1 || "$backend_host" == localhost ]] || eidetic_die "Invalid BACKEND_HOST=$backend_host; only loopback is supported."
-eidetic_network_preflight
-[[ "$EIDETIC_NETWORK_CLASS" == NM_AUTHORITATIVE ]] || eidetic_die "Network preflight is $EIDETIC_NETWORK_CLASS. NetworkManager must already own the active connection; no network changes were made."
+if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || ((backend_port < 1 || backend_port > 65535)); then
+  eidetic_die "Invalid BACKEND_PORT=${backend_port}; must be an integer 1-65535."
+fi
+if [[ "$backend_host" != "127.0.0.1" && "$backend_host" != "localhost" ]]; then
+  eidetic_die "Invalid BACKEND_HOST=${backend_host}; only loopback is supported."
+fi
 eidetic_console_phase_done
-eidetic_console_section "Detected appliance host"
+
+eidetic_console_section "Detected system"
 eidetic_console_info "  OS                   ${PRETTY_NAME:-${ID:-unknown}}"
 eidetic_console_info "  Architecture         $EIDETIC_ARCH"
-eidetic_console_info "  Profile              raspios-lite"
-eidetic_console_info "  Runtime user         $runtime_user"
-eidetic_console_info "  Network              $EIDETIC_NETWORK_CLASS"
-if ((guided && gpio_i2s_dac_explicit == 0)); then
-  eidetic_prompt_yes_no "Configure a generic GPIO/I2S DAC (PCM5102A-compatible)?" no || eidetic_die "GPIO/I2S DAC choice input ended unexpectedly"
+eidetic_console_info "  Desktop              $EIDETIC_DESKTOP"
+eidetic_console_info "  Raspberry Pi         ${EIDETIC_RPI_COMPATIBLE:-none}"
+
+if ((guided)); then
+  eidetic_console_section "Choose installation mode"
+  eidetic_console_info "  1. Standard"
+  eidetic_console_info "     Desktop integration with manual launch."
+  eidetic_console_info "  2. Appliance"
+  eidetic_console_info "     Fullscreen player with optional automatic startup."
+  eidetic_prompt_choice "Select mode" 1 2 1 ||
+    eidetic_die "installation mode input ended unexpectedly"
+  [[ "$EIDETIC_PROMPT_RESULT" == 1 ]] && mode=standard || mode=appliance
+fi
+
+questions=(autostart fullscreen borderless blanking pointer splash autologin)
+if [[ "$mode" == "standard" ]]; then
+  for key in "${questions[@]}"; do
+    choice["$key"]=no
+  done
+
+else
+  for key in "${questions[@]}"; do
+    if [[ -z "${choice[$key]:-}" ]]; then
+      if ((unattended)); then eidetic_die "--unattended appliance installs require every appliance choice flag"; fi
+      [[ -t 0 ]] || eidetic_die "appliance choices require a terminal or explicit flags"
+      eidetic_prompt_yes_no "$(install_question_prompt "$key")" no ||
+        eidetic_die "appliance choice input ended unexpectedly"
+      choice["$key"]="$EIDETIC_PROMPT_RESULT"
+    fi
+  done
+fi
+borderless_value=$(
+  [[ "${choice[borderless]}" == yes ]] && printf 1 || printf 0
+)
+if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
+  "$rpi_keyboard_explicit" == 0 ]]; then
+  [[ -t 0 ]] ||
+    eidetic_die "Raspberry Pi OS keyboard choice requires a terminal or --rpi-onscreen-keyboard"
+  eidetic_prompt_yes_no \
+    "Disable the Raspberry Pi OS on-screen keyboard and use Eidetic Player's keyboard instead?" no ||
+    eidetic_die "Raspberry Pi OS keyboard choice input ended unexpectedly"
+  [[ "$EIDETIC_PROMPT_RESULT" == yes ]] &&
+    rpi_keyboard=disable || rpi_keyboard=keep
+fi
+if [[ "$EIDETIC_DISTRO" != raspios && "$rpi_keyboard" == disable ]]; then
+  eidetic_die "--rpi-onscreen-keyboard disable is supported only on Raspberry Pi OS"
+fi
+if [[ "$rpi_keyboard" == disable ]]; then
+  eidetic_require_rpi_keyboard_support
+fi
+if [[ "$EIDETIC_DISTRO" == raspios && "$unattended" == 0 &&
+  "$gpio_i2s_dac_explicit" == 0 ]]; then
+  [[ -t 0 ]] ||
+    eidetic_die "GPIO/I2S DAC choice requires a terminal or --gpio-i2s-dac"
+  eidetic_prompt_yes_no \
+    "Configure a generic GPIO/I2S DAC (PCM5102A-compatible)?" no ||
+    eidetic_die "GPIO/I2S DAC choice input ended unexpectedly"
   [[ "$EIDETIC_PROMPT_RESULT" == yes ]] && gpio_i2s_dac=1 || gpio_i2s_dac=0
 fi
 
@@ -222,14 +306,33 @@ if ((gpio_i2s_dac)); then
   esac
 fi
 
-package_manifest="$SCRIPT_DIR/manifests/raspios-lite-trixie-arm64.packages"
-eidetic_parse_lite_package_manifest "$package_manifest"
-packages=("${EIDETIC_LITE_PACKAGES_RECOMMENDS[@]}" "${EIDETIC_LITE_PACKAGES_NO_RECOMMENDS[@]}")
-eidetic_console_plain_log "Target: raspios-lite $EIDETIC_ARCH; user=$runtime_user; mode=appliance; ref=$git_ref"
-eidetic_console_plain_log "Package manifest: raspios-lite-trixie-arm64 schema 1"
+packages=(ca-certificates curl git build-essential python3 pkg-config mpv ffmpeg util-linux
+  network-manager dbus polkitd pkexec udisks2 cifs-utils xterm
+  autoconf automake libtool patch libpopt-dev libconfig-dev libasound2-dev
+  avahi-daemon avahi-utils libavahi-client-dev libssl-dev libsoxr-dev libplist-dev
+  libsodium-dev uuid-dev libgcrypt20-dev xxd libplist-utils libavutil-dev
+  libavcodec-dev libavformat-dev libpipewire-0.3-dev)
+if [[ "$EIDETIC_DISTRO" == "raspios" ]]; then
+  packages+=(libgtk-3-0t64 libwebkit2gtk-4.1-0)
+else
+  packages+=(libgtk-3-0t64 libwebkit2gtk-4.1-0)
+fi
+[[ "${choice[splash]}" == yes ]] && packages+=(plymouth)
+eidetic_console_plain_log \
+  "Target: $EIDETIC_DISTRO $EIDETIC_ARCH; user=$runtime_user; mode=$mode; ref=$git_ref"
 eidetic_console_plain_log "APT plan: ${packages[*]}"
-if ((full_verify)); then eidetic_console_plain_log "Verification profile: full"; ((dry_run)) && eidetic_console_info "Verification profile: full"; else eidetic_console_plain_log "Verification profile: install-safe"; ((dry_run)) && eidetic_console_info "Verification profile: install-safe"; fi
+if ((full_verify)); then
+  eidetic_console_plain_log "Verification profile: full"
+  ((dry_run)) && eidetic_console_info "Verification profile: full"
+else
+  eidetic_console_plain_log "Verification profile: install-safe"
+  ((dry_run)) && eidetic_console_info "Verification profile: install-safe"
+fi
+eidetic_console_plain_log "Raspberry Pi OS on-screen keyboard: $rpi_keyboard"
 eidetic_console_plain_log "GPIO/I2S DAC: $gpio_dac_plan"
+for key in "${questions[@]}"; do
+  eidetic_console_plain_log "  $key=${choice[$key]}"
+done
 
 airplay_existing_store="$(eidetic_target "$EIDETIC_RUNTIME_HOME/.config/eidetic-player/airplay.json")"
 airplay_plan="On after activation"
@@ -256,14 +359,14 @@ eidetic_console_section "Installation summary"
 eidetic_console_info "  System               ${PRETTY_NAME:-${ID:-unknown}}"
 eidetic_console_info "  Architecture         $EIDETIC_ARCH"
 eidetic_console_info "  Runtime user         $runtime_user"
-eidetic_console_info "  Mode                 Appliance"
+eidetic_console_info "  Mode                 ${mode^}"
 eidetic_console_info "  Install path         /opt/eidetic-player"
-eidetic_console_info "  Graphical session    tty1 / Wayland / labwc"
-eidetic_console_info "  Fullscreen           Yes"
+eidetic_console_info "  Autostart            ${choice[autostart]^}"
+eidetic_console_info "  Fullscreen           ${choice[fullscreen]^}"
 eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
 eidetic_console_info "  AirPlay receiver     $airplay_plan"
 eidetic_console_info "  Existing data        Preserved"
-eidetic_console_info "  Reboot               Required; never automatic"
+eidetic_console_info "  Reboot               May be required; never automatic"
 
 if ((guided)); then
   eidetic_prompt_yes_no "Proceed with installation?" yes ||
@@ -289,46 +392,9 @@ install_committed=0
 keyboard_attempt_state=
 gpio_dac_changed=0
 gpio_dac_session="install-${PPID}-${BASHPID}"
-machine_helper="$SCRIPT_DIR/lib/machine_ownership.py"
-machine_before="$tmp/machine-before.json"
-managed_transaction="$tmp/managed-transaction"
-graphical_target_link="$(eidetic_target /etc/systemd/user/default.target.wants/eidetic-graphical-session.target)"
-graphical_target_link_created=0
-graphical_target_link_preexisting=0
-packages_pre_existing="$tmp/packages-pre-existing"
-packages_installed="$tmp/packages-installed"
-package_versions="$tmp/package-versions"
-: >"$packages_pre_existing"
-: >"$packages_installed"
-: >"$package_versions"
-python3 "$machine_helper" capture --root "$EIDETIC_ROOT" --output "$machine_before" || eidetic_die "machine before-state capture failed"
-if [[ -e "$graphical_target_link" || -L "$graphical_target_link" ]]; then
-  [[ -L "$graphical_target_link" &&
-    "$(readlink "$graphical_target_link")" == ../eidetic-graphical-session.target ]] ||
-    eidetic_die "graphical target enablement path collides with pre-existing state"
-  graphical_target_link_preexisting=1
-fi
-eidetic_managed_transaction_init "$managed_transaction"
-for package in "${packages[@]}"; do if eidetic_lite_package_installed "$package"; then printf '%s\n' "$package" >>"$packages_pre_existing"; fi; done
 cleanup() {
   local status="$1" rollback_result="not required"
   eidetic_console_abort_active_phase
-  if ((status != 0 && install_committed == 0)); then
-    if [[ "$graphical_target_link_created" == 1 ]]; then
-      if [[ -L "$graphical_target_link" &&
-        "$(readlink "$graphical_target_link")" == ../eidetic-graphical-session.target ]]; then
-        rm -f -- "$graphical_target_link"
-      else
-        rollback_result="graphical target rollback requires manual review"
-      fi
-    fi
-    if eidetic_managed_transaction_rollback; then
-      [[ "$rollback_result" != "not required" ]] ||
-        rollback_result="managed machine integration restored successfully"
-    else
-      rollback_result="managed machine integration rollback failed; manual review required"
-    fi
-  fi
   if [[ "$gpio_dac_changed" == 1 && "$install_committed" == 0 ]]; then
     eidetic_log "Restoring boot configuration after failed installation."
     if python3 "$gpio_dac_helper" rollback --root "$EIDETIC_ROOT" \
@@ -375,42 +441,30 @@ cleanup() {
   return "$status"
 }
 trap 'cleanup "$?"' EXIT
-eidetic_console_phase_begin "Packages"
-missing_recommends=()
-missing_no_recommends=()
-for package in "${EIDETIC_LITE_PACKAGES_RECOMMENDS[@]}"; do eidetic_lite_package_installed "$package" || missing_recommends+=("$package"); done
-for package in "${EIDETIC_LITE_PACKAGES_NO_RECOMMENDS[@]}"; do eidetic_lite_package_installed "$package" || missing_no_recommends+=("$package"); done
-if ((machine_bootstrap_required)); then
-  eidetic_console_command_preview apt-get update
-  ((${#missing_recommends[@]} == 0)) || eidetic_console_command_preview apt-get install -y "${missing_recommends[@]}"
-  ((${#missing_no_recommends[@]} == 0)) || eidetic_console_command_preview apt-get install -y --no-install-recommends "${missing_no_recommends[@]}"
-fi
-if ((machine_bootstrap_required)); then
-  if [[ "$EIDETIC_ROOT" == "/" ]]; then
-    [[ "$unattended" == 1 ]] && export DEBIAN_FRONTEND=noninteractive || export DEBIAN_FRONTEND=dialog
-    apt-get update
-    if ((${#missing_recommends[@]})); then apt-get install -y "${missing_recommends[@]}"; fi
-    if ((${#missing_no_recommends[@]})); then apt-get install -y --no-install-recommends "${missing_no_recommends[@]}"; fi
-    [[ -x /usr/bin/mpv ]] || eidetic_die "MPV was installed but /usr/bin/mpv is unavailable"
-    /usr/bin/mpv --version >/dev/null 2>&1 || eidetic_die "MPV executable verification failed"
-    [[ -x /usr/bin/pkexec ]] || eidetic_die "pkexec was installed but /usr/bin/pkexec is unavailable"
-    [[ -x /usr/bin/labwc && -x /usr/bin/wlr-randr ]] || eidetic_die "Wayland/labwc package verification failed"
+eidetic_console_phase_begin "System dependencies"
+eidetic_console_command_preview apt-get update
+eidetic_console_command_preview apt-get install -y "${packages[@]}"
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  if [[ "$unattended" == 1 ]]; then
+    export DEBIAN_FRONTEND=noninteractive
   else
-    install -d -m 0755 "$(eidetic_target /etc/eidetic-player)"
+    export DEBIAN_FRONTEND=dialog
   fi
-  printf '%s\n' "${missing_recommends[@]}" "${missing_no_recommends[@]}" | sed '/^$/d' >"$packages_installed"
+  apt-get update
+  apt-get install -y "${packages[@]}"
+
+  [[ -x /usr/bin/mpv ]] ||
+    eidetic_die "MPV was installed but /usr/bin/mpv is unavailable"
+
+  /usr/bin/mpv --version >/dev/null 2>&1 ||
+    eidetic_die "MPV executable verification failed"
+
+  [[ -x /usr/bin/pkexec ]] ||
+    eidetic_die "pkexec was installed but /usr/bin/pkexec is unavailable"
+
 else
-  eidetic_console_info "Machine packages and graphical integration are already at schema $lite_integration_schema; bootstrap skipped."
+  install -d -m 0755 "$(eidetic_target /etc/eidetic-player)"
 fi
-for package in "${packages[@]}"; do
-  if version="$(eidetic_lite_package_version "$package")" && [[ -n "$version" ]]; then
-    printf '%s\t%s\n' "$package" "$version" >>"$package_versions"
-  elif eidetic_lite_package_installed "$package"; then
-    printf '%s\t%s\n' "$package" fixture >>"$package_versions"
-  else
-    printf '%s\t%s\n' "$package" planned >>"$package_versions"
-  fi
-done
 
 node_version="$(tr -d '[:space:]v' <"$SCRIPT_DIR/../../.nvmrc")"
 node_platform=$([[ "$EIDETIC_ARCH" == "amd64" ]] && printf linux-x64 || printf linux-arm64)
@@ -776,9 +830,8 @@ else
   install -d -m 0755 \
     "$release_stage/node_modules/music-metadata"
   install -d -m 0755 "$release_stage/deploy/linux"
-  cp -a "$SCRIPT_DIR/." "$release_stage/deploy/linux/"
-  find "$release_stage/deploy/linux" -type d -name __pycache__ -prune -exec rm -rf -- {} +
-  find "$release_stage/deploy/linux" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+  install -m 0755 "$SCRIPT_DIR/update-eidetic-player.sh" \
+    "$release_stage/deploy/linux/update-eidetic-player.sh"
   install -d -m 0755 \
     "$release_stage/airplay/bin" \
     "$release_stage/airplay/share/eidetic-player-airplay"
@@ -851,25 +904,18 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
   release_verifier_args=(--root "$release_stage" --arch "$neutralino_arch"
     --phase staged --source-root "$build_source" --expected-owner 0)
 else
-  release_verifier_node="$(command -v node || true)"
+  release_verifier_node="$(command -v node)"
   release_verifier_cli="$SCRIPT_DIR/../../node_modules/tsx/dist/cli.mjs"
   release_verifier_script="$SCRIPT_DIR/../../scripts/verify-linux-release.ts"
   release_verifier_args=(--root "$release_stage" --arch "$EIDETIC_ARCH"
     --phase staged)
 fi
-if [[ -n "$release_verifier_node" ]]; then
-  if ! "$release_verifier_node" "$release_verifier_cli" \
-    "$release_verifier_script" "${release_verifier_args[@]}"; then
-    eidetic_die "Installation verification failed: Linux release contract. No release was activated."
-  fi
-elif [[ "$EIDETIC_ROOT" != "/" ]]; then
-  eidetic_log "Staging note: TypeScript release verifier is unavailable in this shell; structural release checks passed and Linux CI remains authoritative."
-else
-  eidetic_die "Node.js is unavailable for release verification. No release was activated."
+if ! "$release_verifier_node" "$release_verifier_cli" \
+  "$release_verifier_script" "${release_verifier_args[@]}"; then
+  eidetic_die "Installation verification failed: Linux release contract. No release was activated."
 fi
 eidetic_console_phase_done
 
-if ((machine_bootstrap_required)); then
 eidetic_console_phase_begin "System integration"
 conf="$tmp/install.conf"
 power_policy="$tmp/eidetic-player-power.polkit.rules"
@@ -891,9 +937,8 @@ if grep -Fq "$power_policy_placeholder" \
   eidetic_die "Power policy runtime-user placeholder was not replaced"
 fi
 cat >"$conf" <<EOF
-EIDETIC_INSTALL_PROFILE=raspios-lite
-EIDETIC_LITE_INTEGRATION_SCHEMA=$lite_integration_schema
-EIDETIC_INSTALLATION_MODE=appliance
+EIDETIC_INSTALL_PROFILE=desktop
+EIDETIC_INSTALLATION_MODE=$mode
 EIDETIC_FULLSCREEN=$([[ "${choice[fullscreen]}" == yes ]] && printf 1 || printf 0)
 EIDETIC_BORDERLESS=$borderless_value
 EIDETIC_HIDE_POINTER=$([[ "${choice[pointer]}" == yes ]] && printf 1 || printf 0)
@@ -907,7 +952,7 @@ EIDETIC_RPI_ONSCREEN_KEYBOARD=$rpi_keyboard
 EIDETIC_GPIO_I2S_DAC=$gpio_i2s_dac
 BACKEND_HOST=$backend_host
 BACKEND_PORT=$backend_port
-EIDETIC_TERMINAL=/usr/bin/false
+EIDETIC_TERMINAL=x-terminal-emulator
 EIDETIC_MPV_PATH=/usr/bin/mpv
 NODE_ENV=production
 PATH=/opt/eidetic-player/node/current/bin:/usr/local/bin:/usr/bin:/bin
@@ -977,9 +1022,12 @@ eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-nqptp.serv
 airplay_user_manager_drop_in="/etc/systemd/system/user@${EIDETIC_RUNTIME_UID}.service.d/50-eidetic-player-airplay-realtime.conf"
 eidetic_install_managed "$SCRIPT_DIR/airplay/templates/eidetic-player-airplay-user-manager.conf" "$airplay_user_manager_drop_in" 0644
 eidetic_install_managed "$SCRIPT_DIR/airplay/eidetic-player-airplay-hook" /usr/libexec/eidetic-player-airplay-hook 0755
+eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player.desktop" /usr/share/applications/eidetic-player.desktop 0644
+eidetic_install_managed "$SCRIPT_DIR/templates/return-to-eidetic-player.desktop" /usr/share/applications/return-to-eidetic-player.desktop 0644
 for command in eidetic-player eidetic-player-maintenance eidetic-player-resume; do
   eidetic_install_managed "$SCRIPT_DIR/runtime/$command" "/usr/local/bin/$command" 0755
 done
+eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-display-policy" /usr/local/bin/eidetic-player-display-policy 0755
 eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-smb-helper" /usr/libexec/eidetic-player-smb-helper 0755
 eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-smb.polkit.rules" /etc/polkit-1/rules.d/49-eidetic-player-smb.rules 0644
 eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-power-helper" /usr/libexec/eidetic-player-power-helper 0755
@@ -1026,42 +1074,73 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
 fi
 eidetic_console_phase_done
 
-eidetic_console_phase_begin "Graphical session"
-getty_dropin="$tmp/90-eidetic-player-autologin.conf"
-session_profile="$tmp/eidetic-player-session.sh"
-sed "s/__EIDETIC_RUNTIME_USER__/$runtime_user/g" "$SCRIPT_DIR/templates/eidetic-player-getty-autologin.conf" >"$getty_dropin"
-sed "s/__EIDETIC_RUNTIME_USER__/$runtime_user/g" "$SCRIPT_DIR/templates/eidetic-player-session-profile.sh" >"$session_profile"
-if grep -Fq __EIDETIC_RUNTIME_USER__ "$getty_dropin" "$session_profile"; then eidetic_die "graphical session runtime-user placeholder remains"; fi
-eidetic_install_managed "$getty_dropin" /etc/systemd/system/getty@tty1.service.d/90-eidetic-player-autologin.conf 0644
-eidetic_install_managed "$session_profile" /etc/profile.d/eidetic-player-session.sh 0644
-eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-graphical-session.target" /etc/systemd/user/eidetic-graphical-session.target 0644
-eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-labwc.service" /etc/systemd/user/eidetic-labwc.service 0644
-eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-lite-graphical.conf" /etc/systemd/user/eidetic-player.service.d/50-eidetic-lite-graphical.conf 0644
-eidetic_install_managed "$SCRIPT_DIR/templates/labwc-rc.xml" /etc/eidetic-player/labwc/rc.xml 0644
-eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-session" /usr/local/bin/eidetic-player-session 0755
-eidetic_install_managed "$SCRIPT_DIR/runtime/eidetic-player-graphical-launch" /usr/libexec/eidetic-player-graphical-launch 0755
-if [[ "$EIDETIC_ROOT" != "/" &&
-  "${EIDETIC_LITE_FIXTURE_FAIL_AFTER_GRAPHICAL_FILES:-0}" == 1 ]]; then
-  eidetic_die "fixture interruption after graphical files"
+eidetic_console_phase_begin "Optional configuration"
+if [[ "${choice[autostart]}" == yes ]]; then
+  runtime_home="$EIDETIC_RUNTIME_HOME"
+  autostart="$tmp/autostart.desktop"
+  cp "$SCRIPT_DIR/templates/eidetic-player.desktop" "$autostart"
+  install -d -m 0755 -o "$runtime_user" -g "$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config")" \
+    "$(eidetic_target "$runtime_home/.config/autostart")"
+  eidetic_install_managed "$autostart" "$runtime_home/.config/autostart/eidetic-player.desktop" 0644
+  chown "$runtime_user:$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config/autostart/eidetic-player.desktop")"
 fi
-if [[ "$EIDETIC_ROOT" == "/" ]]; then
-  systemctl daemon-reload
-  systemctl --global enable eidetic-graphical-session.target
-  if [[ "$graphical_target_link_preexisting" == 0 &&
-    -L "$graphical_target_link" ]]; then
-    graphical_target_link_created=1
-  fi
-else
-  install -d -m 0755 "$(eidetic_target /etc/systemd/user/default.target.wants)"
-  if [[ ! -e "$graphical_target_link" && ! -L "$graphical_target_link" ]]; then
-    ln -s ../eidetic-graphical-session.target "$graphical_target_link"
-    graphical_target_link_created=1
+if [[ "${choice[blanking]}" == yes ]]; then
+  runtime_home="$EIDETIC_RUNTIME_HOME"
+  install -d -m 0755 -o "$runtime_user" -g "$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config")" \
+    "$(eidetic_target "$runtime_home/.config/autostart")"
+  eidetic_install_managed "$SCRIPT_DIR/templates/eidetic-player-display-policy.desktop" \
+    "$runtime_home/.config/autostart/eidetic-player-display-policy.desktop" 0644
+  chown "$runtime_user:$EIDETIC_RUNTIME_GID" \
+    "$(eidetic_target "$runtime_home/.config/autostart/eidetic-player-display-policy.desktop")"
+fi
+if [[ "${choice[autologin]}" == yes ]]; then
+  if [[ "$EIDETIC_DISTRO" == "ubuntu" ]]; then
+    gdm="$(eidetic_target /etc/gdm3/custom.conf)"
+    gdm_new="$tmp/gdm.conf"
+    [[ -f "$gdm" ]] && cp "$gdm" "$gdm_new" || printf '[daemon]\n' >"$gdm_new"
+    sed -i '/^AutomaticLoginEnable=/d;/^AutomaticLogin=/d' "$gdm_new"
+    sed -i "/^\\[daemon\\]/a AutomaticLogin=$runtime_user\\nAutomaticLoginEnable=true" "$gdm_new"
+    eidetic_install_managed "$gdm_new" /etc/gdm3/custom.conf 0644
+  else
+    lightdm="$tmp/lightdm.conf"
+    printf '[Seat:*]\nautologin-user=%s\nautologin-user-timeout=0\n' "$runtime_user" >"$lightdm"
+    eidetic_install_managed "$lightdm" /etc/lightdm/lightdm.conf.d/90-eidetic-player.conf 0644
   fi
 fi
-eidetic_console_phase_done
+if [[ "${choice[splash]}" == yes ]]; then
+  eidetic_install_managed "$SCRIPT_DIR/plymouth/eidetic-player.plymouth" \
+    /usr/share/plymouth/themes/eidetic-player/eidetic-player.plymouth 0644
+  eidetic_install_managed "$SCRIPT_DIR/plymouth/eidetic-player.script" \
+    /usr/share/plymouth/themes/eidetic-player/eidetic-player.script 0644
+  # A generated 420x4 PPM avoids shipping opaque artwork.
+  line="$tmp/line.ppm"
+  { printf 'P3\n420 4\n255\n'; for _ in $(seq 1 1680); do printf '54 205 183\n'; done; } >"$line"
+  eidetic_install_managed "$line" /usr/share/plymouth/themes/eidetic-player/line.ppm 0644
+  if [[ "$EIDETIC_DISTRO" == "ubuntu" ]]; then
+    grub="$tmp/grub.cfg"
+    # GRUB expands this variable when it consumes the generated fragment.
+    # shellcheck disable=SC2016
+    printf 'GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet splash"\n' >"$grub"
+    eidetic_install_managed "$grub" /etc/default/grub.d/90-eidetic-player.cfg 0644
+  else
+    cmdline="$(eidetic_target /boot/firmware/cmdline.txt)"
+    [[ -f "$cmdline" ]] || eidetic_die "Raspberry Pi boot cmdline was not found"
+    awk '{ line=$0; if (line !~ /(^| )quiet( |$)/) line=line " quiet"; if (line !~ /(^| )splash( |$)/) line=line " splash"; print line }' "$cmdline" >"$tmp/cmdline.txt"
+    eidetic_install_managed "$tmp/cmdline.txt" /boot/firmware/cmdline.txt 0644
+  fi
+  if [[ "$EIDETIC_ROOT" == "/" ]]; then
+    previous_theme="$(plymouth-set-default-theme 2>/dev/null || true)"
+    printf '%s\n' "$previous_theme" >"$(eidetic_target /var/lib/eidetic-player/plymouth-previous-theme)"
+    plymouth-set-default-theme eidetic-player
+    update-initramfs -u
+    [[ "$EIDETIC_DISTRO" != "ubuntu" ]] || update-grub
+  fi
+fi
 
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
-  eidetic_console_phase_begin "System integration activation"
   if systemctl is-active --quiet shairport-sync.service 2>/dev/null; then
     eidetic_die "AirPlay activation conflict: an unmanaged system Shairport service is active"
   fi
@@ -1093,10 +1172,8 @@ if [[ "$EIDETIC_ROOT" == "/" ]]; then
     eidetic_console_warning \
       "AirPlay realtime scheduling will become available after the next reboot."
   fi
-else
-  eidetic_console_phase_begin "System integration activation"
 fi
-if false; then
+if [[ "$rpi_keyboard" == disable ]]; then
   keyboard_attempt_state="$(eidetic_get_rpi_keyboard_state)"
   keyboard_state_file="$(eidetic_target /var/lib/eidetic-player/rpi-onscreen-keyboard-v1)"
   if [[ ! -e "$keyboard_state_file" ]]; then
@@ -1125,13 +1202,6 @@ if ((gpio_i2s_dac)); then
   fi
 fi
 eidetic_console_phase_done
-python3 "$machine_helper" commit --root "$EIDETIC_ROOT" --before "$machine_before" --runtime-user "$runtime_user" --installer-version "$installer_version" --os-id "${ID:-raspbian}" --os-version "${VERSION_ID:-13}" --os-codename "${VERSION_CODENAME:-trixie}" --architecture "$EIDETIC_ARCH" --compatible "${EIDETIC_RPI_COMPATIBLE:-unknown}" --network-class "$EIDETIC_NETWORK_CLASS" --airplay-version "$airplay_integration_version" --packages-pre-existing "$packages_pre_existing" --packages-installed "$packages_installed" --package-versions "$package_versions" || eidetic_die "machine ownership manifest commit failed"
-python3 "$machine_helper" validate --root "$EIDETIC_ROOT" || eidetic_die "machine ownership manifest verification failed"
-else
-  eidetic_console_phase_begin "System integration"
-  eidetic_console_info "Existing Lite machine integration schema $lite_integration_schema preserved."
-  eidetic_console_phase_done
-fi
 eidetic_console_phase_begin "Release activation"
 if [[ "${EIDETIC_UPDATE_JOB_FD:-}" =~ ^[3-9][0-9]*$ ]]; then
   printf 'EIDETIC_PROGRESS_V1\tupdate\tactivation-imminent\t5\t7\tApplying update\n' \
@@ -1163,17 +1233,40 @@ eidetic_log "Application data under the runtime user's XDG directories was not m
 eidetic_console_phase_done
 
 eidetic_console_section "Installation completed successfully."
-eidetic_console_info "  Profile              raspios-lite"
-eidetic_console_info "  Mode                 Appliance"
+eidetic_console_info "  Mode                 ${mode^}"
 eidetic_console_info "  Runtime user         $runtime_user"
 eidetic_console_info "  Install path         /opt/eidetic-player"
-eidetic_console_info "  Graphical session    tty1 / Wayland / labwc"
+eidetic_console_info "  Service              ${choice[autostart]^}"
 eidetic_console_info "  GPIO/I2S DAC         $gpio_dac_plan"
 eidetic_console_info "  AirPlay receiver     $airplay_plan"
 eidetic_console_info "  Application data     Preserved"
-if [[ -n "${EIDETIC_RUNTIME_ELAPSED_MS:-}" ]]; then eidetic_console_info "  Runtime preparation  $(eidetic_console_duration "$EIDETIC_RUNTIME_ELAPSED_MS")"; fi
+if [[ -n "${EIDETIC_RUNTIME_ELAPSED_MS:-}" ]]; then
+  eidetic_console_info "  Runtime preparation  $(eidetic_console_duration "$EIDETIC_RUNTIME_ELAPSED_MS")"
+fi
 eidetic_console_info "  Total duration       $(eidetic_console_duration "$(eidetic_console_total_elapsed_ms)")"
 eidetic_console_info "  Log                  $EIDETIC_LOG_PATH"
 eidetic_console_info "  Diagnostics          eidetic-player-doctor"
 eidetic_console_warning_summary
-if [[ "$EIDETIC_ROOT" == "/" ]]; then eidetic_log "Installation completed. A reboot is required to start Eidetic Player."; else eidetic_log "Staging installation completed; reboot is not applicable."; fi
+
+if [[ "$EIDETIC_ROOT" == "/" ]]; then
+  if ((unattended)); then
+    eidetic_log "Reboot was not performed because the installation is unattended."
+    eidetic_log "Reboot manually with: sudo reboot"
+  elif [[ -t 0 ]]; then
+    printf '\n' >&3
+    eidetic_prompt_yes_no "Restart the device now?" no ||
+      eidetic_die "reboot choice input ended unexpectedly"
+    if [[ "$EIDETIC_PROMPT_RESULT" == yes ]]; then
+      eidetic_log "Rebooting the system."
+      systemctl reboot
+    else
+      eidetic_log "Reboot was not performed."
+      eidetic_log "Reboot manually with: sudo reboot"
+    fi
+  else
+    eidetic_log "Reboot was not performed because no interactive terminal is available."
+    eidetic_log "Reboot manually with: sudo reboot"
+  fi
+else
+  eidetic_log "Staging installation completed; reboot is not applicable."
+fi

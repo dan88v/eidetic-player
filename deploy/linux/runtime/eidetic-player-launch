@@ -17,6 +17,9 @@ ui_watchdog_failure="$runtime/ui-watchdog-failure"
 ui_renderer_memory_limit_kib="${EIDETIC_UI_RENDERER_MEMORY_LIMIT_KIB:-524288}"
 ui_renderer_check_seconds="${EIDETIC_UI_RENDERER_CHECK_SECONDS:-5}"
 ui_renderer_over_limit_samples="${EIDETIC_UI_RENDERER_OVER_LIMIT_SAMPLES:-3}"
+runtime_recovery_state="${XDG_STATE_HOME:-${HOME:?}/.local/state}/eidetic-player"
+runtime_recovery_log="$runtime_recovery_state/runtime-recovery.log"
+runtime_recovery_log_max_bytes=65536
 
 if [[ ! -f "$backend_entry" ]]; then
   printf 'Eidetic Player backend entrypoint not found: %s\n' \
@@ -90,12 +93,49 @@ renderer_memory_kib() {
   printf '%s\n' "$total"
 }
 
+record_runtime_recovery() (
+  local reason="$1"
+  local status="${2:-na}"
+  local memory_kib="${3:-na}"
+  local log_size=0 mem_available_kib="na" swap_free_kib="na"
+
+  umask 077
+  [[ ! -L "$runtime_recovery_state" ]] || return 0
+  mkdir -p "$runtime_recovery_state" || return 0
+  chmod 0700 "$runtime_recovery_state" 2>/dev/null || return 0
+  [[ -d "$runtime_recovery_state" && ! -L "$runtime_recovery_log" ]] || return 0
+  [[ ! -e "$runtime_recovery_log" || -f "$runtime_recovery_log" ]] || return 0
+  if [[ -f "$runtime_recovery_log" ]]; then
+    log_size="$(stat -c %s "$runtime_recovery_log" 2>/dev/null || printf '0')"
+    if [[ "$log_size" =~ ^[0-9]+$ ]] &&
+      ((log_size >= runtime_recovery_log_max_bytes)); then
+      [[ ! -d "$runtime_recovery_log.previous" ]] || return 0
+      mv -f "$runtime_recovery_log" "$runtime_recovery_log.previous" || return 0
+    fi
+  fi
+  mem_available_kib="$(awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo 2>/dev/null || true)"
+  swap_free_kib="$(awk '/^SwapFree:/{print $2; exit}' /proc/meminfo 2>/dev/null || true)"
+  printf '%s reason=%s status=%s renderer_kib=%s mem_available_kib=%s swap_free_kib=%s\n' \
+    "$(date --iso-8601=seconds)" "$reason" "$status" "$memory_kib" \
+    "${mem_available_kib:-na}" "${swap_free_kib:-na}" >>"$runtime_recovery_log" || return 0
+  chmod 0600 "$runtime_recovery_log" 2>/dev/null || true
+)
+
 watch_ui_renderer() {
   local parent_pid="$1"
+  local watched_backend_pid="$2"
   local renderer_pid="" replacement_pid="" memory_kib=""
   local missing_samples=0 over_limit_count=0
 
   while kill -0 "$parent_pid" 2>/dev/null; do
+    if ! kill -0 "$watched_backend_pid" 2>/dev/null; then
+      printf 'Backend exited while the UI shell remained alive; restarting Eidetic Player.\n' >&2
+      record_runtime_recovery backend-exited
+      printf 'backend-exited\n' >"$ui_watchdog_failure"
+      kill -TERM "$parent_pid" 2>/dev/null || true
+      return 1
+    fi
+
     if [[ -z "$renderer_pid" ]]; then
       renderer_pid="$(find_web_renderer_pid "$parent_pid" || true)"
       sleep 1
@@ -112,6 +152,7 @@ watch_ui_renderer() {
         missing_samples=$((missing_samples + 1))
         if ((missing_samples >= 3)); then
           printf 'WebKit renderer exited while the UI shell remained alive; restarting Eidetic Player.\n' >&2
+          record_runtime_recovery renderer-exited
           printf 'renderer-exited\n' >"$ui_watchdog_failure"
           kill -TERM "$parent_pid" 2>/dev/null || true
           return 1
@@ -129,6 +170,7 @@ watch_ui_renderer() {
       if ((over_limit_count >= ui_renderer_over_limit_samples)); then
         printf 'WebKit renderer memory remained above the safe limit (%s KiB >= %s KiB); restarting Eidetic Player before system OOM.\n' \
           "$memory_kib" "$ui_renderer_memory_limit_kib" >&2
+        record_runtime_recovery renderer-memory-limit na "$memory_kib"
         printf 'renderer-memory-limit\n' >"$ui_watchdog_failure"
         kill -TERM "$parent_pid" 2>/dev/null || true
         return 1
@@ -185,7 +227,7 @@ rm -f "$ui_watchdog_failure"
 
 "$release/eidetic-player" &
 gui_pid=$!
-watch_ui_renderer "$gui_pid" &
+watch_ui_renderer "$gui_pid" "$backend_pid" &
 watchdog_pid=$!
 gui_status=0
 wait "$gui_pid" || gui_status=$?
@@ -194,5 +236,11 @@ wait "$watchdog_pid" 2>/dev/null || true
 watchdog_pid=
 if [[ -s "$ui_watchdog_failure" ]]; then
   gui_status=1
+elif ((gui_status == 0)); then
+  printf 'UI shell exited unexpectedly with status 0; restarting Eidetic Player.\n' >&2
+  record_runtime_recovery ui-exit "$gui_status"
+  gui_status=1
+else
+  record_runtime_recovery ui-exit "$gui_status"
 fi
 exit "$gui_status"

@@ -106,11 +106,12 @@ The script:
 4. validates the exact checkout path and refuses symbolic links;
 5. removes only `/home/daniele/eidetic-player`;
 6. clones `main`;
-7. starts the guided installer.
+7. starts the explicitly named Desktop guided installer.
 
-The uninstaller and installer choices remain manual. An SSH exit code of `255`
-is expected when the final installer prompt reboots the Raspberry Pi because
-the remote host closes the connection.
+The current remote reinstall workflow intentionally preserves the installed
+Desktop path and never substitutes the new default Lite installer. The
+uninstaller and installer choices remain manual, and neither installer reboots
+the Raspberry Pi automatically.
 
 Host and user can be overridden explicitly:
 

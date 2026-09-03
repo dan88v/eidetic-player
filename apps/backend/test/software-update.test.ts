@@ -190,7 +190,7 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
       readFile("deploy/linux/templates/eidetic-player-update.service", "utf8"),
       readFile("deploy/linux/lib/eidetic-player-update-journal.mjs", "utf8"),
       readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
-      readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/install-eidetic-player-desktop.sh", "utf8"),
       readFile("deploy/linux/doctor-installation.sh", "utf8"),
       readFile("apps/backend/src/update/update-service.ts", "utf8"),
     ]);
@@ -217,7 +217,7 @@ void test("deployment uses systemd, exact SHA argv and structured progress only"
   assert.match(updater, /eidetic_fetch_isolated_source/u);
   assert.match(
     updater,
-    /bootstrap_installer="\$bootstrap_workspace\/source\/deploy\/linux\/install-eidetic-player\.sh"/u,
+    /bootstrap_installer="\$bootstrap_workspace\/source\/deploy\/linux\/\$installer_name"/u,
   );
   assert.match(updater, /"\$bootstrap_installer" "\$\{args\[@\]\}"/u);
   assert.match(installer, /install -d -m 0710 -o root -g "\$runtime_user"/u);

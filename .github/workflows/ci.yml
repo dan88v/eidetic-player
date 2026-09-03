@@ -93,6 +93,12 @@ jobs:
       - name: Verify installer-safe deployment profile
         run: npm run verify:linux:installer
 
+      - name: Verify Raspberry Pi OS Lite installer contract
+        run: npm run verify:linux:lite
+
+      - name: Run Raspberry Pi OS Lite root-isolated staging
+        run: npm run test:install:linux:lite
+
       - name: Build
         run: npm run build
 

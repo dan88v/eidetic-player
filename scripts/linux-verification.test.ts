@@ -25,6 +25,7 @@ const modeVerifier = resolve("scripts/verify-linux-executable-modes.mjs");
 const requiredScripts = [
   "doctor-installation.sh",
   "install-eidetic-player.sh",
+  "install-eidetic-player-desktop.sh",
   "lib/common.sh",
   "network/install-network-integration.sh",
   "network/uninstall-network-integration.sh",
@@ -32,14 +33,18 @@ const requiredScripts = [
   "runtime/eidetic-player",
   "runtime/eidetic-player-display-policy",
   "runtime/eidetic-player-launch",
+  "runtime/eidetic-player-graphical-launch",
   "runtime/eidetic-player-maintenance",
   "runtime/eidetic-player-power-helper",
   "runtime/eidetic-player-resume",
+  "runtime/eidetic-player-session",
   "runtime/eidetic-player-smb-helper",
   "test-case-sensitive-wsl.sh",
   "test-console-ui.sh",
   "test-gpio-i2s-dac-staging.sh",
   "test-guided-installer-staging.sh",
+  "test-lite-installer-staging.sh",
+  "test-launcher-recovery.sh",
   "test-platform-detection.sh",
   "test-rpi-keyboard.sh",
   "test-staging.sh",
@@ -62,7 +67,7 @@ void test("GPIO/I2S DAC parser, ownership and atomic lifecycle fixtures pass", a
 void test("GPIO/I2S DAC lifecycle stays opt-in and preserves unowned configuration", async () => {
   const [installer, update, restore, uninstall, staging, helper] =
     await Promise.all([
-      readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/install-eidetic-player-desktop.sh", "utf8"),
       readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
       readFile("deploy/linux/restore-system-ui.sh", "utf8"),
       readFile("deploy/linux/uninstall-eidetic-player.sh", "utf8"),
@@ -252,7 +257,7 @@ void test(
     const root = await makeModeRepository();
     try {
       await chmod(
-        resolve(root, "deploy/linux/install-eidetic-player.sh"),
+        resolve(root, "deploy/linux/install-eidetic-player-desktop.sh"),
         0o777,
       );
       await assert.rejects(runModeVerifier(root), /world-writable/);
@@ -602,7 +607,7 @@ void test("install-safe runner uses an explicit deployment allowlist without UI 
 async function readInstallerSources(): Promise<LinuxInstallerSources> {
   const [installer, uninstall, update, common, consoleUi, launcher] =
     await Promise.all([
-      readFile("deploy/linux/install-eidetic-player.sh", "utf8"),
+      readFile("deploy/linux/install-eidetic-player-desktop.sh", "utf8"),
       readFile("deploy/linux/uninstall-eidetic-player.sh", "utf8"),
       readFile("deploy/linux/update-eidetic-player.sh", "utf8"),
       readFile("deploy/linux/lib/common.sh", "utf8"),
@@ -653,7 +658,7 @@ void test("installer contract verifier detects readiness, port, MPV and transact
 
 void test("installer default omits the full suite while full verify and dry-run remain explicit", async () => {
   const source = await readFile(
-    "deploy/linux/install-eidetic-player.sh",
+    "deploy/linux/install-eidetic-player-desktop.sh",
     "utf8",
   );
   assert.match(

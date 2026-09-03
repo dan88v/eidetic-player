@@ -6,11 +6,12 @@ Debian 13 (Trixie) amd64 under WSL2/WSLg is the tested Linux development
 environment. Node 24.18, MPV 0.40, FFmpeg 7.1, GTK 3, WebKitGTK 4.1 and
 Neutralino Linux x64 are the reference toolchain for Step 2.4.5.
 
-Debian bare metal, Linux arm64, and Raspberry Pi OS 64-bit are prepared and
-statically audited where artifacts are available, but are not runtime-tested.
-Raspberry Pi 3B performance, physical touch, ALSA/PipeWire/USB DAC output,
-display boot, and kiosk recovery require real hardware. armhf is best-effort
-only and is not the primary target.
+The default production path now targets Raspberry Pi OS Lite 64-bit,
+Debian 13/Trixie on arm64. Its installer and isolated fixtures are ready for a
+separate physical-image acceptance run; DRM, seat ownership, touch,
+ALSA/PipeWire/USB DAC output, display boot, and recovery are not yet claimed as
+Lite hardware passes. The established Raspberry Pi OS Desktop and Ubuntu 26.04
+Desktop path remains separate. armhf is not supported.
 
 The UI bundles the variable Open Sans face under the SIL Open Font License.
 `font-display: block` prevents a system-font render followed by a metric-changing
@@ -37,11 +38,13 @@ npm run verify:arm
 
 ## Installer terminal UX
 
-`sudo ./deploy/linux/install-eidetic-player.sh` and
-`sudo ./deploy/linux/uninstall-eidetic-player.sh` are guided on an interactive
-terminal. The installer asks for Standard or Appliance, keeps the established
-technical choices, shows a pre-change summary, then reports nine real phases
-with elapsed-time spinner and completed-phase progress. The uninstaller
+`sudo ./deploy/linux/install-eidetic-player.sh` is the Raspberry Pi OS Lite
+Appliance-only installer. It resolves an existing normal runtime user, asks
+only the applicable optional hardware question, and requires a manual reboot
+after success. `sudo ./deploy/linux/install-eidetic-player-desktop.sh` preserves
+the historical Standard/Appliance Desktop choices for Raspberry Pi OS Desktop
+and Ubuntu Desktop. Each installer rejects the other platform class before
+mutation. `sudo ./deploy/linux/uninstall-eidetic-player.sh` is profile-aware and
 preserves all application data by default; guided deletion requires a separate
 Yes followed by exact `DELETE`. GPIO/IÂ²S removal is independent and available
 only for a block whose Eidetic ownership is proven.
@@ -51,6 +54,8 @@ only for a block whose Eidetic ownership is proven.
 ANSI styling. `-h`/`--help` and `--version` are read-only and do not require
 root. Automation must use explicit technical choices and `--unattended`; no
 arguments on a non-TTY fails safely instead of prompting or selecting a mode.
+The Lite path also fails closed unless NetworkManager already owns the active
+network; it never performs a network-manager migration over SSH.
 
 Complete non-ANSI diagnostics are logged with mode 0600 under
 `/var/log/eidetic-player`, with a reported private fallback when that directory
@@ -118,6 +123,16 @@ If the GUI does not start, run `npm run doctor:linux` and distinguish missing
 WebKitGTK/GTK, DBus, `DISPLAY`/`WAYLAND_DISPLAY`, runtime binary architecture,
 backend startup, and filesystem permissions. Do not replace Neutralino with
 Electron.
+
+The installed launcher supervises the backend, Neutralino shell, and
+WebKit renderer as one runtime. Renderer loss, sustained renderer memory
+pressure, backend death, and any unexpected UI exit all produce a failed unit
+exit so `Restart=on-failure` rebuilds the complete process tree. Recovery
+reasons and contemporaneous memory headroom are retained in the bounded,
+mode-0600 `${XDG_STATE_HOME:-$HOME/.local/state}/eidetic-player/runtime-recovery.log`;
+one rotated predecessor is kept. The desktop launcher resets a spent systemd
+start limit and restarts the service, so it is also the manual recovery path
+when the window has disappeared or the unit still appears active.
 
 ## Mounted USB storage
 

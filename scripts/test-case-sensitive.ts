@@ -1,5 +1,13 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import {
+  dirname,
+  extname,
+  join,
+  parse,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const sourceRoots = ["apps", "packages", "scripts"];
@@ -10,8 +18,9 @@ const failures: string[] = [];
 
 async function exactPath(path: string): Promise<boolean> {
   const absolute = resolve(path);
-  const segments = relative("/", absolute).split("/");
-  let current = "/";
+  const filesystemRoot = parse(absolute).root;
+  const segments = relative(filesystemRoot, absolute).split(sep);
+  let current = filesystemRoot;
   for (const segment of segments) {
     const names = await readdir(current).catch((): string[] => []);
     if (!names.includes(segment)) return false;

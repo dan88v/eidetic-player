@@ -121,6 +121,12 @@ Show/Hide control is used, is cleared immediately when submitted, and is never
 persisted. Enterprise/EAP, WEP, captive-portal login, IPv6 editing, VPN, proxy,
 hotspot, SMB, and Raspberry Pi deployment policy remain out of scope.
 
+The Raspberry Pi OS Lite installer treats NetworkManager as a prerequisite,
+not a migration tool. Its read-only preflight continues only when
+NetworkManager is already authoritative; dhcpcd, systemd-networkd,
+standalone-wpa_supplicant conflicts, unknown ownership, or an unsafe SSH
+migration case fail closed without changing connections, SSH, DNS, or routes.
+
 On Windows, `EIDETIC_NETWORK_FIXTURE=1` supplies deterministic Wired and Wi-Fi
 adapters plus Open, WPA2 Personal, WPA3 Personal, and unsupported networks.
 The fixture supports scan, radio, connect, hidden-network, disconnect, Forget,

@@ -156,12 +156,12 @@ install -d -m 0755 \
   "$checkout/deploy/linux/runtime" \
   "$checkout/deploy/linux/network"
 printf '24.18.0\n' >"$checkout/.nvmrc"
-printf '#!/bin/sh\nexit 0\n' >"$checkout/deploy/linux/install-eidetic-player.sh"
+printf '#!/bin/sh\nexit 0\n' >"$checkout/deploy/linux/install-eidetic-player-desktop.sh"
 printf '# fixture\n' >"$checkout/deploy/linux/lib/common.sh"
 printf '#!/bin/sh\nexit 0\n' >"$checkout/deploy/linux/runtime/eidetic-player-launch"
 printf '#!/bin/sh\nexit 0\n' >"$checkout/deploy/linux/network/install-network-integration.sh"
 chmod 0755 \
-  "$checkout/deploy/linux/install-eidetic-player.sh" \
+  "$checkout/deploy/linux/install-eidetic-player-desktop.sh" \
   "$checkout/deploy/linux/runtime/eidetic-player-launch" \
   "$checkout/deploy/linux/network/install-network-integration.sh"
 git -C "$checkout" init --quiet --initial-branch=main
@@ -176,7 +176,7 @@ chown -R "root:$EIDETIC_RUNTIME_GID" "$checkout" "$remote"
 find "$checkout" -type d -exec chmod 0550 {} +
 find "$checkout" -type f -exec chmod 0440 {} +
 chmod 0550 \
-  "$checkout/deploy/linux/install-eidetic-player.sh" \
+  "$checkout/deploy/linux/install-eidetic-player-desktop.sh" \
   "$checkout/deploy/linux/runtime/eidetic-player-launch" \
   "$checkout/deploy/linux/network/install-network-integration.sh"
 

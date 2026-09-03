@@ -70,12 +70,12 @@ EOF
 }
 
 install_keep() {
-  "$SCRIPT_DIR/install-eidetic-player.sh" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
     --root "$1" --user "$runtime_user" --mode standard --unattended
 }
 
 install_disable() {
-  "$SCRIPT_DIR/install-eidetic-player.sh" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
     --root "$1" --user "$runtime_user" --mode standard --unattended \
     --rpi-onscreen-keyboard disable
 }
@@ -111,7 +111,7 @@ install_disable "$always_off_root"
 [[ "$(<"$always_off_root/var/lib/fixture-keyboard-state")" == 2 ]]
 
 dry_run_root="$(make_root dry-run raspios 0)"
-"$SCRIPT_DIR/install-eidetic-player.sh" \
+"$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$dry_run_root" --user "$runtime_user" --mode standard --unattended \
   --rpi-onscreen-keyboard disable --dry-run
 [[ "$(<"$dry_run_root/var/lib/fixture-keyboard-state")" == 0 ]]
@@ -119,7 +119,7 @@ dry_run_root="$(make_root dry-run raspios 0)"
 
 ubuntu_root="$(make_root ubuntu ubuntu 1)"
 install_keep "$ubuntu_root"
-if "$SCRIPT_DIR/install-eidetic-player.sh" \
+if "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$ubuntu_root" --user "$runtime_user" --mode standard --unattended \
   --rpi-onscreen-keyboard disable --dry-run; then
   printf 'Ubuntu accepted Raspberry Pi OS keyboard disable\n' >&2
@@ -128,7 +128,7 @@ fi
 [[ "$(<"$ubuntu_root/var/lib/fixture-keyboard-state")" == 1 ]]
 
 missing_root="$(make_root missing raspios 1 no)"
-if "$SCRIPT_DIR/install-eidetic-player.sh" \
+if "$SCRIPT_DIR/install-eidetic-player-desktop.sh" \
   --root "$missing_root" --user "$runtime_user" --mode standard --unattended \
   --rpi-onscreen-keyboard disable --dry-run; then
   printf 'unsupported raspi-config accepted keyboard disable\n' >&2

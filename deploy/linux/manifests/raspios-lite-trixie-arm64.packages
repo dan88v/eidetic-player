@@ -1,0 +1,62 @@
+# schemaVersion=1
+# category	package	purpose	requirement	lifecycle	recommends	verification
+# reviewed-indirect: Debian Trixie labwc depends on xwayland. It is unavoidable
+# with the distribution package, is not configured as a Desktop/session, and
+# remains dormant for Eidetic's native Wayland client path.
+base/runtime	ca-certificates	TLS trust store	required	runtime	recommends	dpkg installed
+base/runtime	curl	Verified HTTPS downloads	required	runtime	recommends	curl executable
+base/runtime	git	Exact source checkout	required	build-only	recommends	git executable
+base/runtime	build-essential	Native build toolchain	required	build-only	no-recommends	dpkg installed
+base/runtime	python3	Deployment helpers	required	runtime	recommends	python3 executable
+base/runtime	pkg-config	Native feature detection	required	build-only	no-recommends	pkg-config executable
+base/runtime	util-linux	Session and runtime tools	required	runtime	recommends	runuser executable
+base/runtime	dbus	System message bus	required	runtime	recommends	dbus-daemon executable
+base/runtime	dbus-user-session	User message bus	required	runtime	recommends	dpkg installed
+base/runtime	libpam-systemd	PAM logind session	required	runtime	recommends	dpkg installed
+base/runtime	polkitd	Narrow privileged actions	required	runtime	recommends	dpkg installed
+base/runtime	pkexec	Polkit command bridge	required	runtime	recommends	pkexec executable
+base/runtime	udisks2	Removable storage	required	runtime	recommends	udisksctl executable
+base/runtime	cifs-utils	SMB mounts	required	runtime	no-recommends	mount.cifs executable
+build/bootstrap	autoconf	AirPlay configure	required	build-only	no-recommends	autoconf executable
+build/bootstrap	automake	AirPlay build generation	required	build-only	no-recommends	automake executable
+build/bootstrap	libtool	AirPlay build support	required	build-only	no-recommends	libtoolize executable
+build/bootstrap	patch	Pinned AirPlay patches	required	build-only	no-recommends	patch executable
+build/bootstrap	xxd	Build artifact generation	required	build-only	no-recommends	xxd executable
+wayland	libwayland-client0	Wayland client runtime	required	runtime	no-recommends	dpkg installed
+wayland	libwayland-server0	Wayland compositor runtime	required	runtime	no-recommends	dpkg installed
+compositor/display	labwc	Minimal Wayland compositor	required	runtime	no-recommends	labwc executable
+compositor/display	wlr-randr	Display output control	required	runtime	no-recommends	wlr-randr executable
+gtk/webkit	libgtk-3-0t64	GTK3 runtime	required	runtime	no-recommends	dpkg installed
+gtk/webkit	libwebkit2gtk-4.1-0	Neutralino WebKit runtime	required	runtime	no-recommends	dpkg installed
+fonts/rendering	fontconfig	Font discovery	required	runtime	no-recommends	fc-match executable
+fonts/rendering	fonts-dejavu-core	Stable sans font	required	runtime	no-recommends	dpkg installed
+graphics	libgl1	OpenGL runtime fallback	required	runtime	no-recommends	dpkg installed
+graphics	libegl1	EGL runtime	required	runtime	no-recommends	dpkg installed
+graphics	libgles2	GLES runtime	required	runtime	no-recommends	dpkg installed
+graphics	libgl1-mesa-dri	Mesa DRI drivers	required	runtime	no-recommends	dpkg installed
+playback/analysis	mpv	Persistent playback engine	required	runtime	no-recommends	mpv executable
+playback/analysis	ffmpeg	Waveform and analysis	required	runtime	no-recommends	ffmpeg executable
+alsa	alsa-utils	ALSA diagnostics	required	runtime	no-recommends	aplay executable
+alsa	libasound2-dev	ALSA build and runtime headers	required	build-only	no-recommends	dpkg installed
+pipewire	pipewire	Optional routed audio engine	required	runtime	no-recommends	pipewire executable
+pipewire	wireplumber	PipeWire policy manager	required	runtime	no-recommends	wireplumber executable
+pipewire	pipewire-alsa	ALSA PipeWire bridge	required	runtime	no-recommends	dpkg installed
+network	network-manager	Authoritative network manager	required	runtime	recommends	nmcli executable
+airplay/runtime	avahi-daemon	AirPlay mDNS advertisement	required	runtime	recommends	avahi-daemon executable
+airplay/runtime	avahi-utils	AirPlay discovery diagnostics	required	runtime	no-recommends	avahi-browse executable
+airplay/build	libpopt-dev	Shairport options build	required	build-only	no-recommends	dpkg installed
+airplay/build	libconfig-dev	Shairport config build	required	build-only	no-recommends	dpkg installed
+airplay/build	libavahi-client-dev	Avahi client build	required	build-only	no-recommends	dpkg installed
+airplay/build	libssl-dev	AirPlay crypto build	required	build-only	no-recommends	dpkg installed
+airplay/build	libsoxr-dev	AirPlay resampler build	required	build-only	no-recommends	dpkg installed
+airplay/build	libplist-dev	AirPlay plist build	required	build-only	no-recommends	dpkg installed
+airplay/build	libplist-utils	AirPlay plist tool	required	build-only	no-recommends	plistutil executable
+airplay/build	libsodium-dev	AirPlay crypto support	required	build-only	no-recommends	dpkg installed
+airplay/build	uuid-dev	AirPlay UUID build	required	build-only	no-recommends	dpkg installed
+airplay/build	libgcrypt20-dev	AirPlay crypto support	required	build-only	no-recommends	dpkg installed
+airplay/build	libavutil-dev	AirPlay metadata build	required	build-only	no-recommends	dpkg installed
+airplay/build	libavcodec-dev	AirPlay codec build	required	build-only	no-recommends	dpkg installed
+airplay/build	libavformat-dev	AirPlay format build	required	build-only	no-recommends	dpkg installed
+airplay/build	libpipewire-0.3-dev	AirPlay PipeWire build	required	build-only	no-recommends	dpkg installed
+diagnostics	procps	Process diagnostics	required	runtime	no-recommends	ps executable
+diagnostics	iproute2	Socket and route diagnostics	required	runtime	no-recommends	ss executable

@@ -323,7 +323,7 @@ fixture() {
   chmod 0700 "$root/usr/libexec/eidetic-player-power-helper"
   chmod 0600 "$root/etc/polkit-1/rules.d/49-eidetic-player-power.rules"
 
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode standard --unattended --rpi-onscreen-keyboard keep
   assert_standard_conf "$root"
   assert_power_installed "$root"
@@ -335,18 +335,18 @@ fixture() {
 
   if [[ "$name" == raspios ]]; then
     EIDETIC_BORDERLESS=1 \
-      "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+      "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
       --mode standard --unattended --rpi-onscreen-keyboard keep
     assert_standard_conf "$root"
     assert_power_installed "$root"
     assert_update_not_installed "$root"
   fi
 
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode standard --unattended --rpi-onscreen-keyboard keep \
     --full-verify --dry-run
 
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart yes --fullscreen yes --borderless yes \
     --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
   assert_appliance_conf "$root" 1 1 0 0 0 0 1
@@ -355,7 +355,7 @@ fixture() {
   printf 'EIDETIC_UPDATE_CONFIG_SCHEMA=1\nEIDETIC_UPDATE_BRANCH=development/staging\nEIDETIC_UPDATE_REMOTE=%s\n' \
     "$EIDETIC_SOURCE_REMOTE" >"$root/etc/eidetic-player/update.conf"
 
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart no --fullscreen no --borderless no \
     --disable-blanking no --hide-pointer no --splash no --autologin no --rpi-onscreen-keyboard keep
   assert_appliance_conf "$root" 0 0 0 0 0 0 0
@@ -488,7 +488,7 @@ all_yes_fixture() {
   local name="$1" root
   root="$(install_root "$@")"
 
-  "$SCRIPT_DIR/install-eidetic-player.sh" --root "$root" --user "$runtime_user" \
+  "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$root" --user "$runtime_user" \
     --mode appliance --unattended --autostart yes --fullscreen yes --borderless yes \
     --disable-blanking yes --hide-pointer yes --splash yes --autologin yes \
     --rpi-onscreen-keyboard keep
@@ -577,7 +577,7 @@ install -d "$unsupported/etc/eidetic-player"
 printf 'ID=debian\nVERSION_ID=12\nVERSION_CODENAME=bookworm\n' >"$unsupported/etc/os-release"
 printf 'amd64\n' >"$unsupported/etc/eidetic-player/architecture"
 printf 'GNOME\n' >"$unsupported/etc/eidetic-player/desktop-session"
-if "$SCRIPT_DIR/install-eidetic-player.sh" --root "$unsupported" --user "$runtime_user" --dry-run; then
+if "$SCRIPT_DIR/install-eidetic-player-desktop.sh" --root "$unsupported" --user "$runtime_user" --dry-run; then
   printf 'unsupported OS was accepted\n' >&2
   exit 1
 fi

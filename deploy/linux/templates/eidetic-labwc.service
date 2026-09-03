@@ -1,0 +1,21 @@
+[Unit]
+Description=Eidetic Player labwc compositor
+PartOf=eidetic-graphical-session.target
+Before=eidetic-player.service
+After=graphical-session-pre.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_CURRENT_DESKTOP=labwc
+Environment=XDG_SESSION_DESKTOP=labwc
+Environment=XDG_CONFIG_HOME=%h/.config
+ExecStart=/usr/bin/labwc --config-dir /etc/eidetic-player/labwc
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=eidetic-graphical-session.target

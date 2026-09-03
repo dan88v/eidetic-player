@@ -5,7 +5,7 @@ import test from "node:test";
 const read = (path: string) => readFile(path, "utf8");
 
 void test("Linux installer is explicit, staging-safe and never upgrades the distribution", async () => {
-  const source = await read("deploy/linux/install-eidetic-player.sh");
+  const source = await read("deploy/linux/install-eidetic-player-desktop.sh");
   for (const flag of [
     "--user",
     "--ref",
@@ -58,7 +58,7 @@ void test("Linux installer is explicit, staging-safe and never upgrades the dist
 
 void test("Linux staging covers Raspberry cmdline and guarded tail paths", async () => {
   const [installer, staging, restore, uninstall] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
     read("deploy/linux/test-staging.sh"),
     read("deploy/linux/restore-system-ui.sh"),
     read("deploy/linux/uninstall-eidetic-player.sh"),
@@ -183,12 +183,12 @@ void test("Linux staging covers Raspberry cmdline and guarded tail paths", async
 void test("Linux build synchronizes and selects the correct Neutralino binary", async () => {
   const [packageJson, installer] = await Promise.all([
     read("package.json"),
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
   ]);
 
   void test("Linux release packages and launches the compiled backend entrypoint", async () => {
     const [installer, launcher] = await Promise.all([
-      read("deploy/linux/install-eidetic-player.sh"),
+      read("deploy/linux/install-eidetic-player-desktop.sh"),
       read("deploy/linux/runtime/eidetic-player-launch"),
     ]);
 
@@ -232,7 +232,7 @@ void test("Linux build synchronizes and selects the correct Neutralino binary", 
 
 void test("Linux repository lifecycle runs as the non-root runtime identity", async () => {
   const [installer, common, update, fixture] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
     read("deploy/linux/lib/common.sh"),
     read("deploy/linux/update-eidetic-player.sh"),
     read("deploy/linux/test-unprivileged-build.sh"),
@@ -282,7 +282,7 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
   assert.match(update, /"\$bootstrap_installer" "\$\{args\[@\]\}"/);
   assert.match(
     update,
-    /bootstrap_installer="\$bootstrap_workspace\/source\/deploy\/linux\/install-eidetic-player\.sh"/,
+    /bootstrap_installer="\$bootstrap_workspace\/source\/deploy\/linux\/\$installer_name"/,
   );
   assert.match(update, /eidetic_runtime_run_protocol_child/);
 
@@ -313,7 +313,7 @@ void test("Linux repository lifecycle runs as the non-root runtime identity", as
 
 void test("Linux build uses a short private runtime and an isolated Git checkout", async () => {
   const [installer, common, fixture, staging, workflow] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
     read("deploy/linux/lib/common.sh"),
     read("deploy/linux/test-unprivileged-build.sh"),
     read("deploy/linux/test-staging.sh"),
@@ -363,7 +363,7 @@ void test("Linux build uses a short private runtime and an isolated Git checkout
 
 void test("Raspberry Pi OS keyboard choice is explicit, reversible and staged", async () => {
   const [installer, common, update, restore, fixture] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
     read("deploy/linux/lib/common.sh"),
     read("deploy/linux/update-eidetic-player.sh"),
     read("deploy/linux/restore-system-ui.sh"),
@@ -446,7 +446,7 @@ void test("power integration is managed, exact-match and restore-safe", async ()
     staging,
     modes,
   ] = await Promise.all([
-    read("deploy/linux/install-eidetic-player.sh"),
+    read("deploy/linux/install-eidetic-player-desktop.sh"),
     read("deploy/linux/runtime/eidetic-player-power-helper"),
     read("deploy/linux/templates/eidetic-player-power.polkit.rules"),
     read("deploy/linux/restore-system-ui.sh"),
@@ -523,7 +523,7 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
   const [update, installer, doctor, common, remoteUpdate, remoteVerify] =
     await Promise.all([
       read("deploy/linux/update-eidetic-player.sh"),
-      read("deploy/linux/install-eidetic-player.sh"),
+      read("deploy/linux/install-eidetic-player-desktop.sh"),
       read("deploy/linux/doctor-installation.sh"),
       read("deploy/linux/lib/common.sh"),
       read("scripts/remote-rpi-update.ps1"),
@@ -598,7 +598,9 @@ void test("guided updater pins Build IDs and separates hard health from soft MPV
 });
 
 void test("installer writes a shared MPV path for all install modes", async () => {
-  const installer = await read("deploy/linux/install-eidetic-player.sh");
+  const installer = await read(
+    "deploy/linux/install-eidetic-player-desktop.sh",
+  );
   assert.ok(
     installer.includes('backend_host="${BACKEND_HOST:-127.0.0.1}"'),
     "expected backend host default contract in installer",
@@ -676,11 +678,27 @@ void test("launcher recovers a dead or runaway WebKit renderer before system OOM
   assert.match(launcher, /missing_samples >= 3/);
   assert.match(launcher, /over_limit_count >= ui_renderer_over_limit_samples/);
   assert.match(launcher, /kill -TERM "\$parent_pid"/);
-  assert.match(launcher, /watch_ui_renderer "\$gui_pid" &/);
+  assert.match(launcher, /watch_ui_renderer "\$gui_pid" "\$backend_pid" &/);
+  assert.match(launcher, /if ! kill -0 "\$watched_backend_pid"/);
+  assert.match(launcher, /printf 'backend-exited\\n'/);
   assert.match(launcher, /renderer-memory-limit/);
   assert.match(launcher, /if \[\[ -s "\$ui_watchdog_failure" \]\]/);
   assert.match(launcher, /gui_status=1/);
+  assert.match(launcher, /UI shell exited unexpectedly with status 0/);
   assert.match(launcher, /# shellcheck disable=SC2317\ncleanup\(\) \{/);
+});
+
+void test("manual Linux launch recovers an active or start-limited service", async () => {
+  const command = await read("deploy/linux/runtime/eidetic-player");
+  assert.match(
+    command,
+    /systemctl --user reset-failed eidetic-player\.service/,
+  );
+  assert.match(command, /systemctl --user restart eidetic-player\.service/);
+  assert.doesNotMatch(
+    command,
+    /systemctl --user start eidetic-player\.service/,
+  );
 });
 
 void test("system service and desktop path flow through launcher and single backend entrypoint", async () => {

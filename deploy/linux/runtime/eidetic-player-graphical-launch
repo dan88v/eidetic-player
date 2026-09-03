@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_dir="${XDG_RUNTIME_DIR:?}"
+runtime_uid="$(id -u)"
+timeout_seconds="${EIDETIC_WAYLAND_READINESS_TIMEOUT_SECONDS:-20}"
+[[ "$runtime_dir" == "/run/user/$runtime_uid" && -d "$runtime_dir" && ! -L "$runtime_dir" ]] || {
+  printf 'Unsafe Wayland runtime directory.\n' >&2
+  exit 1
+}
+[[ "$(stat -c %u "$runtime_dir")" == "$runtime_uid" &&
+  "$(stat -c %a "$runtime_dir")" == 700 ]] || {
+  printf 'Wayland runtime directory ownership or mode is invalid.\n' >&2
+  exit 1
+}
+[[ "$timeout_seconds" =~ ^[1-9][0-9]?$ ]] || {
+  printf 'Invalid Wayland readiness timeout.\n' >&2
+  exit 1
+}
+
+deadline=$((SECONDS + timeout_seconds))
+wayland_socket=
+while ((SECONDS < deadline)); do
+  mapfile -t sockets < <(find "$runtime_dir" -maxdepth 1 -type s -user "$runtime_uid" \
+    -name 'wayland-*' -printf '%f\n' 2>/dev/null | sort)
+  if ((${#sockets[@]} == 1)) && pgrep -u "$runtime_uid" -x labwc >/dev/null; then
+    WAYLAND_DISPLAY="${sockets[0]}"
+    if WAYLAND_DISPLAY="$WAYLAND_DISPLAY" timeout 2 /usr/bin/wlr-randr >/dev/null 2>&1; then
+      wayland_socket="$WAYLAND_DISPLAY"
+      break
+    fi
+  fi
+  read -r -t 0.2 _ </dev/null || true
+done
+[[ -n "$wayland_socket" ]] || {
+  printf 'Wayland/labwc readiness was not reached within %s seconds.\n' "$timeout_seconds" >&2
+  exit 1
+}
+export WAYLAND_DISPLAY="$wayland_socket"
+exec /opt/eidetic-player/current/bin/eidetic-player-launch

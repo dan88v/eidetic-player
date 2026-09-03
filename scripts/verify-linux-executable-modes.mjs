@@ -9,6 +9,7 @@ const execFileAsync = promisify(execFile);
 const requiredExecutablePaths = new Set([
   "deploy/linux/doctor-installation.sh",
   "deploy/linux/install-eidetic-player.sh",
+  "deploy/linux/install-eidetic-player-desktop.sh",
   "deploy/linux/lib/common.sh",
   "deploy/linux/network/install-network-integration.sh",
   "deploy/linux/network/uninstall-network-integration.sh",
@@ -16,14 +17,18 @@ const requiredExecutablePaths = new Set([
   "deploy/linux/runtime/eidetic-player",
   "deploy/linux/runtime/eidetic-player-display-policy",
   "deploy/linux/runtime/eidetic-player-launch",
+  "deploy/linux/runtime/eidetic-player-graphical-launch",
   "deploy/linux/runtime/eidetic-player-maintenance",
   "deploy/linux/runtime/eidetic-player-power-helper",
   "deploy/linux/runtime/eidetic-player-resume",
+  "deploy/linux/runtime/eidetic-player-session",
   "deploy/linux/runtime/eidetic-player-smb-helper",
   "deploy/linux/test-case-sensitive-wsl.sh",
   "deploy/linux/test-console-ui.sh",
   "deploy/linux/test-gpio-i2s-dac-staging.sh",
   "deploy/linux/test-guided-installer-staging.sh",
+  "deploy/linux/test-lite-installer-staging.sh",
+  "deploy/linux/test-launcher-recovery.sh",
   "deploy/linux/test-platform-detection.sh",
   "deploy/linux/test-rpi-keyboard.sh",
   "deploy/linux/test-staging.sh",
@@ -33,7 +38,11 @@ const requiredExecutablePaths = new Set([
 ]);
 
 const knownDataPaths = new Set(["deploy/linux/plymouth/eidetic-player.script"]);
-const knownSourcedPaths = new Set(["deploy/linux/lib/console-ui.sh"]);
+const knownSourcedPaths = new Set([
+  "deploy/linux/lib/console-ui.sh",
+  "deploy/linux/lib/lite-install.sh",
+  "deploy/linux/templates/eidetic-player-session-profile.sh",
+]);
 
 function parseArguments(arguments_) {
   let repository = process.cwd();

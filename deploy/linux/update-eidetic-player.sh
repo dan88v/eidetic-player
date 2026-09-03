@@ -75,7 +75,7 @@ export EIDETIC_CONSOLE_PHASE_TOTAL=$((rollback ? 5 : 7))
 rollback_result="not required"
 bootstrap_workspace=
 bootstrap_runtime=
-bootstrap_installer="$SCRIPT_DIR/install-eidetic-player.sh"
+bootstrap_installer=
 cleanup_bootstrap() {
   if [[ -n "$bootstrap_runtime" ]]; then
     case "$bootstrap_runtime" in
@@ -116,6 +116,22 @@ administrative_path="$PATH"
 . "$conf"
 PATH="$administrative_path"
 export PATH
+install_profile="${EIDETIC_INSTALL_PROFILE:-}"
+if [[ -z "$install_profile" ]]; then
+  if grep -Eq '^EIDETIC_INSTALLATION_MODE=(standard|appliance)$' "$conf" &&
+    [[ -e "$(eidetic_target /opt/eidetic-player/current)" ]]; then
+    install_profile=desktop
+    eidetic_console_info "Legacy Desktop installation provenance detected; update will persist the desktop profile."
+  else
+    eidetic_die "legacy installation profile cannot be proven; update refused"
+  fi
+fi
+case "$install_profile" in
+  raspios-lite) installer_name=install-eidetic-player.sh ;;
+  desktop) installer_name=install-eidetic-player-desktop.sh ;;
+  *) eidetic_die "unsupported installation profile: $install_profile" ;;
+esac
+bootstrap_installer="$SCRIPT_DIR/$installer_name"
 git_ref="${git_ref:-${EIDETIC_GIT_REF:-main}}"
 eidetic_validate_ref "$git_ref"
 backend_host="${BACKEND_HOST:-127.0.0.1}"
@@ -402,14 +418,19 @@ else
   autologin="${EIDETIC_AUTOLOGIN:-0}"
 fi
 
-args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref"
-  --resolved-commit "$target_sha" --mode "$mode" --unattended
-  --autostart "$(choice_to_flag "$autostart")" --fullscreen "$(choice_to_flag "$fullscreen")"
-  --borderless "$(choice_to_flag "$borderless")"
-  --disable-blanking "$(choice_to_flag "$blanking")"
-  --hide-pointer "$(choice_to_flag "$pointer")"
-  --splash "$(choice_to_flag "$splash")" --autologin "$(choice_to_flag "$autologin")"
-  --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
+if [[ "$install_profile" == raspios-lite ]]; then
+  args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref"
+    --resolved-commit "$target_sha" --unattended --application-update)
+else
+  args=(--user "$EIDETIC_RUNTIME_USER" --ref "$git_ref"
+    --resolved-commit "$target_sha" --mode "$mode" --unattended
+    --autostart "$(choice_to_flag "$autostart")" --fullscreen "$(choice_to_flag "$fullscreen")"
+    --borderless "$(choice_to_flag "$borderless")"
+    --disable-blanking "$(choice_to_flag "$blanking")"
+    --hide-pointer "$(choice_to_flag "$pointer")"
+    --splash "$(choice_to_flag "$splash")" --autologin "$(choice_to_flag "$autologin")"
+    --rpi-onscreen-keyboard "${EIDETIC_RPI_ONSCREEN_KEYBOARD:-keep}")
+fi
 [[ "${EIDETIC_GPIO_I2S_DAC:-0}" != 1 ]] || args+=(--gpio-i2s-dac)
 [[ "$EIDETIC_ROOT" == "/" ]] || args+=(--root "$EIDETIC_ROOT")
 ((full_verify)) && args+=(--full-verify)
@@ -433,7 +454,7 @@ if [[ ! -d "$SCRIPT_DIR/../../.git" || -L "$SCRIPT_DIR/../../.git" ]]; then
     "$EIDETIC_RUNTIME_USER" "$bootstrap_workspace" "$bootstrap_runtime" \
     "${node_path%/node}" "$target_sha" "$SOURCE_REMOTE" ||
     eidetic_die "could not fetch the checked updater source"
-  bootstrap_installer="$bootstrap_workspace/source/deploy/linux/install-eidetic-player.sh"
+  bootstrap_installer="$bootstrap_workspace/source/deploy/linux/$installer_name"
   [[ -x "$bootstrap_installer" && ! -L "$bootstrap_installer" ]] ||
     eidetic_die "checked updater source has no safe installer entry point"
 fi

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 rm -f "${XDG_RUNTIME_DIR:?}/eidetic-player/maintenance"
-exec systemctl --user start eidetic-player.service
+systemctl --user reset-failed eidetic-player.service
+exec systemctl --user restart eidetic-player.service

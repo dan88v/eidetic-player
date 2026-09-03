@@ -70,7 +70,7 @@ printf 'Cloned commit: '
 git rev-parse --short HEAD
 
 printf '\n=== 5/5 Guided install ===\n'
-sudo ./deploy/linux/install-eidetic-player.sh
+sudo ./deploy/linux/install-eidetic-player-desktop.sh
 printf '\n=== Remote reinstall completed ===\n'
 '@
 

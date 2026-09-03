@@ -36,6 +36,15 @@ all checkout preflight rules. Preparation stays at reduced CPU and I/O
 priority, and the installer restores normal priority immediately before
 activation. There is no cancel action and only one job may be active.
 
+The persisted install profile selects the entrypoint without fallback:
+`raspios-lite` uses `install-eidetic-player.sh`, while `desktop` uses
+`install-eidetic-player-desktop.sh`. A legacy profile migrates to Desktop only
+when historical installation markers prove that origin; unknown provenance is
+rejected. Routine Lite updates pass the internal application-update contract
+and skip APT, labwc, getty/autologin, and other machine bootstrap work when the
+installed integration schema and ownership manifest are current. Rollback swaps
+application releases without changing the profile or recreating machine setup.
+
 ## Progress and recovery
 
 Updater phases cross a dedicated inherited file descriptor as versioned

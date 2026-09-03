@@ -3,6 +3,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/lite-install.sh
+. "$SCRIPT_DIR/lib/lite-install.sh"
 
 eidetic_audio_service_state() {
   local service="$1" load active
@@ -248,7 +250,15 @@ checks=()
 check() { local name="$1" result="$2"; checks+=("$name:$result"); [[ "$result" == pass ]] || status=fail; }
 ((json)) && EIDETIC_PLATFORM_DIAGNOSTICS=quiet
 export EIDETIC_PLATFORM_DIAGNOSTICS
-if eidetic_detect_platform 2>/dev/null; then check platform pass; else check platform fail; fi
+eidetic_classify_raspios_host
+if [[ "$EIDETIC_HOST_CLASS" == RPIOS_LITE ]]; then
+  EIDETIC_DISTRO=raspios
+  check platform pass
+elif eidetic_detect_platform 2>/dev/null; then
+  check platform pass
+else
+  check platform fail
+fi
 check current "$([[ -L "$(eidetic_target /opt/eidetic-player/current)" ]] && printf pass || printf fail)"
 check node "$([[ -x "$(eidetic_target /opt/eidetic-player/node/current/bin/node)" ]] && printf pass || printf fail)"
 check neutralino "$([[ -x "$(eidetic_target /opt/eidetic-player/current/eidetic-player)" ]] && printf pass || printf fail)"
@@ -274,6 +284,7 @@ check power-policy-mode "$([[ -f "$power_policy" && "$(stat -c '%a' "$power_poli
 check power-policy-rendered "$([[ -f "$power_policy" ]] && ! grep -Fq '__EIDETIC_RUNTIME_USER__' "$power_policy" && printf pass || printf fail)"
 check systemctl-user "$([[ -x "$systemctl_path" ]] && printf pass || printf fail)"
 installation_mode=unknown
+installation_profile=unknown
 runtime_user=
 install_conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 if [[ -r "$install_conf" ]]; then
@@ -281,10 +292,57 @@ if [[ -r "$install_conf" ]]; then
     grep '^EIDETIC_INSTALLATION_MODE=' "$install_conf" 2>/dev/null |
       cut -d= -f2- || true
   )"
+  installation_profile="$(
+    grep '^EIDETIC_INSTALL_PROFILE=' "$install_conf" 2>/dev/null |
+      cut -d= -f2- || true
+  )"
   runtime_user="$(
     grep '^EIDETIC_RUNTIME_USER=' "$install_conf" 2>/dev/null |
       cut -d= -f2- || true
   )"
+fi
+[[ -n "$installation_profile" ]] || installation_profile=desktop
+check install-profile "$({
+  [[ "$installation_profile" == desktop || "$installation_profile" == raspios-lite ]] && printf pass || printf fail
+})"
+rendering_class=unavailable
+if [[ "$installation_profile" == raspios-lite ]]; then
+  lite_machine_helper="$SCRIPT_DIR/lib/machine_ownership.py"
+  if command -v python3 >/dev/null 2>&1 &&
+    python3 "$lite_machine_helper" validate --root "$EIDETIC_ROOT" >/dev/null 2>&1; then
+    check machine-manifest pass
+  else
+    check machine-manifest fail
+  fi
+  lite_graphical_target="$(eidetic_target /etc/systemd/user/eidetic-graphical-session.target)"
+  lite_labwc_unit="$(eidetic_target /etc/systemd/user/eidetic-labwc.service)"
+  lite_player_dropin="$(eidetic_target /etc/systemd/user/eidetic-player.service.d/50-eidetic-lite-graphical.conf)"
+  lite_getty="$(eidetic_target /etc/systemd/system/getty@tty1.service.d/90-eidetic-player-autologin.conf)"
+  lite_profile="$(eidetic_target /etc/profile.d/eidetic-player-session.sh)"
+  check graphical-target "$([[ -r "$lite_graphical_target" && ! -L "$lite_graphical_target" ]] && printf pass || printf fail)"
+  check labwc-unit "$([[ -r "$lite_labwc_unit" && ! -L "$lite_labwc_unit" ]] && printf pass || printf fail)"
+  check wayland-readiness "$([[ -r "$lite_player_dropin" && -x "$(eidetic_target /usr/libexec/eidetic-player-graphical-launch)" ]] && printf pass || printf fail)"
+  check getty-autologin "$([[ -r "$lite_getty" && ! -L "$lite_getty" && -r "$lite_profile" && ! -L "$lite_profile" ]] && printf pass || printf fail)"
+  check package-manifest "$([[ -r "$SCRIPT_DIR/manifests/raspios-lite-trixie-arm64.packages" ]] && printf pass || printf fail)"
+  if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_user" ]]; then
+    runtime_uid_lite="$(id -u "$runtime_user" 2>/dev/null || true)"
+    runtime_dir_lite="/run/user/$runtime_uid_lite"
+    check pam-logind "$({
+      [[ "$runtime_uid_lite" =~ ^[1-9][0-9]*$ && -d "$runtime_dir_lite" && ! -L "$runtime_dir_lite" &&
+        "$(stat -c '%u:%a' "$runtime_dir_lite" 2>/dev/null || true)" == "$runtime_uid_lite:700" ]] && printf pass || printf fail
+    })"
+    if pgrep -u "$runtime_uid_lite" -x labwc >/dev/null 2>&1; then
+      check labwc-runtime pass
+    else
+      check labwc-runtime fail
+    fi
+    if [[ -d /dev/dri ]] && command -v eglinfo >/dev/null 2>&1; then
+      rendering_class=hardware-or-software
+    fi
+  else
+    check pam-logind pass
+    check labwc-runtime pass
+  fi
 fi
 power_ready=0
 [[ -x "$pkexec_path" && -x "$power_helper" && -r "$power_policy" ]] && power_ready=1
@@ -689,7 +747,8 @@ if ((json)); then
   printf '{"status":"%s","checks":{' "$status"
   sep=
   for item in "${checks[@]}"; do printf '%s"%s":"%s"' "$sep" "${item%%:*}" "${item#*:}"; sep=,; done
-  printf '},"audio":{'
+  printf '},"installation":{"profile":"%s","renderingClass":"%s"},"audio":{' \
+    "$installation_profile" "$rendering_class"
   printf '"stack":"%s",' "$audio_stack"
   printf '"services":{"pipewire":"%s","pipewirePulse":"%s","wireplumber":"%s","pulseaudio":"%s"},' \
     "$pipewire_state" "$pipewire_pulse_state" "$wireplumber_state" "$pulseaudio_state"
@@ -721,6 +780,8 @@ if ((json)); then
     "$build_built_at" "$build_source" "$build_dirty" "$build_api_coherence"
 else
   printf 'Eidetic Player installation doctor: %s\n' "$status"
+  printf '  install profile     %s\n' "$installation_profile"
+  printf '  rendering class     %s\n' "$rendering_class"
   for item in "${checks[@]}"; do printf '  %-18s %s\n' "${item%%:*}" "${item#*:}"; done
   printf 'Audio diagnostics (read-only):\n'
   printf '  stack              %s\n' "$audio_stack"

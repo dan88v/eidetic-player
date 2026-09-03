@@ -63,7 +63,7 @@ export async function verifyAirPlayDeployment(): Promise<AirPlayDeploymentVerifi
     readFile(paths.userManagerDropIn, "utf8"),
     readFile(paths.notices, "utf8"),
     readFile(paths.doctor, "utf8"),
-    readFile(resolve("deploy/linux/install-eidetic-player.sh"), "utf8"),
+    readFile(resolve("deploy/linux/install-eidetic-player-desktop.sh"), "utf8"),
     readFile(resolve("deploy/linux/uninstall-eidetic-player.sh"), "utf8"),
     readFile(paths.ciWorkflow, "utf8"),
   ]);

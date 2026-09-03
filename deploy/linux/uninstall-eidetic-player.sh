@@ -116,6 +116,22 @@ conf="$(eidetic_target /etc/eidetic-player/install.conf)"
 runtime_user=
 [[ ! -r "$conf" ]] ||
   runtime_user="$(grep '^EIDETIC_RUNTIME_USER=' "$conf" | cut -d= -f2-)"
+install_profile=
+[[ ! -r "$conf" ]] ||
+  install_profile="$(grep '^EIDETIC_INSTALL_PROFILE=' "$conf" | cut -d= -f2-)"
+if [[ -z "$install_profile" && -r "$conf" ]] &&
+  grep -Eq '^EIDETIC_INSTALLATION_MODE=(standard|appliance)$' "$conf"; then
+  install_profile=desktop
+fi
+case "${install_profile:-desktop}" in
+  desktop) install_profile=desktop ;;
+  raspios-lite)
+    machine_helper="$SCRIPT_DIR/lib/machine_ownership.py"
+    python3 "$machine_helper" validate --root "$EIDETIC_ROOT" ||
+      eidetic_die "Lite machine ownership manifest is invalid; uninstall refused before mutation"
+    ;;
+  *) eidetic_die "unsupported or unprovable installation profile" ;;
+esac
 opt="$(eidetic_target /opt/eidetic-player)"
 manifest="$(eidetic_target /var/lib/eidetic-player/system-ui-manifest-v1.tsv)"
 gpio_dac_helper="$SCRIPT_DIR/lib/gpio_i2s_dac.py"
@@ -167,6 +183,7 @@ fi
 eidetic_console_section "Uninstallation summary"
 eidetic_console_info "  Installation         $([[ -e "$opt" ]] && printf detected || printf not-found)"
 eidetic_console_info "  Runtime user         ${runtime_user:-unknown}"
+eidetic_console_info "  Install profile      $install_profile"
 eidetic_console_info "  Binaries/services    Will be removed"
 eidetic_console_info "  Managed integration  Will be restored when integrity is proven"
 eidetic_console_info "  Application data     $([[ "$purge" == 1 ]] && printf 'Will be removed' || printf Preserved)"
@@ -187,6 +204,11 @@ fi
 
 eidetic_console_phase_begin "Service shutdown"
 if [[ "$EIDETIC_ROOT" == "/" && -n "$runtime_user" ]]; then
+  if [[ "$install_profile" == raspios-lite ]]; then
+    /usr/sbin/runuser -u "$runtime_user" -- systemctl --user stop \
+      eidetic-graphical-session.target 2>/dev/null || true
+    systemctl --global disable eidetic-graphical-session.target 2>/dev/null || true
+  fi
   /usr/sbin/runuser -u "$runtime_user" -- systemctl --user disable --now \
     eidetic-player-airplay.service 2>/dev/null || true
   eidetic_console_command_preview runuser -u "$runtime_user" -- \
@@ -222,6 +244,15 @@ if ((dry_run)); then
   ((!purge)) ||
     eidetic_log "Would remove /etc/eidetic-player/update.conf."
 else
+  if [[ "$install_profile" == raspios-lite ]]; then
+    graphical_link="$(eidetic_target /etc/systemd/user/default.target.wants/eidetic-graphical-session.target)"
+    if [[ -L "$graphical_link" &&
+      "$(readlink "$graphical_link")" == ../eidetic-graphical-session.target ]]; then
+      rm -f -- "$graphical_link"
+    elif [[ -e "$graphical_link" || -L "$graphical_link" ]]; then
+      eidetic_die "refusing to remove an unowned graphical target link"
+    fi
+  fi
   if [[ "$EIDETIC_ROOT" == "/" ]]; then
     systemctl stop eidetic-player-update.service 2>/dev/null || true
   fi
@@ -244,6 +275,11 @@ restore_args=()
 ((dry_run)) && restore_args+=(--dry-run)
 restore_args+=(--include-power-integration)
 "$SCRIPT_DIR/restore-system-ui.sh" "${restore_args[@]}"
+if ((!dry_run)) && [[ "$install_profile" == raspios-lite ]]; then
+  machine_manifest="$(eidetic_target /var/lib/eidetic-player/machine-ownership-v1.json)"
+  [[ ! -L "$machine_manifest" ]] || eidetic_die "unsafe machine ownership manifest path"
+  rm -f -- "$machine_manifest"
+fi
 if [[ "$EIDETIC_ROOT" == "/" ]]; then
   systemctl daemon-reload
   if [[ -n "$runtime_user" ]]; then
@@ -298,7 +334,7 @@ eidetic_console_warning_summary
 if ((gpio_dac_removed)); then
   eidetic_console_warning \
     "GPIO/I2S DAC configuration was removed; a reboot is required and was not performed."
-  if ((guided)) && [[ "$EIDETIC_ROOT" == "/" && -t 0 ]]; then
+  if ((guided)) && [[ "$install_profile" == desktop && "$EIDETIC_ROOT" == "/" && -t 0 ]]; then
     eidetic_prompt_yes_no "Restart the device now?" no ||
       eidetic_die "reboot choice input ended unexpectedly"
     if [[ "$EIDETIC_PROMPT_RESULT" == yes ]]; then
