@@ -1,5 +1,6 @@
 # Raspberry Pi OS Lite installation primitives. This library is sourced only by
 # deployment entrypoints; every detection function is read-only.
+# shellcheck shell=bash
 
 eidetic_lite_package_installed() {
   local package="$1" status_file
@@ -91,7 +92,9 @@ eidetic_classify_raspios_host() {
     arch="$(tr -d '\r\n' <"$(eidetic_target /etc/eidetic-player/architecture)" 2>/dev/null || printf unknown)"
   fi
   EIDETIC_ARCH="$arch"
-  eidetic_detect_raspberry_pi_hardware && hardware=yes || true
+  if eidetic_detect_raspberry_pi_hardware; then
+    hardware=yes
+  fi
   eidetic_detect_raspios_marker || true
   if [[ "$wsl" == yes || "$container" == yes ]]; then
     EIDETIC_HOST_CLASS_REASON="containers and WSL are unsupported"

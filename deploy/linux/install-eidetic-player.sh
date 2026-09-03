@@ -184,7 +184,10 @@ EIDETIC_DESKTOP=none
 export EIDETIC_DISTRO EIDETIC_DESKTOP
 backend_host="${BACKEND_HOST:-127.0.0.1}"
 backend_port="${BACKEND_PORT:-4310}"
-[[ "$backend_port" =~ ^[0-9]+$ ]] && ((backend_port >= 1 && backend_port <= 65535)) || eidetic_die "Invalid BACKEND_PORT=$backend_port; must be an integer 1-65535."
+if ! [[ "$backend_port" =~ ^[0-9]+$ ]] ||
+  ((backend_port < 1 || backend_port > 65535)); then
+  eidetic_die "Invalid BACKEND_PORT=$backend_port; must be an integer 1-65535."
+fi
 [[ "$backend_host" == 127.0.0.1 || "$backend_host" == localhost ]] || eidetic_die "Invalid BACKEND_HOST=$backend_host; only loopback is supported."
 eidetic_network_preflight
 [[ "$EIDETIC_NETWORK_CLASS" == NM_AUTHORITATIVE ]] || eidetic_die "Network preflight is $EIDETIC_NETWORK_CLASS. NetworkManager must already own the active connection; no network changes were made."
@@ -387,7 +390,11 @@ if ((machine_bootstrap_required)); then
 fi
 if ((machine_bootstrap_required)); then
   if [[ "$EIDETIC_ROOT" == "/" ]]; then
-    [[ "$unattended" == 1 ]] && export DEBIAN_FRONTEND=noninteractive || export DEBIAN_FRONTEND=dialog
+    if [[ "$unattended" == 1 ]]; then
+      export DEBIAN_FRONTEND=noninteractive
+    else
+      export DEBIAN_FRONTEND=dialog
+    fi
     apt-get update
     if ((${#missing_recommends[@]})); then apt-get install -y "${missing_recommends[@]}"; fi
     if ((${#missing_no_recommends[@]})); then apt-get install -y --no-install-recommends "${missing_no_recommends[@]}"; fi

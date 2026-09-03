@@ -337,7 +337,7 @@ if [[ "$installation_profile" == raspios-lite ]]; then
       check labwc-runtime fail
     fi
     if [[ -d /dev/dri ]] && command -v eglinfo >/dev/null 2>&1; then
-      rendering_class=hardware-or-software
+      rendering_class="hardware-or-software"
     fi
   else
     check pam-logind pass

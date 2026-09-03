@@ -13,19 +13,19 @@ runtime_dir="/run/user/$runtime_uid"
   printf 'Eidetic graphical session requires local tty1.\n' >&2
   exit 1
 }
-[ -z "${SSH_CONNECTION:-}" ] && [ -z "${SSH_TTY:-}" ] || {
+if [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_TTY:-}" ]; then
   printf 'Eidetic graphical session refuses an SSH or remote PTY.\n' >&2
   exit 1
-}
-[ -d "$runtime_dir" ] && [ ! -L "$runtime_dir" ] || {
+fi
+if [ ! -d "$runtime_dir" ] || [ -L "$runtime_dir" ]; then
   printf 'Eidetic graphical session runtime directory is unavailable.\n' >&2
   exit 1
-}
-[ "$(stat -c %u "$runtime_dir")" = "$runtime_uid" ] &&
-  [ "$(stat -c %a "$runtime_dir")" = 700 ] || {
+fi
+if [ "$(stat -c %u "$runtime_dir")" != "$runtime_uid" ] ||
+  [ "$(stat -c %a "$runtime_dir")" != 700 ]; then
   printf 'Eidetic graphical session runtime directory is unsafe.\n' >&2
   exit 1
-}
+fi
 
 export XDG_RUNTIME_DIR="$runtime_dir"
 export XDG_SESSION_TYPE=wayland
