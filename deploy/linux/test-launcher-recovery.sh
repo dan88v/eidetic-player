@@ -12,6 +12,13 @@ mkdir -p "$fixture/bin" "$fixture/release/backend/apps/backend/src" \
   "$fixture/runtime/eidetic-player" "$fixture/state"
 : >"$fixture/release/backend/apps/backend/src/index.js"
 
+cat >"$fixture/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${EIDETIC_SYSTEMCTL_LOG:?}"
+[[ "$*" != "--user reset-failed eidetic-player.service" ]]
+EOF
+
 cat >"$fixture/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -54,7 +61,24 @@ trap 'exit 143' TERM INT
 while :; do sleep 1; done
 EOF
 chmod 0755 "$fixture/bin/curl" "$fixture/bin/backend" \
-  "$fixture/release/eidetic-player"
+  "$fixture/bin/systemctl" "$fixture/release/eidetic-player"
+
+verify_cold_service_entrypoint() {
+  local entrypoint="$1" final_action="$2"
+  : >"$fixture/systemctl.log"
+  EIDETIC_SYSTEMCTL_LOG="$fixture/systemctl.log" \
+    XDG_RUNTIME_DIR="$fixture/runtime" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    bash "$entrypoint"
+  [[ "$(sed -n '1p' "$fixture/systemctl.log")" == \
+    "--user reset-failed eidetic-player.service" ]]
+  [[ "$(sed -n '2p' "$fixture/systemctl.log")" == \
+    "--user $final_action eidetic-player.service" ]]
+  [[ "$(wc -l <"$fixture/systemctl.log")" -eq 2 ]]
+}
+
+verify_cold_service_entrypoint deploy/linux/runtime/eidetic-player restart
+verify_cold_service_entrypoint deploy/linux/runtime/eidetic-player-resume start
 
 run_scenario() {
   local scenario="$1" expected_reason="$2" status=0
@@ -83,4 +107,4 @@ run_scenario backend-hang-on-term ui-exit
 grep -q 'reason=backend-termination-timeout' \
   "$fixture/state/eidetic-player/runtime-recovery.log"
 
-printf 'Linux launcher recovery fixtures passed.\n'
+printf 'Linux launcher and cold-start recovery fixtures passed.\n'

@@ -692,17 +692,25 @@ void test("launcher recovers a dead or runaway WebKit renderer before system OOM
   assert.match(launcher, /# shellcheck disable=SC2317\ncleanup\(\) \{/);
 });
 
-void test("manual Linux launch recovers an active or start-limited service", async () => {
-  const command = await read("deploy/linux/runtime/eidetic-player");
+void test("Linux entrypoints tolerate an unloaded cold-boot service", async () => {
+  const [command, resume] = await Promise.all([
+    read("deploy/linux/runtime/eidetic-player"),
+    read("deploy/linux/runtime/eidetic-player-resume"),
+  ]);
   assert.match(
     command,
-    /systemctl --user reset-failed eidetic-player\.service/,
+    /systemctl --user reset-failed eidetic-player\.service 2>\/dev\/null \|\| true/,
   );
   assert.match(command, /systemctl --user restart eidetic-player\.service/);
   assert.doesNotMatch(
     command,
     /systemctl --user start eidetic-player\.service/,
   );
+  assert.match(
+    resume,
+    /systemctl --user reset-failed eidetic-player\.service 2>\/dev\/null \|\| true/,
+  );
+  assert.match(resume, /systemctl --user start eidetic-player\.service/);
 });
 
 void test("system service and desktop path flow through launcher and single backend entrypoint", async () => {

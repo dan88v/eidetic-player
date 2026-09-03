@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 rm -f "${XDG_RUNTIME_DIR:?}/eidetic-player/maintenance"
-systemctl --user reset-failed eidetic-player.service
+# A cold user manager may not have loaded the unit yet. In that valid state
+# reset-failed returns non-zero; start below is what loads and starts it.
+systemctl --user reset-failed eidetic-player.service 2>/dev/null || true
 exec systemctl --user start eidetic-player.service
