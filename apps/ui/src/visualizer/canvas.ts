@@ -4,7 +4,10 @@ export interface CanvasSize {
   readonly pixelRatio: number;
 }
 
-export function prepareCanvas(canvas: HTMLCanvasElement): CanvasSize | null {
+export function prepareCanvas(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D | null = canvas.getContext("2d"),
+): CanvasSize | null {
   const bounds = canvas.getBoundingClientRect();
   if (bounds.width <= 0 || bounds.height <= 0) return null;
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
@@ -19,7 +22,6 @@ export function prepareCanvas(canvas: HTMLCanvasElement): CanvasSize | null {
   // actually change.
   if (canvas.width !== backingWidth) canvas.width = backingWidth;
   if (canvas.height !== backingHeight) canvas.height = backingHeight;
-  const context = canvas.getContext("2d");
   if (!context) return null;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, width, height);

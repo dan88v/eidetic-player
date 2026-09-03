@@ -35,6 +35,10 @@ if [[ "${EIDETIC_TEST_SCENARIO:?}" == "backend-exit" ]]; then
   sleep 1
   exit 23
 fi
+if [[ "$EIDETIC_TEST_SCENARIO" == "backend-hang-on-term" ]]; then
+  trap '' TERM INT
+  while :; do read -r -t 0.2 || true; done
+fi
 trap 'exit 0' TERM INT
 while :; do sleep 1; done
 EOF
@@ -42,7 +46,8 @@ EOF
 cat >"$fixture/release/eidetic-player" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${EIDETIC_TEST_SCENARIO:?}" == "ui-clean-exit" ]]; then
+if [[ "${EIDETIC_TEST_SCENARIO:?}" == "ui-clean-exit" ||
+  "$EIDETIC_TEST_SCENARIO" == "backend-hang-on-term" ]]; then
   exit 0
 fi
 trap 'exit 143' TERM INT
@@ -59,6 +64,7 @@ run_scenario() {
     XDG_STATE_HOME="$fixture/state" \
     EIDETIC_NODE_BIN="$fixture/bin/backend" \
     EIDETIC_PLAYER_RELEASE="$fixture/release" \
+    EIDETIC_CHILD_TERMINATION_TIMEOUT_SECONDS=2 \
     PATH="$fixture/bin:/usr/bin:/bin" \
     timeout 8 bash deploy/linux/runtime/eidetic-player-launch || status=$?
   if ((status == 0 || status == 124)); then
@@ -72,5 +78,9 @@ run_scenario() {
 
 run_scenario ui-clean-exit ui-exit
 run_scenario backend-exit backend-exited
+
+run_scenario backend-hang-on-term ui-exit
+grep -q 'reason=backend-termination-timeout' \
+  "$fixture/state/eidetic-player/runtime-recovery.log"
 
 printf 'Linux launcher recovery fixtures passed.\n'

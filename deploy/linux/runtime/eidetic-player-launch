@@ -17,6 +17,7 @@ ui_watchdog_failure="$runtime/ui-watchdog-failure"
 ui_renderer_memory_limit_kib="${EIDETIC_UI_RENDERER_MEMORY_LIMIT_KIB:-524288}"
 ui_renderer_check_seconds="${EIDETIC_UI_RENDERER_CHECK_SECONDS:-5}"
 ui_renderer_over_limit_samples="${EIDETIC_UI_RENDERER_OVER_LIMIT_SAMPLES:-3}"
+child_termination_timeout_seconds="${EIDETIC_CHILD_TERMINATION_TIMEOUT_SECONDS:-7}"
 runtime_recovery_state="${XDG_STATE_HOME:-${HOME:?}/.local/state}/eidetic-player"
 runtime_recovery_log="$runtime_recovery_state/runtime-recovery.log"
 runtime_recovery_log_max_bytes=65536
@@ -63,6 +64,13 @@ if ! [[ "$ui_renderer_over_limit_samples" =~ ^[0-9]+$ ]] ||
   ((ui_renderer_over_limit_samples < 1)); then
   printf 'Invalid UI renderer sample count=%s; must be a positive integer.\n' \
     "$ui_renderer_over_limit_samples" >&2
+  exit 1
+fi
+
+if ! [[ "$child_termination_timeout_seconds" =~ ^[0-9]+$ ]] ||
+  ((child_termination_timeout_seconds < 1 || child_termination_timeout_seconds > 30)); then
+  printf 'Invalid child termination timeout=%s; must be an integer from 1 to 30 seconds.\n' \
+    "$child_termination_timeout_seconds" >&2
   exit 1
 fi
 
@@ -186,13 +194,55 @@ watch_ui_renderer() {
 backend_pid=$!
 gui_pid=
 watchdog_pid=
+
+child_has_exited() {
+  local child_pid="$1" state=""
+  [[ ! -r "/proc/$child_pid/stat" ]] && return 0
+  state="$(awk '{ print $3; exit }' "/proc/$child_pid/stat" 2>/dev/null || true)"
+  [[ "$state" == "Z" ]]
+}
+
+await_child_exit() {
+  local child_pid="$1" child_name="$2"
+  local attempt=0 max_attempts=$((child_termination_timeout_seconds * 4))
+
+  [[ -n "$child_pid" && "$child_pid" =~ ^[0-9]+$ ]] || return 0
+  while ((attempt < max_attempts)); do
+    if child_has_exited "$child_pid"; then
+      wait "$child_pid" 2>/dev/null || true
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+
+  printf '%s did not terminate within %s seconds; forcing only supervised PID %s to exit.\n' \
+    "$child_name" "$child_termination_timeout_seconds" "$child_pid" >&2
+  record_runtime_recovery "${child_name,,}-termination-timeout"
+  kill -KILL "$child_pid" 2>/dev/null || true
+  attempt=0
+  while ((attempt < 40)) && ! child_has_exited "$child_pid"; do
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  if child_has_exited "$child_pid"; then
+    wait "$child_pid" 2>/dev/null || true
+  else
+    printf '%s PID %s remained uninterruptible after SIGKILL; leaving final cgroup cleanup to systemd.\n' \
+      "$child_name" "$child_pid" >&2
+    record_runtime_recovery "${child_name,,}-unkillable"
+  fi
+}
+
 # Invoked indirectly by the EXIT, INT and TERM traps below.
 # shellcheck disable=SC2317
 cleanup() {
-  [[ -z "${watchdog_pid:-}" ]] || kill "$watchdog_pid" 2>/dev/null || true
-  [[ -z "${gui_pid:-}" ]] || kill "$gui_pid" 2>/dev/null || true
-  kill "$backend_pid" 2>/dev/null || true
-  wait "$backend_pid" 2>/dev/null || true
+  [[ -z "${watchdog_pid:-}" ]] || kill -TERM "$watchdog_pid" 2>/dev/null || true
+  [[ -z "${gui_pid:-}" ]] || kill -TERM "$gui_pid" 2>/dev/null || true
+  kill -TERM "$backend_pid" 2>/dev/null || true
+  await_child_exit "${watchdog_pid:-}" watchdog
+  await_child_exit "${gui_pid:-}" ui
+  await_child_exit "$backend_pid" backend
   rm -f "$readiness_json" "$ui_watchdog_failure"
 }
 trap cleanup EXIT INT TERM
@@ -231,6 +281,7 @@ watch_ui_renderer "$gui_pid" "$backend_pid" &
 watchdog_pid=$!
 gui_status=0
 wait "$gui_pid" || gui_status=$?
+gui_pid=
 kill "$watchdog_pid" 2>/dev/null || true
 wait "$watchdog_pid" 2>/dev/null || true
 watchdog_pid=

@@ -5,6 +5,7 @@ export function renderWaveform(
   size: CanvasSize,
   progress: number,
   points?: readonly number[],
+  showPlayhead = true,
 ): number {
   const { width, height } = size;
   const bars = Math.max(160, Math.min(240, Math.round(width / 5)));
@@ -27,7 +28,7 @@ export function renderWaveform(
       : "#242b38";
     context.fillRect(x, center - barHeight / 2, barWidth, barHeight);
   }
-  if (hasWaveform) drawPlayhead(context, size, progress);
+  if (hasWaveform && showPlayhead) drawPlayhead(context, size, progress);
   return bars;
 }
 
@@ -35,6 +36,7 @@ export function renderLine(
   context: CanvasRenderingContext2D,
   size: CanvasSize,
   progress: number,
+  showPlayhead = true,
 ): void {
   const { width, height } = size;
   const trackHeight = 10;
@@ -43,7 +45,7 @@ export function renderLine(
   context.fillRect(0, y, width, trackHeight);
   context.fillStyle = "#2f7dff";
   context.fillRect(0, y, width * progress, trackHeight);
-  drawPlayhead(context, size, progress);
+  if (showPlayhead) drawPlayhead(context, size, progress);
 }
 
 function drawPlayhead(

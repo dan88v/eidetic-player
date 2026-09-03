@@ -52,6 +52,7 @@ export function createTimeline(options: {
   let waveformGeneration = -1;
   let timeMode = options.timeMode;
   let style = options.style;
+  let canvasWidth = 0;
   const element = document.createElement("section");
   element.className = "timeline";
   const elapsed = document.createElement("time");
@@ -68,7 +69,18 @@ export function createTimeline(options: {
   slider.setAttribute("aria-valuemax", "100");
   const canvas = document.createElement("canvas");
   canvas.className = "timeline__canvas";
-  slider.append(canvas);
+  const context = canvas.getContext("2d", { alpha: false });
+  const playedLayer = document.createElement("span");
+  playedLayer.className = "timeline__played-layer";
+  playedLayer.setAttribute("aria-hidden", "true");
+  const playedCanvas = document.createElement("canvas");
+  playedCanvas.className = "timeline__canvas timeline__canvas--played";
+  const playedContext = playedCanvas.getContext("2d", { alpha: false });
+  playedLayer.append(playedCanvas);
+  const playhead = document.createElement("span");
+  playhead.className = "timeline__playhead";
+  playhead.setAttribute("aria-hidden", "true");
+  slider.append(canvas, playedLayer, playhead);
   element.append(elapsed, slider, timeToggle);
 
   function updateTimeToggle(elapsedSeconds: number): void {
@@ -98,17 +110,38 @@ export function createTimeline(options: {
     options.onTimeModeChange(timeMode);
   });
 
-  function draw(): void {
-    const size = prepareCanvas(canvas);
-    const context = canvas.getContext("2d");
-    if (!size || !context) return;
+  function updateProgressLayers(): void {
+    const progressWidth = canvasWidth * progress;
+    playedLayer.style.width = `${String(progressWidth)}px`;
+    playedCanvas.style.width = `${String(canvasWidth)}px`;
+    playhead.style.left = `${String(
+      Math.max(7, Math.min(Math.max(7, canvasWidth - 7), progressWidth)),
+    )}px`;
+    playhead.hidden = style === "waveform" && !waveform;
+  }
+
+  function drawStaticTimeline(): void {
+    const size = prepareCanvas(canvas, context);
+    if (!size) return;
+    canvasWidth = size.width;
+    updateProgressLayers();
+    const playedSize = prepareCanvas(playedCanvas, playedContext);
+    if (!playedSize || !context || !playedContext) return;
     if (style === "waveform") {
       canvas.dataset.barCount = String(
-        renderWaveform(context, size, progress, waveform ?? undefined),
+        renderWaveform(context, size, 0, waveform ?? undefined, false),
+      );
+      renderWaveform(
+        playedContext,
+        playedSize,
+        1,
+        waveform ?? undefined,
+        false,
       );
     } else {
       delete canvas.dataset.barCount;
-      renderLine(context, size, progress);
+      renderLine(context, size, 0, false);
+      renderLine(playedContext, playedSize, 1, false);
     }
   }
 
@@ -128,7 +161,7 @@ export function createTimeline(options: {
       "aria-valuetext",
       `${formatTime(elapsedSeconds)} of ${formatTime(durationSeconds)}`,
     );
-    draw();
+    updateProgressLayers();
   }
 
   function updateFromPointer(event: PointerEvent): void {
@@ -183,7 +216,7 @@ export function createTimeline(options: {
     if (handled) options.onSeek(durationSeconds * progress);
   });
 
-  const observer = new ResizeObserver(draw);
+  const observer = new ResizeObserver(drawStaticTimeline);
   observer.observe(canvas);
   setProgress(progress);
   return {
@@ -210,14 +243,15 @@ export function createTimeline(options: {
         `timeline__slider--${nextStyle}`,
       );
       style = nextStyle;
-      draw();
+      drawStaticTimeline();
     },
     setWaveform(points, generation = waveformGeneration + 1) {
       if (generation < waveformGeneration) return;
       waveformGeneration = generation;
       waveform = points;
       canvas.dataset.waveformState = points ? "ready" : "empty";
-      draw();
+      playedCanvas.dataset.waveformState = points ? "ready" : "empty";
+      drawStaticTimeline();
     },
     destroy() {
       observer.disconnect();

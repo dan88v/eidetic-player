@@ -685,6 +685,10 @@ void test("launcher recovers a dead or runaway WebKit renderer before system OOM
   assert.match(launcher, /if \[\[ -s "\$ui_watchdog_failure" \]\]/);
   assert.match(launcher, /gui_status=1/);
   assert.match(launcher, /UI shell exited unexpectedly with status 0/);
+  assert.match(launcher, /EIDETIC_CHILD_TERMINATION_TIMEOUT_SECONDS:-7/);
+  assert.match(launcher, /await_child_exit\(\)/);
+  assert.match(launcher, /termination-timeout/);
+  assert.match(launcher, /kill -KILL "\$child_pid"/);
   assert.match(launcher, /# shellcheck disable=SC2317\ncleanup\(\) \{/);
 });
 

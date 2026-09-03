@@ -23,7 +23,10 @@ import {
 import { nextVisualizerMode } from "../visualizer/visualizer-mode";
 import type { ComponentView } from "./types";
 
-const TARGET_FRAME_INTERVAL = 1_000 / 30;
+// The Raspberry Pi analyzer publishes at most 15 frames per second. Painting
+// intermediate smoothing-only frames doubles software-renderer work without
+// adding source information, so keep the UI at the same bounded cadence.
+const TARGET_FRAME_INTERVAL = 1_000 / 15;
 // Player events can drift slightly; a larger jump means the user sought.
 const VISUALIZER_SEEK_DISCONTINUITY_SECONDS = 0.4;
 
@@ -100,6 +103,12 @@ export function createVisualizer(options: {
   const canvas = document.createElement("canvas");
   canvas.className = "visualizer__canvas";
   canvas.setAttribute("aria-hidden", "true");
+  // WebKitGTK falls back to software rendering on the supported Raspberry Pi.
+  // Keep one opaque 2D context for the component lifetime so continuous
+  // visualizer paints do not create transparent compositor surfaces or
+  // repeatedly acquire JS wrappers around the same native context.
+  const context = canvas.getContext("2d", { alpha: false });
+  let canvasBackground = "#0a0c10";
   element.append(canvas);
 
   const stopLoop = (): void => {
@@ -109,9 +118,9 @@ export function createVisualizer(options: {
   };
 
   const draw = (): void => {
-    const context = canvas.getContext("2d");
     if (!size || !context || mode === "none") return;
-    context.clearRect(0, 0, size.width, size.height);
+    context.fillStyle = canvasBackground;
+    context.fillRect(0, 0, size.width, size.height);
     if (!hasFrame && mode !== "technical") return;
     if (mode === "meter") {
       const geometry = renderMeter(
@@ -254,8 +263,10 @@ export function createVisualizer(options: {
     if (mode === "none") {
       stream.close();
       stopLoop();
-      const context = canvas.getContext("2d");
-      if (size && context) context.clearRect(0, 0, size.width, size.height);
+      if (size && context) {
+        context.fillStyle = canvasBackground;
+        context.fillRect(0, 0, size.width, size.height);
+      }
     } else {
       stream.open(mode, startLoop);
       needsRender = true;
@@ -282,7 +293,8 @@ export function createVisualizer(options: {
   });
 
   const observer = new ResizeObserver(() => {
-    size = prepareCanvas(canvas);
+    size = prepareCanvas(canvas, context);
+    canvasBackground = getComputedStyle(canvas).backgroundColor || "#0a0c10";
     needsRender = true;
     startLoop();
     if (import.meta.env.DEV)

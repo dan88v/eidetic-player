@@ -11,11 +11,8 @@ export class VisualizerFrameBuffer {
 
   push(frame: VisualizerFrame): void {
     this.frames.push(frame);
-    if (this.frames.length > VISUALIZER_SYNC_BUFFER_CAPACITY)
-      this.frames.splice(
-        0,
-        this.frames.length - VISUALIZER_SYNC_BUFFER_CAPACITY,
-      );
+    while (this.frames.length > VISUALIZER_SYNC_BUFFER_CAPACITY)
+      this.frames.shift();
   }
 
   takeForPosition(
@@ -46,9 +43,9 @@ export class VisualizerFrameBuffer {
       else break;
     }
     if (selectedIndex < 0) return null;
-    const consumed = this.frames.splice(0, selectedIndex + 1);
-    for (let index = consumed.length - 1; index >= 0; index -= 1) {
-      const frame = consumed[index];
+    let selectedFrame: VisualizerFrame | null = null;
+    for (let index = selectedIndex; index >= 0; index -= 1) {
+      const frame = this.frames[index];
       if (
         frame?.playerSessionId === playerSessionId &&
         frame.trackId === trackId &&
@@ -57,9 +54,14 @@ export class VisualizerFrameBuffer {
         frame.positionSeconds <=
           positionSeconds + VISUALIZER_PRESENTATION_LEAD_SECONDS
       )
-        return frame;
+        selectedFrame = frame;
+      break;
     }
-    return null;
+    // Discard consumed frames in place. Retaining only the newest bounded
+    // window avoids allocating a second array for every high-frequency SSE
+    // frame, which otherwise creates sustained garbage pressure in WebKitGTK.
+    for (let index = 0; index <= selectedIndex; index += 1) this.frames.shift();
+    return selectedFrame;
   }
 
   clear(): void {

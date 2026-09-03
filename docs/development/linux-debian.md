@@ -134,6 +134,22 @@ one rotated predecessor is kept. The desktop launcher resets a spent systemd
 start limit and restarts the service, so it is also the manual recovery path
 when the window has disappeared or the unit still appears active.
 
+Child termination is bounded as well. The launcher signals only the exact
+backend, UI, and watchdog PIDs it created, waits up to seven seconds for a
+normal exit, then uses `SIGKILL` for a child that ignored shutdown. A final
+two-second observation window is also bounded; systemd retains ownership of
+the service cgroup if a kernel-uninterruptible process cannot exit. Both
+timeouts are recorded in the same recovery log. This prevents a dead UI from
+being reported as an indefinitely active service when backend cleanup stalls.
+
+The local playback UI keeps continuous rendering bounded for Raspberry Pi 3:
+the waveform and line timeline are painted only when their data, style, or
+geometry changes, while position updates move a clipped prepainted layer and
+playhead. The visualizer reuses one opaque Canvas 2D context, consumes frames
+without per-frame removed-array allocation, and paints at the 15 fps supplied
+by the Pi analyzer profile. The renderer watchdog remains a last-resort guard,
+not the primary memory-management mechanism.
+
 ## Mounted USB storage
 
 The Linux provider consumes `lsblk --json` transport topology, accepts USB
