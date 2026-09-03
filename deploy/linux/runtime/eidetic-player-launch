@@ -195,6 +195,9 @@ backend_pid=$!
 gui_pid=
 watchdog_pid=
 
+# These helpers are reached through cleanup's EXIT/INT/TERM trap. ShellCheck
+# cannot follow that indirect call graph.
+# shellcheck disable=SC2317
 child_has_exited() {
   local child_pid="$1" state=""
   [[ ! -r "/proc/$child_pid/stat" ]] && return 0
@@ -202,6 +205,8 @@ child_has_exited() {
   [[ "$state" == "Z" ]]
 }
 
+# Invoked only by the trapped cleanup function below.
+# shellcheck disable=SC2317
 await_child_exit() {
   local child_pid="$1" child_name="$2"
   local attempt=0 max_attempts=$((child_termination_timeout_seconds * 4))
