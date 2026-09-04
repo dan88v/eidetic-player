@@ -27,6 +27,15 @@ case "$1" in
     done
     for item in "${required[@]}"; do [[ ",$4," == *",$item,"* ]] || exit 65; done
     install -d -o "$caller_uid" -g "$caller_uid" -m 0700 "$target"
+    # A hard-killed backend can leave its read-only CIFS mount alive. Treat
+    # only the exact expected CIFS source as an idempotent success so the new
+    # backend adopts it; never accept an unrelated filesystem at this path.
+    if mountpoint -q -- "$target"; then
+      existing_type="$(findmnt -rn -M "$target" -o FSTYPE)"
+      existing_source="$(findmnt -rn -M "$target" -o SOURCE)"
+      [[ "$existing_type" == cifs && "$existing_source" == "$3" ]] || exit 65
+      exit 0
+    fi
     exec mount -t cifs "$3" "$target" -o "$4"
     ;;
   unmount)

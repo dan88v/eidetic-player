@@ -495,6 +495,13 @@ void test("SMB privilege is constrained to the Eidetic helper", async () => {
     /share_pattern='\^\/\/\[A-Za-z0-9\._-\]\+\/\[A-Za-z0-9\._\$\[:space:\]-\]\+\$'/,
   );
   assert.match(helper, /"\$3" =~ \$share_pattern/);
+  assert.match(helper, /mountpoint -q -- "\$target"/u);
+  assert.match(helper, /findmnt -rn -M "\$target" -o FSTYPE/u);
+  assert.match(helper, /findmnt -rn -M "\$target" -o SOURCE/u);
+  assert.match(
+    helper,
+    /"\$existing_type" == cifs && "\$existing_source" == "\$3"/u,
+  );
   assert.doesNotMatch(
     helper,
     /"\$3" =~ \^/,

@@ -10,6 +10,27 @@ void test("continuous visualizer painting reuses one opaque canvas context", asy
   assert.match(source, /TARGET_FRAME_INTERVAL = 1_000 \/ 15/u);
 });
 
+void test("visualizer never schedules a second animation frame from inside its active tick", async () => {
+  const source = await readFile("apps/ui/src/components/visualizer.ts", "utf8");
+  const receiveFrame =
+    /const receiveFrameForPosition[\s\S]*?\n[ ]{2}\};\n\n[ ]{2}const updateAccessibleState/u.exec(
+      source,
+    )?.[0];
+  assert.ok(receiveFrame);
+  assert.doesNotMatch(receiveFrame, /startLoop\(\)/u);
+});
+
+void test("visualizer releases its animation frame while playback is paused", async () => {
+  const source = await readFile("apps/ui/src/components/visualizer.ts", "utf8");
+  const setPlaybackState =
+    /setPlaybackState\(positionSeconds, paused, audioBufferSeconds = 0\)[\s\S]*?\n[ ]{4}\},\n[ ]{4}destroy/u.exec(
+      source,
+    )?.[0];
+  assert.ok(setPlaybackState);
+  assert.match(setPlaybackState, /if \(paused\) stopLoop\(\)/u);
+  assert.match(setPlaybackState, /if \(!paused\) startLoop\(\)/u);
+});
+
 void test("playback position moves timeline layers without repainting canvases", async () => {
   const source = await readFile("apps/ui/src/components/timeline.ts", "utf8");
   const setProgress =

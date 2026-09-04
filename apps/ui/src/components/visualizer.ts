@@ -235,7 +235,6 @@ export function createVisualizer(options: {
     hasFrame = true;
     decaying = false;
     needsRender = true;
-    startLoop();
     if (import.meta.env.DEV)
       canvas.dataset.framesReceived = String(
         Number(canvas.dataset.framesReceived ?? "0") + 1,
@@ -371,6 +370,12 @@ export function createVisualizer(options: {
       playbackPositionUpdatedAt = now;
       playbackPaused = paused;
       meter.setPaused(paused, now);
+      // A tick is already scheduled for every newly arrived analyzer frame.
+      // Pausing must cancel that single owned handle immediately: keeping a
+      // smoothing-only loop alive wastes the Pi software renderer, and used to
+      // leave untracked rAF callbacks behind when frame consumption scheduled
+      // another loop from inside the active tick.
+      if (paused) stopLoop();
       if (seekDetected) {
         stream.clearFrames();
         meter.reset();
@@ -385,7 +390,7 @@ export function createVisualizer(options: {
         if (mode === "technical") hasFrame = false;
         needsRender = true;
       }
-      startLoop();
+      if (!paused) startLoop();
     },
     destroy() {
       if (expectedTrackId && hasFrame)
