@@ -135,10 +135,13 @@ void test("wlr-randr discovery accepts exactly one enabled output", async () => 
     [{ name: "HDMI-A-1", enabled: true }],
   );
   const recorded: string[][] = [];
+  let enabled = true;
   const execFile: DisplayExecFile = (_path, arguments_) => {
     recorded.push([...arguments_]);
+    if (arguments_.at(-1) === "--off") enabled = false;
+    if (arguments_.at(-1) === "--on") enabled = true;
     return Promise.resolve({
-      stdout: 'HDMI-A-1 "display"\n  Enabled: yes\n',
+      stdout: `HDMI-A-1 "display"\n  Enabled: ${enabled ? "yes" : "no"}\n`,
     });
   };
   const adapter = new LinuxDisplayPlatformAdapter({
@@ -157,8 +160,97 @@ void test("wlr-randr discovery accepts exactly one enabled output", async () => 
   assert.deepEqual(recorded, [
     [],
     ["--output", "HDMI-A-1", "--off"],
+    [],
     ["--output", "HDMI-A-1", "--on"],
   ]);
+});
+
+void test("wake accepts an externally restored Wayland output without a redundant modeset", async () => {
+  const recorded: string[][] = [];
+  let enabled = false;
+  const execFile: DisplayExecFile = (_path, arguments_) => {
+    recorded.push([...arguments_]);
+    if (arguments_.length === 0)
+      return Promise.resolve({
+        stdout: `HDMI-A-1 "display"\n  Enabled: ${enabled ? "yes" : "no"}\n`,
+      });
+    if (arguments_.at(-1) === "--off") enabled = false;
+    if (arguments_.at(-1) === "--on") enabled = true;
+    return Promise.resolve({ stdout: "" });
+  };
+  const adapter = new LinuxDisplayPlatformAdapter({
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+    },
+    discoverBacklight: () => Promise.resolve(null),
+    executable: () => Promise.resolve(true),
+    execFile,
+  });
+  await adapter.probe();
+  enabled = true;
+  await adapter.wake();
+  assert.deepEqual(recorded, [[], []]);
+});
+
+void test("wake reconciles an output enabled while its modeset command fails", async () => {
+  const recorded: string[][] = [];
+  let reads = 0;
+  const execFile: DisplayExecFile = (_path, arguments_) => {
+    recorded.push([...arguments_]);
+    if (arguments_.length === 0) {
+      reads += 1;
+      return Promise.resolve({
+        stdout: `HDMI-A-1 "display"\n  Enabled: ${reads >= 3 ? "yes" : "no"}\n`,
+      });
+    }
+    return Promise.reject(new Error("topology changed"));
+  };
+  const adapter = new LinuxDisplayPlatformAdapter({
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+    },
+    discoverBacklight: () => Promise.resolve(null),
+    executable: () => Promise.resolve(true),
+    execFile,
+  });
+  await adapter.probe();
+  await adapter.wake();
+  assert.deepEqual(recorded, [[], [], ["--output", "HDMI-A-1", "--on"], []]);
+});
+
+void test("wake fails closed when the refreshed Wayland topology is ambiguous", async () => {
+  const recorded: string[][] = [];
+  let probeComplete = false;
+  const execFile: DisplayExecFile = (_path, arguments_) => {
+    recorded.push([...arguments_]);
+    if (!probeComplete) {
+      probeComplete = true;
+      return Promise.resolve({
+        stdout: 'HDMI-A-1 "display"\n  Enabled: yes\n',
+      });
+    }
+    return Promise.resolve({
+      stdout:
+        'HDMI-A-1 "display"\n  Enabled: yes\nHDMI-A-2 "display"\n  Enabled: yes\n',
+    });
+  };
+  const adapter = new LinuxDisplayPlatformAdapter({
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+    },
+    discoverBacklight: () => Promise.resolve(null),
+    executable: () => Promise.resolve(true),
+    execFile,
+  });
+  await adapter.probe();
+  await assert.rejects(
+    adapter.wake(),
+    /display output topology is unavailable or ambiguous/u,
+  );
+  assert.deepEqual(recorded, [[], []]);
 });
 
 void test("wlr-randr standby stays unavailable for ambiguous outputs", async () => {

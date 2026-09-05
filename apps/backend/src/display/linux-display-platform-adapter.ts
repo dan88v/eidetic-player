@@ -251,8 +251,20 @@ export class LinuxDisplayPlatformAdapter implements DisplayPlatformAdapter {
   }
 
   async wake(): Promise<void> {
-    if (this.outputName)
-      await this.runWlr(["--output", this.outputName, "--on"]);
+    if (this.outputName) {
+      const outputState = await this.refreshOutputState();
+      if (outputState === "disabled") {
+        try {
+          await this.runWlr(["--output", this.outputName, "--on"]);
+        } catch (error) {
+          // A monitor power-cycle can make the compositor replace its output
+          // after probe. If the command raced that topology update, accept
+          // only a fresh, unambiguous Enabled output as successful recovery.
+          if ((await this.refreshOutputState().catch(() => null)) !== "enabled")
+            throw error;
+        }
+      }
+    }
     if (this.backlight)
       await writeFile(
         this.backlight.brightnessPath,
@@ -260,6 +272,17 @@ export class LinuxDisplayPlatformAdapter implements DisplayPlatformAdapter {
         "utf8",
       );
     this.backlightDimmed = false;
+  }
+
+  private async refreshOutputState(): Promise<"disabled" | "enabled"> {
+    const parsed = parseWlrRandrOutput((await this.runWlr([])).stdout);
+    if (parsed.length !== 1)
+      throw new Error("display output topology is unavailable or ambiguous");
+    const output = parsed[0];
+    if (!output)
+      throw new Error("display output topology is unavailable or ambiguous");
+    this.outputName = output.name;
+    return output.enabled ? "enabled" : "disabled";
   }
 
   private runWlr(arguments_: readonly string[]): Promise<CommandResult> {
