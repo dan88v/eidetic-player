@@ -28,6 +28,7 @@ import {
   defaultPlaybackSourceSnapshot,
   type PlaybackSourceSnapshot,
 } from "../../../packages/shared/src/playback-source";
+import { startupSettingsWarning } from "./preferences/startup-settings-warning";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 if (!applicationRoot) throw new Error("Application root is missing");
@@ -90,6 +91,7 @@ async function bootstrap(): Promise<void> {
   let playbackSourceSnapshot: PlaybackSourceSnapshot =
     defaultPlaybackSourceSnapshot;
   let migrationFailed = false;
+  let legacyMigrationAttempted = false;
   let bootstrapAvailable = false;
   const preferencesApi = new PreferencesApiClient();
   const playerApi = new PlayerApiClient();
@@ -120,6 +122,7 @@ async function bootstrap(): Promise<void> {
     displaySnapshot = initial.display;
     playbackSourceSnapshot = initial.playbackSource;
     if (preferencesSnapshot.legacyImport === "required") {
+      legacyMigrationAttempted = true;
       const legacy = readLegacyPreferences();
       try {
         preferencesSnapshot = await preferencesApi.migrateLegacy(
@@ -189,9 +192,14 @@ async function bootstrap(): Promise<void> {
     displaySnapshot,
     playbackSourceSnapshot,
   );
-  if (migrationFailed || preferencesSnapshot.legacyImport === "manual-required")
+  const settingsWarning = startupSettingsWarning(
+    preferencesSnapshot,
+    legacyMigrationAttempted,
+    migrationFailed,
+  );
+  if (settingsWarning === "migration")
     mountedApp.showSettingsWarning(t("settings.migrationWarning"));
-  else if (preferencesSnapshot.warning)
+  else if (settingsWarning === "persistence")
     mountedApp.showSettingsWarning(t("settings.persistenceWarning"));
   const splash = document.querySelector<HTMLElement>("#app-splash");
   if (splash) {
